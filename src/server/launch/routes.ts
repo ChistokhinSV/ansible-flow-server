@@ -4,9 +4,11 @@
 //   /api/v1/launch-configs/:id
 //   /api/v1/launch-configs/:id/form     the flow's inputs as a form, with the start values
 //   /api/v1/launch-configs/:id/check    what a launch would run, or what stands in its way
+//   /api/v1/launch-configs/:id/launch   the same, and the run goes in the queue
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { administrator, signedIn } from '../auth/guards';
 import { getProject } from '../projects/store';
+import type { RunQueue } from '../runs/queue';
 import { type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
 import { type LaunchRequest, type PrepareDeps, prepareLaunch, withoutSecrets } from './prepare';
 
@@ -46,7 +48,10 @@ const REQUEST = {
   },
 };
 
-export function registerLaunch(app: FastifyInstance, deps: PrepareDeps): void {
+export function registerLaunch(
+  app: FastifyInstance,
+  deps: PrepareDeps & { queue?: RunQueue },
+): void {
   const configs = new LaunchConfigs(deps.db, deps.git);
   const answering =
     <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
@@ -185,6 +190,42 @@ export function registerLaunch(app: FastifyInstance, deps: PrepareDeps): void {
           ...(prepared.form ? { form: prepared.form } : {}),
         });
       return { launch: withoutSecrets(prepared.launch, prepared.form.fields), form: prepared.form };
+    },
+  );
+
+  const queue = deps.queue;
+  if (!queue) return;
+  /** Settles a launch as `check` does, and puts the run in the queue. */
+  app.post<WithId & { Body: LaunchRequest }>(
+    '/api/v1/launch-configs/:id/launch',
+    { schema: { ...ID, body: REQUEST } },
+    async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const config = await configs.get(request.params.id);
+      if (!config) return reply.code(404).send(NONE);
+      const prepared = await prepareLaunch(deps, config, request.body ?? {});
+      if (!prepared.ok)
+        return reply.code(422).send({
+          error: 'not_ready',
+          message: prepared.problems[0]?.message ?? 'The launch is not ready',
+          problems: prepared.problems,
+          ...(prepared.form ? { form: prepared.form } : {}),
+        });
+      const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
+      const run = await queue.enqueue(prepared.launch, shown, me, config.name);
+      request.log.info(
+        {
+          by: me.login,
+          run: run.id,
+          number: run.number,
+          flow: run.flow.file,
+          commit: run.commit.slice(0, 12),
+          mode: run.mode,
+        },
+        'Run queued',
+      );
+      return reply.code(201).send(run);
     },
   );
 }

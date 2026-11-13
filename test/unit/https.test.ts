@@ -36,6 +36,8 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       port: 0,
       tls: 'on',
       trustedProxies: [],
+      maxRuns: 4,
+      maxRunsPerProject: 1,
       gitLocal: false,
       dataDir,
       database: { kind: 'sqlite', file: join(dataDir, 'afs.db') },

@@ -9,6 +9,8 @@ import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
+import type { RunQueue } from './runs/queue';
+import { registerRuns } from './runs/routes';
 import type { MasterKey } from './secrets/masterKey';
 import { registerCredentials } from './secrets/routes';
 import { webHandler } from './web';
@@ -29,6 +31,8 @@ export interface AppDeps {
   secureCookies?: boolean;
   /** Workspaces and projects: the mirrors and what keeps them up to date. */
   projects?: Omit<ProjectDeps, 'db'>;
+  /** The runs and their queue. */
+  runs?: RunQueue;
   /** The master key: with it the server keeps credentials. */
   masterKey?: MasterKey;
   /** The folder of the built web application (dist/web); without it there are no pages. */
@@ -85,10 +89,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       db: deps.database.db,
       git: deps.projects.git,
       sync: deps.projects.sync,
+      ...(deps.runs ? { queue: deps.runs } : {}),
     });
   }
 
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
+  if (deps.runs) registerRuns(app, deps.runs);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

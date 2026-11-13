@@ -22,6 +22,8 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       // Plain HTTP here: HTTPS has its own tests (https.test.ts).
       tls: 'off',
       trustedProxies: [],
+      maxRuns: 4,
+      maxRunsPerProject: 1,
       gitLocal: false,
       dataDir: dir,
       database: { kind: 'sqlite', file: join(dir, 'afs.db') },

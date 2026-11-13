@@ -372,6 +372,18 @@ export async function updateProject(
 
 export async function deleteProject(db: Db, id: string): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const going = await trx
+      .selectFrom('run')
+      .select('number')
+      .where('project_id', '=', id)
+      .where('state', 'in', ['queued', 'running', 'waiting'])
+      .executeTakeFirst();
+    if (going)
+      throw new ProjectError(
+        'not_empty',
+        `Run ${going.number} of the project is still going: cancel it first`,
+      );
+    await trx.deleteFrom('run').where('project_id', '=', id).execute();
     await trx.deleteFrom('git_push').where('project_id', '=', id).execute();
     await trx
       .deleteFrom('launch_config_credential')
