@@ -267,6 +267,28 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-26: dev runs: someone's unpushed work, taken in as a git bundle, run in check mode.
+  '0017_dev_runs': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('dev_bundle')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('project_id', 'text', (c) => c.notNull())
+        .addColumn('commit_id', 'text', (c) => c.notNull())
+        .addColumn('size', 'integer', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .addColumn('created_login', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('expires_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createIndex('dev_bundle_expires')
+        .on('dev_bundle')
+        .columns(['expires_at'])
+        .execute();
+      await db.schema.alterTable('run').addColumn('dev_bundle', 'text').execute();
+    },
+  },
   // AFS-24: a token may let an agent decide approvals over MCP.
   '0016_token_mcp_approve': {
     async up(db: Kysely<unknown>) {

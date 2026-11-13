@@ -7,12 +7,15 @@
 //   /api/v1/launch-configs/:id/form     the flow's inputs as a form, with the start values
 //   /api/v1/launch-configs/:id/check    what a launch would run, or what stands in its way
 //   /api/v1/launch-configs/:id/launch   the same, and the run goes in the queue
+//   /api/v1/projects/:id/dev-bundles    AFS-26: unpushed work as a git bundle, for a dev run
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { accessOf, atLeast } from '../access/grants';
 import { signedIn } from '../auth/guards';
+import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { RunQueue } from '../runs/queue';
 import { type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
+import { addDevBundle, getDevBundle } from './dev';
 import { type LaunchRequest, type PrepareDeps, prepareLaunch, withoutSecrets } from './prepare';
 
 const STATUS: Record<LaunchError['code'], number> = { invalid: 400, not_found: 404, taken: 409 };
@@ -57,6 +60,8 @@ const REQUEST = {
     mode: CONFIG.mode,
     ref: text(200, 1),
     commit: text(40, 40),
+    // AFS-26: a dev bundle's id: its commit runs, in check mode only.
+    dev: text(64, 1),
     limit: text(500),
     inputs: {
       type: 'object',
@@ -68,8 +73,13 @@ const REQUEST = {
 
 export function registerLaunch(
   app: FastifyInstance,
-  deps: PrepareDeps & { queue?: RunQueue },
+  deps: PrepareDeps & {
+    queue?: RunQueue;
+    /** AFS-26: a dev bundle's largest size and how long it is kept. */
+    dev?: { maxBytes: number; keepHours: number };
+  },
 ): void {
+  const dev = deps.dev ?? { maxBytes: 50 * 1024 * 1024, keepHours: 24 };
   const configs = new LaunchConfigs(deps.db, deps.git);
   const answering =
     <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
@@ -215,6 +225,91 @@ export function registerLaunch(
   );
 
   /**
+   * AFS-26: someone's unpushed work as a git bundle (`application/x-git-bundle`, one ref), taken
+   * into the project's repository for a dev run. rw on the workspace: checked before.
+   */
+  app.addContentTypeParser(
+    'application/x-git-bundle',
+    { parseAs: 'buffer', bodyLimit: dev.maxBytes },
+    (_request, body, done) => done(null, body),
+  );
+  app.post<WithId>(
+    '/api/v1/projects/:id/dev-bundles',
+    { schema: ID, bodyLimit: dev.maxBytes },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const project = await getProject(deps.db, request.params.id);
+      if (!project) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
+      const bytes = request.body;
+      if (!Buffer.isBuffer(bytes) || bytes.length === 0)
+        return reply.code(400).send({
+          error: 'invalid',
+          message: 'Send the bundle as the body, with content-type application/x-git-bundle',
+        });
+      try {
+        const bundle = await addDevBundle(deps.db, deps.git, {
+          project: project.id,
+          bytes,
+          by: me,
+          keepHours: dev.keepHours,
+        });
+        request.log.info(
+          {
+            by: me.login,
+            project: project.id,
+            commit: bundle.commit.slice(0, 12),
+            bytes: bundle.size,
+          },
+          'Dev bundle taken',
+        );
+        return reply.code(201).send(bundle);
+      } catch (e) {
+        if (e instanceof GitError)
+          return reply.code(400).send({ error: 'invalid', message: e.message });
+        throw e;
+      }
+    },
+  );
+
+  type Refusal = { status: number; error: string; message: string; field?: string };
+  /**
+   * AFS-26: a launch that names a dev bundle runs the bundle's commit, in check mode only: the
+   * request as `prepareLaunch` takes it, or a refusal for the reply.
+   */
+  const devRequest = async (
+    projectId: string,
+    asked: LaunchRequest,
+  ): Promise<LaunchRequest | Refusal> => {
+    if (!asked.dev) return asked;
+    const bundle = await getDevBundle(deps.db, asked.dev);
+    if (!bundle || bundle.project !== projectId)
+      return {
+        status: 404,
+        error: 'not_found',
+        message: 'No such dev bundle for this project: it may have expired; send the work again',
+        field: 'dev',
+      };
+    if (asked.ref || asked.commit)
+      return {
+        status: 400,
+        error: 'invalid',
+        message: 'A dev run runs its bundle: name no branch or commit',
+        field: 'dev',
+      };
+    if (asked.mode === 'real')
+      return {
+        status: 422,
+        error: 'not_ready',
+        message:
+          "A dev run is a check run: a real run takes a commit of the project's branch (push it first)",
+        field: 'mode',
+      };
+    const { dev: _dev, ...rest } = asked;
+    return { ...rest, commit: bundle.commit, mode: 'check' };
+  };
+
+  /**
    * What a launch would run: the commit (after a look at the source), the inputs as the flow
    * reads them, the hosts it starts on. Nothing runs. 422 lists everything in the way.
    * It is a POST because typed inputs can be secret: they do not belong in an address.
@@ -228,7 +323,12 @@ export function registerLaunch(
         return reply.code(401).send({ error: 'unauthorized', message: 'Sign in first' });
       const config = await configs.get(request.params.id);
       if (!config) return reply.code(404).send(NONE);
-      const prepared = await prepareLaunch(deps, config, request.body ?? {});
+      const asked = await devRequest(config.project, request.body ?? {});
+      if ('status' in asked) {
+        const { status, ...refusal } = asked;
+        return reply.code(status).send(refusal);
+      }
+      const prepared = await prepareLaunch(deps, config, asked);
       if (!prepared.ok)
         return reply.code(422).send({
           error: 'not_ready',
@@ -236,7 +336,13 @@ export function registerLaunch(
           problems: prepared.problems,
           ...(prepared.form ? { form: prepared.form } : {}),
         });
-      return { launch: withoutSecrets(prepared.launch, prepared.form.fields), form: prepared.form };
+      return {
+        launch: {
+          ...withoutSecrets(prepared.launch, prepared.form.fields),
+          ...(request.body?.dev ? { dev: request.body.dev } : {}),
+        },
+        form: prepared.form,
+      };
     },
   );
 
@@ -253,14 +359,21 @@ export function registerLaunch(
       if (!me) return reply;
       const config = await configs.get(request.params.id);
       if (!config) return reply.code(404).send(NONE);
-      const asked = request.body ?? {};
+      const body = request.body ?? {};
+      // A dev run (AFS-26) and another branch or commit are rw's.
       if (
-        ((asked.ref && asked.ref !== config.gitRef) ||
-          (asked.commit && asked.commit !== config.commit)) &&
+        (body.dev ||
+          (body.ref && body.ref !== config.gitRef) ||
+          (body.commit && body.commit !== config.commit)) &&
         !(await mayManage(request, reply, config.project, config.flowFile))
       )
         return reply;
-      const prepared = await prepareLaunch(deps, config, request.body ?? {});
+      const asked = await devRequest(config.project, body);
+      if ('status' in asked) {
+        const { status, ...refusal } = asked;
+        return reply.code(status).send(refusal);
+      }
+      const prepared = await prepareLaunch(deps, config, asked);
       if (!prepared.ok)
         return reply.code(422).send({
           error: 'not_ready',
@@ -269,7 +382,12 @@ export function registerLaunch(
           ...(prepared.form ? { form: prepared.form } : {}),
         });
       const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
-      const run = await queue.enqueue(prepared.launch, shown, me, config.name);
+      const run = await queue.enqueue(
+        body.dev ? { ...prepared.launch, dev: body.dev } : prepared.launch,
+        shown,
+        me,
+        config.name,
+      );
       request.log.info(
         {
           by: me.login,

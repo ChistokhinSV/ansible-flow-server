@@ -61,7 +61,17 @@ export function RunTable({ runs, showProject = true }: { runs: Run[]; showProjec
               <td>
                 <StateBadge state={run.state} />
               </td>
-              <td>{run.mode}</td>
+              <td>
+                {run.mode}
+                {run.dev && (
+                  <>
+                    {' '}
+                    <span className="badge" title="A check run of someone's unpushed work">
+                      dev run
+                    </span>
+                  </>
+                )}
+              </td>
               <td>
                 <code>{run.commit.slice(0, 8)}</code>
               </td>
@@ -185,6 +195,14 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         lead={
           <>
             <StateBadge state={run.state} /> {run.mode === 'real' ? 'real run' : 'skeleton run'}
+            {run.dev && (
+              <>
+                {' '}
+                <span className="badge" title="Unpushed work sent from VS Code, run in check mode">
+                  dev run
+                </span>
+              </>
+            )}
             {run.cancelRequested && going && ' · asked to stop'}
           </>
         }

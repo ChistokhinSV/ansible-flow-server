@@ -92,6 +92,11 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },
   'POST /git/:workspace/:repo/git-receive-pack': { action: 'git.push', id: 'none', self: true },
+  'POST /api/v1/projects/:id/dev-bundles': {
+    action: 'dev-bundle.upload',
+    id: 'reply',
+    parent: 'project',
+  },
   'POST /api/v1/notifications/:id/retry': { action: 'notification.retry', id: at() },
   'PUT /api/v1/notifications/smtp': { action: 'notification.smtp-set', id: 'none' },
   'DELETE /api/v1/notifications/smtp': { action: 'notification.smtp-clear', id: 'none' },

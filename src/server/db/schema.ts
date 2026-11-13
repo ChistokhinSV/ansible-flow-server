@@ -246,6 +246,8 @@ export interface RunTable {
   run_dir: string | null;
   /** AFS-28: a run of a flow with approvals: the segments it ran ([{name, dir}]), as JSON. */
   segments_json: string | null;
+  /** AFS-26: a dev run: the bundle of someone's work it ran (a check run of unpushed work). */
+  dev_bundle: string | null;
 }
 
 /**
@@ -348,7 +350,24 @@ export interface NotificationTable {
   sent_at: IsoTime | null;
 }
 
+/**
+ * AFS-26: someone's unpushed work, taken in as a git bundle: its commit is kept under
+ * refs/afs/dev/<id> of the project's repository until it expires. Only check runs take it.
+ */
+export interface DevBundleTable {
+  id: string;
+  project_id: string;
+  commit_id: string;
+  /** Bytes of the bundle as it came. */
+  size: number;
+  created_by: string;
+  created_login: string;
+  created_at: IsoTime;
+  expires_at: IsoTime;
+}
+
 export interface Schema {
+  dev_bundle: DevBundleTable;
   notification: NotificationTable;
   run_gate: RunGateTable;
   access_grant: AccessGrantTable;

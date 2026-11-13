@@ -333,6 +333,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('The audit log as a CSV or JSON file'),
+  'POST /api/v1/projects/:id/dev-bundles': S(
+    'Launch',
+    'signed in',
+    P,
+  )(
+    'Send unpushed work as a git bundle (application/x-git-bundle, one ref) for a dev run: a check run of it',
+  ),
   'GET /api/v1/notifications': S(
     'Notifications',
     'administrators',
@@ -400,6 +407,8 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/launch-configs/:id/check': 'ro',
   // Another branch or commit than the configuration's: the handler asks for rw.
   'POST /api/v1/launch-configs/:id/launch': 'operator',
+  // AFS-26: unpushed work comes from someone who may push.
+  'POST /api/v1/projects/:id/dev-bundles': 'rw on the workspace',
   'GET /api/v1/runs/:id': 'ro',
   'GET /api/v1/runs/:id/output': 'ro',
   'GET /api/v1/runs/:id/view': 'ro',
