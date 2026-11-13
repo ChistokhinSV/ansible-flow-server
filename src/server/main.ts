@@ -1,12 +1,14 @@
 // The server's entry.
 //   node dist/server.js                 start the server
 //   node dist/server.js check <flows>   read flow files and say what they are (no server)
+//   node dist/server.js cert <command>  the server's certificate (tls/cli.ts)
 import { existsSync, readFileSync } from 'node:fs';
-import { ConfigError, loadConfig } from './config';
+import { type Config, ConfigError, loadConfig } from './config';
 import { summarizeFlow } from './flows';
 import { createLogger } from './log';
 import { serverMeta } from './meta';
 import { type RunningServer, startServer } from './serve';
+import { certCommand } from './tls/cli';
 
 /** How long a shutdown may take before the process ends anyway. */
 const SHUTDOWN_MS = 15_000;
@@ -39,18 +41,20 @@ function checkFlows(files: string[]): number {
   return failed ? 1 : 0;
 }
 
-async function serve(): Promise<void> {
-  // Settings from a .env file beside the server, if there is one; the environment wins.
+/** The settings, from a .env file beside the server if there is one; the environment wins. */
+function settings(): Config | undefined {
   const envFile = process.env.AFS_ENV_FILE ?? '.env';
   if (existsSync(envFile)) process.loadEnvFile(envFile);
-  let config: ReturnType<typeof loadConfig>;
   try {
-    config = loadConfig();
+    return loadConfig();
   } catch (e) {
     console.error(e instanceof ConfigError ? e.message : e);
     process.exitCode = 2;
-    return;
+    return undefined;
   }
+}
+
+async function serve(config: Config): Promise<void> {
   const log = createLogger(config.log);
   let server: RunningServer;
   try {
@@ -78,10 +82,15 @@ async function serve(): Promise<void> {
 
 const [command, ...rest] = process.argv.slice(2);
 if (command === 'check') process.exitCode = checkFlows(rest);
-else if (command === undefined) await serve();
-else {
+else if (command === undefined || command === 'cert') {
+  const config = settings();
+  if (config) {
+    if (command === 'cert') process.exitCode = await certCommand(config, rest);
+    else await serve(config);
+  }
+} else {
   console.error(
-    `Unknown command "${command}". Use no command to start the server, or: check <flow files>`,
+    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>`,
   );
   process.exitCode = 2;
 }
