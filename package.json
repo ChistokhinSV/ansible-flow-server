@@ -13,9 +13,9 @@
     "url": "https://github.com/ChistokhinSV/ansible-flow-server.git"
   },
   "dependencies": {
-    "@ansible-flow/assets": "file:vendor/ansible-flow-assets-0.84.0.tgz",
-    "@ansible-flow/core": "file:vendor/ansible-flow-core-0.84.0.tgz",
-    "@ansible-flow/node": "file:vendor/ansible-flow-node-0.84.0.tgz"
+    "@ansible-flow/assets": "file:vendor/ansible-flow-assets-0.85.0.tgz",
+    "@ansible-flow/core": "file:vendor/ansible-flow-core-0.85.0.tgz",
+    "@ansible-flow/node": "file:vendor/ansible-flow-node-0.85.0.tgz"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",

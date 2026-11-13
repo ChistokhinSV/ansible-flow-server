@@ -61,7 +61,7 @@ just start test/fixtures/hello.flow.yaml test/fixtures/firewall-upgrade.flow.yam
 
 ```text
 Ansible Flow Server 0.1.0
-Built on Ansible Flow Designer 0.84.0; reads flows up to format 2
+Built on Ansible Flow Designer 0.85.0; reads flows up to format 2
 Ansible probe: /srv/flow-server/node_modules/@ansible-flow/assets/probe
 test/fixtures/hello.flow.yaml: Hello, Ansible (hello v1, format 2), 3 steps, 0 errors, 0 warnings
 test/fixtures/firewall-upgrade.flow.yaml: Firewall firmware upgrade (firewall-upgrade v1, format 2), 18 steps, 0 errors, 0 warnings

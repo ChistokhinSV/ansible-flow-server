@@ -27,7 +27,8 @@
 ## Consequences
 
 - A fresh clone cannot install without a checkout of the designer, until the first npm release.
-  CI is in the same position: its workflow is written for the published packages.
+  CI is in the same position: its job is switched off (the repository variable `AFD_PACKAGES_ON_NPM`)
+  until then.
 - The server's minimum Node.js version is the packages' (22.13 for `node:sqlite` in the catalog);
   the server asks for 24, the current long-term-support line, and runs on nothing older.
 - A mistake in how the server calls a package shows up as a wrong reading of a correct flow. The

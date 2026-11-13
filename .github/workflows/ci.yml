@@ -2,8 +2,9 @@
 # `just check` and `just test` run them.
 #
 # The designer's packages (@ansible-flow/*) are installed from npm here. Until they are published,
-# package.json names tarballs in vendor/ (ADR-0002), which is not in git, so this workflow fails at
-# its install step: it starts to pass with the change that names the published version.
+# package.json names tarballs in vendor/ (ADR-0002), which is not in git, so the install cannot
+# work: the job runs only once the repository variable AFD_PACKAGES_ON_NPM is "true", set with the
+# change that names the published version.
 name: CI
 
 on:
@@ -20,6 +21,7 @@ concurrency:
 
 jobs:
   check:
+    if: vars.AFD_PACKAGES_ON_NPM == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
