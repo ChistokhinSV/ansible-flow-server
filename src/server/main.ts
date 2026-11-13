@@ -1,38 +1,87 @@
-// The server's entry. For now it says what it is and reads the flow files it is given; the HTTP
-// server comes with AFS-10.
+// The server's entry.
+//   node dist/server.js                 start the server
+//   node dist/server.js check <flows>   read flow files and say what they are (no server)
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { probeDir } from '@ansible-flow/assets';
+import { ConfigError, loadConfig } from './config';
 import { summarizeFlow } from './flows';
+import { createLogger } from './log';
 import { serverMeta } from './meta';
+import { type RunningServer, startServer } from './serve';
 
-const meta = serverMeta();
-console.log(`${meta.name} ${meta.version}`);
-console.log(
-  `Built on Ansible Flow Designer ${meta.designer.version}; reads flows up to format ${meta.designer.format}`,
-);
-console.log(
-  `Ansible probe: ${existsSync(join(probeDir, 'afd_probe', 'serve.py')) ? probeDir : 'not found'}`,
-);
+/** How long a shutdown may take before the process ends anyway. */
+const SHUTDOWN_MS = 15_000;
 
-let failed = false;
-for (const file of process.argv.slice(2)) {
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (e) {
-    console.error(`${file}: ${(e as Error).message}`);
-    failed = true;
-    continue;
+function checkFlows(files: string[]): number {
+  const meta = serverMeta();
+  console.log(
+    `${meta.name} ${meta.version}, built on Ansible Flow Designer ${meta.designer.version}; reads flows up to format ${meta.designer.format}`,
+  );
+  let failed = false;
+  for (const file of files) {
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch (e) {
+      console.error(`${file}: ${(e as Error).message}`);
+      failed = true;
+      continue;
+    }
+    const flow = summarizeFlow(file, text);
+    if (!flow.ok) {
+      console.error(`${file}: ${flow.problem}`);
+      failed = true;
+    } else {
+      console.log(
+        `${file}: ${flow.name} (${flow.key} v${flow.version}, format ${flow.format}), ${flow.steps} steps, ${flow.errors} errors, ${flow.warnings} warnings`,
+      );
+    }
   }
-  const flow = summarizeFlow(file, text);
-  if (!flow.ok) {
-    console.error(`${file}: ${flow.problem}`);
-    failed = true;
-  } else {
-    console.log(
-      `${file}: ${flow.name} (${flow.key} v${flow.version}, format ${flow.format}), ${flow.steps} steps, ${flow.errors} errors, ${flow.warnings} warnings`,
-    );
-  }
+  return failed ? 1 : 0;
 }
-if (failed) process.exitCode = 1;
+
+async function serve(): Promise<void> {
+  // Settings from a .env file beside the server, if there is one; the environment wins.
+  const envFile = process.env.AFS_ENV_FILE ?? '.env';
+  if (existsSync(envFile)) process.loadEnvFile(envFile);
+  let config: ReturnType<typeof loadConfig>;
+  try {
+    config = loadConfig();
+  } catch (e) {
+    console.error(e instanceof ConfigError ? e.message : e);
+    process.exitCode = 2;
+    return;
+  }
+  const log = createLogger(config.log);
+  let server: RunningServer;
+  try {
+    server = await startServer(config, log);
+  } catch (e) {
+    log.fatal({ err: e }, 'The server could not start');
+    process.exitCode = 1;
+    return;
+  }
+  const stop = (signal: string) => {
+    // A request or a connection that will not end must not keep the process: it ends anyway.
+    const timer = setTimeout(() => {
+      log.error({ after_ms: SHUTDOWN_MS }, 'Shutdown took too long: ending now');
+      process.exit(1);
+    }, SHUTDOWN_MS);
+    timer.unref();
+    server.stop(signal).catch((e) => {
+      log.error({ err: e }, 'Shutdown did not finish cleanly');
+      process.exitCode = 1;
+    });
+  };
+  process.on('SIGINT', () => stop('SIGINT'));
+  process.on('SIGTERM', () => stop('SIGTERM'));
+}
+
+const [command, ...rest] = process.argv.slice(2);
+if (command === 'check') process.exitCode = checkFlows(rest);
+else if (command === undefined) await serve();
+else {
+  console.error(
+    `Unknown command "${command}". Use no command to start the server, or: check <flow files>`,
+  );
+  process.exitCode = 2;
+}

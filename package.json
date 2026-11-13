@@ -15,11 +15,15 @@
   "dependencies": {
     "@ansible-flow/assets": "file:vendor/ansible-flow-assets-0.85.0.tgz",
     "@ansible-flow/core": "file:vendor/ansible-flow-core-0.85.0.tgz",
-    "@ansible-flow/node": "file:vendor/ansible-flow-node-0.85.0.tgz"
+    "@ansible-flow/node": "file:vendor/ansible-flow-node-0.85.0.tgz",
+    "fastify": "5.12.8",
+    "kysely": "0.29.9",
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",
     "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
     "esbuild": "0.28.2",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
