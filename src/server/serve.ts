@@ -19,6 +19,7 @@ import type { Logger } from './log';
 import { serverMeta } from './meta';
 import { Git } from './projects/git';
 import { ProjectSync } from './projects/sync';
+import { RunQueue } from './runs/queue';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
 import { loadMasterKey } from './secrets/masterKey';
@@ -146,6 +147,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let watcher: FSWatcher | undefined;
   let daily: NodeJS.Timeout | undefined;
   let sweep: NodeJS.Timeout | undefined;
+  let leases: NodeJS.Timeout | undefined;
   let projects: ProjectSync | undefined;
   try {
     await database.ping();
@@ -185,6 +187,21 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       );
     else log.info({ key: masterKey.id, from: masterKey.source }, 'Master key ready');
     const db = database.db;
+    const runs = new RunQueue(db, database.kind, masterKey, {
+      maxRuns: config.maxRuns,
+      perProject: config.maxRunsPerProject,
+    });
+    // A worker that stops answering lets its runs go: back to the queue, or lost (runs/queue.ts).
+    leases = setInterval(() => {
+      void runs.expire().then(
+        (n) => {
+          if (n.requeued || n.lost || n.cancelled)
+            log.warn(n, 'Runs whose worker stopped answering');
+        },
+        (e) => log.error({ err: e }, 'Looking for runs whose worker went away failed'),
+      );
+    }, 15_000);
+    leases.unref();
     projects = new ProjectSync(db, git, log, async (project) => {
       if (!project.gitCredential) return undefined;
       const revealed = await reveal(db, masterKey, project.gitCredential);
@@ -196,6 +213,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       database,
       projects: { git, sync: projects, allowLocal: config.gitLocal },
       masterKey,
+      runs,
       // The pages are built beside the server (dist/server.js, dist/web).
       webDir: fileURLToPath(new URL('./web', import.meta.url)),
       instance: await instanceId(database.db),
@@ -299,6 +317,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           watcher?.close();
           clearInterval(daily);
           clearInterval(sweep);
+          clearInterval(leases);
+          clearInterval(leases);
           redirect?.close();
           redirect?.closeAllConnections();
           // A fetch that is going is waited for: a mirror is not left half written.
@@ -314,6 +334,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     watcher?.close();
     clearInterval(daily);
     clearInterval(sweep);
+    clearInterval(leases);
     redirect?.close();
     await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);

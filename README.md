@@ -118,23 +118,25 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting               | Default                                  | Meaning                                                                 |
-| --------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
-| `AFS_HOST`            | `127.0.0.1`                              | The address to listen on; `0.0.0.0` for every interface                 |
-| `AFS_PORT`            | `8443`                                   | The port (`8080` with `AFS_TLS=off`)                                    |
-| `AFS_PUBLIC_URL`      | none                                     | The address people open, like `https://flows.example.net`               |
-| `AFS_HTTP_PORT`       | none                                     | A port that redirects plain HTTP to HTTPS                               |
-| `AFS_TLS`             | `on`                                     | `off` behind a proxy that does HTTPS                                    |
-| `AFS_TRUSTED_PROXIES` | none                                     | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
-| `AFS_CA_FILE`         | none                                     | Certificate authorities of your network, for outgoing connections       |
-| `AFS_MASTER_KEY_FILE` | `<data>/master.key`, made at first start | The file with the master key that stored credentials are encrypted with |
-| `AFS_MASTER_KEY`      | none                                     | The master key itself (base64 of 32 bytes), instead of a file           |
-| `AFS_GIT_LOCAL`       | `off`                                    | `on`: a project's repository may be a folder of this machine            |
-| `AFS_DATA_DIR`        | `data`                                   | Where the server keeps what it owns                                     |
-| `AFS_DATABASE_URL`    | `sqlite:afs.db`                          | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
-| `AFS_LOG_LEVEL`       | `info`                                   | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
-| `AFS_LOG_FORMAT`      | `text`                                   | `text`, or `json` for one object a line                                 |
-| `AFS_ENV_FILE`        | `.env`                                   | Another file to read the settings from                                  |
+| Setting                    | Default                                  | Meaning                                                                 |
+| -------------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
+| `AFS_HOST`                 | `127.0.0.1`                              | The address to listen on; `0.0.0.0` for every interface                 |
+| `AFS_PORT`                 | `8443`                                   | The port (`8080` with `AFS_TLS=off`)                                    |
+| `AFS_PUBLIC_URL`           | none                                     | The address people open, like `https://flows.example.net`               |
+| `AFS_HTTP_PORT`            | none                                     | A port that redirects plain HTTP to HTTPS                               |
+| `AFS_TLS`                  | `on`                                     | `off` behind a proxy that does HTTPS                                    |
+| `AFS_TRUSTED_PROXIES`      | none                                     | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
+| `AFS_CA_FILE`              | none                                     | Certificate authorities of your network, for outgoing connections       |
+| `AFS_MASTER_KEY_FILE`      | `<data>/master.key`, made at first start | The file with the master key that stored credentials are encrypted with |
+| `AFS_MASTER_KEY`           | none                                     | The master key itself (base64 of 32 bytes), instead of a file           |
+| `AFS_MAX_RUNS`             | `4`                                      | Runs at once on this server                                             |
+| `AFS_MAX_RUNS_PER_PROJECT` | `1`                                      | Runs at once of one project                                             |
+| `AFS_GIT_LOCAL`            | `off`                                    | `on`: a project's repository may be a folder of this machine            |
+| `AFS_DATA_DIR`             | `data`                                   | Where the server keeps what it owns                                     |
+| `AFS_DATABASE_URL`         | `sqlite:afs.db`                          | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
+| `AFS_LOG_LEVEL`            | `info`                                   | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
+| `AFS_LOG_FORMAT`           | `text`                                   | `text`, or `json` for one object a line                                 |
+| `AFS_ENV_FILE`             | `.env`                                   | Another file to read the settings from                                  |
 
 With PostgreSQL:
 
@@ -457,7 +459,7 @@ Not there yet: handing credentials to runs, an ssh source with a stored key, the
 ### Launch configurations
 
 A launch configuration is a flow of a project with what a run of it needs, saved under a name.
-The server does not run flows yet; a configuration can be made, and asked what it would run.
+A launch settles it into a run and puts the run in the queue ([Runs](#runs)).
 
 ```sh
 curl ... -X POST https://flows.example.net:8443/api/v1/projects/<project id>/launch-configs \
@@ -506,12 +508,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 | `inputs`      | Start values of the flow's inputs. Never one that looks like a secret      |
 | `credentials` | Credentials of the workspace a run gets (not a git token)                  |
 
-| Address (under `/api/v1`)        | Does                                                       | Who                                     |
-| -------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
-| `/projects/:id/launch-configs`   | List; add                                                  | read: signed in; change: administrators |
-| `/launch-configs/:id`            | One; change; delete                                        | as above                                |
-| `GET /launch-configs/:id/form`   | The flow's inputs as a form, with the start values         | signed in                               |
-| `POST /launch-configs/:id/check` | What a launch would run, or 422 with everything in its way | signed in                               |
+| Address (under `/api/v1`)         | Does                                                       | Who                                     |
+| --------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
+| `/projects/:id/launch-configs`    | List; add                                                  | read: signed in; change: administrators |
+| `/launch-configs/:id`             | One; change; delete                                        | as above                                |
+| `GET /launch-configs/:id/form`    | The flow's inputs as a form, with the start values         | signed in                               |
+| `POST /launch-configs/:id/check`  | What a launch would run, or 422 with everything in its way | signed in                               |
+| `POST /launch-configs/:id/launch` | The same, and the run goes in the queue (201 with the run) | administrators                          |
 
 - **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
   value and each credential are checked; a refusal names the setting (`field`).
@@ -521,7 +524,65 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
   text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
   not repeated in the answer.
 
-Not there yet: starting the run, the pages.
+Not there yet: the pages.
+
+### Runs
+
+A launch makes a run and puts it in the queue. **Nothing runs flows yet** (the executor is the
+next part): a run stays `queued` until it is cancelled.
+
+```sh
+curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launch \
+  -d '{"mode":"real","inputs":{"target_version":"7.4.1"}}'
+```
+
+```json
+{
+  "id": "9b2f3c4d-1e5a-4f6b-8c7d-0e1f2a3b4c5d",
+  "number": 12,
+  "project": "2a968c91-1ac7-4654-94c8-2eb24a28b10b",
+  "config": { "id": "0f3d6f0e-6a53-4d4e-8a55-9d2f0c1b7e21", "name": "Upgrade edge firewalls" },
+  "commit": "59b2575163b54f0c8a1e7d9b3f2a6c8e1d0b5741",
+  "ref": "main",
+  "flow": {
+    "file": "flows/firewall-upgrade.flow.yaml",
+    "key": "firewall-upgrade",
+    "name": "Firewall firmware upgrade",
+    "version": 1
+  },
+  "mode": "real",
+  "inputs": { "devices": ["fw-edge-01", "fw-edge-02"], "target_version": "7.4.1" },
+  "targets": ["fw-edge-01", "fw-edge-02"],
+  "credentials": [],
+  "state": "queued",
+  "requestedBy": { "id": "5c1d2e3f-4a5b-6c7d-8e9f-0a1b2c3d4e5f", "login": "dana" },
+  "createdAt": "2026-11-13T14:53:51.120Z",
+  "attempts": 0,
+  "cancelRequested": false
+}
+```
+
+| State                              | Means                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `queued`                           | Waiting for a worker (and for a place under the limits)                 |
+| `running`                          | A worker has it                                                         |
+| `waiting`                          | Waiting for a decision (approvals, to come)                             |
+| `succeeded`, `failed`, `cancelled` | How it ended                                                            |
+| `lost`                             | Its worker stopped answering after it started: what it did is not known |
+
+| Address (under `/api/v1`)                  | Does                                                         | Who            |
+| ------------------------------------------ | ------------------------------------------------------------ | -------------- |
+| `GET /runs?project=&state=&limit=&before=` | Runs, the newest first (`before`: the last `createdAt` seen) | signed in      |
+| `GET /runs/:id`                            | One run                                                      | signed in      |
+| `POST /runs/:id/cancel`                    | Stop it: at once when queued, else at the worker's next word | administrators |
+
+- **Limits:** `AFS_MAX_RUNS` runs at once on the server (4), `AFS_MAX_RUNS_PER_PROJECT` of one
+  project (1). A run over a limit waits; another project's runs do not wait behind it.
+- **A worker that goes away:** a run it had not started goes back in the queue (lost after 3
+  tries); one it had started is `lost` and is never started again on its own.
+- A secret typed at launch is kept sealed and shown as `***`.
+- A project with a run going is not deleted; its ended runs go with it.
+- Runs in the queue survive a restart.
 
 ## Development
 
@@ -549,6 +610,7 @@ Layout:
 | `test/web/`    | Tests of the web pages                                          |
 | `test/unit/`   | Unit tests; `test/fixtures/` has sample flows from the designer |
 | `scripts/`     | Build and package scripts                                       |
+| `CHANGELOG.md` | What changed, for people who use the server                     |
 | `docs/adr/`    | Architecture decisions, one file each                           |
 | `media/icons/` | The icon set                                                    |
 | `vendor/`      | The designer's packages as tarballs (not in git)                |

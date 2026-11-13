@@ -206,6 +206,55 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute();
     },
   },
+  // AFS-19: runs, and the queue they wait in.
+  '0008_runs': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('run')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('number', 'integer', (c) => c.notNull())
+        .addColumn('project_id', 'text', (c) => c.notNull().references('project.id'))
+        .addColumn('config_id', 'text')
+        .addColumn('config_name', 'text')
+        .addColumn('commit_id', 'text', (c) => c.notNull())
+        .addColumn('git_ref', 'text')
+        .addColumn('flow_file', 'text', (c) => c.notNull())
+        .addColumn('flow_key', 'text', (c) => c.notNull())
+        .addColumn('flow_name', 'text', (c) => c.notNull())
+        .addColumn('flow_version', 'integer', (c) => c.notNull())
+        .addColumn('mode', 'text', (c) => c.notNull())
+        .addColumn('inventory', 'text')
+        .addColumn('ee_image', 'text')
+        .addColumn('run_limit', 'text')
+        .addColumn('inputs_enc', 'text', (c) => c.notNull())
+        .addColumn('inputs_shown_json', 'text', (c) => c.notNull())
+        .addColumn('targets_json', 'text', (c) => c.notNull())
+        .addColumn('credentials_json', 'text', (c) => c.notNull())
+        .addColumn('state', 'text', (c) => c.notNull())
+        .addColumn('requested_by', 'text', (c) => c.notNull())
+        .addColumn('requested_login', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addColumn('claimed_at', 'text')
+        .addColumn('started_at', 'text')
+        .addColumn('ended_at', 'text')
+        .addColumn('attempts', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('lease_owner', 'text')
+        .addColumn('lease_token', 'text')
+        .addColumn('lease_until', 'text')
+        .addColumn('cancel_requested', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('cancelled_by', 'text')
+        .addColumn('error', 'text')
+        .addUniqueConstraint('run_project_number', ['project_id', 'number'])
+        .execute();
+      await db.schema.createIndex('run_state').on('run').columns(['state', 'created_at']).execute();
+      await db.schema
+        .createIndex('run_project')
+        .on('run')
+        .columns(['project_id', 'created_at'])
+        .execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

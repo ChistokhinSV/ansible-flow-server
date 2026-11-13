@@ -187,7 +187,53 @@ export interface LaunchConfigCredentialTable {
   position: number;
 }
 
+/** A run of a flow: what it is of, where it is in the queue, and how it ended. */
+export interface RunTable {
+  id: string;
+  /** Counts the project's runs. */
+  number: number;
+  project_id: string;
+  /** The launch configuration it came from; kept as text, the configuration may go. */
+  config_id: string | null;
+  config_name: string | null;
+  commit_id: string;
+  git_ref: string | null;
+  flow_file: string;
+  flow_key: string;
+  flow_name: string;
+  flow_version: number;
+  mode: string;
+  inventory: string | null;
+  ee_image: string | null;
+  run_limit: string | null;
+  /** The inputs in full, as JSON, sealed with the master key (secrets/crypto.ts). */
+  inputs_enc: string;
+  /** The inputs with secret-looking values as ***, as JSON. */
+  inputs_shown_json: string;
+  targets_json: string;
+  credentials_json: string;
+  /** queued, running, waiting, succeeded, failed, cancelled, lost (runs/queue.ts). */
+  state: string;
+  requested_by: string;
+  requested_login: string;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+  claimed_at: IsoTime | null;
+  started_at: IsoTime | null;
+  ended_at: IsoTime | null;
+  /** How many times a worker took it. */
+  attempts: number;
+  /** The worker that has it, its lease's token, and until when. */
+  lease_owner: string | null;
+  lease_token: string | null;
+  lease_until: IsoTime | null;
+  cancel_requested: Flag;
+  cancelled_by: string | null;
+  error: string | null;
+}
+
 export interface Schema {
+  run: RunTable;
   launch_config: LaunchConfigTable;
   launch_config_credential: LaunchConfigCredentialTable;
   credential: CredentialTable;

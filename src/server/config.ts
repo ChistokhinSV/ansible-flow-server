@@ -30,6 +30,9 @@ export interface Config {
   /** The master key as text (AFS_MASTER_KEY), or the file it is in (AFS_MASTER_KEY_FILE). */
   masterKey?: string;
   masterKeyFile?: string;
+  /** Runs at once on this server, and of one project. */
+  maxRuns: number;
+  maxRunsPerProject: number;
   /** A project's repository may be a folder of this machine. Default: no. */
   gitLocal: boolean;
   /** Where the server keeps what it owns: the SQLite database, its certificate, the mirrors. */
@@ -112,6 +115,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (!/^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(proxy))
       problems.push(`AFS_TRUSTED_PROXIES has "${proxy}": use addresses or networks (10.0.0.0/8)`);
 
+  const countOf = (name: string, fallback: number): number => {
+    const value = text(name);
+    if (value === undefined) return fallback;
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || n < 1 || n > 256) {
+      problems.push(`${name} is "${value}": a number from 1 to 256`);
+      return fallback;
+    }
+    return n;
+  };
+  const maxRuns = countOf('AFS_MAX_RUNS', 4);
+  const maxRunsPerProject = countOf('AFS_MAX_RUNS_PER_PROJECT', 1);
   const caFile = text('AFS_CA_FILE');
   const masterKey = text('AFS_MASTER_KEY');
   const masterKeyFile = text('AFS_MASTER_KEY_FILE');
@@ -161,6 +176,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ...(caFile ? { caFile: resolve(caFile) } : {}),
     ...(masterKey ? { masterKey } : {}),
     ...(masterKeyFile ? { masterKeyFile: resolve(masterKeyFile) } : {}),
+    maxRuns,
+    maxRunsPerProject,
     gitLocal: localText === 'on',
     dataDir,
     database,
