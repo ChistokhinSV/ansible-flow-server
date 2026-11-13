@@ -160,7 +160,11 @@ export const api = {
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
-  addToken: (input: { name: string; expiresInDays?: number; readOnly?: boolean }) =>
-    call<NewToken>('POST', '/tokens', input),
+  addToken: (input: {
+    name: string;
+    expiresInDays?: number;
+    readOnly?: boolean;
+    workspace?: string;
+  }) => call<NewToken>('POST', '/tokens', input),
   revokeToken: (id: string) => call<void>('DELETE', `/tokens/${id}`),
 };

@@ -2,6 +2,7 @@
 // (/healthz), whether it can do its work (/readyz: the database answers), and what it is
 // (/api/v1/meta, which clients read before they talk to it).
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
+import { registerCatalog } from './api/catalog';
 import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
@@ -82,7 +83,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (closing) setImmediate(() => app.server.closeIdleConnections());
   });
 
-  // First: its hooks see every route's answer.
+  // First: their hooks see every route. The catalog describes and scopes them, the audit log
+  // records what they change.
+  registerCatalog(app, { db: deps.database.db });
   registerAudit(app, { db: deps.database.db });
   registerAuth(app, {
     db: deps.database.db,

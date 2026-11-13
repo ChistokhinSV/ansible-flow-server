@@ -1,7 +1,7 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import {
   api,
   type FlowList,
@@ -9,6 +9,7 @@ import {
   type NewToken,
   type Project,
   type User,
+  type Workspace as WorkspaceInfo,
 } from './api';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
@@ -561,7 +562,10 @@ export function FlowPage({
 
 export function Account({ me }: { me: User }) {
   const tokens = useLoad(api.tokens, []);
-  const [input, setInput] = useState({ name: '', days: 90, readOnly: false });
+  const workspaces = useLoad(api.workspaces, []);
+  const [input, setInput] = useState({ name: '', days: 90, readOnly: false, workspace: '' });
+  const workspaceName = (id?: string) =>
+    id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
   return (
     <>
@@ -570,7 +574,8 @@ export function Account({ me }: { me: User }) {
         <h2 id="tokens">Access tokens</h2>
         <p className="muted">
           A program signs in with a token instead of your password: git, the VS Code extension, a
-          script. A token acts as you.
+          script. A token acts as you. What a program can ask is in the{' '}
+          <Link to="/docs/api">API reference</Link>.
         </p>
         {made && (
           <div className="notice ok" role="status">
@@ -595,6 +600,7 @@ export function Account({ me }: { me: User }) {
                   <th scope="col">Name</th>
                   <th scope="col">Ends with</th>
                   <th scope="col">May</th>
+                  <th scope="col">Reaches</th>
                   <th scope="col">Last used</th>
                   <th scope="col">Expires</th>
                   <th scope="col">
@@ -610,6 +616,7 @@ export function Account({ me }: { me: User }) {
                       <code>…{t.hint}</code>
                     </td>
                     <td>{t.readOnly ? 'read' : 'read and change'}</td>
+                    <td>{t.workspace ? workspaceName(t.workspace) : 'all workspaces'}</td>
                     <td>
                       <Time at={t.lastUsedAt} />
                     </td>
@@ -646,6 +653,7 @@ export function Account({ me }: { me: User }) {
                 name: input.name,
                 expiresInDays: input.days,
                 readOnly: input.readOnly,
+                ...(input.workspace ? { workspace: input.workspace } : {}),
               }),
             );
             setInput({ ...input, name: '' });
@@ -678,9 +686,48 @@ export function Account({ me }: { me: User }) {
             />
             Read only (can clone and read, cannot push or change anything)
           </label>
+          <WorkspaceChoice
+            value={input.workspace}
+            workspaces={workspaces.data ?? []}
+            onChange={(workspace) => setInput({ ...input, workspace })}
+          />
         </Form>
       </section>
     </>
+  );
+}
+
+/** Which workspace a token reaches: all, or one. */
+function WorkspaceChoice({
+  value,
+  workspaces,
+  onChange,
+}: {
+  value: string;
+  workspaces: WorkspaceInfo[];
+  onChange: (id: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="field">
+      <label htmlFor={id}>Reaches</label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={`${id}-hint`}
+      >
+        <option value="">all workspaces you can reach</option>
+        {workspaces.map((w) => (
+          <option key={w.id} value={w.id}>
+            only {w.name} ({w.key})
+          </option>
+        ))}
+      </select>
+      <small id={`${id}-hint`} className="muted">
+        A token for one workspace cannot reach another, nor what spans them (all runs, people).
+      </small>
+    </div>
   );
 }
 

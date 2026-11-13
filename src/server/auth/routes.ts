@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { getWorkspace } from '../projects/store';
 import { administrator, inSession, signedIn } from './guards';
 import { FailureLimiter } from './limiter';
 import { PASSWORD_MAX, passwordProblem, verifyPassword } from './passwords';
@@ -267,24 +268,40 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     return me ? listTokens(db, me.id) : reply;
   });
 
-  app.post<{ Body: { name: string; expiresInDays?: number; readOnly?: boolean } }>(
+  type TokenBody = {
+    name: string;
+    expiresInDays?: number;
+    readOnly?: boolean;
+    workspace?: string;
+  };
+  const TOKEN_BODY = body(['name'], {
+    name: text(100, 1),
+    expiresInDays: { type: 'integer', minimum: 1, maximum: TOKEN_MAX_DAYS },
+    readOnly: { type: 'boolean' },
+    // A workspace's id or key: the token reaches that workspace only.
+    workspace: text(64, 1),
+  });
+  /** What a token is made with, the workspace named by its id or its key, checked. */
+  const tokenInput = async (input: TokenBody) => {
+    const workspace = input.workspace ? await getWorkspace(db, input.workspace) : undefined;
+    if (input.workspace && !workspace)
+      throw new UserError('invalid', `No workspace ${input.workspace}`);
+    return {
+      name: input.name,
+      days: input.expiresInDays,
+      readOnly: input.readOnly,
+      ...(workspace ? { workspace: workspace.id } : {}),
+    };
+  };
+
+  app.post<{ Body: TokenBody }>(
     '/api/v1/tokens',
-    {
-      schema: body(['name'], {
-        name: text(100, 1),
-        expiresInDays: { type: 'integer', minimum: 1, maximum: TOKEN_MAX_DAYS },
-        readOnly: { type: 'boolean' },
-      }),
-    },
+    { schema: TOKEN_BODY },
     answering(async (request, reply) => {
       // Not with a token: a token that leaked must not be able to make itself a successor.
       const me = inSession(request, reply);
       if (!me) return reply;
-      const made = await createToken(db, me.id, {
-        name: request.body.name,
-        days: request.body.expiresInDays,
-        readOnly: request.body.readOnly,
-      });
+      const made = await createToken(db, me.id, await tokenInput(request.body));
       request.log.info({ login: me.login, name: made.info.name }, 'Access token made');
       // The token is in this answer and nowhere else, ever.
       return reply.code(201).send({ ...made.info, token: made.token });
@@ -304,7 +321,30 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     },
   );
 
-  // --- other people's tokens (administrators): seen and revoked, never made
+  // --- other people's tokens (administrators): seen and revoked; made only for a service
+  // account, which has no session to make its own
+
+  app.post<{ Params: { id: string }; Body: TokenBody }>(
+    '/api/v1/users/:id/tokens',
+    { schema: { ...ID, ...TOKEN_BODY } },
+    answering(async (request, reply) => {
+      const me = inSession(request, reply, true);
+      if (!me) return reply;
+      const account = await getUser(db, request.params.id);
+      if (!account) return reply.code(404).send({ error: 'not_found', message: 'No such user' });
+      if (!account.service)
+        throw new UserError(
+          'invalid',
+          'Tokens are made by the person themself; administrators make them for service accounts only',
+        );
+      const made = await createToken(db, account.id, await tokenInput(request.body));
+      request.log.info(
+        { by: me.login, login: account.login, name: made.info.name },
+        'Access token made for a service account',
+      );
+      return reply.code(201).send({ ...made.info, token: made.token });
+    }),
+  );
 
   app.get<{ Params: { id: string } }>(
     '/api/v1/users/:id/tokens',
@@ -347,6 +387,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     email?: string;
     webhookUrl?: string;
     admin?: boolean;
+    service?: boolean;
   };
   app.post<{ Body: NewUserBody }>(
     '/api/v1/users',
@@ -358,6 +399,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
         email: text(320),
         webhookUrl: text(2000),
         admin: { type: 'boolean' },
+        service: { type: 'boolean' },
       }),
     },
     answering(async (request, reply) => {

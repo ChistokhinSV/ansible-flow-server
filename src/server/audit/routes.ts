@@ -38,6 +38,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/tokens': { action: 'token.create', id: 'reply' },
   'DELETE /api/v1/tokens/:id': { action: 'token.revoke', id: at() },
   'DELETE /api/v1/users/:id/tokens/:token': { action: 'token.revoke', id: at('token') },
+  'POST /api/v1/users/:id/tokens': { action: 'token.create', id: 'reply', parent: 'user' },
   'POST /api/v1/users': { action: 'user.create', id: 'reply' },
   'PATCH /api/v1/users/:id': { action: 'user.change', id: at() },
   'PUT /api/v1/users/:id/password': { action: 'user.password-set', id: at() },

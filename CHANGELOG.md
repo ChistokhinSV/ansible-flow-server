@@ -34,6 +34,9 @@ Nothing is released yet.
   - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
+- The API is described as an OpenAPI 3.1 document at `/api/v1/openapi.json`, and the **API reference** page shows it by subject: what each address does, who may call it, what it takes. See [The API](README.md#the-api).
+- Service accounts: an identity for a pipeline or program, with no password, signed in only with tokens an administrator makes for it (`"service": true`, or `user add --service`). See [Service accounts](README.md#service-accounts).
+- An access token can be limited to one workspace: it reaches that workspace's projects, credentials, launch configurations, runs and repositories, and nothing that spans workspaces. Choose it when making the token, or `user token --workspace`.
 - Launching from the pages. See [Launch configurations](README.md#launch-configurations).
   - A project's page lists its launch configurations; administrators add, change and delete them, choosing the flow, branch or pinned commit, inventory, image, mode, limit and credentials.
   - A configuration's page has the launch form: the flow's inputs (secret ones typed hidden and never kept), check or real, another branch or a commit, and the limit.

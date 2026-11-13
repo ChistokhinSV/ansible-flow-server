@@ -281,10 +281,51 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
 - A token lasts 90 days unless you say otherwise, a year at most. It stops when it is revoked,
   at its end, and while its owner is disabled. A person has at most 50.
 - A read-only token (`"readOnly": true`) reads and changes nothing.
+- A token for one workspace (`"workspace": "net"`, its key or id) reaches that workspace only:
+  its projects, flows, credentials, launch configurations, runs and git repositories. What spans
+  workspaces (the list of workspaces, all runs, people, the audit log) is refused with
+  `403 out_of_scope`; list runs with `?project=<id>`.
 - A token cannot make or revoke tokens, or set a password: those take a password sign-in.
 - Keep it in an environment variable or a credential store, never in a repository or an address.
 
 Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP.
+
+#### Service accounts
+
+A pipeline or another program gets an identity of its own: a service account. It has no
+password and cannot sign in to the pages; it signs in only with tokens, which an administrator
+makes for it (signed in with a password). What it may do is what its account may do:
+
+```sh
+# as an administrator, signed in to the pages (cookie) or on the server's machine
+curl --cookie cookies.txt -H 'content-type: application/json' \
+  https://flows.example.net:8443/api/v1/users -d '{"login":"ci-pipeline","name":"CI pipeline","service":true}'
+curl --cookie cookies.txt -H 'content-type: application/json' \
+  https://flows.example.net:8443/api/v1/users/<id>/tokens -d '{"name":"nightly","workspace":"net"}'
+
+just user add ci-pipeline --service
+just user token ci-pipeline --name nightly --workspace net --days 30
+```
+
+Its tokens are listed and revoked like anyone's (`GET`/`DELETE /api/v1/users/<id>/tokens`).
+Until access levels exist, a service account that launches runs must be an administrator.
+
+### The API
+
+Everything the pages do goes through the REST API under `/api/v1`, and every address is in the
+server's OpenAPI 3.1 document, `GET /api/v1/openapi.json` (no sign-in needed). The page
+`/docs/api` shows it by subject: what each address does, who may call it, and what it takes.
+
+```sh
+curl -s https://flows.example.net:8443/api/v1/openapi.json | jq '.paths | keys | length'
+curl -H "Authorization: Bearer $AFS_TOKEN" \
+  "https://flows.example.net:8443/api/v1/runs?project=<id>&state=failed&limit=20"
+```
+
+- Errors are JSON: `{"error": "<code>", "message": "<words fit to show>"}`, with the HTTP status.
+- A run is followed as server-sent events (`GET /api/v1/runs/<id>/events`), see [Runs](#runs).
+- Each route is described in one list on the server (what it does, who may call it, which
+  workspace it reaches); a route that is not in it stops the server from starting.
 
 ### The web pages
 
@@ -301,7 +342,8 @@ setup code from its log); after that, sign-in.
 | `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (administrators); `.../launch/<id>/edit` changes one             |
 | `/runs`                                | Every run, the newest first, filtered by state                                              |
 | `/runs/<id>`                           | One run: what ran, the run on the canvas, its output as it comes; Stop and Run again        |
-| `/account`                             | Your access tokens: make (shown once), list, revoke                                         |
+| `/docs/api`                            | The API reference, from the server's OpenAPI document                                       |
+| `/account`                             | Your access tokens: make (shown once; for all workspaces or one), list, revoke              |
 | `/admin`                               | Administration: the audit log; people, groups and the certificate are not built yet         |
 | `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON              |
 
