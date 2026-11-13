@@ -508,12 +508,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 | `inputs`      | Start values of the flow's inputs. Never one that looks like a secret      |
 | `credentials` | Credentials of the workspace a run gets (not a git token)                  |
 
-| Address (under `/api/v1`)        | Does                                                       | Who                                     |
-| -------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
-| `/projects/:id/launch-configs`   | List; add                                                  | read: signed in; change: administrators |
-| `/launch-configs/:id`            | One; change; delete                                        | as above                                |
-| `GET /launch-configs/:id/form`   | The flow's inputs as a form, with the start values         | signed in                               |
-| `POST /launch-configs/:id/check` | What a launch would run, or 422 with everything in its way | signed in                               |
+| Address (under `/api/v1`)         | Does                                                       | Who                                     |
+| --------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
+| `/projects/:id/launch-configs`    | List; add                                                  | read: signed in; change: administrators |
+| `/launch-configs/:id`             | One; change; delete                                        | as above                                |
+| `GET /launch-configs/:id/form`    | The flow's inputs as a form, with the start values         | signed in                               |
+| `POST /launch-configs/:id/check`  | What a launch would run, or 422 with everything in its way | signed in                               |
+| `POST /launch-configs/:id/launch` | The same, and the run goes in the queue (201 with the run) | administrators                          |
 
 - **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
   value and each credential are checked; a refusal names the setting (`field`).
