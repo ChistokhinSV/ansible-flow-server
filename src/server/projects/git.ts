@@ -1,0 +1,252 @@
+// Git, as the server uses it: a mirror of each project's repository in the data folder, brought
+// up to date from its source, and read at a commit. The git program does the work; this file is
+// about calling it safely: no shell, no prompts, no settings of the machine or its user, a time
+// limit on every call, and only addresses the server is willing to fetch from.
+import { execFile } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+
+/** How long a fetch may take. */
+export const FETCH_TIMEOUT_MS = 120_000;
+/** How long reading from the mirror may take. */
+const READ_TIMEOUT_MS = 20_000;
+/** The most a single file read from a repository may be. */
+export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+export class GitError extends Error {
+  constructor(
+    message: string,
+    /** What git said, for the log; may name paths of this machine. */
+    readonly detail = '',
+  ) {
+    super(message);
+    this.name = 'GitError';
+  }
+}
+
+export interface GitOptions {
+  /** Where the mirrors are kept (`<data folder>/repos`). */
+  reposDir: string;
+  /** Allow a repository that is a folder on this machine (tests, a single-machine install). */
+  allowLocal: boolean;
+}
+
+/**
+ * Why an address is not one the server fetches from; undefined when it is.
+ * - `https://host/path` and `ssh://host/path`, and `git@host:path`
+ * - never a password in the address: it would be kept, logged and shown
+ * - a folder of this machine only when the settings allow it
+ */
+export function gitUrlProblem(url: string, allowLocal: boolean): string | undefined {
+  if (!url || /[\s\0]/.test(url)) return 'The repository address is empty or has spaces';
+  // An address must never read as an option of the git program.
+  if (url.startsWith('-')) return 'The repository address cannot start with a dash';
+  if (/^[\w.-]+@[\w.-]+:[^/\\].*$/.test(url) && !/^[a-zA-Z]:[\\/]/.test(url)) return undefined;
+  if (/^(https|ssh):\/\//i.test(url)) {
+    try {
+      const u = new URL(url);
+      if (u.password) return 'The address holds a password: give a credential instead';
+      if (!u.hostname) return 'The repository address has no host';
+      return undefined;
+    } catch {
+      return 'The repository address is not a URL';
+    }
+  }
+  if (/^http:\/\//i.test(url)) return 'A repository is fetched over https or ssh, not plain http';
+  if (/^file:\/\//i.test(url) || isAbsolute(url))
+    return allowLocal
+      ? undefined
+      : 'A folder of this machine is not allowed as a repository (AFS_GIT_LOCAL=on allows it)';
+  return 'Use an https:// or ssh:// address, or git@host:path';
+}
+
+/** A branch name as git allows one, and nothing that could read as an option or a range. */
+export function refProblem(ref: string): string | undefined {
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(ref) && !/\.\.|\/\/|\.lock$|\/$/.test(ref)
+    ? undefined
+    : 'A branch name is letters, digits, dots, dashes, underscores and slashes';
+}
+
+const COMMIT = /^[0-9a-f]{40}$/;
+
+/** Takes what could be a secret out of git's words before they are shown or logged. */
+const scrub = (text: string) => text.replace(/\/\/[^/\s@]+@/g, '//***@').trim();
+
+export class Git {
+  private readonly emptyConfig: string;
+
+  constructor(private readonly options: GitOptions) {
+    mkdirSync(options.reposDir, { recursive: true });
+    // Git reads the settings of the machine and of the account it runs as. The server's git
+    // must not: this empty file stands in for both.
+    this.emptyConfig = join(options.reposDir, 'gitconfig');
+    if (!existsSync(this.emptyConfig)) writeFileSync(this.emptyConfig, '');
+  }
+
+  /** Where a project's mirror is. */
+  mirror(projectId: string): string {
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(projectId)) throw new GitError('Not a project id');
+    return join(this.options.reposDir, `${projectId}.git`);
+  }
+
+  private run(
+    args: string[],
+    options: { cwd?: string; timeoutMs: number; maxBytes?: number },
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      execFile(
+        'git',
+        [
+          // No helper that runs a program, no hooks, no pager; only these ways to fetch.
+          '-c',
+          'protocol.ext.allow=never',
+          '-c',
+          'core.hooksPath=',
+          '-c',
+          'core.fsmonitor=false',
+          '-c',
+          'gc.auto=0',
+          ...args,
+        ],
+        {
+          cwd: options.cwd,
+          timeout: options.timeoutMs,
+          maxBuffer: options.maxBytes ?? 16 * 1024 * 1024,
+          encoding: 'buffer',
+          windowsHide: true,
+          env: {
+            PATH: process.env.PATH,
+            SystemRoot: process.env.SystemRoot,
+            HOME: process.env.HOME,
+            USERPROFILE: process.env.USERPROFILE,
+            // The server's own outgoing trust (AFS_CA_FILE) and proxy, when it has them.
+            ...(process.env.GIT_SSL_CAINFO ? { GIT_SSL_CAINFO: process.env.GIT_SSL_CAINFO } : {}),
+            ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: this.emptyConfig,
+            // Never wait for someone to type: a fetch that needs a password fails at once.
+            GIT_TERMINAL_PROMPT: '0',
+            GIT_ASKPASS: '',
+            SSH_ASKPASS: '',
+            GCM_INTERACTIVE: 'never',
+            GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=20',
+            GIT_ALLOW_PROTOCOL: this.options.allowLocal ? 'https:ssh:file' : 'https:ssh',
+            LC_ALL: 'C',
+          } as NodeJS.ProcessEnv,
+        },
+        (error, stdout, stderr) => {
+          if (!error) return resolve(stdout);
+          if ((error as { code?: string }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')
+            return reject(new GitError('Git gave more than was asked for', 'maxBuffer'));
+          const said = scrub(stderr.toString('utf8'));
+          const timedOut = (error as { killed?: boolean }).killed === true;
+          reject(
+            new GitError(
+              timedOut
+                ? `Git did not finish in ${Math.round(options.timeoutMs / 1000)} seconds`
+                : (said.split('\n').filter(Boolean).at(-1) ?? 'Git failed'),
+              said,
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  /**
+   * Brings a project's mirror up to date with every branch of `url`, and resolves with the
+   * commit `ref` is at. Rejects with a GitError that says why, in words fit for the project's
+   * page: the repository cannot be reached, the branch is not there.
+   */
+  async sync(projectId: string, url: string, ref: string): Promise<string> {
+    const problem = gitUrlProblem(url, this.options.allowLocal) ?? refProblem(ref);
+    if (problem) throw new GitError(problem);
+    const dir = this.mirror(projectId);
+    if (!existsSync(join(dir, 'HEAD')))
+      await this.run(['init', '--bare', '--quiet', dir], { timeoutMs: READ_TIMEOUT_MS });
+    // Branches only, exactly as the source has them: one deleted there is deleted here.
+    await this.run(
+      [
+        'fetch',
+        '--prune',
+        '--no-tags',
+        '--force',
+        '--quiet',
+        '--',
+        url,
+        '+refs/heads/*:refs/heads/*',
+      ],
+      { cwd: dir, timeoutMs: FETCH_TIMEOUT_MS },
+    );
+    try {
+      const out = await this.run(
+        ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}^{commit}`],
+        {
+          cwd: dir,
+          timeoutMs: READ_TIMEOUT_MS,
+        },
+      );
+      const commit = out.toString('utf8').trim();
+      if (!COMMIT.test(commit)) throw new Error('not a commit');
+      return commit;
+    } catch {
+      const branches = await this.branches(projectId).catch(() => []);
+      throw new GitError(
+        `The repository has no branch ${ref}${branches.length ? ` (it has ${branches.slice(0, 8).join(', ')})` : ''}`,
+      );
+    }
+  }
+
+  /** The branches the mirror has. */
+  async branches(projectId: string): Promise<string[]> {
+    const out = await this.run(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return out.toString('utf8').split('\n').filter(Boolean).sort();
+  }
+
+  /** The paths of every file at a commit, with forward slashes. */
+  async files(projectId: string, commit: string): Promise<string[]> {
+    if (!COMMIT.test(commit)) throw new GitError('Not a commit');
+    const out = await this.run(['ls-tree', '-r', '-z', '--name-only', commit], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+      maxBytes: 64 * 1024 * 1024,
+    });
+    return out.toString('utf8').split('\0').filter(Boolean);
+  }
+
+  /** A file's bytes at a commit; undefined when the commit has no such file. */
+  async read(projectId: string, commit: string, path: string): Promise<Buffer | undefined> {
+    if (!COMMIT.test(commit)) throw new GitError('Not a commit');
+    // A path names a file inside the repository: nothing that leaves it or reads as a revision.
+    if (!path || path.startsWith('/') || path.includes('\0') || path.split('/').includes('..'))
+      throw new GitError('Not a path inside the repository');
+    try {
+      return await this.run(['cat-file', 'blob', `${commit}:${path}`], {
+        cwd: this.mirror(projectId),
+        timeoutMs: READ_TIMEOUT_MS,
+        maxBytes: MAX_FILE_BYTES,
+      });
+    } catch (e) {
+      if (e instanceof GitError && /maxBuffer/i.test(e.detail + e.message))
+        throw new GitError(`The file is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`);
+      return undefined;
+    }
+  }
+
+  /** A commit's author, time and first line. */
+  async commitInfo(
+    projectId: string,
+    commit: string,
+  ): Promise<{ author: string; at: string; subject: string }> {
+    if (!COMMIT.test(commit)) throw new GitError('Not a commit');
+    const out = await this.run(['show', '--no-patch', '--format=%an%x00%aI%x00%s', commit], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    const [author = '', at = '', subject = ''] = out.toString('utf8').trim().split('\0');
+    return { author, at, subject };
+  }
+}

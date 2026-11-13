@@ -220,6 +220,7 @@ describe('the cert commands', () => {
     port: 8443,
     tls: 'on',
     trustedProxies: [],
+    gitLocal: false,
     dataDir: dir,
     database: { kind: 'sqlite', file: ':memory:' },
     log: { level: 'info', format: 'text' },

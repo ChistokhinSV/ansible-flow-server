@@ -61,8 +61,50 @@ export interface SessionTable {
   user_agent: string | null;
 }
 
+/** A team's space: its projects, and later its credentials and who may do what in it. */
+export interface WorkspaceTable {
+  id: string;
+  /** Its short name in addresses; lower case, unique. */
+  key: string;
+  name: string;
+  description: string | null;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
+/** How a project's mirror stands against its source. */
+export type SyncState = 'never' | 'ok' | 'error';
+
+/** A git repository whose flows the server runs. */
+export interface ProjectTable {
+  id: string;
+  workspace_id: string;
+  /** Its short name in addresses; unique in its workspace. */
+  key: string;
+  name: string;
+  /** Where the repository is fetched from. Never holds a password. */
+  git_url: string;
+  /** The branch whose commits may run. */
+  git_ref: string;
+  /** The commit that branch was at when the mirror was last brought up to date. */
+  commit_id: string | null;
+  sync_state: SyncState;
+  /** Why the last attempt failed, in words for the project's page. */
+  sync_error: string | null;
+  /** When the source was last asked, whether it answered or not. */
+  synced_at: IsoTime | null;
+  /** Ask the source this often, in seconds; 0: only when told to. */
+  poll_seconds: number;
+  /** SHA-256 of the token a push hook must show; null: no hook. */
+  hook_token_hash: string | null;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
 export interface Schema {
   setting: SettingTable;
+  workspace: WorkspaceTable;
+  project: ProjectTable;
   user_account: UserAccountTable;
   user_group: UserGroupTable;
   group_member: GroupMemberTable;

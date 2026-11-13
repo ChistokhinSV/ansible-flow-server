@@ -87,6 +87,12 @@ describe('the HTTPS settings', () => {
     expect(publicHost(loadConfig({}))).toBeUndefined();
   });
 
+  it('a repository on this machine is allowed only when asked', () => {
+    expect(loadConfig({}).gitLocal).toBe(false);
+    expect(loadConfig({ AFS_GIT_LOCAL: 'on' }).gitLocal).toBe(true);
+    expect(() => loadConfig({ AFS_GIT_LOCAL: 'yes' })).toThrow(ConfigError);
+  });
+
   it('behind a proxy: the proxies whose word is taken', () => {
     const config = loadConfig({ AFS_TLS: 'off', AFS_TRUSTED_PROXIES: '127.0.0.1, 10.0.0.0/8' });
     expect(config.trustedProxies).toEqual(['127.0.0.1', '10.0.0.0/8']);

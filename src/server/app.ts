@@ -6,6 +6,7 @@ import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
+import { type ProjectDeps, registerProjects } from './projects/routes';
 
 export interface AppDeps {
   log: Logger;
@@ -21,6 +22,8 @@ export interface AppDeps {
   trustedProxies?: string[];
   /** Mark the session cookie for HTTPS only. Default: when the server speaks HTTPS itself. */
   secureCookies?: boolean;
+  /** Workspaces and projects: the mirrors and what keeps them up to date. */
+  projects?: Omit<ProjectDeps, 'db'>;
 }
 
 export interface MetaReply extends ServerMeta {
@@ -65,6 +68,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // Behind a proxy the server itself speaks plain HTTP, but people reach it over HTTPS.
     secureCookies: deps.secureCookies ?? !!deps.https,
   });
+
+  if (deps.projects) registerProjects(app, { db: deps.database.db, ...deps.projects });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

@@ -27,7 +27,9 @@ export interface Config {
   trustedProxies: string[];
   /** A file of certificate authorities the server also trusts when it connects out. */
   caFile?: string;
-  /** Where the server keeps what it owns: the SQLite database, its certificate, later runs. */
+  /** A project's repository may be a folder of this machine. Default: no. */
+  gitLocal: boolean;
+  /** Where the server keeps what it owns: the SQLite database, its certificate, the mirrors. */
   dataDir: string;
   database: { kind: 'sqlite'; file: string } | { kind: 'postgres'; url: string };
   log: { level: LogLevel; format: 'text' | 'json' };
@@ -108,6 +110,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       problems.push(`AFS_TRUSTED_PROXIES has "${proxy}": use addresses or networks (10.0.0.0/8)`);
 
   const caFile = text('AFS_CA_FILE');
+  const localText = (text('AFS_GIT_LOCAL') ?? 'off').toLowerCase();
+  if (localText !== 'on' && localText !== 'off')
+    problems.push(`AFS_GIT_LOCAL is "${localText}": use on or off`);
   const dataDir = resolve(text('AFS_DATA_DIR') ?? 'data');
 
   let database: Config['database'] = { kind: 'sqlite', file: join(dataDir, 'afs.db') };
@@ -147,6 +152,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ...(publicUrl ? { publicUrl } : {}),
     trustedProxies,
     ...(caFile ? { caFile: resolve(caFile) } : {}),
+    gitLocal: localText === 'on',
     dataDir,
     database,
     log: { level: level as LogLevel, format: format as 'text' | 'json' },
