@@ -9,6 +9,7 @@ import tls from 'node:tls';
 import { buildApp } from './app';
 import { sweepSessions } from './auth/sessions';
 import { setupCode } from './auth/setup';
+import { sweepTokens } from './auth/tokens';
 import { type Config, publicHost, withoutPassword } from './config';
 import { openDatabase } from './db/database';
 import { migrate } from './db/migrations';
@@ -179,7 +180,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       );
     sweep = setInterval(
       () =>
-        void sweepSessions(database.db).catch((e) =>
+        void Promise.all([sweepSessions(database.db), sweepTokens(database.db)]).catch((e) =>
           log.warn({ err: e }, 'Ended sessions were not removed'),
         ),
       60 * 60 * 1000,

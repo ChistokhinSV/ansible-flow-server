@@ -106,6 +106,26 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute();
     },
   },
+  // AFS-57: personal access tokens.
+  '0004_tokens': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('api_token')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('user_id', 'text', (c) =>
+          c.notNull().references('user_account.id').onDelete('cascade'),
+        )
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('token_hash', 'text', (c) => c.notNull().unique())
+        .addColumn('hint', 'text', (c) => c.notNull())
+        .addColumn('read_only', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('last_used_at', 'text')
+        .addColumn('expires_at', 'text')
+        .execute();
+      await db.schema.createIndex('api_token_user').on('api_token').column('user_id').execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

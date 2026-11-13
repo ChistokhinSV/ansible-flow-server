@@ -5,6 +5,7 @@
 //   user password <login>
 //   user enable <login> | user disable <login>
 //   user admin <login> on|off
+//   user token <login> [--name <name>] [--days <days>] [--read-only]
 // A password is read from the terminal without showing it, or from the input when that is a
 // pipe; it is never an argument, so it is in no shell history and no process list.
 import { createInterface } from 'node:readline';
@@ -12,6 +13,7 @@ import { Writable } from 'node:stream';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { passwordProblem } from './passwords';
+import { createToken } from './tokens';
 import { accountByLogin, createUser, listUsers, setPassword, UserError, updateUser } from './users';
 
 /** Reads a password: typed unseen at a terminal, or the first line of piped input. */
@@ -64,7 +66,7 @@ function flag(args: string[], name: string): boolean {
 }
 
 const USAGE =
-  'Use: user list | add <login> [--name N] [--email E] [--admin] | password <login> | enable <login> | disable <login> | admin <login> on|off';
+  'Use: user list | add <login> [--name N] [--email E] [--admin] | password <login> | enable <login> | disable <login> | admin <login> on|off | token <login> [--name N] [--days D] [--read-only]';
 
 /** Runs a `user` command; resolves with the process's exit code. */
 export async function userCommand(
@@ -137,6 +139,19 @@ export async function userCommand(
         }
         const user = await updateUser(db, await idOf(rest[0]), { admin: rest[1] === 'on' });
         print(`${user.login} is ${user.admin ? 'an administrator' : 'not an administrator'}.`);
+        return 0;
+      }
+      case 'token': {
+        const name = option(rest, '--name') ?? 'made on the server';
+        const days = option(rest, '--days');
+        const readOnly = flag(rest, '--read-only');
+        const made = await createToken(db, await idOf(rest[0]), {
+          name,
+          ...(days ? { days: Number(days) } : {}),
+          readOnly,
+        });
+        // The one line a script reads: the token, and nothing else on it.
+        print(made.token);
         return 0;
       }
       default:

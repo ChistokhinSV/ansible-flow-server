@@ -238,6 +238,7 @@ export async function deleteUser(db: Db, id: string): Promise<void> {
       throw new UserError('last_admin', 'This is the only administrator: make another one first');
     // Named here as well as in the schema: SQLite keeps its word only with foreign keys on.
     await trx.deleteFrom('session').where('user_id', '=', id).execute();
+    await trx.deleteFrom('api_token').where('user_id', '=', id).execute();
     await trx.deleteFrom('group_member').where('user_id', '=', id).execute();
     await trx.deleteFrom('user_account').where('id', '=', id).execute();
   });

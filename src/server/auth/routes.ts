@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { administrator, inSession, signedIn } from './guards';
 import { FailureLimiter } from './limiter';
 import { PASSWORD_MAX, passwordProblem, verifyPassword } from './passwords';
 import {
@@ -17,6 +18,15 @@ import {
   tokenOf,
 } from './sessions';
 import { createFirstAdmin, setupNeeded } from './setup';
+import {
+  createToken,
+  listTokens,
+  looksLikeToken,
+  revokeToken,
+  TOKEN_MAX_DAYS,
+  tokenOfHeader,
+  tokenUser,
+} from './tokens';
 import {
   accountByLogin,
   createGroup,
@@ -74,6 +84,21 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
   app.decorateRequest('user', undefined);
   app.decorateRequest('sessionToken', undefined);
 
+  /** 429 with how long to wait, when this login or this address has failed too often. */
+  const tooMany = (reply: FastifyReply, ...waits: number[]) => {
+    const wait = Math.max(...waits);
+    if (wait <= 0) return false;
+    reply
+      .code(429)
+      .header('retry-after', String(wait))
+      .send({
+        error: 'too_many_attempts',
+        message: `Too many wrong attempts: try again in ${Math.ceil(wait / 60)} minutes`,
+        retryAfter: wait,
+      });
+    return true;
+  };
+
   app.addHook('onRequest', async (request, reply) => {
     // A request that changes something must come from this server's own pages, not from another
     // site's: browsers name the page's origin, and it has to be the address that was asked.
@@ -93,21 +118,23 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       request.user = await sessionUser(db, token);
       if (request.user) request.sessionToken = token;
     }
+    // No session: a personal access token, as a bearer or as the password git sends.
+    const access = request.user ? undefined : tokenOfHeader(request.headers.authorization);
+    if (access && looksLikeToken(access)) {
+      const address = `ip:${request.ip}`;
+      if (tooMany(reply, byAddress.retryAfter(address))) return reply;
+      request.user = await tokenUser(db, access);
+      // A token that is not one counts as a wrong attempt: it must not be guessable.
+      if (!request.user) {
+        byAddress.fail(address);
+        return reply
+          .code(401)
+          .send({ error: 'unauthorized', message: 'The token is not valid, or is past its end' });
+      }
+    }
     return undefined;
   });
 
-  const signedIn = (request: FastifyRequest, reply: FastifyReply): SessionUser | undefined => {
-    if (request.user) return request.user;
-    reply.code(401).send({ error: 'unauthorized', message: 'Sign in first' });
-    return undefined;
-  };
-  const administrator = (request: FastifyRequest, reply: FastifyReply): SessionUser | undefined => {
-    const user = signedIn(request, reply);
-    if (!user) return undefined;
-    if (user.admin) return user;
-    reply.code(403).send({ error: 'forbidden', message: 'Only an administrator may do this' });
-    return undefined;
-  };
   /** Runs a handler; what the rules refuse becomes its HTTP answer. */
   const answering =
     <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
@@ -127,21 +154,6 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     });
     reply.header('set-cookie', sessionCookie(token, deps.secureCookies));
   };
-  /** 429 with how long to wait, when this login or this address has failed too often. */
-  const tooMany = (reply: FastifyReply, ...waits: number[]) => {
-    const wait = Math.max(...waits);
-    if (wait <= 0) return false;
-    reply
-      .code(429)
-      .header('retry-after', String(wait))
-      .send({
-        error: 'too_many_attempts',
-        message: `Too many wrong attempts: try again in ${Math.ceil(wait / 60)} minutes`,
-        retryAfter: wait,
-      });
-    return true;
-  };
-
   // --- the first administrator
 
   app.get('/api/v1/setup', async () => ({ needed: await setupNeeded(db) }));
@@ -226,7 +238,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       }),
     },
     answering(async (request, reply) => {
-      const me = signedIn(request, reply);
+      const me = inSession(request, reply);
       if (!me) return reply;
       const key = `login:${me.login}`;
       if (tooMany(reply, byLogin.retryAfter(key))) return reply;
@@ -244,6 +256,80 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       request.log.info({ login: me.login }, 'Password changed');
       return reply.code(204).send();
     }),
+  );
+
+  // --- my tokens
+
+  app.get('/api/v1/tokens', async (request, reply) => {
+    const me = signedIn(request, reply);
+    return me ? listTokens(db, me.id) : reply;
+  });
+
+  app.post<{ Body: { name: string; expiresInDays?: number; readOnly?: boolean } }>(
+    '/api/v1/tokens',
+    {
+      schema: body(['name'], {
+        name: text(100, 1),
+        expiresInDays: { type: 'integer', minimum: 1, maximum: TOKEN_MAX_DAYS },
+        readOnly: { type: 'boolean' },
+      }),
+    },
+    answering(async (request, reply) => {
+      // Not with a token: a token that leaked must not be able to make itself a successor.
+      const me = inSession(request, reply);
+      if (!me) return reply;
+      const made = await createToken(db, me.id, {
+        name: request.body.name,
+        days: request.body.expiresInDays,
+        readOnly: request.body.readOnly,
+      });
+      request.log.info({ login: me.login, name: made.info.name }, 'Access token made');
+      // The token is in this answer and nowhere else, ever.
+      return reply.code(201).send({ ...made.info, token: made.token });
+    }),
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/api/v1/tokens/:id',
+    { schema: ID },
+    async (request, reply) => {
+      const me = inSession(request, reply);
+      if (!me) return reply;
+      if (!(await revokeToken(db, me.id, request.params.id)))
+        return reply.code(404).send({ error: 'not_found', message: 'No such token' });
+      request.log.info({ login: me.login }, 'Access token revoked');
+      return reply.code(204).send();
+    },
+  );
+
+  // --- other people's tokens (administrators): seen and revoked, never made
+
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/users/:id/tokens',
+    { schema: ID },
+    async (request, reply) =>
+      administrator(request, reply) ? listTokens(db, request.params.id) : reply,
+  );
+
+  app.delete<{ Params: { id: string; token: string } }>(
+    '/api/v1/users/:id/tokens/:token',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: { id: text(64, 1), token: text(64, 1) },
+          required: ['id', 'token'],
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      if (!(await revokeToken(db, request.params.id, request.params.token)))
+        return reply.code(404).send({ error: 'not_found', message: 'No such token' });
+      request.log.info({ by: me.login, user: request.params.id }, 'Access token revoked');
+      return reply.code(204).send();
+    },
   );
 
   // --- people (administrators)
@@ -330,7 +416,8 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     '/api/v1/users/:id/password',
     { schema: { ...ID, ...body(['password'], { password: text(PASSWORD_MAX, 1) }) } },
     answering(async (request, reply) => {
-      const me = administrator(request, reply);
+      // Not with a token: one that leaked must not be able to give anyone a password it knows.
+      const me = inSession(request, reply, true);
       if (!me) return reply;
       const user = await getUser(db, request.params.id);
       if (!user) throw new UserError('not_found', 'No such user');
