@@ -60,8 +60,11 @@ before), the relay's password and the webhook key.
 
 ## Consequences
 
-- Contacts are set by administrators (API, until the pages for people, AFS-56); a person cannot
-  set their own webhook, which would let them make the server call any address.
+- Everyone sets their own name and email address (My account, `PATCH /api/v1/session`, with a
+  session: a token that leaked must not send someone's mail elsewhere). A webhook is set only by
+  an administrator (product owner, 2026-11-13): it would let anyone make the server call any
+  address. Administrators set their own on My account, others' over the API until the pages
+  for people (AFS-56).
 - One payload shape for all receivers; a receiver that wants another shape (Teams cards, a
   Slack app with buttons) is a channel of its own.
 - Messages go out from the server that wrote them or any other on the same database; a server

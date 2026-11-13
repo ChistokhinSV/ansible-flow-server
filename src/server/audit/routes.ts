@@ -34,6 +34,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/setup': { action: 'user.setup', id: 'reply' },
   'POST /api/v1/session': { action: 'session.sign-in', id: 'reply' },
   'DELETE /api/v1/session': { action: 'session.sign-out', id: 'actor' },
+  'PATCH /api/v1/session': { action: 'user.profile-change', id: 'actor' },
   'PUT /api/v1/session/password': { action: 'user.password-change', id: 'actor' },
   'POST /api/v1/tokens': { action: 'token.create', id: 'reply' },
   'DELETE /api/v1/tokens/:id': { action: 'token.revoke', id: at() },

@@ -278,8 +278,10 @@ export function NotificationsPage() {
             </p>
           )}
           <p className="muted">
-            People and groups are told at the email address and webhook their account has (set by an
-            administrator over the API); a group without either is told through its members.
+            People and groups are told at the email address and webhook their account has. Everyone
+            sets their own email address on My account; webhooks are set by administrators (their
+            own on My account, others' over the API). A group without either is told through its
+            members.
           </p>
           <div className="columns">
             <section className="panel" aria-labelledby="mail">

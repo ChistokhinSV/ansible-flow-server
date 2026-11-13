@@ -37,6 +37,7 @@ Nothing is released yet.
 - Notifications by email and webhook. See [Notifications](README.md#notifications).
   - Approvers are asked when a run waits for them; who launched a run is told when its approval is approved, rejected or times out; the approval's `notify` list is told of both.
   - A launch configuration can tell people and groups when its runs fail, or whenever they end.
+  - Everyone sets their own email address on My account; webhooks are set by administrators.
   - Administrators are told as the server certificate nears its end (30, 14, 7, 3 and 1 days before, and once it has ended).
   - Email through a mail server set on the new Notifications page; its password is kept encrypted. Webhooks get the event as JSON with a `text` line for chat tools, signed with a key administrators make.
   - Messages are tried again when the mail server or receiver is busy or unreachable, survive a restart, and are listed in a delivery log with Try again. A message never holds a run's inputs or a secret.

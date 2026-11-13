@@ -215,19 +215,20 @@ or, on the server's machine, with no code and the password typed unseen:
 just user add dana --name "Dana Whitfield" --admin
 ```
 
-| Address (under `/api/v1`)                                  | Does                                         | Who                               |
-| ---------------------------------------------------------- | -------------------------------------------- | --------------------------------- |
-| `POST /session`                                            | Sign in with `{"login","password"}`          | anyone                            |
-| `GET /session`                                             | Who am I, with my groups                     | signed in                         |
-| `DELETE /session`                                          | Sign out                                     | anyone                            |
-| `PUT /session/password`                                    | Change my password: `{"current","password"}` | signed in                         |
-| `GET /tokens`, `POST /tokens`                              | My access tokens; make one (shown once)      | signed in; making needs a session |
-| `DELETE /tokens/:id`                                       | Revoke one of my tokens                      | signed in, with a session         |
-| `/users`, `/users/:id`                                     | List, add, change, disable, delete people    | administrators                    |
-| `PUT /users/:id/password`                                  | Set someone's password                       | administrators                    |
-| `GET /users/:id/tokens`, `DELETE /users/:id/tokens/:token` | See and revoke someone's tokens              | administrators                    |
-| `/groups`, `/groups/:id`                                   | List, add, change, delete groups             | administrators                    |
-| `PUT /groups/:id/members`                                  | Set a group's members: `{"users":[ids]}`     | administrators                    |
+| Address (under `/api/v1`)                                  | Does                                                                | Who                               |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------- |
+| `POST /session`                                            | Sign in with `{"login","password"}`                                 | anyone                            |
+| `GET /session`                                             | Who am I, with my groups                                            | signed in                         |
+| `DELETE /session`                                          | Sign out                                                            | anyone                            |
+| `PUT /session/password`                                    | Change my password: `{"current","password"}`                        | signed in                         |
+| `PATCH /session`                                           | Change my `name` and `email`; `webhookUrl` only as an administrator | session (not a token)             |
+| `GET /tokens`, `POST /tokens`                              | My access tokens; make one (shown once)                             | signed in; making needs a session |
+| `DELETE /tokens/:id`                                       | Revoke one of my tokens                                             | signed in, with a session         |
+| `/users`, `/users/:id`                                     | List, add, change, disable, delete people                           | administrators                    |
+| `PUT /users/:id/password`                                  | Set someone's password                                              | administrators                    |
+| `GET /users/:id/tokens`, `DELETE /users/:id/tokens/:token` | See and revoke someone's tokens                                     | administrators                    |
+| `/groups`, `/groups/:id`                                   | List, add, change, delete groups                                    | administrators                    |
+| `PUT /groups/:id/members`                                  | Set a group's members: `{"users":[ids]}`                            | administrators                    |
 
 - A password has at least 12 characters and is kept only as an argon2id hash.
 - A session lasts 8 hours without use and 7 days at most. Its cookie is not readable by scripts
@@ -384,7 +385,7 @@ setup code from its log); after that, sign-in.
 | `/runs/<id>`                           | One run: what ran, its approvals, the run on the canvas, its output; Stop and Run again     |
 | `/approvals`                           | What waits for a decision: yours to decide (with a comment), and others' with why not       |
 | `/docs/api`                            | The API reference, from the server's OpenAPI document                                       |
-| `/account`                             | Your access tokens: make (shown once; for all workspaces or one), list, revoke              |
+| `/account`                             | Your profile (name, email address; webhook for administrators) and access tokens            |
 | `/admin`                               | Administration: the audit log; people, groups and the certificate are not built yet         |
 | `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON              |
 | `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                  |
@@ -843,8 +844,10 @@ A launch configuration says whom its runs tell (`notify`, see
 | `POST /notifications/webhook-key` | A new signing key, in this answer only; the old one stops working           | administrator session |
 | `POST /notifications/test`        | Send a test now (`channel`, `to`; no `to`: your own address); tried once    | administrators        |
 
-A person's or group's email address and webhook are set by an administrator
-(`PATCH /api/v1/users/<id>`, `PATCH /api/v1/groups/<id>`: `email`, `webhookUrl`).
+Everyone sets their own email address on **My account** (`/account`, or `PATCH /api/v1/session`
+with a session). A webhook is set only by an administrator (the server calls the address it is
+given): their own on **My account**, anyone's with `PATCH /api/v1/users/<id>`, a group's with
+`PATCH /api/v1/groups/<id>` (`email`, `webhookUrl`).
 
 ### The audit log
 

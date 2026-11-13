@@ -76,6 +76,11 @@ export const ROUTES: Record<string, RouteDoc> = {
   'POST /api/v1/session': S('Session', 'anyone', 'anyone')('Sign in with a login and password'),
   'GET /api/v1/session': S('Session', 'signed in', 'self')('Who is signed in'),
   'DELETE /api/v1/session': S('Session', 'anyone', 'self')('Sign out'),
+  'PATCH /api/v1/session': S(
+    'Session',
+    'session',
+    'self',
+  )('Change your own name and email address; a webhook only as an administrator'),
   'PUT /api/v1/session/password': S('Session', 'session', 'self')('Change your own password'),
 
   'GET /api/v1/tokens': S('Tokens', 'signed in', 'self')('Your access tokens'),

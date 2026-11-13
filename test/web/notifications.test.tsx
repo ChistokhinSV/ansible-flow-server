@@ -106,3 +106,58 @@ describe('the Notifications page', () => {
     await waitFor(() => expect(screen.getByText('being tried')).toBeTruthy());
   });
 });
+
+describe('the profile on My account', () => {
+  const omar = {
+    id: 'u2',
+    login: 'omar',
+    name: 'Omar Haddad',
+    admin: false,
+    groups: [],
+    email: 'omar@example.net',
+    webhookUrl: 'https://hooks.example.net/services/T000/secret',
+  };
+  const shared = (me: object) => ({
+    'GET /session': () => ({ body: me }),
+    'GET /tokens': () => ({ body: [] }),
+    'GET /workspaces': () => ({ body: [] }),
+    'PATCH /session': (body?: unknown) => ({ body: { ...me, ...(body as object) } }),
+  });
+
+  it('a person changes their own email; their webhook is shown by its host, set by an administrator', async () => {
+    routes = shared(omar);
+    window.history.replaceState(null, '', '/account');
+    render(<App />);
+    const profile = (await screen.findByRole('heading', { name: 'Profile' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(within(profile).getByText('https://hooks.example.net/…')).toBeTruthy();
+    expect(within(profile).queryByLabelText('Webhook')).toBeNull();
+    expect(profile.textContent).not.toContain('secret');
+    fireEvent.change(within(profile).getByLabelText('Email address'), {
+      target: { value: 'omar.haddad@example.net' },
+    });
+    fireEvent.click(within(profile).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(asked.find((a) => a.key === 'PATCH /session')?.body).toEqual({
+        name: 'Omar Haddad',
+        email: 'omar.haddad@example.net',
+      }),
+    );
+    expect(await within(profile).findByText('Saved.')).toBeTruthy();
+  });
+
+  it('an administrator sets their webhook there too', async () => {
+    routes = shared({ ...dana, email: 'dana@example.net' });
+    window.history.replaceState(null, '', '/account');
+    render(<App />);
+    const field = await screen.findByLabelText('Webhook');
+    fireEvent.change(field, { target: { value: 'https://hooks.example.net/dana' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(asked.find((a) => a.key === 'PATCH /session')?.body).toMatchObject({
+        webhookUrl: 'https://hooks.example.net/dana',
+      }),
+    );
+  });
+});

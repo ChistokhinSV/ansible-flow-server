@@ -506,6 +506,69 @@ for (const [name, config] of databases) {
         expect(bad.json()).toMatchObject({ error: 'invalid', field: 'from' });
       });
 
+      it('anyone changes their own email address; a webhook only an administrator; not with a token', async () => {
+        const mine = await app.inject({
+          method: 'PATCH',
+          url: '/api/v1/session',
+          headers: { cookie: member },
+          payload: { email: 'omar.haddad@example.net' },
+        });
+        expect(mine.json()).toMatchObject({ login: 'omar', email: 'omar.haddad@example.net' });
+        const hook = await app.inject({
+          method: 'PATCH',
+          url: '/api/v1/session',
+          headers: { cookie: member },
+          payload: { webhookUrl: 'https://hooks.example.net/mine' },
+        });
+        expect(hook.statusCode).toBe(403);
+        expect(
+          (
+            await app.inject({
+              method: 'PATCH',
+              url: '/api/v1/session',
+              headers: { authorization: `Bearer ${adminToken}` },
+              payload: { email: 'elsewhere@example.net' },
+            })
+          ).statusCode,
+        ).toBe(403);
+        expect(
+          (
+            await app.inject({
+              method: 'PATCH',
+              url: '/api/v1/session',
+              headers: { cookie: member },
+              payload: { email: 'not an address' },
+            })
+          ).statusCode,
+        ).toBe(400);
+        const admins = await app.inject({
+          method: 'PATCH',
+          url: '/api/v1/session',
+          headers: { cookie: admin },
+          payload: { webhookUrl: `${receiver.url}/ok/dana-secret` },
+        });
+        expect(admins.json().webhookUrl).toBe(`${receiver.url}/ok/dana-secret`);
+        // Entries of one millisecond have no order between them: the administrator's, by actor.
+        const entry = (await listAudit(db(), { action: 'user.profile-change' })).entries.find(
+          (e) => e.actor?.login === 'dana' && e.result === 'ok',
+        );
+        expect(entry?.detail).toMatchObject({ changed: ['webhookUrl'] });
+        expect(JSON.stringify(entry)).not.toContain('dana-secret');
+        // Put back as the other tests expect.
+        await app.inject({
+          method: 'PATCH',
+          url: '/api/v1/session',
+          headers: { cookie: member },
+          payload: { email: 'omar@example.net' },
+        });
+        await app.inject({
+          method: 'PATCH',
+          url: '/api/v1/session',
+          headers: { cookie: admin },
+          payload: { webhookUrl: null },
+        });
+      });
+
       it('a webhook key is shown once; a test goes out at once and says how it went', async () => {
         const made = await app.inject({
           method: 'POST',

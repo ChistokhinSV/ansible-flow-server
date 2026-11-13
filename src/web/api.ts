@@ -145,6 +145,8 @@ export const api = {
   me: () => call<User>('GET', '/session'),
   signIn: (login: string, password: string) => call<User>('POST', '/session', { login, password }),
   signOut: () => call<void>('DELETE', '/session'),
+  changeMe: (input: { name?: string; email?: string | null; webhookUrl?: string | null }) =>
+    call<User>('PATCH', '/session', input),
 
   workspaces: () => call<Workspace[]>('GET', '/workspaces'),
   workspace: (key: string) => call<Workspace>('GET', `/workspaces/${encodeURIComponent(key)}`),
