@@ -14,8 +14,8 @@ own code, with who may run what, who must approve, and a record of every run.
 ## Status
 
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
-(SQLite or PostgreSQL), answers health checks and says what it is; it can read and check flow
-files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
+(SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, answers
+health checks and says what it is; it can read and check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
 
 | Planned for 1.0                                                            | State   |
@@ -65,7 +65,8 @@ just start
 ```text
 [09:44:37 13.11.2026] INFO  Ansible Flow Server starts version=0.1.0 designer=0.85.0
 [09:44:37 13.11.2026] INFO  Database ready kind=sqlite where=/srv/flow-server/data/afs.db changes=1
-[09:44:37 13.11.2026] INFO  Server listening at http://127.0.0.1:8080
+[09:44:37 13.11.2026] INFO  Server certificate subject="CN=127.0.0.1" names=127.0.0.1,localhost expires=2027-11-13T08:44:37.000Z source=self-signed
+[09:44:37 13.11.2026] INFO  Server listening at https://127.0.0.1:8443
 ```
 
 | Address        | Answers                                                                         |
@@ -75,7 +76,7 @@ just start
 | `/api/v1/meta` | The server's version, the designer version it is built on, the installation id  |
 
 ```sh
-curl http://127.0.0.1:8080/api/v1/meta
+curl --insecure https://127.0.0.1:8443/api/v1/meta
 ```
 
 ```json
@@ -110,15 +111,20 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting            | Default         | Meaning                                                                |
-| ------------------ | --------------- | ---------------------------------------------------------------------- |
-| `AFS_HOST`         | `127.0.0.1`     | The address to listen on; `0.0.0.0` for every interface                |
-| `AFS_PORT`         | `8080`          | The port                                                               |
-| `AFS_DATA_DIR`     | `data`          | Where the server keeps what it owns                                    |
-| `AFS_DATABASE_URL` | `sqlite:afs.db` | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…` |
-| `AFS_LOG_LEVEL`    | `info`          | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`         |
-| `AFS_LOG_FORMAT`   | `text`          | `text`, or `json` for one object a line                                |
-| `AFS_ENV_FILE`     | `.env`          | Another file to read the settings from                                 |
+| Setting               | Default         | Meaning                                                                |
+| --------------------- | --------------- | ---------------------------------------------------------------------- |
+| `AFS_HOST`            | `127.0.0.1`     | The address to listen on; `0.0.0.0` for every interface                |
+| `AFS_PORT`            | `8443`          | The port (`8080` with `AFS_TLS=off`)                                   |
+| `AFS_PUBLIC_URL`      | none            | The address people open, like `https://flows.example.net`              |
+| `AFS_HTTP_PORT`       | none            | A port that redirects plain HTTP to HTTPS                              |
+| `AFS_TLS`             | `on`            | `off` behind a proxy that does HTTPS                                   |
+| `AFS_TRUSTED_PROXIES` | none            | With `AFS_TLS=off`: proxies whose word is taken for who asked          |
+| `AFS_CA_FILE`         | none            | Certificate authorities of your network, for outgoing connections      |
+| `AFS_DATA_DIR`        | `data`          | Where the server keeps what it owns                                    |
+| `AFS_DATABASE_URL`    | `sqlite:afs.db` | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…` |
+| `AFS_LOG_LEVEL`       | `info`          | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`         |
+| `AFS_LOG_FORMAT`      | `text`          | `text`, or `json` for one object a line                                |
+| `AFS_ENV_FILE`        | `.env`          | Another file to read the settings from                                 |
 
 With PostgreSQL:
 
@@ -126,8 +132,48 @@ With PostgreSQL:
 AFS_DATABASE_URL=postgres://flows:CHANGE_ME@db.example.net:5432/flows just start
 ```
 
-The server speaks plain HTTP for now and listens on this machine only by default; HTTPS with
-certificate management is planned (AFS-11). Do not put it on a network before that.
+### HTTPS and the certificate
+
+The server speaks HTTPS itself. At its first start it makes a self-signed certificate, so nothing
+is ever sent in the clear; browsers warn about it until you install one from a certificate
+authority. The `--insecure` above is for that first certificate only.
+
+```sh
+just cert show
+just cert request flows.example.net --org "Example Ltd" --out flows.csr
+# have your certificate authority sign flows.csr, then (the chain may follow in the same file):
+just cert install flows.pem
+```
+
+```text
+Installed
+  Subject      CN=flows.example.net, O=Example Ltd
+  Names        flows.example.net
+  Issuer       CN=Example Issuing CA
+  Valid        2026-11-13T08:40:00.000Z to 2027-02-11T08:40:00.000Z (89 days left)
+  Fingerprint  4E:1B:…
+  Chain        1 more certificate
+A running server serves it to new connections from now on.
+```
+
+| Command                                | Does                                                                                         |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `cert show`                            | The certificate in use, the one before it, a waiting request                                 |
+| `cert request <names> [--org] [--out]` | A new key and a request to sign; the key stays with the server                               |
+| `cert install <file> [--key <file>]`   | Installs a certificate; without `--key` it answers the request, or renews for the key in use |
+| `cert self-signed [names]`             | A new self-signed certificate                                                                |
+| `cert rollback`                        | Back to the certificate that was in use before                                               |
+| `cert history`                         | Every change: when, what, by whom, which certificate                                         |
+
+- A certificate is checked before anything changes: its key belongs to it, it is valid now, its
+  chain is in order, and it is good for the host of `AFS_PUBLIC_URL`. Every problem is named.
+- A running server needs no restart: new connections get the new certificate within a moment.
+- The server warns in its log when the certificate has 30 days or fewer left.
+- Keys and certificates are in `<data folder>/tls`. Back that folder up with the rest.
+- Behind a proxy that does HTTPS: `AFS_TLS=off` and `AFS_TRUSTED_PROXIES`.
+
+Not there yet: the same actions in the web page and over the REST API (they need sign-in first),
+PFX files, and automatic certificates (ACME).
 
 ## Development
 
@@ -141,6 +187,7 @@ certificate management is planned (AFS-11). Do not put it on a network before th
 | `just build`               | Build the server into `dist/`                                                                    |
 | `just start`               | Build, then start the server                                                                     |
 | `just check-flows <files>` | Build, then read the given flow files                                                            |
+| `just cert <command>`      | Build, then run a certificate command                                                            |
 
 Layout:
 

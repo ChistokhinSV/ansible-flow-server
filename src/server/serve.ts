@@ -1,16 +1,37 @@
 // Starts the server and says how to stop it. main.ts calls it with the settings and stops it on a
 // signal; tests call it with their own.
+import { type FSWatcher, mkdirSync, readFileSync, watch } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import { isIP } from 'node:net';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
+import tls from 'node:tls';
 import { buildApp } from './app';
-import { type Config, withoutPassword } from './config';
+import { type Config, publicHost, withoutPassword } from './config';
 import { openDatabase } from './db/database';
 import { migrate } from './db/migrations';
 import { instanceId } from './db/settings';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
+import { type CertificateInfo, certificateProblems, certificatesOf } from './tls/certificates';
+import { CertificateStore } from './tls/store';
+
+/** A certificate this close to its end is warned about, at start and once a day. */
+export const EXPIRY_WARNING_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface RunningServer {
   /** The address it answers at, as a URL. */
   url: string;
+  /** With HTTPS and a redirect port: the plain HTTP address that redirects. */
+  redirectUrl?: string;
+  /** With HTTPS: the certificate new connections get now. */
+  certificate?(): CertificateInfo;
+  /**
+   * With HTTPS: reads the certificate from the store again and serves it to new connections.
+   * False when the stored pair is the one already served, or is not usable (it is logged).
+   */
+  reloadCertificate?(): boolean;
   /**
    * Stops it in order: no new requests, the ones in flight finish, the database is closed.
    * Resolves once all of it is done; a second call waits for the first.
@@ -18,12 +39,103 @@ export interface RunningServer {
   stop(why: string): Promise<void>;
 }
 
+/** Where the certificate is kept. */
+export const certificateStore = (config: Config) =>
+  new CertificateStore(join(config.dataDir, 'tls'));
+
+/**
+ * The names a self-signed certificate is made for: the public address's host when the settings
+ * name one, the address the server listens on, this machine's name, and localhost.
+ */
+export function selfSignedNames(config: Config): string[] {
+  const listen = /^(0\.0\.0\.0|::|)$/.test(config.host) ? undefined : config.host;
+  return [
+    ...new Set(
+      [publicHost(config), listen, hostname(), 'localhost', '127.0.0.1', '::1'].filter(
+        (name): name is string => !!name,
+      ),
+    ),
+  ];
+}
+
+/** `flows.example.net` or `[::1]`, with the port unless it is the default for HTTPS. */
+function httpsAuthority(host: string, port: number): string {
+  return `${isIP(host) === 6 ? `[${host}]` : host}${port === 443 ? '' : `:${port}`}`;
+}
+
+/**
+ * Plain HTTP beside HTTPS: every request is sent to the same address over HTTPS. Only this
+ * machine may ask /healthz without it, for a probe that has no certificate to trust.
+ */
+function redirectServer(config: Config, httpsPort: number): Server {
+  const known = config.publicUrl ? new URL(config.publicUrl).host : undefined;
+  return createServer((request, reply) => {
+    const local = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(
+      request.socket.remoteAddress ?? '',
+    );
+    if (local && request.url === '/healthz') {
+      reply.writeHead(200, { 'content-type': 'application/json' }).end('{"status":"ok"}');
+      return;
+    }
+    // The host comes from the settings when they name it; else from the request, and only when
+    // it reads as a host: the answer must not send anyone where a header says.
+    const asked = (request.headers.host ?? '').replace(/:\d+$/, '');
+    const host = /^(\[[0-9a-fA-F:]+\]|[A-Za-z0-9.-]+)$/.test(asked) ? asked : undefined;
+    const to =
+      known ?? (host ? httpsAuthority(host.replace(/^\[|\]$/g, ''), httpsPort) : undefined);
+    if (!to) {
+      reply.writeHead(400, { 'content-type': 'text/plain' }).end('Use HTTPS\n');
+      return;
+    }
+    reply.writeHead(308, { location: `https://${to}${request.url ?? '/'}` }).end();
+  });
+}
+
 /** Rejects when the server cannot start; whatever it had opened by then is closed again. */
 export async function startServer(config: Config, log: Logger): Promise<RunningServer> {
   const meta = serverMeta();
   log.info({ version: meta.version, designer: meta.designer.version }, `${meta.name} starts`);
+
+  if (config.caFile) {
+    // Authorities of an internal network, for what the server connects to (git, sign-in, mail).
+    const extra = certificatesOf(readFileSync(config.caFile, 'utf8'));
+    if (extra.length === 0) throw new Error(`AFS_CA_FILE has no certificate: ${config.caFile}`);
+    tls.setDefaultCACertificates([...tls.getCACertificates('default'), ...extra]);
+    log.info({ file: config.caFile, authorities: extra.length }, 'Also trusting the authorities');
+  }
+
+  const store = certificateStore(config);
+  let served =
+    config.tls === 'on' ? await store.ensure(selfSignedNames(config), { by: 'server' }) : undefined;
+  const warnOfExpiry = () => {
+    if (!served) return;
+    const { daysLeft, notAfter, subject } = served.info;
+    if (daysLeft < 0)
+      log.error({ subject, expired: notAfter }, 'The server certificate has expired');
+    else if (daysLeft <= EXPIRY_WARNING_DAYS)
+      log.warn(
+        { subject, expires: notAfter, days: daysLeft },
+        'The server certificate expires soon',
+      );
+  };
+  if (served) {
+    log.info(
+      {
+        subject: served.info.subject,
+        names: served.info.names.join(','),
+        expires: served.info.notAfter,
+        source: served.source,
+      },
+      'Server certificate',
+    );
+    warnOfExpiry();
+  }
+
   const database = openDatabase(config.database);
   let app: ReturnType<typeof buildApp> | undefined;
+  let redirect: Server | undefined;
+  let watcher: FSWatcher | undefined;
+  let daily: NodeJS.Timeout | undefined;
   try {
     await database.ping();
     const applied = await migrate(database.db as never);
@@ -38,15 +150,91 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
       'Database ready',
     );
-    app = buildApp({ log, database, instance: await instanceId(database.db) });
+    app = buildApp({
+      log,
+      database,
+      instance: await instanceId(database.db),
+      ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
+      trustedProxies: config.trustedProxies,
+    });
     const url = await app.listen({ host: config.host, port: config.port });
+    const running = app;
+
+    let reloadCertificate: (() => boolean) | undefined;
+    if (served) {
+      reloadCertificate = () => {
+        let next: ReturnType<CertificateStore['current']>;
+        try {
+          next = store.current();
+        } catch (e) {
+          log.error({ err: e }, 'The stored certificate cannot be read: the one in use stays');
+          return false;
+        }
+        if (!next || next.info.fingerprint === served?.info.fingerprint) return false;
+        // The store checks before it writes; this is for a file changed by hand.
+        const problems = certificateProblems(next);
+        if (problems.length) {
+          log.error(
+            { problems: problems.join('; ') },
+            'The stored certificate is not usable: the one in use stays',
+          );
+          return false;
+        }
+        (running.server as unknown as tls.Server).setSecureContext({
+          cert: next.certificate,
+          key: next.key,
+        });
+        served = next;
+        log.info(
+          { subject: next.info.subject, expires: next.info.notAfter, source: next.source },
+          'Server certificate replaced: new connections get it',
+        );
+        warnOfExpiry();
+        return true;
+      };
+      // A change made by the cert commands, or by another process, is picked up here. The folder
+      // is watched, not the file: the store replaces its files by renaming.
+      mkdirSync(join(config.dataDir, 'tls'), { recursive: true });
+      let timer: NodeJS.Timeout | undefined;
+      const reload = reloadCertificate;
+      watcher = watch(join(config.dataDir, 'tls'), () => {
+        clearTimeout(timer);
+        timer = setTimeout(reload, 300);
+      });
+      watcher.on('error', (e) => log.warn({ err: e }, 'The certificate folder is not watched'));
+      daily = setInterval(warnOfExpiry, DAY_MS);
+      daily.unref();
+    }
+
+    let redirectUrl: string | undefined;
+    if (config.httpPort && served) {
+      const listener = redirectServer(config, new URL(url).port ? Number(new URL(url).port) : 443);
+      redirect = listener;
+      await new Promise<void>((resolve, reject) => {
+        listener.once('error', reject);
+        listener.listen(config.httpPort, config.host, resolve);
+      });
+      const address = listener.address();
+      const port = typeof address === 'object' && address ? address.port : config.httpPort;
+      redirectUrl = `http://${httpsAuthority(config.host, port).replace(/:443$/, '')}`;
+      log.info({ port }, 'Plain HTTP redirects to HTTPS');
+    }
+
     let stopping: Promise<void> | undefined;
     return {
       url,
+      ...(redirectUrl ? { redirectUrl } : {}),
+      ...(served && reloadCertificate
+        ? { certificate: () => (served as NonNullable<typeof served>).info, reloadCertificate }
+        : {}),
       stop(why) {
         stopping ??= (async () => {
           log.info({ why }, 'Shutting down');
-          await app?.close();
+          watcher?.close();
+          clearInterval(daily);
+          redirect?.close();
+          redirect?.closeAllConnections();
+          await running.close();
           await database.close();
           log.info('Stopped');
         })();
@@ -54,6 +242,9 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
     };
   } catch (e) {
+    watcher?.close();
+    clearInterval(daily);
+    redirect?.close();
     await app?.close().catch(() => undefined);
     await database.close().catch(() => undefined);
     throw e;

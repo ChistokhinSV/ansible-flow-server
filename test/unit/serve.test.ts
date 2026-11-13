@@ -18,6 +18,9 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       host: '127.0.0.1',
       // Port 0: the system picks a free one.
       port: 0,
+      // Plain HTTP here: HTTPS has its own tests (https.test.ts).
+      tls: 'off',
+      trustedProxies: [],
       dataDir: dir,
       database: { kind: 'sqlite', file: join(dir, 'afs.db') },
       log: { level: 'info', format: 'text' },

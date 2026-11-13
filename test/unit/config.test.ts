@@ -1,12 +1,14 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig, withoutPassword } from '../../src/server/config';
+import { ConfigError, loadConfig, publicHost, withoutPassword } from '../../src/server/config';
 
 describe('loadConfig', () => {
-  it('with nothing set: this machine only, port 8080, SQLite in the data folder', () => {
+  it('with nothing set: this machine only, HTTPS on port 8443, SQLite in the data folder', () => {
     const config = loadConfig({});
     expect(config.host).toBe('127.0.0.1');
-    expect(config.port).toBe(8080);
+    expect(config.port).toBe(8443);
+    expect(config.tls).toBe('on');
+    expect(config.trustedProxies).toEqual([]);
     expect(isAbsolute(config.dataDir)).toBe(true);
     expect(config.database).toEqual({ kind: 'sqlite', file: join(config.dataDir, 'afs.db') });
     expect(config.log).toEqual({ level: 'info', format: 'text' });
@@ -62,6 +64,57 @@ describe('loadConfig', () => {
   it('a port out of range is a problem', () => {
     expect(() => loadConfig({ AFS_PORT: '0' })).toThrow(ConfigError);
     expect(() => loadConfig({ AFS_PORT: '70000' })).toThrow(ConfigError);
+  });
+});
+
+describe('the HTTPS settings', () => {
+  it('HTTPS is on unless turned off; the default port follows', () => {
+    expect(loadConfig({})).toMatchObject({ tls: 'on', port: 8443 });
+    expect(loadConfig({ AFS_TLS: 'off' })).toMatchObject({ tls: 'off', port: 8080 });
+    expect(loadConfig({ AFS_TLS: 'off', AFS_PORT: '9000' }).port).toBe(9000);
+  });
+
+  it('reads the public address, the redirect port and the authorities file', () => {
+    const config = loadConfig({
+      AFS_PUBLIC_URL: 'https://flows.example.net/',
+      AFS_HTTP_PORT: '8080',
+      AFS_CA_FILE: 'certs/internal-ca.pem',
+    });
+    expect(config.publicUrl).toBe('https://flows.example.net');
+    expect(publicHost(config)).toBe('flows.example.net');
+    expect(config.httpPort).toBe(8080);
+    expect(config.caFile).toBe(resolve('certs/internal-ca.pem'));
+    expect(publicHost(loadConfig({}))).toBeUndefined();
+  });
+
+  it('behind a proxy: the proxies whose word is taken', () => {
+    const config = loadConfig({ AFS_TLS: 'off', AFS_TRUSTED_PROXIES: '127.0.0.1, 10.0.0.0/8' });
+    expect(config.trustedProxies).toEqual(['127.0.0.1', '10.0.0.0/8']);
+  });
+
+  it('names what does not fit together', () => {
+    const problems = (env: Record<string, string>) => {
+      try {
+        loadConfig(env);
+        return [];
+      } catch (e) {
+        return (e as ConfigError).problems;
+      }
+    };
+    expect(problems({ AFS_TLS: 'maybe' })).toHaveLength(1);
+    expect(problems({ AFS_PUBLIC_URL: 'http://flows.example.net' }).join(' ')).toMatch(
+      /speaks HTTPS/,
+    );
+    expect(problems({ AFS_PUBLIC_URL: 'flows.example.net' }).join(' ')).toMatch(/AFS_PUBLIC_URL/);
+    expect(problems({ AFS_PUBLIC_URL: 'https://user:pw@flows.example.net' })).toHaveLength(1);
+    expect(problems({ AFS_TLS: 'off', AFS_HTTP_PORT: '8081' }).join(' ')).toMatch(
+      /no use with AFS_TLS=off/,
+    );
+    expect(problems({ AFS_PORT: '8443', AFS_HTTP_PORT: '8443' }).join(' ')).toMatch(/same port/);
+    expect(problems({ AFS_TRUSTED_PROXIES: '10.0.0.1' }).join(' ')).toMatch(/AFS_TLS=off/);
+    expect(
+      problems({ AFS_TLS: 'off', AFS_TRUSTED_PROXIES: 'proxy.example.net' }).join(' '),
+    ).toMatch(/addresses or networks/);
   });
 });
 

@@ -41,6 +41,10 @@ start: build
 check-flows *flows: build
     node dist/server.js check {{ flows }}
 
+# The server's certificate: `just cert show`, request, install, self-signed, rollback, history
+cert *args: build
+    node dist/server.js cert {{ args }}
+
 # Remove build output
 clean:
     node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"

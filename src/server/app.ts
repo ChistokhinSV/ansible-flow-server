@@ -11,6 +11,13 @@ export interface AppDeps {
   database: Database;
   /** This installation's id (db/settings.ts). */
   instance: string;
+  /** The certificate and key to speak HTTPS with; without them the server speaks plain HTTP. */
+  https?: { cert: string; key: string };
+  /**
+   * Proxies whose word is taken for who asked (X-Forwarded-For) and over what
+   * (X-Forwarded-Proto): only for a server behind a proxy that does HTTPS.
+   */
+  trustedProxies?: string[];
 }
 
 export interface MetaReply extends ServerMeta {
@@ -27,7 +34,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     bodyLimit: 1024 * 1024,
     // On shutdown: finish what is in flight, close the connections that are only kept alive.
     forceCloseConnections: 'idle',
-  });
+    ...(deps.https ? { https: deps.https } : {}),
+    ...(deps.trustedProxies?.length ? { trustProxy: deps.trustedProxies } : {}),
+    // The type of the instance differs with HTTPS; the rest of the server uses neither's own.
+  } as Parameters<typeof fastify>[0]) as unknown as FastifyInstance;
 
   // A request that is being answered when the server is asked to close is answered in full. Its
   // connection would then be kept alive, and the close would wait for it until it timed out
