@@ -16,7 +16,8 @@ own code, with who may run what, who must approve, and a record of every run.
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
 users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
-repositories and is itself the git address of every project (clone, fetch, push), answers health checks and says what it is; it can read and
+repositories and is itself the git address of every project (clone, fetch, push), has web pages to sign
+in and look at workspaces and projects, answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
 
@@ -71,6 +72,8 @@ just start
 [09:44:37 13.11.2026] INFO  Server certificate subject="CN=127.0.0.1" names=127.0.0.1,localhost expires=2027-11-13T08:44:37.000Z source=self-signed
 [09:44:37 13.11.2026] INFO  Server listening at https://127.0.0.1:8443
 ```
+
+Open the address in a browser for the pages (see [The web pages](#the-web-pages)).
 
 | Address        | Answers                                                                         |
 | -------------- | ------------------------------------------------------------------------------- |
@@ -272,6 +275,24 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
 
 Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP.
 
+### The web pages
+
+The server serves its own pages at its address. A new server shows the first-run setup (the
+setup code from its log); after that, sign-in.
+
+| Page                       | Shows                                                                |
+| -------------------------- | -------------------------------------------------------------------- |
+| `/`                        | The workspaces; administrators add one                               |
+| `/w/<workspace>`           | Its projects; administrators add one, kept by the server or external |
+| `/w/<workspace>/<project>` | State, commit, branches, the `git clone` command, who pushed         |
+| `/account`                 | Your access tokens: make (shown once), list, revoke                  |
+| `/runs`, `/admin`          | Placeholders: not built yet                                          |
+
+- Light and dark: follows the device, or the choice made with the theme button.
+- Works at phone width and with a keyboard and a screen reader.
+- Not there yet: the flows of a project on the designer's canvas, runs, the pages for people,
+  groups and the certificate.
+
 ### Workspaces and projects
 
 A workspace is a team's space. A project in it is a git repository whose flows the server will
@@ -367,24 +388,27 @@ project from a sample, and the list of flows in a project.
 
 ## Development
 
-| Command                    | Does                                                                                             |
-| -------------------------- | ------------------------------------------------------------------------------------------------ |
-| `just afd-packages`        | Pack the designer's packages and install them from `vendor/`                                     |
-| `just install`             | Install exact dependencies from `package-lock.json`                                              |
-| `just check`               | Type-check (TypeScript) and lint and format check (Biome)                                        |
-| `just fmt`                 | Apply formatting and safe lint fixes                                                             |
-| `just test [args]`         | Unit tests (Vitest); with `AFS_TEST_POSTGRES_URL` set, the database tests also run on PostgreSQL |
-| `just build`               | Build the server into `dist/`                                                                    |
-| `just start`               | Build, then start the server                                                                     |
-| `just check-flows <files>` | Build, then read the given flow files                                                            |
-| `just cert <command>`      | Build, then run a certificate command                                                            |
-| `just user <command>`      | Build, then run a user command                                                                   |
+| Command                    | Does                                                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `just afd-packages`        | Pack the designer's packages and install them from `vendor/`                                                         |
+| `just install`             | Install exact dependencies from `package-lock.json`                                                                  |
+| `just check`               | Type-check (TypeScript) and lint and format check (Biome)                                                            |
+| `just fmt`                 | Apply formatting and safe lint fixes                                                                                 |
+| `just test [args]`         | Unit tests (Vitest; the pages in jsdom); with `AFS_TEST_POSTGRES_URL` set, the database tests also run on PostgreSQL |
+| `just build`               | Build the server and the web pages into `dist/`                                                                      |
+| `just web-dev`             | The pages with live reload (port 5180), against a server on port 8080 (`AFS_DEV_SERVER` to change)                   |
+| `just start`               | Build, then start the server                                                                                         |
+| `just check-flows <files>` | Build, then read the given flow files                                                                                |
+| `just cert <command>`      | Build, then run a certificate command                                                                                |
+| `just user <command>`      | Build, then run a user command                                                                                       |
 
 Layout:
 
 | Path           | Holds                                                           |
 | -------------- | --------------------------------------------------------------- |
 | `src/server/`  | The server (Node.js)                                            |
+| `src/web/`     | The web pages (React, built by Vite into `dist/web`)            |
+| `test/web/`    | Tests of the web pages                                          |
 | `test/unit/`   | Unit tests; `test/fixtures/` has sample flows from the designer |
 | `scripts/`     | Build and package scripts                                       |
 | `docs/adr/`    | Architecture decisions, one file each                           |

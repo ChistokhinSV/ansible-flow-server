@@ -4,5 +4,5 @@
     "lib": ["es2023"],
     "types": ["node"]
   },
-  "include": ["src/server", "test/unit", "scripts", "vitest.config.mts"]
+  "include": ["src/server", "test/unit", "scripts"]
 }

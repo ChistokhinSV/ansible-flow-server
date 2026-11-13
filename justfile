@@ -22,6 +22,7 @@ build:
 # Type-check (TypeScript 7) and lint/format check (Biome)
 check:
     npx --no-install tsc -p tsconfig.json
+    npx --no-install tsc -p tsconfig.web.json
     npx --no-install biome check .
 
 # Apply Biome formatting and safe lint fixes
@@ -48,6 +49,10 @@ cert *args: build
 # The people who sign in: `just user list`, add, password, enable, disable, admin
 user *args: build
     node dist/server.js user {{ args }}
+
+# The web application with live reload, against a server on port 8080 (`just start` in another terminal)
+web-dev:
+    npx --no-install vite --config vite.config.mts
 
 # Remove build output
 clean:
