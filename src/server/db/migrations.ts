@@ -267,6 +267,16 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-23: service accounts, and tokens for one workspace.
+  '0012_service_accounts': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('user_account')
+        .addColumn('service', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+      await db.schema.alterTable('api_token').addColumn('workspace_id', 'text').execute();
+    },
+  },
   // AFS-22: the audit log.
   '0011_audit': {
     async up(db: Kysely<unknown>) {

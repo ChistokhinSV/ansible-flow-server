@@ -25,7 +25,7 @@ const COMMANDS: Record<string, Record<string, string>> = {
 };
 
 /** Options that take a value. */
-const VALUED = new Set(['--name', '--email', '--days', '--org', '--out', '--key']);
+const VALUED = new Set(['--name', '--email', '--days', '--org', '--out', '--key', '--workspace']);
 
 /** The first argument that is neither an option nor an option's value. */
 function firstWord(args: string[]): string | undefined {

@@ -1,17 +1,18 @@
 // The user commands, for whoever administers the machine the server runs on. They are the way
 // back in when nobody can sign in: a lost password, the only administrator gone.
 //   user list
-//   user add <login> [--name <name>] [--email <address>] [--admin]
+//   user add <login> [--name <name>] [--email <address>] [--admin] [--service]
 //   user password <login>
 //   user enable <login> | user disable <login>
 //   user admin <login> on|off
-//   user token <login> [--name <name>] [--days <days>] [--read-only]
+//   user token <login> [--name <name>] [--days <days>] [--read-only] [--workspace <key>]
 // A password is read from the terminal without showing it, or from the input when that is a
 // pipe; it is never an argument, so it is in no shell history and no process list.
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { getWorkspace } from '../projects/store';
 import { passwordProblem } from './passwords';
 import { createToken } from './tokens';
 import { accountByLogin, createUser, listUsers, setPassword, UserError, updateUser } from './users';
@@ -66,7 +67,7 @@ function flag(args: string[], name: string): boolean {
 }
 
 const USAGE =
-  'Use: user list | add <login> [--name N] [--email E] [--admin] | password <login> | enable <login> | disable <login> | admin <login> on|off | token <login> [--name N] [--days D] [--read-only]';
+  'Use: user list | add <login> [--name N] [--email E] [--admin] [--service] | password <login> | enable <login> | disable <login> | admin <login> on|off | token <login> [--name N] [--days D] [--read-only] [--workspace W]';
 
 /** Runs a `user` command; resolves with the process's exit code. */
 export async function userCommand(
@@ -110,14 +111,25 @@ export async function userCommand(
         const name = option(rest, '--name');
         const email = option(rest, '--email');
         const admin = flag(rest, '--admin');
+        const service = flag(rest, '--service');
         const [login] = rest;
         if (!login) {
           print(USAGE);
           return 2;
         }
-        const password = await newPassword(login);
-        const user = await createUser(db, { login, name: name ?? '', email, password, admin });
-        print(`Added ${user.login}${user.admin ? ' as an administrator' : ''}.`);
+        // A service account has no password: its tokens are made with `user token`.
+        const password = service ? undefined : await newPassword(login);
+        const user = await createUser(db, {
+          login,
+          name: name ?? '',
+          email,
+          ...(password ? { password } : {}),
+          admin,
+          service,
+        });
+        print(
+          `Added ${user.login}${user.service ? ' as a service account' : ''}${user.admin ? `${user.service ? ',' : ' as'} an administrator` : ''}.`,
+        );
         return 0;
       }
       case 'password': {
@@ -145,10 +157,14 @@ export async function userCommand(
         const name = option(rest, '--name') ?? 'made on the server';
         const days = option(rest, '--days');
         const readOnly = flag(rest, '--read-only');
+        const scope = option(rest, '--workspace');
+        const workspace = scope ? await getWorkspace(db, scope) : undefined;
+        if (scope && !workspace) throw new UserError('not_found', `No workspace ${scope}`);
         const made = await createToken(db, await idOf(rest[0]), {
           name,
           ...(days ? { days: Number(days) } : {}),
           readOnly,
+          ...(workspace ? { workspace: workspace.id } : {}),
         });
         // The one line a script reads: the token, and nothing else on it.
         print(made.token);

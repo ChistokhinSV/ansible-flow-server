@@ -28,6 +28,8 @@ export interface TokenInfo {
   /** Its last four characters, to tell one from another. */
   hint: string;
   readOnly: boolean;
+  /** The one workspace it may reach (its id); absent: all its owner may. */
+  workspace?: string;
   createdAt: string;
   expiresAt?: string;
   lastUsedAt?: string;
@@ -39,6 +41,7 @@ const infoOf = (row: Row): TokenInfo => ({
   name: row.name,
   hint: row.hint,
   readOnly: row.read_only === 1,
+  ...(row.workspace_id ? { workspace: row.workspace_id } : {}),
   createdAt: row.created_at,
   ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
   ...(row.last_used_at ? { lastUsedAt: row.last_used_at } : {}),
@@ -50,6 +53,8 @@ export interface NewToken {
   days?: number;
   /** It may only read. */
   readOnly?: boolean;
+  /** The one workspace it may reach (an id the caller has checked). */
+  workspace?: string;
 }
 
 /** Makes a token for a person. Resolves with the token (this once) and what is kept about it. */
@@ -80,6 +85,7 @@ export async function createToken(
     token_hash: hashOf(token),
     hint: token.slice(-4),
     read_only: input.readOnly ? 1 : 0,
+    workspace_id: input.workspace ?? null,
     created_at: now.toISOString(),
     last_used_at: null,
     expires_at: new Date(now.getTime() + days * DAY_MS).toISOString(),
@@ -127,6 +133,7 @@ export async function tokenUser(
     .select([
       'api_token.id as token_id',
       'api_token.read_only',
+      'api_token.workspace_id',
       'api_token.expires_at',
       'api_token.last_used_at',
       'user_account.id',
@@ -151,7 +158,11 @@ export async function tokenUser(
     login: row.login,
     name: row.name,
     admin: row.is_admin === 1,
-    token: { id: row.token_id, readOnly: row.read_only === 1 },
+    token: {
+      id: row.token_id,
+      readOnly: row.read_only === 1,
+      ...(row.workspace_id ? { workspace: row.workspace_id } : {}),
+    },
   };
 }
 

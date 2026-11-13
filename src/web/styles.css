@@ -564,3 +564,35 @@ textarea {
   margin: 1rem 0 0.5rem;
   font-size: 1rem;
 }
+
+/* --- the API reference */
+.endpoints {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.endpoint {
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.endpoint summary {
+  cursor: pointer;
+}
+.endpoint details > *:not(summary) {
+  margin-top: 0.5rem;
+}
+.method {
+  display: inline-block;
+  min-width: 4.2rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.method.delete {
+  color: var(--bad);
+}
+.method.get {
+  color: var(--ok);
+}

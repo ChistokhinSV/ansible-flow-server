@@ -26,7 +26,7 @@ export interface SessionUser {
   name: string;
   admin: boolean;
   /** Set when the request is signed in with a personal access token, not a session. */
-  token?: { id: string; readOnly: boolean };
+  token?: { id: string; readOnly: boolean; workspace?: string };
 }
 
 /** Starts a session; resolves with the token for the cookie. */

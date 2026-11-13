@@ -321,12 +321,13 @@ describe('signed in', () => {
     await screen.findByText('There is no such project.');
   });
 
-  it('makes an access token, shows it once, and lists what it has', async () => {
+  it('makes an access token for one workspace, shows it once, and lists what it has', async () => {
     const made = {
       id: 't1',
       name: 'laptop git',
       hint: 'Xk3Q',
       readOnly: true,
+      workspace: network.id,
       createdAt: '2026-11-13T09:44:37.512Z',
       expiresAt: '2026-12-13T09:44:37.512Z',
     };
@@ -335,7 +336,12 @@ describe('signed in', () => {
       ...signedInAs(omar),
       'GET /tokens': () => ({ body: have }),
       'POST /tokens': (body) => {
-        expect(body).toEqual({ name: 'laptop git', expiresInDays: 30, readOnly: true });
+        expect(body).toEqual({
+          name: 'laptop git',
+          expiresInDays: 30,
+          readOnly: true,
+          workspace: network.id,
+        });
         have = [made];
         return { status: 201, body: { ...made, token: `afs_${'A'.repeat(43)}` } };
       },
@@ -346,9 +352,15 @@ describe('signed in', () => {
     type('Name', 'laptop git');
     type('Days until it expires', '30');
     fireEvent.click(screen.getByLabelText(/Read only/));
+    await screen.findByRole('option', { name: /only Network team/ });
+    fireEvent.change(screen.getByLabelText('Reaches'), { target: { value: network.id } });
     fireEvent.click(screen.getByRole('button', { name: 'Make token' }));
     expect((await screen.findByRole('status')).textContent).toContain(`afs_${'A'.repeat(43)}`);
     await screen.findByText('…Xk3Q');
+    expect(screen.getByRole('cell', { name: network.key })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'API reference' }).getAttribute('href')).toBe(
+      '/docs/api',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'I have copied it' }));
     expect(screen.queryByRole('status')).toBeNull();
     expect(document.body.textContent).not.toContain('afs_AAAA');

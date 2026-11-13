@@ -15,6 +15,8 @@ export interface User {
   webhookUrl?: string;
   admin: boolean;
   disabled: boolean;
+  /** A service account: a program, signed in only with tokens an administrator makes. */
+  service: boolean;
   createdAt: string;
   lastLoginAt?: string;
   /** The names of the groups they are in. */
@@ -91,6 +93,7 @@ const userOf = (row: UserRow, groups: string[]): User => ({
   ...(row.webhook_url ? { webhookUrl: row.webhook_url } : {}),
   admin: row.is_admin === 1,
   disabled: row.disabled === 1,
+  service: row.service === 1,
   createdAt: row.created_at,
   ...(row.last_login_at ? { lastLoginAt: row.last_login_at } : {}),
   groups,
@@ -138,12 +141,16 @@ export interface NewUser {
   email?: string;
   webhookUrl?: string;
   admin?: boolean;
+  /** A service account: never a password. */
+  service?: boolean;
 }
 
 export async function createUser(db: Db, input: NewUser): Promise<User> {
   const login = normalLogin(input.login);
   const problem = loginProblem(login) ?? contactProblem(input);
   if (problem) throw new UserError('invalid', problem);
+  if (input.service && input.password)
+    throw new UserError('invalid', 'A service account has no password: it signs in with tokens');
   const at = now();
   const row: UserRow = {
     id: randomUUID(),
@@ -154,6 +161,7 @@ export async function createUser(db: Db, input: NewUser): Promise<User> {
     password_hash: input.password ? await hashPassword(input.password) : null,
     is_admin: input.admin ? 1 : 0,
     disabled: 0,
+    service: input.service ? 1 : 0,
     created_at: at,
     updated_at: at,
     last_login_at: null,
@@ -251,6 +259,13 @@ export async function setPassword(
   password: string,
   keepSession?: string,
 ): Promise<void> {
+  const account = await db
+    .selectFrom('user_account')
+    .select('service')
+    .where('id', '=', id)
+    .executeTakeFirst();
+  if (account?.service === 1)
+    throw new UserError('invalid', 'A service account has no password: it signs in with tokens');
   const hash = await hashPassword(password);
   await db.transaction().execute(async (trx) => {
     const done = await trx

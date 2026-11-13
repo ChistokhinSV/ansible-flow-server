@@ -28,6 +28,8 @@ export interface UserAccountTable {
   password_hash: string | null;
   is_admin: Flag;
   disabled: Flag;
+  /** A service account: a program's identity, signed in only with tokens, never a password. */
+  service: Flag;
   created_at: IsoTime;
   updated_at: IsoTime;
   last_login_at: IsoTime | null;
@@ -116,6 +118,8 @@ export interface ApiTokenTable {
   /** The token's last four characters, to tell one from another. */
   hint: string;
   read_only: Flag;
+  /** The one workspace the token may reach; null: all its owner may. */
+  workspace_id: string | null;
   created_at: IsoTime;
   last_used_at: IsoTime | null;
   expires_at: IsoTime | null;
