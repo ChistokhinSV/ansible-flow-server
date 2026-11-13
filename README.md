@@ -16,7 +16,7 @@ own code, with who may run what, who must approve, and a record of every run.
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
 users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
-repositories, answers health checks and says what it is; it can read and
+repositories and is itself the git address of every project (clone, fetch, push), answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
 
@@ -275,7 +275,9 @@ Not there yet: the pages for all this, levels on workspaces and flows, sign-in w
 ### Workspaces and projects
 
 A workspace is a team's space. A project in it is a git repository whose flows the server will
-run; the server keeps a mirror of it and knows the commit its branch is at.
+run. It has a source somewhere else (the server keeps a mirror of it), or, made without
+`gitUrl`, the server hosts it itself. Either way the server knows the commit its branch is at,
+and is the address git clients use.
 
 ```sh
 curl ... -X POST https://flows.example.net:8443/api/v1/workspaces \
@@ -289,7 +291,9 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   "id": "2a968c91-1ac7-4654-94c8-2eb24a28b10b",
   "key": "edge",
   "name": "Edge switches",
+  "hosted": false,
   "gitUrl": "https://git.example.net/network/edge-flows.git",
+  "gitPath": "/git/network/edge.git",
   "gitRef": "main",
   "commit": "9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b",
   "sync": { "state": "ok", "at": "2026-11-13T10:15:33.364Z" },
@@ -305,6 +309,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 | `/projects/:id`                     | A project; change its name, source, branch, timer; delete         | as above                                |
 | `POST /projects/:id/sync`           | Look at the source now                                            | administrators                          |
 | `GET /projects/:id/branches`        | The branches the source has                                       | signed in                               |
+| `GET /projects/:id/pushes`          | Who pushed what through the server, newest first                  | signed in                               |
 | `POST /projects/:id/hook`, `DELETE` | Make a push hook (its token is shown once); remove it             | administrators                          |
 | `POST /hooks/projects/:id/push`     | Called by the git host with the hook's token                      | the token                               |
 
@@ -318,8 +323,47 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   `Authorization: Bearer` (GitLab, Gitea, anything that can send a header).
 - The server needs the `git` program.
 
-Not there yet: credentials for private repositories, GitHub's signed hooks, repositories the
-server hosts itself, and the list of flows in a project.
+#### Git: clone, fetch and push through the server
+
+Every project, hosted or with a source, is at `<server><gitPath>`. Sign in with a
+[personal access token](#access-tokens) as the password; the user name is not looked at.
+
+```sh
+git clone https://flows.example.net:8443/git/network/edge.git
+# Username: dana        Password: <your access token>
+git push origin main
+```
+
+While the server uses its own first certificate, tell git to trust it:
+`git -c http.sslCAInfo=data/tls/certificate.pem clone …`.
+
+- **Who:** everyone signed in clones and fetches. Until access levels exist, administrators
+  push. A read-only token never pushes.
+- **A hosted project** starts empty; the first push makes its branch.
+- **A project with a source:** a clone or fetch gets what the source has now. A push is passed
+  on to the source and is accepted only if the source accepts it. Until credentials exist, that
+  works only where the server's own account may push to the source.
+- **The project's branch** (`gitRef`) cannot be deleted and its history cannot be rewritten
+  through the server. Other branches are free. Only branches are pushed, not tags.
+- **Who pushed** is kept (`GET /projects/:id/pushes`); commits keep their own authors.
+- Deleting a hosted project puts its repository aside in `data/repos/deleted`: it was the
+  only copy.
+
+```json
+[
+  {
+    "id": "5d0c2f0e-0f52-4a55-a2f4-0d2f5c0e7a11",
+    "login": "dana",
+    "ref": "main",
+    "from": "9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b",
+    "to": "41d7a0c93be2f5681a0c4e7d9b3f2a6c8e1d0b57",
+    "at": "2026-11-13T12:09:23.386Z"
+  }
+]
+```
+
+Not there yet: credentials for private repositories, GitHub's signed hooks, starting a hosted
+project from a sample, and the list of flows in a project.
 
 ## Development
 

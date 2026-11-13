@@ -18,7 +18,12 @@ export interface Project {
   workspace: string;
   key: string;
   name: string;
-  gitUrl: string;
+  /** The server hosts the repository itself: it has no other source. */
+  hosted: boolean;
+  /** Where the repository is fetched from; absent for a hosted project. */
+  gitUrl?: string;
+  /** Where git clients reach the project on this server, after the server's own address. */
+  gitPath: string;
   /** The branch whose commits may run. */
   gitRef: string;
   /** The commit that branch was at when the source last answered. */
@@ -154,12 +159,14 @@ export async function deleteWorkspace(db: Db, id: string): Promise<void> {
 // --- projects
 
 type ProjectRow = Schema['project'];
-const projectOf = (row: ProjectRow): Project => ({
+const projectOf = (row: ProjectRow, workspaceKey: string): Project => ({
   id: row.id,
   workspace: row.workspace_id,
   key: row.key,
   name: row.name,
-  gitUrl: row.git_url,
+  hosted: row.git_url === '',
+  ...(row.git_url ? { gitUrl: row.git_url } : {}),
+  gitPath: `/git/${workspaceKey}/${row.key}.git`,
   gitRef: row.git_ref,
   ...(row.commit_id ? { commit: row.commit_id } : {}),
   sync: {
@@ -171,15 +178,22 @@ const projectOf = (row: ProjectRow): Project => ({
   hook: row.hook_token_hash !== null,
 });
 
+const projectRows = (db: Db) =>
+  db
+    .selectFrom('project')
+    .innerJoin('workspace', 'workspace.id', 'project.workspace_id')
+    .selectAll('project')
+    .select('workspace.key as workspace_key');
+
 export async function listProjects(db: Db, workspaceId?: string): Promise<Project[]> {
-  let query = db.selectFrom('project').selectAll().orderBy('key');
-  if (workspaceId) query = query.where('workspace_id', '=', workspaceId);
-  return (await query.execute()).map(projectOf);
+  let query = projectRows(db).orderBy('workspace.key').orderBy('project.key');
+  if (workspaceId) query = query.where('project.workspace_id', '=', workspaceId);
+  return (await query.execute()).map((row) => projectOf(row, row.workspace_key));
 }
 
 export async function getProject(db: Db, id: string): Promise<Project | undefined> {
-  const row = await db.selectFrom('project').selectAll().where('id', '=', id).executeTakeFirst();
-  return row ? projectOf(row) : undefined;
+  const row = await projectRows(db).where('project.id', '=', id).executeTakeFirst();
+  return row ? projectOf(row, row.workspace_key) : undefined;
 }
 
 function pollProblem(seconds: number): string | undefined {
@@ -192,7 +206,8 @@ function pollProblem(seconds: number): string | undefined {
 export interface NewProject {
   key: string;
   name: string;
-  gitUrl: string;
+  /** The source's address. Left out: the server hosts the repository itself. */
+  gitUrl?: string;
   gitRef?: string;
   pollSeconds?: number;
 }
@@ -205,29 +220,29 @@ export async function createProject(
 ): Promise<Project> {
   const key = input.key.trim().toLowerCase();
   const gitRef = input.gitRef?.trim() || 'main';
-  const pollSeconds = input.pollSeconds ?? POLL_SECONDS;
+  const gitUrl = input.gitUrl?.trim() ?? '';
+  // A hosted project has no source to look at on a timer.
+  const pollSeconds = gitUrl ? (input.pollSeconds ?? POLL_SECONDS) : 0;
   const problem =
     keyProblem(key) ??
     nameProblem(input.name) ??
-    gitUrlProblem(input.gitUrl.trim(), allowLocal) ??
+    (gitUrl ? gitUrlProblem(gitUrl, allowLocal) : undefined) ??
     refProblem(gitRef) ??
     pollProblem(pollSeconds);
   if (problem) throw new ProjectError('invalid', problem);
-  if (
-    !(await db
-      .selectFrom('workspace')
-      .select('id')
-      .where('id', '=', workspaceId)
-      .executeTakeFirst())
-  )
-    throw new ProjectError('not_found', 'No such workspace');
+  const workspace = await db
+    .selectFrom('workspace')
+    .select('key')
+    .where('id', '=', workspaceId)
+    .executeTakeFirst();
+  if (!workspace) throw new ProjectError('not_found', 'No such workspace');
   const at = now();
   const row: ProjectRow = {
     id: randomUUID(),
     workspace_id: workspaceId,
     key,
     name: input.name.trim(),
-    git_url: input.gitUrl.trim(),
+    git_url: gitUrl,
     git_ref: gitRef,
     commit_id: null,
     sync_state: 'never',
@@ -245,7 +260,7 @@ export async function createProject(
     .executeTakeFirst();
   if (!done.numInsertedOrUpdatedRows)
     throw new ProjectError('taken', `The workspace has a project ${key} already`);
-  return projectOf(row);
+  return projectOf(row, workspace.key);
 }
 
 export interface ProjectChange {
@@ -271,6 +286,13 @@ export async function updateProject(
     (change.gitRef !== undefined ? refProblem(change.gitRef.trim()) : undefined) ??
     (change.pollSeconds !== undefined ? pollProblem(change.pollSeconds) : undefined);
   if (problem) throw new ProjectError('invalid', problem);
+  const current = await getProject(db, id);
+  if (!current) throw new ProjectError('not_found', 'No such project');
+  // The hosted repository is the only copy: pointing the project elsewhere would orphan it.
+  if (current.hosted && change.gitUrl !== undefined)
+    throw new ProjectError('invalid', 'The server hosts this project: it has no source to change');
+  if (current.hosted && change.pollSeconds)
+    throw new ProjectError('invalid', 'The server hosts this project: there is no source to ask');
   const moved = change.gitUrl !== undefined || change.gitRef !== undefined;
   const done = await db
     .updateTable('project')
@@ -292,8 +314,11 @@ export async function updateProject(
 }
 
 export async function deleteProject(db: Db, id: string): Promise<void> {
-  const done = await db.deleteFrom('project').where('id', '=', id).executeTakeFirst();
-  if (!done.numDeletedRows) throw new ProjectError('not_found', 'No such project');
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('git_push').where('project_id', '=', id).execute();
+    const done = await trx.deleteFrom('project').where('id', '=', id).executeTakeFirst();
+    if (!done.numDeletedRows) throw new ProjectError('not_found', 'No such project');
+  });
 }
 
 /** Writes how a look at the source ended. */
@@ -316,13 +341,77 @@ export async function recordSync(
 
 /** The projects whose source it is time to look at again. */
 export async function dueProjects(db: Db, at = new Date()): Promise<Project[]> {
-  const rows = await db.selectFrom('project').selectAll().where('poll_seconds', '>', 0).execute();
-  return rows
-    .filter(
-      (row) =>
-        !row.synced_at || at.getTime() - Date.parse(row.synced_at) >= row.poll_seconds * 1000,
+  return (await listProjects(db)).filter(
+    (project) =>
+      project.pollSeconds > 0 &&
+      !project.hosted &&
+      (!project.sync.at ||
+        at.getTime() - Date.parse(project.sync.at) >= project.pollSeconds * 1000),
+  );
+}
+
+// --- pushes through the server
+
+/** One branch as a push changed it. */
+export interface PushedRef {
+  ref: string;
+  /** The commit before; absent: the push made the branch. */
+  from?: string;
+  /** The commit after; absent: the push deleted the branch. */
+  to?: string;
+}
+
+export interface Push extends PushedRef {
+  id: string;
+  /** Who pushed, as the server knew them then. */
+  login: string;
+  at: string;
+}
+
+/** Writes down who pushed which branches. The commits keep their own authors. */
+export async function recordPushes(
+  db: Db,
+  projectId: string,
+  user: { id: string; login: string },
+  refs: PushedRef[],
+): Promise<void> {
+  if (!refs.length) return;
+  const at = now();
+  await db
+    .insertInto('git_push')
+    .values(
+      refs.map((ref) => ({
+        id: randomUUID(),
+        project_id: projectId,
+        user_id: user.id,
+        login: user.login,
+        ref: ref.ref,
+        old_commit: ref.from ?? null,
+        new_commit: ref.to ?? null,
+        created_at: at,
+      })),
     )
-    .map(projectOf);
+    .execute();
+}
+
+/** The project's pushes, newest first. */
+export async function listPushes(db: Db, projectId: string, limit = 50): Promise<Push[]> {
+  const rows = await db
+    .selectFrom('git_push')
+    .selectAll()
+    .where('project_id', '=', projectId)
+    .orderBy('created_at', 'desc')
+    .orderBy('ref')
+    .limit(Math.min(Math.max(limit, 1), 200))
+    .execute();
+  return rows.map((row) => ({
+    id: row.id,
+    login: row.login,
+    ref: row.ref,
+    ...(row.old_commit ? { from: row.old_commit } : {}),
+    ...(row.new_commit ? { to: row.new_commit } : {}),
+    at: row.created_at,
+  }));
 }
 
 // --- the push hook

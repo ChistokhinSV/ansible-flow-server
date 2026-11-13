@@ -1,9 +1,11 @@
-// Git, as the server uses it: a mirror of each project's repository in the data folder, brought
-// up to date from its source, and read at a commit. The git program does the work; this file is
+// Git, as the server uses it: a repository per project in the data folder (a mirror of an
+// external source, or the source itself for a project the server hosts), brought up to date,
+// read at a commit, and served to git clients. The git program does the work; this file is
 // about calling it safely: no shell, no prompts, no settings of the machine or its user, a time
 // limit on every call, and only addresses the server is willing to fetch from.
-import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 
 /** How long a fetch may take. */
@@ -12,6 +14,8 @@ export const FETCH_TIMEOUT_MS = 120_000;
 const READ_TIMEOUT_MS = 20_000;
 /** The most a single file read from a repository may be. */
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** The most one push may bring. */
+export const MAX_PUSH_BYTES = 512 * 1024 * 1024;
 
 export class GitError extends Error {
   constructor(
@@ -70,10 +74,63 @@ export function refProblem(ref: string): string | undefined {
 const COMMIT = /^[0-9a-f]{40}$/;
 
 /** Takes what could be a secret out of git's words before they are shown or logged. */
-const scrub = (text: string) => text.replace(/\/\/[^/\s@]+@/g, '//***@').trim();
+export const scrub = (text: string) => text.replace(/\/\/[^/\s@]+@/g, '//***@').trim();
+
+/** What a git client asks the server to run. */
+export type GitService = 'upload-pack' | 'receive-pack';
+
+export interface ServeOptions {
+  /** The client's `Git-Protocol` header, when it is one git knows. */
+  protocol?: string;
+  /** For a push: the branch whose history is kept (no delete, no rewrite). */
+  protectedRef?: string;
+  /** For a push to a project with an external source: where the push is passed on to. */
+  upstream?: string;
+}
+
+/**
+ * The one hook the server's repositories have, run by git before it accepts a push. It is the
+ * server's own file, outside every repository: nothing a repository holds is ever run.
+ * - only branches are pushed (the mirror holds nothing else)
+ * - the branch that runs is not deleted and its history is not rewritten
+ * - for a project with an external source the push is passed on first, with the old commits as
+ *   the condition: what the source refuses, the mirror never holds
+ */
+const PRE_RECEIVE = `#!/bin/sh
+# Written by Ansible Flow Server at every start. Do not edit: changes are lost.
+zero=0000000000000000000000000000000000000000
+specs=""
+leases=""
+while read old new ref; do
+  case "$ref" in
+    refs/heads/*) ;;
+    *) echo "afs: only branches are pushed here, not $ref" >&2; exit 1 ;;
+  esac
+  if [ "$ref" = "refs/heads/$AFS_PROTECTED" ]; then
+    if [ "$new" = "$zero" ]; then
+      echo "afs: $AFS_PROTECTED is the branch that runs: it is not deleted" >&2; exit 1
+    fi
+    if [ "$old" != "$zero" ] && ! git merge-base --is-ancestor "$old" "$new"; then
+      echo "afs: $AFS_PROTECTED is the branch that runs: its history is not rewritten" >&2; exit 1
+    fi
+  fi
+  if [ "$new" = "$zero" ]; then specs="$specs :$ref"; else specs="$specs $new:$ref"; fi
+  if [ "$old" = "$zero" ]; then leases="$leases --force-with-lease=$ref:"
+  else leases="$leases --force-with-lease=$ref:$old"; fi
+done
+if [ -n "$AFS_UPSTREAM" ] && [ -n "$specs" ]; then
+  # The new commits are readable here (git keeps them apart until the push is accepted), but
+  # the mark that says so must not travel to a source on this machine: it would refuse.
+  if ! (unset GIT_QUARANTINE_PATH; git push --quiet --atomic $leases -- "$AFS_UPSTREAM" $specs); then
+    echo "afs: the project's repository did not accept the push" >&2; exit 1
+  fi
+fi
+exit 0
+`;
 
 export class Git {
   private readonly emptyConfig: string;
+  private readonly hooksDir: string;
 
   constructor(private readonly options: GitOptions) {
     mkdirSync(options.reposDir, { recursive: true });
@@ -81,6 +138,11 @@ export class Git {
     // must not: this empty file stands in for both.
     this.emptyConfig = join(options.reposDir, 'gitconfig');
     if (!existsSync(this.emptyConfig)) writeFileSync(this.emptyConfig, '');
+    this.hooksDir = join(options.reposDir, 'hooks');
+    mkdirSync(this.hooksDir, { recursive: true });
+    const hook = join(this.hooksDir, 'pre-receive');
+    writeFileSync(hook, PRE_RECEIVE);
+    chmodSync(hook, 0o755);
   }
 
   /** Where a project's mirror is. */
@@ -89,50 +151,59 @@ export class Git {
     return join(this.options.reposDir, `${projectId}.git`);
   }
 
+  /** The settings every call starts with; hooks only where the caller names the folder. */
+  private base(hooks = ''): string[] {
+    return [
+      // No helper that runs a program, no pager; hooks only the server's own, and only for a push.
+      '-c',
+      'protocol.ext.allow=never',
+      '-c',
+      `core.hooksPath=${hooks.replaceAll('\\', '/')}`,
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'gc.auto=0',
+    ];
+  }
+
+  private env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+    return {
+      PATH: process.env.PATH,
+      SystemRoot: process.env.SystemRoot,
+      HOME: process.env.HOME,
+      USERPROFILE: process.env.USERPROFILE,
+      // The server's own outgoing trust (AFS_CA_FILE) and proxy, when it has them.
+      ...(process.env.GIT_SSL_CAINFO ? { GIT_SSL_CAINFO: process.env.GIT_SSL_CAINFO } : {}),
+      ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: this.emptyConfig,
+      // Never wait for someone to type: a fetch that needs a password fails at once.
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ASKPASS: '',
+      SSH_ASKPASS: '',
+      GCM_INTERACTIVE: 'never',
+      GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=20',
+      GIT_ALLOW_PROTOCOL: this.options.allowLocal ? 'https:ssh:file' : 'https:ssh',
+      LC_ALL: 'C',
+      ...extra,
+    } as NodeJS.ProcessEnv;
+  }
+
   private run(
     args: string[],
-    options: { cwd?: string; timeoutMs: number; maxBytes?: number },
+    options: { cwd?: string; timeoutMs: number; maxBytes?: number; env?: Record<string, string> },
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       execFile(
         'git',
-        [
-          // No helper that runs a program, no hooks, no pager; only these ways to fetch.
-          '-c',
-          'protocol.ext.allow=never',
-          '-c',
-          'core.hooksPath=',
-          '-c',
-          'core.fsmonitor=false',
-          '-c',
-          'gc.auto=0',
-          ...args,
-        ],
+        [...this.base(), ...args],
         {
           cwd: options.cwd,
           timeout: options.timeoutMs,
           maxBuffer: options.maxBytes ?? 16 * 1024 * 1024,
           encoding: 'buffer',
           windowsHide: true,
-          env: {
-            PATH: process.env.PATH,
-            SystemRoot: process.env.SystemRoot,
-            HOME: process.env.HOME,
-            USERPROFILE: process.env.USERPROFILE,
-            // The server's own outgoing trust (AFS_CA_FILE) and proxy, when it has them.
-            ...(process.env.GIT_SSL_CAINFO ? { GIT_SSL_CAINFO: process.env.GIT_SSL_CAINFO } : {}),
-            ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
-            GIT_CONFIG_NOSYSTEM: '1',
-            GIT_CONFIG_GLOBAL: this.emptyConfig,
-            // Never wait for someone to type: a fetch that needs a password fails at once.
-            GIT_TERMINAL_PROMPT: '0',
-            GIT_ASKPASS: '',
-            SSH_ASKPASS: '',
-            GCM_INTERACTIVE: 'never',
-            GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=20',
-            GIT_ALLOW_PROTOCOL: this.options.allowLocal ? 'https:ssh:file' : 'https:ssh',
-            LC_ALL: 'C',
-          } as NodeJS.ProcessEnv,
+          env: this.env(options.env),
         },
         (error, stdout, stderr) => {
           if (!error) return resolve(stdout);
@@ -154,16 +225,25 @@ export class Git {
   }
 
   /**
-   * Brings a project's mirror up to date with every branch of `url`, and resolves with the
-   * commit `ref` is at. Rejects with a GitError that says why, in words fit for the project's
-   * page: the repository cannot be reached, the branch is not there.
+   * Makes sure the project's repository exists, and that a clone of it starts on `ref`.
+   * A repository that has no commit yet is a repository all the same.
    */
-  async sync(projectId: string, url: string, ref: string): Promise<string> {
-    const problem = gitUrlProblem(url, this.options.allowLocal) ?? refProblem(ref);
+  async ensure(projectId: string, ref: string): Promise<void> {
+    const problem = refProblem(ref);
     if (problem) throw new GitError(problem);
     const dir = this.mirror(projectId);
     if (!existsSync(join(dir, 'HEAD')))
       await this.run(['init', '--bare', '--quiet', dir], { timeoutMs: READ_TIMEOUT_MS });
+    await this.run(['symbolic-ref', 'HEAD', `refs/heads/${ref}`], {
+      cwd: dir,
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+  }
+
+  /** Brings the mirror up to date with every branch of `url`. */
+  async fetch(projectId: string, url: string): Promise<void> {
+    const problem = gitUrlProblem(url, this.options.allowLocal);
+    if (problem) throw new GitError(problem);
     // Branches only, exactly as the source has them: one deleted there is deleted here.
     await this.run(
       [
@@ -176,15 +256,18 @@ export class Git {
         url,
         '+refs/heads/*:refs/heads/*',
       ],
-      { cwd: dir, timeoutMs: FETCH_TIMEOUT_MS },
+      { cwd: this.mirror(projectId), timeoutMs: FETCH_TIMEOUT_MS },
     );
+  }
+
+  /** The commit a branch is at. Rejects with a GitError that names the branches there are. */
+  async resolve(projectId: string, ref: string): Promise<string> {
+    const problem = refProblem(ref);
+    if (problem) throw new GitError(problem);
     try {
       const out = await this.run(
         ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}^{commit}`],
-        {
-          cwd: dir,
-          timeoutMs: READ_TIMEOUT_MS,
-        },
+        { cwd: this.mirror(projectId), timeoutMs: READ_TIMEOUT_MS },
       );
       const commit = out.toString('utf8').trim();
       if (!COMMIT.test(commit)) throw new Error('not a commit');
@@ -197,13 +280,36 @@ export class Git {
     }
   }
 
+  /**
+   * Brings a project's mirror up to date with every branch of `url`, and resolves with the
+   * commit `ref` is at. Rejects with a GitError that says why, in words fit for the project's
+   * page: the repository cannot be reached, the branch is not there.
+   */
+  async sync(projectId: string, url: string, ref: string): Promise<string> {
+    const problem = gitUrlProblem(url, this.options.allowLocal) ?? refProblem(ref);
+    if (problem) throw new GitError(problem);
+    await this.ensure(projectId, ref);
+    await this.fetch(projectId, url);
+    return this.resolve(projectId, ref);
+  }
+
   /** The branches the mirror has. */
   async branches(projectId: string): Promise<string[]> {
-    const out = await this.run(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], {
-      cwd: this.mirror(projectId),
-      timeoutMs: READ_TIMEOUT_MS,
-    });
-    return out.toString('utf8').split('\n').filter(Boolean).sort();
+    return [...(await this.refs(projectId)).keys()].sort();
+  }
+
+  /** Every branch of the mirror with the commit it is at. */
+  async refs(projectId: string): Promise<Map<string, string>> {
+    const out = await this.run(
+      ['for-each-ref', '--format=%(objectname) %(refname:short)', 'refs/heads'],
+      { cwd: this.mirror(projectId), timeoutMs: READ_TIMEOUT_MS },
+    );
+    const refs = new Map<string, string>();
+    for (const line of out.toString('utf8').split('\n')) {
+      const at = line.indexOf(' ');
+      if (at > 0) refs.set(line.slice(at + 1), line.slice(0, at));
+    }
+    return refs;
   }
 
   /** The paths of every file at a commit, with forward slashes. */
@@ -248,5 +354,67 @@ export class Git {
     });
     const [author = '', at = '', subject = ''] = out.toString('utf8').trim().split('\0');
     return { author, at, subject };
+  }
+
+  // --- serving git clients (projects/gitHttp.ts)
+
+  /** What the repository tells a client first: its branches and what the server can do. */
+  advertise(projectId: string, service: GitService, protocol?: string): Promise<Buffer> {
+    return this.run([service, '--stateless-rpc', '--advertise-refs', this.mirror(projectId)], {
+      timeoutMs: READ_TIMEOUT_MS,
+      maxBytes: 64 * 1024 * 1024,
+      ...(protocol ? { env: { GIT_PROTOCOL: protocol } } : {}),
+    });
+  }
+
+  /**
+   * Starts git's side of a fetch or a push: the client's request goes to its input, its output
+   * is the answer. The caller ends it when the client goes away or it takes too long.
+   */
+  serve(
+    projectId: string,
+    service: GitService,
+    options: ServeOptions = {},
+  ): ChildProcessWithoutNullStreams {
+    const push = service === 'receive-pack';
+    if (options.protectedRef && refProblem(options.protectedRef))
+      throw new GitError('Not a branch name');
+    if (options.upstream && gitUrlProblem(options.upstream, this.options.allowLocal))
+      throw new GitError('Not a repository address');
+    return spawn(
+      'git',
+      [
+        ...this.base(push ? this.hooksDir : ''),
+        ...(push
+          ? ['-c', `receive.maxInputSize=${MAX_PUSH_BYTES}`, '-c', 'receive.autogc=false']
+          : []),
+        service,
+        '--stateless-rpc',
+        this.mirror(projectId),
+      ],
+      {
+        windowsHide: true,
+        env: this.env({
+          ...(options.protocol ? { GIT_PROTOCOL: options.protocol } : {}),
+          ...(push
+            ? { AFS_PROTECTED: options.protectedRef ?? '', AFS_UPSTREAM: options.upstream ?? '' }
+            : {}),
+        }),
+      },
+    );
+  }
+
+  /**
+   * Puts a deleted project's repository aside instead of removing it: for a project the server
+   * hosts it is the only copy. Resolves with where it is now.
+   */
+  async retire(projectId: string): Promise<string | undefined> {
+    const dir = this.mirror(projectId);
+    if (!existsSync(dir)) return undefined;
+    const aside = join(this.options.reposDir, 'deleted');
+    mkdirSync(aside, { recursive: true });
+    const to = join(aside, `${projectId}-${new Date().toISOString().replace(/[:.]/g, '-')}.git`);
+    await rename(dir, to);
+    return to;
   }
 }

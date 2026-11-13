@@ -29,6 +29,7 @@ for (const [name, config] of databases) {
       if (database.kind === 'postgres') {
         // A database the tests own: start from nothing. Children before their parents.
         for (const table of [
+          'git_push',
           'api_token',
           'project',
           'workspace',
