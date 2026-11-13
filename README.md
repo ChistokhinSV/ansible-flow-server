@@ -13,9 +13,10 @@ own code, with who may run what, who must approve, and a record of every run.
 
 ## Status
 
-**Early development: there is nothing to deploy yet.** The repository has its toolchain, the
-designer's packages wired in, and the first code that reads and checks flow files. The plan and
-its tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
+**Early development: there is nothing to deploy yet.** The server starts, keeps a database
+(SQLite or PostgreSQL), answers health checks and says what it is; it can read and check flow
+files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
+decisions are in [docs/adr](docs/adr).
 
 | Planned for 1.0                                                            | State   |
 | -------------------------------------------------------------------------- | ------- |
@@ -55,26 +56,78 @@ are on npm, this step goes away and `just install` is enough.
 
 ## Use
 
+Start the server:
+
 ```sh
-just start test/fixtures/hello.flow.yaml test/fixtures/firewall-upgrade.flow.yaml
+just start
 ```
 
 ```text
-Ansible Flow Server 0.1.0
-Built on Ansible Flow Designer 0.85.0; reads flows up to format 2
-Ansible probe: /srv/flow-server/node_modules/@ansible-flow/assets/probe
+[09:44:37 13.11.2026] INFO  Ansible Flow Server starts version=0.1.0 designer=0.85.0
+[09:44:37 13.11.2026] INFO  Database ready kind=sqlite where=/srv/flow-server/data/afs.db changes=1
+[09:44:37 13.11.2026] INFO  Server listening at http://127.0.0.1:8080
+```
+
+| Address        | Answers                                                                        |
+| -------------- | ------------------------------------------------------------------------------ |
+| `/healthz`     | `{"status":"ok"}` while the process is up                                      |
+| `/readyz`      | `{"status":"ready","database":"sqlite"}`, or 503 when the database is not there |
+| `/api/v1/meta` | The server's version, the designer version it is built on, the installation id |
+
+```sh
+curl http://127.0.0.1:8080/api/v1/meta
+```
+
+```json
+{
+  "name": "Ansible Flow Server",
+  "version": "0.1.0",
+  "designer": { "version": "0.85.0", "format": 2 },
+  "api": "v1",
+  "instance": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+}
+```
+
+Stop it with Ctrl+C: requests in flight are answered first.
+
+Read flow files without starting the server:
+
+```sh
+just check-flows test/fixtures/hello.flow.yaml test/fixtures/firewall-upgrade.flow.yaml
+```
+
+```text
+Ansible Flow Server 0.1.0, built on Ansible Flow Designer 0.85.0; reads flows up to format 2
 test/fixtures/hello.flow.yaml: Hello, Ansible (hello v1, format 2), 3 steps, 0 errors, 0 warnings
 test/fixtures/firewall-upgrade.flow.yaml: Firewall firmware upgrade (firewall-upgrade v1, format 2), 18 steps, 0 errors, 0 warnings
 ```
 
-The command reads each flow file with the designer's parser and validator and says what it found.
-It exits with 1 when a file is not a flow this server can read. That is all the server does today.
+It exits with 1 when a file is not a flow this server can read.
 
 ## Configuration
 
-None yet. Settings (the listening address, the data folder, the database, the secrets key) arrive
-with the HTTP server and will be read from the environment or a `.env` file, never from the
-repository.
+Settings are read from the environment, and from a `.env` file beside the server (the environment
+wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
+problem is named.
+
+| Setting            | Default            | Meaning                                                                 |
+| ------------------ | ------------------ | ----------------------------------------------------------------------- |
+| `AFS_HOST`         | `127.0.0.1`        | The address to listen on; `0.0.0.0` for every interface                 |
+| `AFS_PORT`         | `8080`             | The port                                                                |
+| `AFS_DATA_DIR`     | `data`             | Where the server keeps what it owns                                     |
+| `AFS_DATABASE_URL` | `sqlite:afs.db`    | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
+| `AFS_LOG_LEVEL`    | `info`             | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
+| `AFS_LOG_FORMAT`   | `text`             | `text`, or `json` for one object a line                                 |
+| `AFS_ENV_FILE`     | `.env`             | Another file to read the settings from                                  |
+
+With PostgreSQL:
+
+```sh
+AFS_DATABASE_URL=postgres://flows:CHANGE_ME@db.example.net:5432/flows just start
+```
+
+The server speaks plain HTTP for now and listens on this machine only by default; HTTPS with
+certificate management is planned (AFS-11). Do not put it on a network before that.
 
 ## Development
 

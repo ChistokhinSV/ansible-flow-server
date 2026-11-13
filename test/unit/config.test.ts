@@ -1,0 +1,78 @@
+import { isAbsolute, join, resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { ConfigError, loadConfig, withoutPassword } from '../../src/server/config';
+
+describe('loadConfig', () => {
+  it('with nothing set: this machine only, port 8080, SQLite in the data folder', () => {
+    const config = loadConfig({});
+    expect(config.host).toBe('127.0.0.1');
+    expect(config.port).toBe(8080);
+    expect(isAbsolute(config.dataDir)).toBe(true);
+    expect(config.database).toEqual({ kind: 'sqlite', file: join(config.dataDir, 'afs.db') });
+    expect(config.log).toEqual({ level: 'info', format: 'text' });
+  });
+
+  it('reads the address, the data folder, the database and the log settings', () => {
+    const config = loadConfig({
+      AFS_HOST: '0.0.0.0',
+      AFS_PORT: '9443',
+      AFS_DATA_DIR: 'var/flows',
+      AFS_DATABASE_URL: 'postgres://flows:s3cret@db.example.net:5432/flows',
+      AFS_LOG_LEVEL: 'DEBUG',
+      AFS_LOG_FORMAT: 'json',
+    });
+    expect(config).toMatchObject({
+      host: '0.0.0.0',
+      port: 9443,
+      dataDir: resolve('var/flows'),
+      database: { kind: 'postgres', url: 'postgres://flows:s3cret@db.example.net:5432/flows' },
+      log: { level: 'debug', format: 'json' },
+    });
+  });
+
+  it('a SQLite file is taken as given, or inside the data folder', () => {
+    const inside = loadConfig({ AFS_DATA_DIR: 'var', AFS_DATABASE_URL: 'sqlite:flows.db' });
+    expect(inside.database).toEqual({ kind: 'sqlite', file: resolve('var', 'flows.db') });
+    const given = loadConfig({ AFS_DATABASE_URL: `sqlite:${resolve('elsewhere', 'a.db')}` });
+    expect(given.database).toEqual({ kind: 'sqlite', file: resolve('elsewhere', 'a.db') });
+  });
+
+  it('names every problem at once, and never the database password', () => {
+    let error: unknown;
+    try {
+      loadConfig({
+        AFS_PORT: '80a',
+        AFS_DATABASE_URL: 'mysql://flows:s3cret@db.example.net/flows',
+        AFS_LOG_LEVEL: 'loud',
+        AFS_LOG_FORMAT: 'xml',
+      });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(ConfigError);
+    const { problems, message } = error as ConfigError;
+    expect(problems).toHaveLength(4);
+    expect(message).toContain('AFS_PORT');
+    expect(message).toContain('AFS_LOG_LEVEL');
+    expect(message).toContain('AFS_LOG_FORMAT');
+    expect(message).toContain('AFS_DATABASE_URL');
+    expect(message).not.toContain('s3cret');
+  });
+
+  it('a port out of range is a problem', () => {
+    expect(() => loadConfig({ AFS_PORT: '0' })).toThrow(ConfigError);
+    expect(() => loadConfig({ AFS_PORT: '70000' })).toThrow(ConfigError);
+  });
+});
+
+describe('withoutPassword', () => {
+  it('keeps the address and hides the password', () => {
+    expect(withoutPassword('postgres://flows:s3cret@db.example.net:5432/flows')).toBe(
+      'postgres://flows:***@db.example.net:5432/flows',
+    );
+    expect(withoutPassword('postgres://flows@db.example.net/flows')).toBe(
+      'postgres://flows@db.example.net/flows',
+    );
+    expect(withoutPassword('not a url')).not.toContain('not a url');
+  });
+});
