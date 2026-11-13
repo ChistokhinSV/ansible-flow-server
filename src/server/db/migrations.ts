@@ -74,6 +74,38 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.createIndex('session_user').on('session').column('user_id').execute();
     },
   },
+  // AFS-13: workspaces and their projects (git repositories).
+  '0003_projects': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('workspace')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('key', 'text', (c) => c.notNull().unique())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('description', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('project')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('workspace_id', 'text', (c) => c.notNull().references('workspace.id'))
+        .addColumn('key', 'text', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('git_url', 'text', (c) => c.notNull())
+        .addColumn('git_ref', 'text', (c) => c.notNull())
+        .addColumn('commit_id', 'text')
+        .addColumn('sync_state', 'text', (c) => c.notNull())
+        .addColumn('sync_error', 'text')
+        .addColumn('synced_at', 'text')
+        .addColumn('poll_seconds', 'integer', (c) => c.notNull())
+        .addColumn('hook_token_hash', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addUniqueConstraint('project_workspace_key', ['workspace_id', 'key'])
+        .execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

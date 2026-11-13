@@ -15,6 +15,8 @@ import { migrate } from './db/migrations';
 import { instanceId } from './db/settings';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
+import { Git } from './projects/git';
+import { ProjectSync } from './projects/sync';
 import { type CertificateInfo, certificateProblems, certificatesOf } from './tls/certificates';
 import { CertificateStore } from './tls/store';
 
@@ -139,6 +141,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let watcher: FSWatcher | undefined;
   let daily: NodeJS.Timeout | undefined;
   let sweep: NodeJS.Timeout | undefined;
+  let projects: ProjectSync | undefined;
   try {
     await database.ping();
     const applied = await migrate(database.db as never);
@@ -153,9 +156,12 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
       'Database ready',
     );
+    const git = new Git({ reposDir: join(config.dataDir, 'repos'), allowLocal: config.gitLocal });
+    projects = new ProjectSync(database.db, git, log);
     app = buildApp({
       log,
       database,
+      projects: { git, sync: projects, allowLocal: config.gitLocal },
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       trustedProxies: config.trustedProxies,
@@ -181,6 +187,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     sweep.unref();
     const url = await app.listen({ host: config.host, port: config.port });
     const running = app;
+    // From now on the projects' sources are looked at when they are due.
+    projects.start();
 
     let reloadCertificate: (() => boolean) | undefined;
     if (served) {
@@ -257,6 +265,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           clearInterval(sweep);
           redirect?.close();
           redirect?.closeAllConnections();
+          // A fetch that is going is waited for: a mirror is not left half written.
+          await projects?.stop();
           await running.close();
           await database.close();
           log.info('Stopped');
@@ -269,6 +279,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     clearInterval(daily);
     clearInterval(sweep);
     redirect?.close();
+    await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);
     await database.close().catch(() => undefined);
     throw e;

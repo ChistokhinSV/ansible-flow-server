@@ -15,7 +15,8 @@ own code, with who may run what, who must approve, and a record of every run.
 
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
-users and groups and signs them in, answers health checks and says what it is; it can read and
+users and groups and signs them in, keeps workspaces and projects in step with their git
+repositories, answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
 
@@ -35,6 +36,7 @@ decisions are in [docs/adr](docs/adr).
 ## Requirements
 
 - Node.js 24 or later
+- git
 - [just](https://github.com/casey/just) for the development commands
 - For now, a checkout of Ansible Flow Designer beside this one (see below)
 
@@ -121,6 +123,7 @@ problem is named.
 | `AFS_TLS`             | `on`            | `off` behind a proxy that does HTTPS                                   |
 | `AFS_TRUSTED_PROXIES` | none            | With `AFS_TLS=off`: proxies whose word is taken for who asked          |
 | `AFS_CA_FILE`         | none            | Certificate authorities of your network, for outgoing connections      |
+| `AFS_GIT_LOCAL`       | `off`           | `on`: a project's repository may be a folder of this machine           |
 | `AFS_DATA_DIR`        | `data`          | Where the server keeps what it owns                                    |
 | `AFS_DATABASE_URL`    | `sqlite:afs.db` | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…` |
 | `AFS_LOG_LEVEL`       | `info`          | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`         |
@@ -228,6 +231,55 @@ When nobody can sign in, the way back is the machine the server runs on:
 
 Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP,
 and tokens for scripts.
+
+### Workspaces and projects
+
+A workspace is a team's space. A project in it is a git repository whose flows the server will
+run; the server keeps a mirror of it and knows the commit its branch is at.
+
+```sh
+curl ... -X POST https://flows.example.net:8443/api/v1/workspaces \
+  -d '{"key":"network","name":"Network team"}'
+curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projects \
+  -d '{"key":"edge","name":"Edge switches","gitUrl":"https://git.example.net/network/edge-flows.git"}'
+```
+
+```json
+{
+  "id": "2a968c91-1ac7-4654-94c8-2eb24a28b10b",
+  "key": "edge",
+  "name": "Edge switches",
+  "gitUrl": "https://git.example.net/network/edge-flows.git",
+  "gitRef": "main",
+  "commit": "9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b",
+  "sync": { "state": "ok", "at": "2026-11-13T10:15:33.364Z" },
+  "pollSeconds": 300,
+  "hook": false
+}
+```
+
+| Address (under `/api/v1`)           | Does                                                              | Who                                     |
+| ----------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
+| `/workspaces`, `/workspaces/:id`    | List, add, change, delete (by id or key)                          | read: signed in; change: administrators |
+| `/workspaces/:id/projects`          | A workspace's projects; add one (its source is looked at at once) | as above                                |
+| `/projects/:id`                     | A project; change its name, source, branch, timer; delete         | as above                                |
+| `POST /projects/:id/sync`           | Look at the source now                                            | administrators                          |
+| `GET /projects/:id/branches`        | The branches the source has                                       | signed in                               |
+| `POST /projects/:id/hook`, `DELETE` | Make a push hook (its token is shown once); remove it             | administrators                          |
+| `POST /hooks/projects/:id/push`     | Called by the git host with the hook's token                      | the token                               |
+
+- **The source** is `https://…`, `ssh://…` or `git@host:path`. An address with a password in it
+  is refused. A folder of this machine is allowed only with `AFS_GIT_LOCAL=on`.
+- **The branch** (`gitRef`, `main` unless set) is the one whose commits may run.
+- **Kept up to date** when added, on request, by the push hook, and every `pollSeconds` (300
+  unless set; 0 for never). A source that cannot be reached shows as the project's `sync` state
+  with the reason; the commit it had stays.
+- **The push hook:** the git host sends the token in `X-Gitlab-Token`, `X-AFS-Token` or
+  `Authorization: Bearer` (GitLab, Gitea, anything that can send a header).
+- The server needs the `git` program.
+
+Not there yet: credentials for private repositories, GitHub's signed hooks, repositories the
+server hosts itself, and the list of flows in a project.
 
 ## Development
 
