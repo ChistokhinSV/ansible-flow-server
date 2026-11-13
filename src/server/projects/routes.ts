@@ -152,6 +152,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     name: string;
     /** Left out: the server hosts the repository itself. */
     gitUrl?: string;
+    gitCredential?: string;
     gitRef?: string;
     pollSeconds?: number;
   };
@@ -164,6 +165,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           key: text(63, 1),
           name: text(200, 1),
           gitUrl: text(2000, 1),
+          gitCredential: text(64, 1),
           gitRef: text(200, 1),
           pollSeconds: { type: 'integer', minimum: 0 },
         }),
@@ -192,6 +194,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   type ProjectChangeBody = {
     name?: string;
     gitUrl?: string;
+    gitCredential?: string | null;
     gitRef?: string;
     pollSeconds?: number;
   };
@@ -203,6 +206,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         ...body([], {
           name: text(200, 1),
           gitUrl: text(2000, 1),
+          gitCredential: { type: ['string', 'null'], minLength: 1, maxLength: 64 },
           gitRef: text(200, 1),
           pollSeconds: { type: 'integer', minimum: 0 },
         }),
@@ -214,7 +218,10 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       const changed = await updateProject(db, request.params.id, request.body, deps.allowLocal);
       request.log.info({ by: me.login, project: changed.key }, 'Project changed');
       // A new source or branch is looked at right away.
-      const moved = request.body.gitUrl !== undefined || request.body.gitRef !== undefined;
+      const moved =
+        request.body.gitUrl !== undefined ||
+        request.body.gitRef !== undefined ||
+        request.body.gitCredential !== undefined;
       return moved ? ((await deps.sync.sync(changed.id)) ?? changed) : changed;
     }),
   );

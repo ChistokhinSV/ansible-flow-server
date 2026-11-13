@@ -24,6 +24,8 @@ export interface Project {
   gitUrl?: string;
   /** Where git clients reach the project on this server, after the server's own address. */
   gitPath: string;
+  /** The credential the server signs in to the source with (its id); absent: none. */
+  gitCredential?: string;
   /** The branch whose commits may run. */
   gitRef: string;
   /** The commit that branch was at when the source last answered. */
@@ -167,6 +169,7 @@ const projectOf = (row: ProjectRow, workspaceKey: string): Project => ({
   hosted: row.git_url === '',
   ...(row.git_url ? { gitUrl: row.git_url } : {}),
   gitPath: `/git/${workspaceKey}/${row.key}.git`,
+  ...(row.git_credential_id ? { gitCredential: row.git_credential_id } : {}),
   gitRef: row.git_ref,
   ...(row.commit_id ? { commit: row.commit_id } : {}),
   sync: {
@@ -208,6 +211,8 @@ export interface NewProject {
   name: string;
   /** The source's address. Left out: the server hosts the repository itself. */
   gitUrl?: string;
+  /** The credential to sign in to the source with (its id). */
+  gitCredential?: string;
   gitRef?: string;
   pollSeconds?: number;
 }
@@ -236,6 +241,10 @@ export async function createProject(
     .where('id', '=', workspaceId)
     .executeTakeFirst();
   if (!workspace) throw new ProjectError('not_found', 'No such workspace');
+  if (input.gitCredential)
+    await credentialProblem(db, input.gitCredential, workspaceId, gitUrl).then((why) => {
+      if (why) throw new ProjectError('invalid', why);
+    });
   const at = now();
   const row: ProjectRow = {
     id: randomUUID(),
@@ -249,6 +258,7 @@ export async function createProject(
     sync_error: null,
     synced_at: null,
     poll_seconds: pollSeconds,
+    git_credential_id: input.gitCredential ?? null,
     hook_token_hash: null,
     created_at: at,
     updated_at: at,
@@ -263,9 +273,37 @@ export async function createProject(
   return projectOf(row, workspace.key);
 }
 
+/**
+ * Why a credential cannot be what a project signs in to its source with; undefined when it can.
+ * It is one of the project's own workspace, of a kind git can use over HTTPS, for a source that
+ * is reached over HTTPS.
+ */
+async function credentialProblem(
+  db: Db,
+  credentialId: string,
+  workspaceId: string,
+  gitUrl: string,
+): Promise<string | undefined> {
+  if (!gitUrl) return 'The server hosts this project: there is no source to sign in to';
+  if (!/^https?:\/\//i.test(gitUrl))
+    return 'A credential is for a source reached over https; an ssh source uses the server’s own key';
+  const credential = await db
+    .selectFrom('credential')
+    .select(['workspace_id', 'kind'])
+    .where('id', '=', credentialId)
+    .executeTakeFirst();
+  if (!credential || credential.workspace_id !== workspaceId)
+    return 'The workspace has no such credential';
+  if (credential.kind !== 'git_token' && credential.kind !== 'login')
+    return 'A repository is signed in to with a git token or a login, not another kind of credential';
+  return undefined;
+}
+
 export interface ProjectChange {
   name?: string;
   gitUrl?: string;
+  /** The credential for the source (its id); null takes it away. */
+  gitCredential?: string | null;
   gitRef?: string;
   pollSeconds?: number;
 }
@@ -293,7 +331,24 @@ export async function updateProject(
     throw new ProjectError('invalid', 'The server hosts this project: it has no source to change');
   if (current.hosted && change.pollSeconds)
     throw new ProjectError('invalid', 'The server hosts this project: there is no source to ask');
-  const moved = change.gitUrl !== undefined || change.gitRef !== undefined;
+  if (change.gitCredential) {
+    const why = await credentialProblem(
+      db,
+      change.gitCredential,
+      current.workspace,
+      change.gitUrl?.trim() ?? current.gitUrl ?? '',
+    );
+    if (why) throw new ProjectError('invalid', why);
+  }
+  // A source that is no longer reached over https has no use for the credential it had.
+  const dropped =
+    change.gitCredential === undefined &&
+    change.gitUrl !== undefined &&
+    !/^https?:\/\//i.test(change.gitUrl.trim());
+  const moved =
+    change.gitUrl !== undefined ||
+    change.gitRef !== undefined ||
+    change.gitCredential !== undefined;
   const done = await db
     .updateTable('project')
     .set({
@@ -301,6 +356,8 @@ export async function updateProject(
       ...(change.gitUrl !== undefined ? { git_url: change.gitUrl.trim() } : {}),
       ...(change.gitRef !== undefined ? { git_ref: change.gitRef.trim() } : {}),
       ...(change.pollSeconds !== undefined ? { poll_seconds: change.pollSeconds } : {}),
+      ...(change.gitCredential !== undefined ? { git_credential_id: change.gitCredential } : {}),
+      ...(dropped ? { git_credential_id: null } : {}),
       ...(moved
         ? { commit_id: null, sync_state: 'never' as const, sync_error: null, synced_at: null }
         : {}),

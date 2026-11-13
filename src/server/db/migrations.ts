@@ -149,6 +149,29 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute();
     },
   },
+  // AFS-17: credentials, and the one a project signs in to its source with.
+  '0006_credentials': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('credential')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('workspace_id', 'text', (c) => c.notNull().references('workspace.id'))
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('kind', 'text', (c) => c.notNull())
+        .addColumn('description', 'text')
+        .addColumn('fields_json', 'text', (c) => c.notNull())
+        .addColumn('has_json', 'text', (c) => c.notNull())
+        .addColumn('secret_enc', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addUniqueConstraint('credential_workspace_name', ['workspace_id', 'name'])
+        .execute();
+      await db.schema
+        .alterTable('project')
+        .addColumn('git_credential_id', 'text', (c) => c.references('credential.id'))
+        .execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

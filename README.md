@@ -16,7 +16,7 @@ own code, with who may run what, who must approve, and a record of every run.
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
 users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
-repositories and is itself the git address of every project (clone, fetch, push), has web pages to sign
+repositories and is itself the git address of every project (clone, fetch, push), keeps credentials encrypted and signs in to private repositories with them, has web pages to sign
 in and look at workspaces, projects and their flows on the designer's canvas (read-only), answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
@@ -117,21 +117,23 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting               | Default         | Meaning                                                                |
-| --------------------- | --------------- | ---------------------------------------------------------------------- |
-| `AFS_HOST`            | `127.0.0.1`     | The address to listen on; `0.0.0.0` for every interface                |
-| `AFS_PORT`            | `8443`          | The port (`8080` with `AFS_TLS=off`)                                   |
-| `AFS_PUBLIC_URL`      | none            | The address people open, like `https://flows.example.net`              |
-| `AFS_HTTP_PORT`       | none            | A port that redirects plain HTTP to HTTPS                              |
-| `AFS_TLS`             | `on`            | `off` behind a proxy that does HTTPS                                   |
-| `AFS_TRUSTED_PROXIES` | none            | With `AFS_TLS=off`: proxies whose word is taken for who asked          |
-| `AFS_CA_FILE`         | none            | Certificate authorities of your network, for outgoing connections      |
-| `AFS_GIT_LOCAL`       | `off`           | `on`: a project's repository may be a folder of this machine           |
-| `AFS_DATA_DIR`        | `data`          | Where the server keeps what it owns                                    |
-| `AFS_DATABASE_URL`    | `sqlite:afs.db` | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…` |
-| `AFS_LOG_LEVEL`       | `info`          | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`         |
-| `AFS_LOG_FORMAT`      | `text`          | `text`, or `json` for one object a line                                |
-| `AFS_ENV_FILE`        | `.env`          | Another file to read the settings from                                 |
+| Setting               | Default                                  | Meaning                                                                 |
+| --------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
+| `AFS_HOST`            | `127.0.0.1`                              | The address to listen on; `0.0.0.0` for every interface                 |
+| `AFS_PORT`            | `8443`                                   | The port (`8080` with `AFS_TLS=off`)                                    |
+| `AFS_PUBLIC_URL`      | none                                     | The address people open, like `https://flows.example.net`               |
+| `AFS_HTTP_PORT`       | none                                     | A port that redirects plain HTTP to HTTPS                               |
+| `AFS_TLS`             | `on`                                     | `off` behind a proxy that does HTTPS                                    |
+| `AFS_TRUSTED_PROXIES` | none                                     | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
+| `AFS_CA_FILE`         | none                                     | Certificate authorities of your network, for outgoing connections       |
+| `AFS_MASTER_KEY_FILE` | `<data>/master.key`, made at first start | The file with the master key that stored credentials are encrypted with |
+| `AFS_MASTER_KEY`      | none                                     | The master key itself (base64 of 32 bytes), instead of a file           |
+| `AFS_GIT_LOCAL`       | `off`                                    | `on`: a project's repository may be a folder of this machine            |
+| `AFS_DATA_DIR`        | `data`                                   | Where the server keeps what it owns                                     |
+| `AFS_DATABASE_URL`    | `sqlite:afs.db`                          | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
+| `AFS_LOG_LEVEL`       | `info`                                   | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
+| `AFS_LOG_FORMAT`      | `text`                                   | `text`, or `json` for one object a line                                 |
+| `AFS_ENV_FILE`        | `.env`                                   | Another file to read the settings from                                  |
 
 With PostgreSQL:
 
@@ -386,8 +388,70 @@ While the server uses its own first certificate, tell git to trust it:
 ]
 ```
 
-Not there yet: credentials for private repositories, GitHub's signed hooks, and starting a hosted
-project from a sample.
+Not there yet: GitHub's signed hooks, an ssh source with a stored key, and starting a hosted
+project from a sample. For a private repository over https see
+[Credentials](#credentials-and-the-master-key).
+
+### Credentials and the master key
+
+What a run or a mirror signs in with is kept by the server, encrypted with a **master key**
+that is not in the database.
+
+- With no setting, the server makes `data/master.key` at its first start and says so in the
+  log. **Keep a copy somewhere safe:** without it the stored credentials cannot be read.
+- Stronger: keep the key outside the data folder with `AFS_MASTER_KEY_FILE`, or give it as
+  `AFS_MASTER_KEY` (32 random bytes in base64: `openssl rand -base64 32`).
+- A server started with another key than its database's refuses to start.
+
+```sh
+curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/credentials \
+  -d '{"name":"Git host","kind":"git_token","fields":{"username":"deploy"},"secret":{"token":"<the token>"}}'
+```
+
+```json
+{
+  "id": "7b1f6c0a-3c1e-4c58-9f0e-2f6a1d4b8e90",
+  "workspace": "5d0c2f0e-0f52-4a55-a2f4-0d2f5c0e7a11",
+  "name": "Git host",
+  "kind": "git_token",
+  "fields": { "username": "deploy" },
+  "has": ["token"],
+  "usedBy": 0,
+  "createdAt": "2026-11-13T13:55:06.120Z",
+  "updatedAt": "2026-11-13T13:55:06.120Z"
+}
+```
+
+| Kind        | Open part            | Secret part                | For                              |
+| ----------- | -------------------- | -------------------------- | -------------------------------- |
+| `ssh_key`   | `username`           | `privateKey`, `passphrase` | Machines over SSH                |
+| `login`     | `username`           | `password`                 | Machines; a git host over HTTPS  |
+| `become`    | `method`, `username` | `password`                 | Becoming another user (sudo)     |
+| `vault`     | `vaultId`            | `password`                 | An Ansible vault                 |
+| `git_token` | `username`           | `token`                    | A git host over HTTPS            |
+| `registry`  | `host`, `username`   | `password`                 | A container registry             |
+| `env`       | the variables' names | the variables' values      | Variables of a run's environment |
+
+| Address (under `/api/v1`)     | Does                                                     | Who                                     |
+| ----------------------------- | -------------------------------------------------------- | --------------------------------------- |
+| `/workspaces/:id/credentials` | List; add                                                | read: signed in; change: administrators |
+| `/credentials/:id`            | One; change name, open part, or the whole secret; delete | as above                                |
+
+- **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
+  the values. To change a secret, send it again whole.
+- **A private repository:** give the project a `git_token` or `login` credential of its
+  workspace: `"gitCredential": "<credential id>"` when adding it, or
+  `PATCH /projects/:id` (`null` takes it away). For a source over https. The server signs in
+  with it to read the source and to pass pushes on.
+- A credential a project uses is not deleted until the project has another.
+- With authorities of your own (`AFS_CA_FILE`), the server's git trusts them too.
+
+| Command          | Does                                                                             |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `secrets status` | Which master key the server has, and whether the stored credentials open with it |
+| `secrets rotate` | Makes a new master key and seals everything again (stop the server first)        |
+
+Not there yet: handing credentials to runs, an ssh source with a stored key, the pages.
 
 ## Development
 
@@ -404,6 +468,7 @@ project from a sample.
 | `just check-flows <files>` | Build, then read the given flow files                                                                                |
 | `just cert <command>`      | Build, then run a certificate command                                                                                |
 | `just user <command>`      | Build, then run a user command                                                                                       |
+| `just secrets <command>`   | Build, then run a secrets command                                                                                    |
 
 Layout:
 

@@ -5,7 +5,7 @@ import { rm } from 'node:fs/promises';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
-import { type Git, GitError } from './git';
+import { type Git, type GitAuth, GitError } from './git';
 import { dueProjects, getProject, type Project, recordSync } from './store';
 
 /** How often the timer looks for projects that are due. */
@@ -23,7 +23,24 @@ export class ProjectSync {
     private readonly db: Kysely<Schema>,
     private readonly git: Git,
     private readonly log: Logger,
+    /**
+     * Gives what a project signs in to its source with. Rejects when the project names a
+     * credential that cannot be used (gone, or sealed with another key).
+     */
+    private readonly authFor: (project: Project) => Promise<GitAuth | undefined> = async () =>
+      undefined,
   ) {}
+
+  /** What the project signs in to its source with; a GitError says why there is none to use. */
+  async auth(project: Project): Promise<GitAuth | undefined> {
+    if (!project.gitCredential) return undefined;
+    try {
+      return await this.authFor(project);
+    } catch (e) {
+      this.log.error({ project: project.key, why: (e as Error).message }, 'A credential failed');
+      throw new GitError("The project's credential cannot be used");
+    }
+  }
 
   /**
    * Runs `work` when nothing else is changing the project's repository, and keeps everything
@@ -62,7 +79,8 @@ export class ProjectSync {
     if (!project) return undefined;
     try {
       await this.git.ensure(project.id, project.gitRef);
-      if (project.gitUrl) await this.git.fetch(project.id, project.gitUrl);
+      if (project.gitUrl)
+        await this.git.fetch(project.id, project.gitUrl, await this.auth(project));
       // A hosted project nobody has pushed to yet is not a failure: it has nothing to run.
       else if (!(await this.git.branches(project.id)).length) return project;
       const commit = await this.git.resolve(project.id, project.gitRef);
