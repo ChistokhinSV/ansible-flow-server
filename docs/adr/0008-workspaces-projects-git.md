@@ -60,8 +60,8 @@ hook and no such project get the same answer, and guessing is rate-limited.
 - **GitHub's signed hooks.** GitHub proves itself by signing the request with a secret the server
   must keep readable, which also waits for AFS-17. GitLab, Gitea and anything that can send a
   header work now.
-- **The server as the git address of every project** (AFS-14; ADR-0003's amendment): cloning from
-  it, and pushing through it to an external source. Until then the mirror is only read.
+- **The server as the git address of every project**: ADR-0010 (AFS-14). Since then a project
+  may have no source (the server hosts it), and one hook of the server's own runs for a push.
 - **Choosing the commit of a run.** A project's commit here is the newest of its branch, which a
   run takes unless its launch names another branch or commit (AFS-18).
 - **Finding the flows** in a project (AFS-16).

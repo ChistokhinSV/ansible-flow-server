@@ -2,7 +2,7 @@
 // read them, administrators change them.
 //   /api/v1/workspaces, /workspaces/:id            :id is the workspace's id or its key
 //   /api/v1/workspaces/:id/projects
-//   /api/v1/projects/:id, /sync, /branches, /hook
+//   /api/v1/projects/:id, /sync, /branches, /pushes, /hook
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -19,6 +19,7 @@ import {
   getWorkspace,
   hookTokenMatches,
   listProjects,
+  listPushes,
   listWorkspaces,
   newHookToken,
   ProjectError,
@@ -34,6 +35,8 @@ export interface ProjectDeps {
   sync: ProjectSync;
   /** A repository may be a folder of this machine (AFS_GIT_LOCAL). */
   allowLocal: boolean;
+  /** A clone or fetch asks the source first when the last look is older than this (tests). */
+  freshMs?: number;
 }
 
 const STATUS: Record<ProjectError['code'], number> = {
@@ -144,7 +147,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   type NewProjectBody = {
     key: string;
     name: string;
-    gitUrl: string;
+    /** Left out: the server hosts the repository itself. */
+    gitUrl?: string;
     gitRef?: string;
     pollSeconds?: number;
   };
@@ -153,7 +157,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     {
       schema: {
         ...ID,
-        ...body(['key', 'name', 'gitUrl'], {
+        ...body(['key', 'name'], {
           key: text(63, 1),
           name: text(200, 1),
           gitUrl: text(2000, 1),
@@ -221,7 +225,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
       await deleteProject(db, project.id);
-      await deps.sync.forget(project.id);
+      await deps.sync.forget(project.id, project.hosted);
       request.log.info({ by: me.login, project: project.key }, 'Project deleted');
       return reply.code(204).send();
     }),
@@ -243,6 +247,25 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       throw e;
     }
   });
+
+  app.get<WithId & { Querystring: { limit?: number } }>(
+    '/api/v1/projects/:id/pushes',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          properties: { limit: { type: 'integer', minimum: 1, maximum: 200 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      return listPushes(db, project.id, request.query.limit);
+    },
+  );
 
   // --- the push hook
 

@@ -1,7 +1,7 @@
 # ADR-0003: A project's flows live in git
 
 - Status: accepted (2026-11-13, AFS-9; product-owner decision "both modes per project"); amended
-  the same day, see below. External projects: AFS-13. The server as git address: AFS-14
+  the same day, see below. External projects: AFS-13 (ADR-0008). The server as git address: AFS-14 (ADR-0010)
 - Context: people design flows in VS Code and will later edit them in the browser; the server runs
   them. All three must agree on which text of a flow is the flow
 

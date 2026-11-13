@@ -6,6 +6,7 @@ import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
+import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 
 export interface AppDeps {
@@ -69,7 +70,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     secureCookies: deps.secureCookies ?? !!deps.https,
   });
 
-  if (deps.projects) registerProjects(app, { db: deps.database.db, ...deps.projects });
+  if (deps.projects) {
+    registerProjects(app, { db: deps.database.db, ...deps.projects });
+    registerGit(app, { db: deps.database.db, ...deps.projects });
+  }
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

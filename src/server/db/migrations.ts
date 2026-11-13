@@ -126,6 +126,29 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.createIndex('api_token_user').on('api_token').column('user_id').execute();
     },
   },
+  // AFS-14: who pushed what through the server.
+  '0005_git_push': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('git_push')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('project_id', 'text', (c) =>
+          c.notNull().references('project.id').onDelete('cascade'),
+        )
+        .addColumn('user_id', 'text', (c) => c.notNull())
+        .addColumn('login', 'text', (c) => c.notNull())
+        .addColumn('ref', 'text', (c) => c.notNull())
+        .addColumn('old_commit', 'text')
+        .addColumn('new_commit', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createIndex('git_push_project')
+        .on('git_push')
+        .columns(['project_id', 'created_at'])
+        .execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

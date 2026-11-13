@@ -1,5 +1,6 @@
-// Keeps the projects' mirrors up to date: when someone asks, when the source says it changed (a
-// push hook), and on a timer for sources that say nothing.
+// Keeps the projects' repositories and what the server knows about them in step: when someone
+// asks, when the source says it changed (a push hook), on a timer for sources that say nothing,
+// and after a push through the server.
 import { rm } from 'node:fs/promises';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
@@ -13,6 +14,8 @@ const TICK_MS = 15_000;
 export class ProjectSync {
   /** One look at a time per project: a second asker waits for the first's answer. */
   private readonly going = new Map<string, Promise<Project | undefined>>();
+  /** What is done to a project's repository is done one thing after another. */
+  private readonly queue = new Map<string, Promise<unknown>>();
   private timer: NodeJS.Timeout | undefined;
   private ticking = false;
 
@@ -23,23 +26,46 @@ export class ProjectSync {
   ) {}
 
   /**
-   * Looks at the project's source now. Resolves with the project as it stands afterwards (its
-   * commit, or why it failed); undefined when there is no such project. Never rejects for a
-   * source that cannot be reached: that is the project's state, not an error of the server.
+   * Runs `work` when nothing else is changing the project's repository, and keeps everything
+   * else out until it is done: a push and a fetch from the source never interleave.
+   */
+  exclusive<T>(projectId: string, work: () => Promise<T>): Promise<T> {
+    const before = this.queue.get(projectId) ?? Promise.resolve();
+    const run = before.catch(() => undefined).then(work);
+    const tail = run.catch(() => undefined);
+    this.queue.set(projectId, tail);
+    void tail.then(() => {
+      if (this.queue.get(projectId) === tail) this.queue.delete(projectId);
+    });
+    return run;
+  }
+
+  /**
+   * Looks at the project's source now (for a project the server hosts: at its own repository).
+   * Resolves with the project as it stands afterwards (its commit, or why it failed); undefined
+   * when there is no such project. Never rejects for a source that cannot be reached: that is
+   * the project's state, not an error of the server.
    */
   sync(projectId: string): Promise<Project | undefined> {
     const running = this.going.get(projectId);
     if (running) return running;
-    const run = this.once(projectId).finally(() => this.going.delete(projectId));
+    const run = this.exclusive(projectId, () => this.refresh(projectId)).finally(() =>
+      this.going.delete(projectId),
+    );
     this.going.set(projectId, run);
     return run;
   }
 
-  private async once(projectId: string): Promise<Project | undefined> {
+  /** What `sync` does, for a caller that already holds the project (`exclusive`). */
+  async refresh(projectId: string): Promise<Project | undefined> {
     const project = await getProject(this.db, projectId);
     if (!project) return undefined;
     try {
-      const commit = await this.git.sync(project.id, project.gitUrl, project.gitRef);
+      await this.git.ensure(project.id, project.gitRef);
+      if (project.gitUrl) await this.git.fetch(project.id, project.gitUrl);
+      // A hosted project nobody has pushed to yet is not a failure: it has nothing to run.
+      else if (!(await this.git.branches(project.id)).length) return project;
+      const commit = await this.git.resolve(project.id, project.gitRef);
       await recordSync(this.db, project.id, { commit });
       if (commit !== project.commit)
         this.log.info(
@@ -59,12 +85,22 @@ export class ProjectSync {
     return getProject(this.db, projectId);
   }
 
-  /** Removes a project's mirror (after the project is deleted). */
-  async forget(projectId: string): Promise<void> {
-    await this.going.get(projectId)?.catch(() => undefined);
-    await rm(this.git.mirror(projectId), { recursive: true, force: true }).catch((e) =>
-      this.log.warn({ err: e }, 'A project mirror could not be removed'),
-    );
+  /**
+   * Takes a deleted project's repository away. A mirror is removed: its source has everything.
+   * A hosted project's repository is the only copy, so it is put aside (`repos/deleted`), not
+   * removed.
+   */
+  async forget(projectId: string, hosted = false): Promise<void> {
+    await this.exclusive(projectId, async () => {
+      try {
+        if (hosted) {
+          const kept = await this.git.retire(projectId);
+          if (kept) this.log.info({ kept }, 'The deleted project had the only copy: kept aside');
+        } else await rm(this.git.mirror(projectId), { recursive: true, force: true });
+      } catch (e) {
+        this.log.warn({ err: e }, 'A project repository could not be removed');
+      }
+    });
   }
 
   /** Looks at every project that is due, one after another. */
@@ -89,10 +125,10 @@ export class ProjectSync {
     void this.tick();
   }
 
-  /** Stops the timer and waits for the looks that are going. */
+  /** Stops the timer and waits for what is going. */
   async stop(): Promise<void> {
     clearInterval(this.timer);
     this.timer = undefined;
-    await Promise.allSettled([...this.going.values()]);
+    await Promise.allSettled([...this.going.values(), ...this.queue.values()]);
   }
 }

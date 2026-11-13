@@ -82,7 +82,10 @@ export interface ProjectTable {
   /** Its short name in addresses; unique in its workspace. */
   key: string;
   name: string;
-  /** Where the repository is fetched from. Never holds a password. */
+  /**
+   * Where the repository is fetched from. Never holds a password. Empty: the server hosts the
+   * repository itself.
+   */
   git_url: string;
   /** The branch whose commits may run. */
   git_ref: string;
@@ -116,7 +119,24 @@ export interface ApiTokenTable {
   expires_at: IsoTime | null;
 }
 
+/** One branch changed by one push through the server. */
+export interface GitPushTable {
+  id: string;
+  project_id: string;
+  /** Who pushed; kept as text too, for when the person is gone. */
+  user_id: string;
+  login: string;
+  /** The branch, without refs/heads/. */
+  ref: string;
+  /** The commit before; null: the branch was made by this push. */
+  old_commit: string | null;
+  /** The commit after; null: the branch was deleted by this push. */
+  new_commit: string | null;
+  created_at: IsoTime;
+}
+
 export interface Schema {
+  git_push: GitPushTable;
   setting: SettingTable;
   api_token: ApiTokenTable;
   workspace: WorkspaceTable;

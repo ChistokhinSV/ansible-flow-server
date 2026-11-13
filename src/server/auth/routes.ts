@@ -127,6 +127,8 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       // A token that is not one counts as a wrong attempt: it must not be guessable.
       if (!request.user) {
         byAddress.fail(address);
+        if (request.url.startsWith('/git/'))
+          reply.header('www-authenticate', 'Basic realm="Ansible Flow Server"');
         return reply
           .code(401)
           .send({ error: 'unauthorized', message: 'The token is not valid, or is past its end' });
