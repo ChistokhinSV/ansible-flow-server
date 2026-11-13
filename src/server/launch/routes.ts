@@ -34,6 +34,21 @@ const CONFIG = {
   // Values of any kind the flow's inputs take; the store checks each against its input.
   inputs: { type: 'object', maxProperties: 200 },
   credentials: { type: 'array', maxItems: 20, items: text(64, 1) },
+  // AFS-29: whom its runs tell (logins and group names), and when; null: nobody.
+  notify: {
+    anyOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['when', 'to'],
+        properties: {
+          when: { type: 'string', enum: ['failed', 'ended'] },
+          to: { type: 'array', maxItems: 20, items: text(64, 1) },
+        },
+      },
+      { type: 'null' },
+    ],
+  },
 };
 const REQUEST = {
   type: 'object',

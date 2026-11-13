@@ -7,6 +7,13 @@ import type { TokenInfo } from '../server/auth/tokens';
 import type { Group, User } from '../server/auth/users';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
+import type {
+  Delivery,
+  NotifySettings,
+  RunNotify,
+  SmtpSecurity,
+  SmtpSettings,
+} from '../server/notify/types';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
@@ -16,6 +23,7 @@ export type {
   AuditEntry,
   AuditFilter,
   Credential,
+  Delivery,
   FlowList,
   FlowSummary,
   Gate,
@@ -27,11 +35,15 @@ export type {
   LaunchForm,
   LaunchRequest,
   Level,
+  NotifySettings,
   PreparedLaunch,
   Problem,
   Project,
   Push,
   Run,
+  RunNotify,
+  SmtpSecurity,
+  SmtpSettings,
   TokenInfo,
   User,
   WaitingApproval,
@@ -212,6 +224,25 @@ export const api = {
     call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
   users: () => call<User[]>('GET', '/users'),
   groups: () => call<Group[]>('GET', '/groups'),
+
+  notifySettings: () => call<NotifySettings>('GET', '/notifications/settings'),
+  setSmtp: (input: {
+    host: string;
+    port?: number;
+    security: SmtpSecurity;
+    user?: string | null;
+    password?: string;
+    from: string;
+  }) => call<NotifySettings>('PUT', '/notifications/smtp', input),
+  clearSmtp: () => call<void>('DELETE', '/notifications/smtp'),
+  newWebhookKey: async () =>
+    (await call<{ key: string }>('POST', '/notifications/webhook-key')).key,
+  testNotification: (channel: 'email' | 'webhook', to?: string) =>
+    call<Delivery>('POST', '/notifications/test', { channel, ...(to ? { to } : {}) }),
+  deliveries: (filter: { status?: string; run?: string } = {}) =>
+    call<Delivery[]>('GET', `/notifications?${queryOf(filter)}`),
+  retryDelivery: (id: string) =>
+    call<void>('POST', `/notifications/${encodeURIComponent(id)}/retry`),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: {

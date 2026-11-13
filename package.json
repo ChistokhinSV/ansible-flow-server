@@ -19,6 +19,7 @@
     "@peculiar/x509": "3.1.0",
     "fastify": "5.12.8",
     "kysely": "0.29.9",
+    "nodemailer": "10.5.0",
     "pg": "8.23.1",
     "reflect-metadata": "0.2.2"
   },

@@ -328,6 +328,41 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('The audit log as a CSV or JSON file'),
+  'GET /api/v1/notifications': S(
+    'Notifications',
+    'administrators',
+    'server',
+  )('The delivery log: each message, where it went, and how; newest first, filtered'),
+  'POST /api/v1/notifications/:id/retry': S(
+    'Notifications',
+    'administrators',
+    'server',
+  )('Try a message that was given up on again'),
+  'GET /api/v1/notifications/settings': S(
+    'Notifications',
+    'administrators',
+    'server',
+  )('How the server sends: the mail server (never its password), whether webhooks are signed'),
+  'PUT /api/v1/notifications/smtp': S(
+    'Notifications',
+    'administrator session',
+    'server',
+  )('Set the mail server email goes through'),
+  'DELETE /api/v1/notifications/smtp': S(
+    'Notifications',
+    'administrator session',
+    'server',
+  )('Send no email'),
+  'POST /api/v1/notifications/webhook-key': S(
+    'Notifications',
+    'administrator session',
+    'server',
+  )('A new key webhooks are signed with, shown in this answer only; the old one stops working'),
+  'POST /api/v1/notifications/test': S(
+    'Notifications',
+    'administrators',
+    'server',
+  )('Send a test message now, by email or webhook, and say how it went'),
 };
 
 /**

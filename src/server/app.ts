@@ -11,6 +11,8 @@ import type { Database } from './db/database';
 import { registerLaunch } from './launch/routes';
 import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
+import type { Notifier } from './notify/notifier';
+import { registerNotifications } from './notify/routes';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import type { RunHub } from './runs/hub';
@@ -46,6 +48,10 @@ export interface AppDeps {
   masterKey?: MasterKey;
   /** The folder of the built web application (dist/web); without it there are no pages. */
   webDir?: string;
+  /** AFS-29: what tells people of what happens; without it nobody is told. */
+  notifier?: Notifier;
+  /** The address people use for the server (AFS_PUBLIC_URL), for links in messages. */
+  publicUrl?: string;
 }
 
 export interface MetaReply extends ServerMeta {
@@ -110,12 +116,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
   if (deps.runs) {
     registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);
+    const notifier = deps.notifier;
     registerApprovals(app, {
       db: deps.database.db,
       queue: deps.runs,
       ...(deps.hub ? { hub: deps.hub } : {}),
+      ...(notifier ? { decided: (run, gate) => notifier.approvalDecided(run, gate) } : {}),
     });
   }
+  if (deps.notifier && deps.masterKey)
+    registerNotifications(app, {
+      db: deps.database.db,
+      key: deps.masterKey,
+      notifier: deps.notifier,
+      ...(deps.publicUrl ? { publicUrl: deps.publicUrl } : {}),
+    });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

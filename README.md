@@ -19,7 +19,7 @@ programs (access tokens, service accounts), keeps workspaces and projects in ste
 repositories and is the git address of every project, keeps credentials encrypted, and runs flows
 in execution environment containers from launch configurations, live on the designer's canvas.
 Access levels say who sees, runs and changes what; approvals stop a run until someone allowed
-decides; every change is in an audit log; the REST API is described as OpenAPI. The plan and its
+decides; people are told by email and webhook; every change is in an audit log; the REST API is described as OpenAPI. The plan and its
 tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 
 | Planned for 1.0                                                            | State                      |
@@ -29,7 +29,7 @@ tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 | Runs in execution environment containers, with credentials kept encrypted  | done                       |
 | Access levels: read, operate, edit, approve, per workspace or per flow     | done                       |
 | Approval steps: a run waits until a listed approver decides                | done                       |
-| Notifications by email and webhook                                         | planned                    |
+| Notifications by email and webhook                                         | done                       |
 | Execution environments built from a list of collections                    | planned                    |
 | Schedules, REST API with tokens, MCP endpoint                              | API done                   |
 | Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | local users and HTTPS done |
@@ -118,31 +118,32 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting                    | Default                                              | Meaning                                                                 |
-| -------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
-| `AFS_HOST`                 | `127.0.0.1`                                          | The address to listen on; `0.0.0.0` for every interface                 |
-| `AFS_PORT`                 | `8443`                                               | The port (`8080` with `AFS_TLS=off`)                                    |
-| `AFS_PUBLIC_URL`           | none                                                 | The address people open, like `https://flows.example.net`               |
-| `AFS_HTTP_PORT`            | none                                                 | A port that redirects plain HTTP to HTTPS                               |
-| `AFS_TLS`                  | `on`                                                 | `off` behind a proxy that does HTTPS                                    |
-| `AFS_TRUSTED_PROXIES`      | none                                                 | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
-| `AFS_CA_FILE`              | none                                                 | Certificate authorities of your network, for outgoing connections       |
-| `AFS_MASTER_KEY_FILE`      | `<data>/master.key`, made at first start             | The file with the master key that stored credentials are encrypted with |
-| `AFS_MASTER_KEY`           | none                                                 | The master key itself (base64 of 32 bytes), instead of a file           |
-| `AFS_MAX_RUNS`             | `4`                                                  | Runs at once on this server                                             |
-| `AFS_MAX_RUNS_PER_PROJECT` | `1`                                                  | Runs at once of one project                                             |
-| `AFS_CONTAINER_ENGINE`     | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`     |
-| `AFS_EE_IMAGE`             | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                        |
-| `AFS_RUN_TIMEOUT_MINUTES`  | `240`                                                | A run that takes longer is stopped                                      |
-| `AFS_RUNS_KEEP_DAYS`       | `90`                                                 | Ended runs older than this are removed, with their output               |
-| `AFS_RUNS_KEEP_PER_FLOW`   | `200`                                                | Of one flow in one project, at most this many ended runs are kept       |
-| `AFS_AUDIT_KEEP_DAYS`      | `365`                                                | Audit entries older than this are removed; `0` keeps them all           |
-| `AFS_GIT_LOCAL`            | `off`                                                | `on`: a project's repository may be a folder of this machine            |
-| `AFS_DATA_DIR`             | `data`                                               | Where the server keeps what it owns                                     |
-| `AFS_DATABASE_URL`         | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
-| `AFS_LOG_LEVEL`            | `info`                                               | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
-| `AFS_LOG_FORMAT`           | `text`                                               | `text`, or `json` for one object a line                                 |
-| `AFS_ENV_FILE`             | `.env`                                               | Another file to read the settings from                                  |
+| Setting                       | Default                                              | Meaning                                                                 |
+| ----------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| `AFS_HOST`                    | `127.0.0.1`                                          | The address to listen on; `0.0.0.0` for every interface                 |
+| `AFS_PORT`                    | `8443`                                               | The port (`8080` with `AFS_TLS=off`)                                    |
+| `AFS_PUBLIC_URL`              | none                                                 | The address people open, like `https://flows.example.net`               |
+| `AFS_HTTP_PORT`               | none                                                 | A port that redirects plain HTTP to HTTPS                               |
+| `AFS_TLS`                     | `on`                                                 | `off` behind a proxy that does HTTPS                                    |
+| `AFS_TRUSTED_PROXIES`         | none                                                 | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
+| `AFS_CA_FILE`                 | none                                                 | Certificate authorities of your network, for outgoing connections       |
+| `AFS_MASTER_KEY_FILE`         | `<data>/master.key`, made at first start             | The file with the master key that stored credentials are encrypted with |
+| `AFS_MASTER_KEY`              | none                                                 | The master key itself (base64 of 32 bytes), instead of a file           |
+| `AFS_MAX_RUNS`                | `4`                                                  | Runs at once on this server                                             |
+| `AFS_MAX_RUNS_PER_PROJECT`    | `1`                                                  | Runs at once of one project                                             |
+| `AFS_CONTAINER_ENGINE`        | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`     |
+| `AFS_EE_IMAGE`                | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                        |
+| `AFS_RUN_TIMEOUT_MINUTES`     | `240`                                                | A run that takes longer is stopped                                      |
+| `AFS_RUNS_KEEP_DAYS`          | `90`                                                 | Ended runs older than this are removed, with their output               |
+| `AFS_RUNS_KEEP_PER_FLOW`      | `200`                                                | Of one flow in one project, at most this many ended runs are kept       |
+| `AFS_AUDIT_KEEP_DAYS`         | `365`                                                | Audit entries older than this are removed; `0` keeps them all           |
+| `AFS_NOTIFICATIONS_KEEP_DAYS` | `30`                                                 | Notifications sent or given up on are kept this many days               |
+| `AFS_GIT_LOCAL`               | `off`                                                | `on`: a project's repository may be a folder of this machine            |
+| `AFS_DATA_DIR`                | `data`                                               | Where the server keeps what it owns                                     |
+| `AFS_DATABASE_URL`            | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
+| `AFS_LOG_LEVEL`               | `info`                                               | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
+| `AFS_LOG_FORMAT`              | `text`                                               | `text`, or `json` for one object a line                                 |
+| `AFS_ENV_FILE`                | `.env`                                               | Another file to read the settings from                                  |
 
 With PostgreSQL:
 
@@ -234,7 +235,7 @@ just user add dana --name "Dana Whitfield" --admin
 - After five wrong passwords for a login in fifteen minutes, sign-in for it waits.
 - The last administrator cannot be demoted, disabled or deleted.
 - A person and a group each have an email address and a webhook address: where a notification
-  for them will go.
+  for them goes (see [Notifications](#notifications)).
 
 When nobody can sign in, the way back is the machine the server runs on:
 
@@ -386,6 +387,7 @@ setup code from its log); after that, sign-in.
 | `/account`                             | Your access tokens: make (shown once; for all workspaces or one), list, revoke              |
 | `/admin`                               | Administration: the audit log; people, groups and the certificate are not built yet         |
 | `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON              |
+| `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                  |
 
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
@@ -548,10 +550,10 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 - A credential a project uses is not deleted until the project has another.
 - With authorities of your own (`AFS_CA_FILE`), the server's git trusts them too.
 
-| Command          | Does                                                                             |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `secrets status` | Which master key the server has, and whether the stored credentials open with it |
-| `secrets rotate` | Makes a new master key and seals everything again (stop the server first)        |
+| Command          | Does                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secrets status` | Which master key the server has, and whether the stored credentials open with it                                                                  |
+| `secrets rotate` | Makes a new master key and seals everything again: credentials, runs' inputs, the mail server's password, the webhook key (stop the server first) |
 
 Not there yet: handing credentials to runs, an ssh source with a stored key, the pages.
 
@@ -595,17 +597,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 }
 ```
 
-| Setting       | Means                                                                      |
-| ------------- | -------------------------------------------------------------------------- |
-| `flowFile`    | The flow's file in the repository                                          |
-| `gitRef`      | Another branch than the project's to take the newest commit of             |
-| `commit`      | One commit, always (a pin). Not together with `gitRef`                     |
-| `inventory`   | The inventory's path in the repository; left out: what `ansible.cfg` names |
-| `eeImage`     | The execution environment's image; left out: the server's default          |
-| `mode`        | `check` (a skeleton run, the default) or `real`                            |
-| `limit`       | Ansible's limit, for fewer hosts than the flow targets                     |
-| `inputs`      | Start values of the flow's inputs. Never one that looks like a secret      |
-| `credentials` | Credentials of the workspace a run gets (not a git token)                  |
+| Setting       | Means                                                                       |
+| ------------- | --------------------------------------------------------------------------- |
+| `flowFile`    | The flow's file in the repository                                           |
+| `gitRef`      | Another branch than the project's to take the newest commit of              |
+| `commit`      | One commit, always (a pin). Not together with `gitRef`                      |
+| `inventory`   | The inventory's path in the repository; left out: what `ansible.cfg` names  |
+| `eeImage`     | The execution environment's image; left out: the server's default           |
+| `mode`        | `check` (a skeleton run, the default) or `real`                             |
+| `limit`       | Ansible's limit, for fewer hosts than the flow targets                      |
+| `inputs`      | Start values of the flow's inputs. Never one that looks like a secret       |
+| `credentials` | Credentials of the workspace a run gets (not a git token)                   |
+| `notify`      | Whom its runs tell: `{"when": "failed" or "ended", "to": [logins, groups]}` |
 
 | Address (under `/api/v1`)         | Does                                                       | Who                                  |
 | --------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
@@ -751,8 +754,8 @@ server that stops and starts again keeps the run waiting.
 - **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
   hosts take the approval's `timeout` port (or `rejected` when it has none).
 - **A stopped run** asks nobody any more.
-- The approval's `message` is shown to whoever decides; `notify` names who is told (notifications
-  come in a later version).
+- The approval's `message` is shown to whoever decides and sent with the request to decide;
+  `notify` names others who are told (see [Notifications](#notifications)).
 - Approvals inside subflows, or two that can wait at once, cannot be split: such a flow does not
   launch (the designer says why, `awx-segments`).
 
@@ -770,6 +773,78 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
 | `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide  | signed in                    |
 | `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom, when, why; `mayDecide`, `why` | `ro`                         |
 | `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key       | `approve`, and the approvers |
+
+### Notifications
+
+The server tells people what concerns them, by email and by webhook:
+
+| When                                         | Who is told                                                                                                           |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| A run waits at an approval                   | Its approvers: those the approval names, else whoever holds `approve` on the flow or workspace; and its `notify` list |
+| An approval is approved, rejected, timed out | Who launched the run, and the approval's `notify` list                                                                |
+| A run ends                                   | As its launch configuration says: when a run fails (or is lost), or whenever one ends                                 |
+| The server certificate nears its end         | The administrators, 30, 14, 7, 3 and 1 days before, and once it has ended; each step once                             |
+
+- **Where:** a person at the email address and webhook their account has; a group at its own,
+  or, when it has neither, through each of its members. Disabled accounts are told nothing; an
+  address reached two ways is told once. Who launched a run is not asked to approve it unless
+  the workspace allows self-approval.
+- **Email** goes through the mail server an administrator sets on the **Notifications** page
+  (`/admin/notifications`): STARTTLS (587, required), TLS (465), or a relay on the network as it
+  allows. Its password is kept encrypted with the master key and never shown.
+- **A webhook** gets the event as JSON, with a `text` line that Slack, Mattermost and
+  Rocket.Chat incoming webhooks show:
+
+  ```json
+  {
+    "text": "Firewall upgrade, run 7 (net / edge) waits for a decision at \"Approve the change\". ...",
+    "event": "approval.waiting",
+    "at": "2026-11-13T10:00:00.000Z",
+    "server": "https://flows.example.net",
+    "run": {
+      "id": "7c1e2a90-...",
+      "number": 7,
+      "state": "waiting",
+      "flow": { "file": "flows/upgrade.flow.yaml", "name": "Firewall upgrade" },
+      "project": { "key": "edge" },
+      "workspace": { "key": "net" },
+      "requestedBy": "dana",
+      "link": "https://flows.example.net/runs/7c1e2a90-..."
+    },
+    "approval": { "node": { "key": "change-approval", "title": "Approve the change" }, "status": "waiting" }
+  }
+  ```
+
+  Headers: `X-AFS-Event`, `X-AFS-Delivery` (the message's id), `X-AFS-Timestamp`, and, once an
+  administrator has made a key (shown once), `X-AFS-Signature: sha256=<hex>`: HMAC-SHA256 of
+  `<timestamp>.<body>` with the key. Redirects are not followed.
+- **Never in a message:** a run's inputs, a credential, a secret. Links need `AFS_PUBLIC_URL`.
+- **Tries again** on a network error, a busy relay or receiver (408, 429, 5xx, SMTP 4xx): after 1,
+  5 and 15 minutes, 1 and 3 hours, then it is given up on. A refusal (other 4xx, SMTP 5xx) is
+  not tried again. Messages wait in the database: a restart loses none.
+- **The delivery log** on the Notifications page lists each message, where it went (a webhook by
+  its host only: its path can be its secret), how many tries and why one failed, with **Try
+  again**. Messages sent or given up on are kept `AFS_NOTIFICATIONS_KEEP_DAYS` (30).
+
+A launch configuration says whom its runs tell (`notify`, see
+[Launch configurations](#launch-configurations)):
+
+```json
+{ "notify": { "when": "failed", "to": ["network-oncall", "dana"] } }
+```
+
+| Address (under `/api/v1`)         | Does                                                                        | Who                   |
+| --------------------------------- | --------------------------------------------------------------------------- | --------------------- |
+| `GET /notifications`              | The delivery log (`status`, `event`, `run`, `before`, `limit`)              | administrators        |
+| `POST /notifications/:id/retry`   | Try a message given up on again                                             | administrators        |
+| `GET /notifications/settings`     | The mail server (never its password), whether webhooks are signed           | administrators        |
+| `PUT /notifications/smtp`         | Set the mail server: `host`, `port`, `security`, `user`, `password`, `from` | administrator session |
+| `DELETE /notifications/smtp`      | Send no email                                                               | administrator session |
+| `POST /notifications/webhook-key` | A new signing key, in this answer only; the old one stops working           | administrator session |
+| `POST /notifications/test`        | Send a test now (`channel`, `to`; no `to`: your own address); tried once    | administrators        |
+
+A person's or group's email address and webhook are set by an administrator
+(`PATCH /api/v1/users/<id>`, `PATCH /api/v1/groups/<id>`: `email`, `webhookUrl`).
 
 ### The audit log
 

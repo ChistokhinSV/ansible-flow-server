@@ -267,6 +267,40 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-29: notifications, and who a launch configuration's runs tell.
+  '0015_notifications': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('notification')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('event_id', 'text', (c) => c.notNull())
+        .addColumn('event', 'text', (c) => c.notNull())
+        .addColumn('channel', 'text', (c) => c.notNull())
+        .addColumn('recipient', 'text', (c) => c.notNull())
+        .addColumn('target', 'text', (c) => c.notNull())
+        .addColumn('message_json', 'text', (c) => c.notNull())
+        .addColumn('run_id', 'text')
+        .addColumn('dedupe', 'text', (c) => c.unique())
+        .addColumn('status', 'text', (c) => c.notNull())
+        .addColumn('attempts', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('next_at', 'text', (c) => c.notNull())
+        .addColumn('last_error', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('sent_at', 'text')
+        .execute();
+      await db.schema
+        .createIndex('notification_due')
+        .on('notification')
+        .columns(['status', 'next_at'])
+        .execute();
+      await db.schema
+        .createIndex('notification_created')
+        .on('notification')
+        .columns(['created_at', 'id'])
+        .execute();
+      await db.schema.alterTable('launch_config').addColumn('notify_json', 'text').execute();
+    },
+  },
   // AFS-28: approval gates.
   '0014_approval_gates': {
     async up(db: Kysely<unknown>) {

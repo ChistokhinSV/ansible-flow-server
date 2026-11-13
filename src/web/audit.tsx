@@ -19,6 +19,15 @@ export function AdminPage() {
             </span>
           </Link>
         </li>
+        <li>
+          <Link to="/admin/notifications" className="card">
+            <strong>Notifications</strong>
+            <span className="muted">
+              The mail server, the key webhooks are signed with, a test message, and what was sent
+              to whom.
+            </span>
+          </Link>
+        </li>
       </ul>
       <p className="empty">
         People, groups and the server's certificate will be managed here too; until then they are
@@ -42,6 +51,7 @@ const OBJECTS = [
   'git',
   'certificate',
   'master-key',
+  'notification',
   'audit',
 ];
 const SOURCE_LABEL: Record<string, string> = {

@@ -82,6 +82,8 @@ export interface ExecutorDeps {
   log: Logger;
   /** Where what a going run says is heard by those who watch it. */
   hub?: RunHub;
+  /** AFS-29: told when a run starts to wait at an approval. */
+  approvalWaiting?: (run: string, gate: string) => void;
 }
 
 /** Why a run was stopped from outside. */
@@ -548,6 +550,7 @@ export class Executor {
           this.deps.hub?.publish(r.id, { kind: 'view', view: waiting });
           this.deps.hub?.publish(r.id, { kind: 'state' });
           say.info({ gate: opened.node.key }, 'Run waits for approval');
+          this.deps.approvalWaiting?.(r.id, opened.id);
           return;
         }
         if (current.gate)

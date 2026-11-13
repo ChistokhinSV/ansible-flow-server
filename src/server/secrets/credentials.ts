@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { SEALED_SETTINGS, settingContext } from '../notify/settings';
 import { open, seal } from './crypto';
 import type { MasterKey } from './masterKey';
 
@@ -364,21 +365,44 @@ export async function checkKey(db: Db, key: MasterKey): Promise<'new' | 'same'> 
   return 'new';
 }
 
-/** Seals everything again with another key, all or nothing. Resolves with how many secrets. */
+/**
+ * Seals everything again with another key, all or nothing: credentials, runs' inputs (AFS-19) and
+ * sealed settings (AFS-29). Resolves with how many secrets.
+ */
 export async function rotate(db: Db, from: MasterKey, to: MasterKey): Promise<number> {
   return db.transaction().execute(async (trx) => {
+    const again = (sealed: string, where: string) => seal(to, open(from, sealed, where), where);
     const rows = await trx.selectFrom('credential').select(['id', 'secret_enc']).execute();
     for (const row of rows)
       await trx
         .updateTable('credential')
-        .set({ secret_enc: seal(to, open(from, row.secret_enc, context(row.id)), context(row.id)) })
+        .set({ secret_enc: again(row.secret_enc, context(row.id)) })
         .where('id', '=', row.id)
+        .execute();
+    // A run's inputs can hold secrets; a run relaunched later opens them again.
+    const runs = await trx.selectFrom('run').select(['id', 'inputs_enc']).execute();
+    for (const run of runs)
+      await trx
+        .updateTable('run')
+        .set({ inputs_enc: again(run.inputs_enc, `run:${run.id}`) })
+        .where('id', '=', run.id)
+        .execute();
+    const settings = await trx
+      .selectFrom('setting')
+      .select(['name', 'value'])
+      .where('name', 'in', SEALED_SETTINGS)
+      .execute();
+    for (const s of settings)
+      await trx
+        .updateTable('setting')
+        .set({ value: again(s.value, settingContext(s.name)) })
+        .where('name', '=', s.name)
         .execute();
     await trx.deleteFrom('setting').where('name', '=', CHECK).execute();
     await trx
       .insertInto('setting')
       .values({ name: CHECK, value: seal(to, CHECK_TEXT, CHECK), updated_at: now() })
       .execute();
-    return rows.length;
+    return rows.length + runs.length + settings.length;
   });
 }

@@ -19,6 +19,9 @@ import { migrate } from './db/migrations';
 import { instanceId } from './db/settings';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
+import { emailChannel, webhookChannel } from './notify/channels';
+import { Notifier } from './notify/notifier';
+import { smtpForSending, webhookKey } from './notify/settings';
 import { Git } from './projects/git';
 import { ProjectSync } from './projects/sync';
 import { Executor } from './runs/executor';
@@ -120,6 +123,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   }
 
   const store = certificateStore(config);
+  // Made once the database is open; the certificate's warnings reach it from then on.
+  let notifier: Notifier | undefined;
   let served =
     config.tls === 'on' ? await store.ensure(selfSignedNames(config), { by: 'server' }) : undefined;
   const warnOfExpiry = () => {
@@ -132,6 +137,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         { subject, expires: notAfter, days: daysLeft },
         'The server certificate expires soon',
       );
+    // AFS-29: and the administrators are told, once per step (notify/notifier.ts).
+    notifier?.certificate(served.info);
   };
   if (served) {
     log.info(
@@ -200,10 +207,32 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       maxRuns: config.maxRuns,
       perProject: config.maxRunsPerProject,
     });
+    // AFS-29: what happens is told by email and webhook, from an outbox in the database.
+    const notify = new Notifier(
+      db,
+      [
+        emailChannel(() => smtpForSending(db, masterKey)),
+        webhookChannel(() => webhookKey(db, masterKey), `${meta.name}/${meta.version}`),
+      ],
+      log,
+      {
+        keepDays: config.notificationsKeepDays,
+        ...(config.publicUrl ? { publicUrl: config.publicUrl } : {}),
+      },
+    );
+    notifier = notify;
+    runs.onEnded = (id) => notify.runEnded(id);
+    notify.start();
+    if (served) notify.certificate(served.info);
     // A worker that stops answering lets its runs go: back to the queue, or lost (runs/queue.ts).
     leases = setInterval(() => {
       // AFS-28: approvals whose time ran out time out, and their runs go on.
-      void timeOutDue(database.db, (id) => runs.resume(id)).then(
+      void timeOutDue(
+        database.db,
+        (id) => runs.resume(id),
+        new Date(),
+        (run, gate) => notify.approvalDecided(run, gate),
+      ).then(
         (went) => {
           if (went.length) log.info({ runs: went.length }, 'Approvals timed out: runs go on');
         },
@@ -236,6 +265,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       webDir: fileURLToPath(new URL('./web', import.meta.url)),
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
+      notifier: notify,
+      ...(config.publicUrl ? { publicUrl: config.publicUrl } : {}),
       trustedProxies: config.trustedProxies,
       // Plain HTTP by the server itself is only for behind a proxy that does HTTPS; when the
       // settings say people come over plain HTTP, the cookie must travel that way too.
@@ -263,7 +294,16 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     projects.start();
     // And runs are taken from the queue, when a container engine answers.
     executor = new Executor(
-      { db: database.db, git, sync: projects, queue: runs, key: masterKey, log, hub },
+      {
+        db: database.db,
+        git,
+        sync: projects,
+        queue: runs,
+        key: masterKey,
+        log,
+        hub,
+        approvalWaiting: (run, gate) => notify.approvalWaiting(run, gate),
+      },
       {
         dataDir: config.dataDir,
         engine: config.containerEngine,
@@ -290,6 +330,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
             if (n) log.info({ entries: n }, 'Removed audit entries past their keeping');
           },
           (e) => log.error({ err: e }, 'Removing old audit entries failed'),
+        ),
+      );
+      track(
+        notify.prune().then(
+          (n) => {
+            if (n) log.info({ notifications: n }, 'Removed notifications past their keeping');
+          },
+          (e) => log.error({ err: e }, 'Removing old notifications failed'),
         ),
       );
       if (!executor) return;
@@ -393,6 +441,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           await projects?.stop();
           await running.close();
           await stopPruning();
+          // Messages being written or sent are finished; the rest wait in the outbox.
+          await notifier?.stop();
           await database.close();
           log.info('Stopped');
         })();
@@ -410,6 +460,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);
     await stopPruning();
+    await notifier?.stop().catch(() => undefined);
     await database.close().catch(() => undefined);
     throw e;
   }

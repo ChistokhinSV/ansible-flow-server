@@ -198,6 +198,8 @@ export async function timeOutDue(
   db: Db,
   resume: (run: string) => Promise<boolean>,
   now = new Date(),
+  /** AFS-29: told of each gate that timed out. */
+  timedOut?: (run: string, gate: string) => void,
 ): Promise<string[]> {
   const went: string[] = [];
   for (const gate of await dueGates(db, now)) {
@@ -207,6 +209,7 @@ export async function timeOutDue(
       { status: 'timed out', by: 'the server', comment: 'Nobody decided in time' },
       now,
     );
+    if (decided) timedOut?.(gate.run, gate.id);
     if (decided && (await resume(gate.run))) went.push(gate.run);
   }
   return went;

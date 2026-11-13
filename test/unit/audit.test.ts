@@ -21,6 +21,7 @@ import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { createLogger } from '../../src/server/log';
+import { Notifier } from '../../src/server/notify/notifier';
 import { Git } from '../../src/server/projects/git';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { RunQueue } from '../../src/server/runs/queue';
@@ -62,6 +63,7 @@ for (const [name, config] of databases) {
         instance: 'test',
         masterKey: key,
         runs: new RunQueue(db(), database.kind, key),
+        notifier: new Notifier(db(), [], log, { keepDays: 30 }),
         projects: { git, sync: new ProjectSync(db(), git, log), allowLocal: true },
       });
       const signIn = async (login: string, isAdmin: boolean) => {

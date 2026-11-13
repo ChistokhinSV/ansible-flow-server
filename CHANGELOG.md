@@ -18,7 +18,7 @@ Nothing is released yet.
 - Every project can be cloned, fetched and pushed through the server, signed in with an access token. A push to a project with an external repository is passed on to it and accepted only if that repository accepts it. The project's branch cannot be deleted or rewritten through the server. Who pushed what is listed per project.
 - Web pages at the server's address: first-run setup, sign-in, workspaces, projects with their state, branches, flows and pushes, and your access tokens. Light and dark, at phone width too. See [The web pages](README.md#the-web-pages).
 - A project's flows are listed with their errors and warnings, and a flow opens on the designer's canvas, read-only.
-- Credentials kept encrypted with a master key outside the database: SSH keys, logins, become passwords, vault passwords, git tokens, registry sign-ins and environment variables. A secret goes in and is never shown again. `secrets status` and `secrets rotate` manage the key. See [Credentials and the master key](README.md#credentials-and-the-master-key).
+- Credentials kept encrypted with a master key outside the database: SSH keys, logins, become passwords, vault passwords, git tokens, registry sign-ins and environment variables. A secret goes in and is never shown again. `secrets status` and `secrets rotate` manage the key; rotating seals again every secret the server keeps, runs' inputs included. See [Credentials and the master key](README.md#credentials-and-the-master-key).
 - A project with a private repository over HTTPS signs in to it with a git token or login credential, also when passing pushes on.
 - Launch configurations: a flow with its inventory, execution environment, check or real mode, limit, start values and credentials, saved only if it could run. Ask what a launch would run (commit, inputs, hosts) before running it. By default the newest commit of the project's branch runs; a launch can name another branch or a commit. See [Launch configurations](README.md#launch-configurations).
 - Launching puts a numbered run in a queue kept in the database; runs can be listed and cancelled. At most `AFS_MAX_RUNS` runs at once (4), and `AFS_MAX_RUNS_PER_PROJECT` of one project (1). See [Runs](README.md#runs).
@@ -34,6 +34,12 @@ Nothing is released yet.
   - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
+- Notifications by email and webhook. See [Notifications](README.md#notifications).
+  - Approvers are asked when a run waits for them; who launched a run is told when its approval is approved, rejected or times out; the approval's `notify` list is told of both.
+  - A launch configuration can tell people and groups when its runs fail, or whenever they end.
+  - Administrators are told as the server certificate nears its end (30, 14, 7, 3 and 1 days before, and once it has ended).
+  - Email through a mail server set on the new Notifications page; its password is kept encrypted. Webhooks get the event as JSON with a `text` line for chat tools, signed with a key administrators make.
+  - Messages are tried again when the mail server or receiver is busy or unreachable, survive a restart, and are listed in a delivery log with Try again. A message never holds a run's inputs or a secret.
 - Approvals: a flow with approval steps stops at each one until someone allowed decides, then goes on with the hosts that waited. See [Approvals](README.md#approvals).
   - Whoever has the `approve` grant decides; when the approval names its approvers in the flow, only they. Who launched the run does not, unless the workspace allows it.
   - Decide with a comment on the **Approvals** page, on the run's page, on the canvas, or over the API. Who decided, when and why is shown with the run and kept in the audit log.
