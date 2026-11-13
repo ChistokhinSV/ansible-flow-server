@@ -24,7 +24,7 @@ export interface FlowSummary {
 }
 
 // Compiling the schema takes a moment; one validator serves every flow.
-const schemaIssues = createSchemaValidator();
+export const schemaIssues = createSchemaValidator();
 
 export function summarizeFlow(file: string, text: string): FlowSummary {
   const parsed = parseFlow(text);

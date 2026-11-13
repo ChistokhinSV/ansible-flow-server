@@ -22,6 +22,9 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       // Plain HTTP here: HTTPS has its own tests (https.test.ts).
       tls: 'off',
       trustedProxies: [],
+      containerEngine: 'off',
+      eeImage: 'afd-ee:2.19',
+      runTimeoutMinutes: 240,
       maxRuns: 4,
       maxRunsPerProject: 1,
       gitLocal: false,

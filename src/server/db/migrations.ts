@@ -255,6 +255,12 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute();
     },
   },
+  // AFS-20: how a run went, as the designer shows it.
+  '0009_run_view': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('view_json', 'text').execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

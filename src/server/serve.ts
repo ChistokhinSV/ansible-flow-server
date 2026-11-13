@@ -19,6 +19,7 @@ import type { Logger } from './log';
 import { serverMeta } from './meta';
 import { Git } from './projects/git';
 import { ProjectSync } from './projects/sync';
+import { Executor } from './runs/executor';
 import { RunQueue } from './runs/queue';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
@@ -148,6 +149,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let daily: NodeJS.Timeout | undefined;
   let sweep: NodeJS.Timeout | undefined;
   let leases: NodeJS.Timeout | undefined;
+  let executor: Executor | undefined;
   let projects: ProjectSync | undefined;
   try {
     await database.ping();
@@ -214,6 +216,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       projects: { git, sync: projects, allowLocal: config.gitLocal },
       masterKey,
       runs,
+      runOutput: (id) => executor?.outputFile(id) ?? '',
       // The pages are built beside the server (dist/server.js, dist/web).
       webDir: fileURLToPath(new URL('./web', import.meta.url)),
       instance: await instanceId(database.db),
@@ -243,6 +246,19 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     const running = app;
     // From now on the projects' sources are looked at when they are due.
     projects.start();
+    // And runs are taken from the queue, when a container engine answers.
+    executor = new Executor(
+      { db: database.db, git, sync: projects, queue: runs, key: masterKey, log },
+      {
+        dataDir: config.dataDir,
+        engine: config.containerEngine,
+        image: config.eeImage,
+        worker: `server:${await instanceId(database.db)}`,
+        slots: config.maxRuns,
+        timeoutMs: config.runTimeoutMinutes * 60_000,
+      },
+    );
+    await executor.start();
 
     let reloadCertificate: (() => boolean) | undefined;
     if (served) {
@@ -322,6 +338,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           redirect?.close();
           redirect?.closeAllConnections();
           // A fetch that is going is waited for: a mirror is not left half written.
+          await executor?.stop();
           await projects?.stop();
           await running.close();
           await database.close();
@@ -336,6 +353,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     clearInterval(sweep);
     clearInterval(leases);
     redirect?.close();
+    await executor?.stop().catch(() => undefined);
     await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);
     await database.close().catch(() => undefined);

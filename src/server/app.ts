@@ -33,6 +33,8 @@ export interface AppDeps {
   projects?: Omit<ProjectDeps, 'db'>;
   /** The runs and their queue. */
   runs?: RunQueue;
+  /** Where a run's output is kept, when this server runs flows. */
+  runOutput?: (runId: string) => string;
   /** The master key: with it the server keeps credentials. */
   masterKey?: MasterKey;
   /** The folder of the built web application (dist/web); without it there are no pages. */
@@ -94,7 +96,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }
 
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
-  if (deps.runs) registerRuns(app, deps.runs);
+  if (deps.runs) registerRuns(app, deps.runs, deps.runOutput);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

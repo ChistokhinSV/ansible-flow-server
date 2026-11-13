@@ -4,7 +4,7 @@ All notable changes to Ansible Flow Server.
 
 ## Unreleased — first version
 
-Nothing is released yet. The server does not run flows yet: launched runs wait in the queue.
+Nothing is released yet.
 
 ### Added
 
@@ -22,3 +22,9 @@ Nothing is released yet. The server does not run flows yet: launched runs wait i
 - A project with a private repository over HTTPS signs in to it with a git token or login credential, also when passing pushes on.
 - Launch configurations: a flow with its inventory, execution environment, check or real mode, limit, start values and credentials, saved only if it could run. Ask what a launch would run (commit, inputs, hosts) before running it. By default the newest commit of the project's branch runs; a launch can name another branch or a commit. See [Launch configurations](README.md#launch-configurations).
 - Launching puts a numbered run in a queue kept in the database; runs can be listed and cancelled. At most `AFS_MAX_RUNS` runs at once (4), and `AFS_MAX_RUNS_PER_PROJECT` of one project (1). See [Runs](README.md#runs).
+- The server runs flows: Ansible in an execution environment container (docker or podman), the same way VS Code runs them. See [How a run is run](README.md#runs).
+  - The repository at the run's commit, with the flow's code generated fresh from the flow.
+  - The image from the launch configuration, else `AFS_EE_IMAGE`. With no container engine, runs wait in the queue.
+  - SSH keys, login and become passwords, vault passwords and environment variables from the credentials store; secret values are hidden in the output.
+  - A run's output and how it went, step by step, are kept; a run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+  - The server can itself run in a container, with the engine's socket.
