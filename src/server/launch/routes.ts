@@ -1,12 +1,15 @@
-// Launch configurations over HTTP. Until access levels exist (AFS-27): everyone signed in sees
-// them and asks what a launch would run; administrators make and change them.
+// Launch configurations over HTTP (AFS-27): ro on a flow sees its configurations and asks what a
+// launch would run; operator launches as the configuration says; rw makes and changes them and
+// launches another branch or commit. Most of it is checked before (api/catalog.ts); what depends
+// on the body (the flow of a new configuration, another branch at launch) is checked here.
 //   /api/v1/projects/:id/launch-configs
 //   /api/v1/launch-configs/:id
 //   /api/v1/launch-configs/:id/form     the flow's inputs as a form, with the start values
 //   /api/v1/launch-configs/:id/check    what a launch would run, or what stands in its way
 //   /api/v1/launch-configs/:id/launch   the same, and the run goes in the queue
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { administrator, signedIn } from '../auth/guards';
+import { accessOf, atLeast } from '../access/grants';
+import { signedIn } from '../auth/guards';
 import { getProject } from '../projects/store';
 import type { RunQueue } from '../runs/queue';
 import { type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
@@ -69,12 +72,30 @@ export function registerLaunch(
       }
     };
   type WithId = { Params: { id: string } };
+  /** True when the person asking has `rw` on this flow of this project; else answers 403. */
+  const mayManage = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    projectId: string,
+    file: string,
+  ) => {
+    const project = await getProject(deps.db, projectId);
+    const access = await accessOf(deps.db, request);
+    if (project && access && atLeast(access.onFlow(project.workspace, project.id, file), 'rw'))
+      return true;
+    reply.code(403).send({ error: 'forbidden', message: `This needs rw on ${file}` });
+    return false;
+  };
 
   app.get<WithId>('/api/v1/projects/:id/launch-configs', { schema: ID }, async (request, reply) => {
     if (!signedIn(request, reply)) return reply;
-    if (!(await getProject(deps.db, request.params.id)))
-      return reply.code(404).send({ error: 'not_found', message: 'No such project' });
-    return configs.list(request.params.id);
+    const project = await getProject(deps.db, request.params.id);
+    if (!project) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
+    // The configurations of the flows this person may see.
+    const access = await accessOf(deps.db, request);
+    return (await configs.list(project.id)).filter((c) =>
+      access?.onFlow(project.workspace, project.id, c.flowFile),
+    );
   });
 
   app.post<WithId & { Body: LaunchConfigInput }>(
@@ -91,8 +112,10 @@ export function registerLaunch(
       },
     },
     answering(async (request, reply) => {
-      const me = administrator(request, reply);
+      const me = signedIn(request, reply);
       if (!me) return reply;
+      if (!(await mayManage(request, reply, request.params.id, request.body.flowFile)))
+        return reply;
       const made = await configs.create(request.params.id, request.body);
       request.log.info(
         { by: me.login, config: made.name, flow: made.flowFile, mode: made.mode },
@@ -116,8 +139,17 @@ export function registerLaunch(
       },
     },
     answering(async (request, reply) => {
-      const me = administrator(request, reply);
+      // rw on its flow: checked before; pointed at another flow, rw on that one too.
+      const me = signedIn(request, reply);
       if (!me) return reply;
+      const before = await configs.get(request.params.id);
+      if (
+        before &&
+        request.body.flowFile &&
+        request.body.flowFile !== before.flowFile &&
+        !(await mayManage(request, reply, before.project, request.body.flowFile))
+      )
+        return reply;
       const changed = await configs.update(request.params.id, request.body);
       request.log.info(
         { by: me.login, config: changed.name, changed: Object.keys(request.body) },
@@ -131,7 +163,7 @@ export function registerLaunch(
     '/api/v1/launch-configs/:id',
     { schema: ID },
     answering(async (request, reply) => {
-      const me = administrator(request, reply);
+      const me = signedIn(request, reply);
       if (!me) return reply;
       const config = await configs.get(request.params.id);
       if (!config) return reply.code(404).send(NONE);
@@ -200,10 +232,19 @@ export function registerLaunch(
     '/api/v1/launch-configs/:id/launch',
     { schema: { ...ID, body: REQUEST } },
     async (request, reply) => {
-      const me = administrator(request, reply);
+      // operator on its flow: checked before. Another branch or commit than the configuration
+      // names is rw's: an operator runs what was set up for them.
+      const me = signedIn(request, reply);
       if (!me) return reply;
       const config = await configs.get(request.params.id);
       if (!config) return reply.code(404).send(NONE);
+      const asked = request.body ?? {};
+      if (
+        ((asked.ref && asked.ref !== config.gitRef) ||
+          (asked.commit && asked.commit !== config.commit)) &&
+        !(await mayManage(request, reply, config.project, config.flowFile))
+      )
+        return reply;
       const prepared = await prepareLaunch(deps, config, request.body ?? {});
       if (!prepared.ok)
         return reply.code(422).send({

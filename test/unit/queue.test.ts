@@ -25,6 +25,7 @@ import { ProjectSync } from '../../src/server/projects/sync';
 import { LEASE_MS, MAX_ATTEMPTS, RunQueue } from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
+import { grant } from './helpers/grant';
 import { type TestRepo, testRepo } from './helpers/repo';
 
 const PASSWORD = 'correct horse battery staple';
@@ -378,6 +379,7 @@ describe('launching over HTTP', () => {
     const dana = await signIn('dana', true);
     admin = dana.cookie;
     member = (await signIn('omar', false)).cookie;
+    await grant(db, 'net', 'omar');
     readOnly = (await createToken(db, dana.id, { name: 'ro', readOnly: true })).token;
   });
   afterAll(async () => {

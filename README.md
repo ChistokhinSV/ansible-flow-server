@@ -288,7 +288,46 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
 - A token cannot make or revoke tokens, or set a password: those take a password sign-in.
 - Keep it in an environment variable or a credential store, never in a repository or an address.
 
-Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP.
+Not there yet: the pages for people and groups, sign-in with OIDC or LDAP.
+
+#### Access levels
+
+Administrators may do everything. Everyone else sees and does only what they are given: a
+**grant** gives a user or a group a level on a whole workspace, or on one flow of it.
+
+| Level      | May                                                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ro`       | See the workspace, its projects, flows, launch configurations, credentials (names) and runs; clone and fetch; ask what a launch would run |
+| `operator` | And launch a flow as its launch configuration says; stop a run, run it again                                                              |
+| `rw`       | And launch another branch or commit; add, change and delete launch configurations; push through the server; look at the source now        |
+| `approve`  | Decide approval gates: a grant of its own, neither above nor below the others                                                             |
+
+- **A grant on one flow replaces the workspace's for that flow:** it may give more (operator on
+  one flow of a workspace that is ro) or less (ro on one flow of a workspace that is rw).
+- **Of a person's own and their groups' grants, the highest counts.**
+- **Git is the workspace's:** clone needs `ro` on the workspace and push `rw` on it; a grant on
+  one flow does not open the repository, which holds every flow.
+- **What a person may not see is not there for them:** lists leave it out, and asking for it
+  answers 404. What they may see but not do answers 403.
+- **Tokens act as their owner,** narrowed further when read-only or made for one workspace.
+- Workspaces, projects, credentials and grants are changed by administrators.
+
+Give and take grants on the workspace's page (Access), or:
+
+```sh
+curl --cookie cookies.txt -H 'content-type: application/json' \
+  https://flows.example.net:8443/api/v1/workspaces/net/grants -d '{"group":"net-ops","level":"operator"}'
+curl --cookie cookies.txt -H 'content-type: application/json' \
+  https://flows.example.net:8443/api/v1/workspaces/net/grants \
+  -d '{"user":"omar","level":"rw","project":"<project id>","flow":"flows/firewall-upgrade.flow.yaml"}'
+```
+
+| Address (under `/api/v1`)            | Does                                                                                         | Who            |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- | -------------- |
+| `GET`, `POST /workspaces/:id/grants` | A workspace's grants; give one (`user` or `group`, `level`, optionally `project` and `flow`) | administrators |
+| `DELETE /grants/:id`                 | Take a grant back                                                                            | administrators |
+| `GET /workspaces/:id/access`         | Who can do what: every person with access, as their grants come out                          | administrators |
+| `GET /projects/:id/access`           | What you may do in a project: your level on it and on each flow                              | can see it     |
 
 #### Service accounts
 
@@ -308,7 +347,7 @@ just user token ci-pipeline --name nightly --workspace net --days 30
 ```
 
 Its tokens are listed and revoked like anyone's (`GET`/`DELETE /api/v1/users/<id>/tokens`).
-Until access levels exist, a service account that launches runs must be an administrator.
+A service account is given levels like a person (see [Access levels](#access-levels)).
 
 ### The API
 
@@ -339,7 +378,7 @@ setup code from its log); after that, sign-in.
 | `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed |
 | `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                        |
 | `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values       |
-| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (administrators); `.../launch/<id>/edit` changes one             |
+| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one           |
 | `/runs`                                | Every run, the newest first, filtered by state                                              |
 | `/runs/<id>`                           | One run: what ran, the run on the canvas, its output as it comes; Stop and Run again        |
 | `/docs/api`                            | The API reference, from the server's OpenAPI document                                       |
@@ -352,7 +391,10 @@ setup code from its log); after that, sign-in.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
 - A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas.
 - Administrators read the audit log at `/admin/audit` and export it.
-- A project's page lists its launch configurations; administrators add, change and delete them.
+- A project's page lists its launch configurations; `rw` on a flow adds, changes and deletes
+  them.
+- A workspace's page has its Access for administrators: grants, and who can do what.
+- Each page shows only what the person's level lets them do; the server decides either way.
 - Not there yet: the pages for people, groups, credentials and the certificate.
 
 ### Workspaces and projects
@@ -385,18 +427,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 }
 ```
 
-| Address (under `/api/v1`)            | Does                                                                                                                             | Who                                     |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `/workspaces`, `/workspaces/:id`     | List, add, change, delete (by id or key)                                                                                         | read: signed in; change: administrators |
-| `/workspaces/:id/projects`           | A workspace's projects; add one (its source is looked at at once)                                                                | as above                                |
-| `/projects/:id`                      | A project; change its name, source, branch, timer; delete                                                                        | as above                                |
-| `POST /projects/:id/sync`            | Look at the source now                                                                                                           | administrators                          |
-| `GET /projects/:id/branches`         | The branches the source has                                                                                                      | signed in                               |
-| `GET /projects/:id/pushes`           | Who pushed what through the server, newest first                                                                                 | signed in                               |
-| `GET /projects/:id/flows`            | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read | signed in                               |
-| `GET /projects/:id/flows/view?path=` | One flow as the designer shows it (the flow, findings, positions, generated plays)                                               | signed in                               |
-| `POST /projects/:id/hook`, `DELETE`  | Make a push hook (its token is shown once); remove it                                                                            | administrators                          |
-| `POST /hooks/projects/:id/push`      | Called by the git host with the hook's token                                                                                     | the token                               |
+| Address (under `/api/v1`)            | Does                                                                                                                             | Who                                        |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `/workspaces`, `/workspaces/:id`     | List, add, change, delete (by id or key)                                                                                         | read: what you see; change: administrators |
+| `/workspaces/:id/projects`           | A workspace's projects; add one (its source is looked at at once)                                                                | as above                                   |
+| `/projects/:id`                      | A project; change its name, source, branch, timer; delete                                                                        | as above                                   |
+| `POST /projects/:id/sync`            | Look at the source now                                                                                                           | `rw` on the workspace                      |
+| `GET /projects/:id/branches`         | The branches the source has                                                                                                      | signed in                                  |
+| `GET /projects/:id/pushes`           | Who pushed what through the server, newest first                                                                                 | signed in                                  |
+| `GET /projects/:id/flows`            | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read | signed in                                  |
+| `GET /projects/:id/flows/view?path=` | One flow as the designer shows it (the flow, findings, positions, generated plays)                                               | signed in                                  |
+| `POST /projects/:id/hook`, `DELETE`  | Make a push hook (its token is shown once); remove it                                                                            | administrators                             |
+| `POST /hooks/projects/:id/push`      | Called by the git host with the hook's token                                                                                     | the token                                  |
 
 - **The source** is `https://…`, `ssh://…` or `git@host:path`. An address with a password in it
   is refused. A folder of this machine is allowed only with `AFS_GIT_LOCAL=on`.
@@ -422,8 +464,8 @@ git push origin main
 While the server uses its own first certificate, tell git to trust it:
 `git -c http.sslCAInfo=data/tls/certificate.pem clone …`.
 
-- **Who:** everyone signed in clones and fetches. Until access levels exist, administrators
-  push. A read-only token never pushes.
+- **Who:** `ro` on the workspace clones and fetches, `rw` on it pushes (see
+  [Access levels](#access-levels)). A read-only token never pushes.
 - **A hosted project** starts empty; the first push makes its branch.
 - **A project with a source:** a clone or fetch gets what the source has now. A push is passed
   on to the source and is accepted only if the source accepts it. Until credentials exist, that
@@ -491,10 +533,10 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 | `registry`  | `host`, `username`   | `password`                 | A container registry             |
 | `env`       | the variables' names | the variables' values      | Variables of a run's environment |
 
-| Address (under `/api/v1`)     | Does                                                     | Who                                     |
-| ----------------------------- | -------------------------------------------------------- | --------------------------------------- |
-| `/workspaces/:id/credentials` | List; add                                                | read: signed in; change: administrators |
-| `/credentials/:id`            | One; change name, open part, or the whole secret; delete | as above                                |
+| Address (under `/api/v1`)     | Does                                                     | Who                                                 |
+| ----------------------------- | -------------------------------------------------------- | --------------------------------------------------- |
+| `/workspaces/:id/credentials` | List; add                                                | read: `ro` on the workspace; change: administrators |
+| `/credentials/:id`            | One; change name, open part, or the whole secret; delete | as above                                            |
 
 - **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
   the values. To change a secret, send it again whole.
@@ -564,13 +606,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 | `inputs`      | Start values of the flow's inputs. Never one that looks like a secret      |
 | `credentials` | Credentials of the workspace a run gets (not a git token)                  |
 
-| Address (under `/api/v1`)         | Does                                                       | Who                                     |
-| --------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
-| `/projects/:id/launch-configs`    | List; add                                                  | read: signed in; change: administrators |
-| `/launch-configs/:id`             | One; change; delete                                        | as above                                |
-| `GET /launch-configs/:id/form`    | The flow's inputs as a form, with the start values         | signed in                               |
-| `POST /launch-configs/:id/check`  | What a launch would run, or 422 with everything in its way | signed in                               |
-| `POST /launch-configs/:id/launch` | The same, and the run goes in the queue (201 with the run) | administrators                          |
+| Address (under `/api/v1`)         | Does                                                       | Who                                  |
+| --------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
+| `/projects/:id/launch-configs`    | List; add                                                  | read: `ro`; change: `rw` on the flow |
+| `/launch-configs/:id`             | One; change; delete                                        | as above                             |
+| `GET /launch-configs/:id/form`    | The flow's inputs as a form, with the start values         | `ro`                                 |
+| `POST /launch-configs/:id/check`  | What a launch would run, or 422 with everything in its way | `ro`                                 |
+| `POST /launch-configs/:id/launch` | The same, and the run goes in the queue (201 with the run) | `operator`                           |
 
 - **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
   value and each credential are checked; a refusal names the setting (`field`).
@@ -589,8 +631,9 @@ shows its settings and the launch form:
 - **What would run** shows the commit, the inputs as the flow gets them (secrets as `***`), the
   hosts it starts on, the inventory, image and credentials; what stands in the way is shown at
   its field.
-- **Launch** (administrators) queues the run and opens its page.
-- **Keep as start values** (administrators) saves the typed values that are not secret as the
+- **Launch** (`operator` on the flow) queues the run and opens its page; another branch or
+  commit than the configuration's needs `rw`.
+- **Keep as start values** (`rw` on the flow) saves the typed values that are not secret as the
   configuration's.
 
 ### Runs
@@ -638,11 +681,11 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `succeeded`, `failed`, `cancelled` | How it ended                                                            |
 | `lost`                             | Its worker stopped answering after it started: what it did is not known |
 
-| Address (under `/api/v1`)                  | Does                                                         | Who            |
-| ------------------------------------------ | ------------------------------------------------------------ | -------------- |
-| `GET /runs?project=&state=&limit=&before=` | Runs, the newest first (`before`: the last `createdAt` seen) | signed in      |
-| `GET /runs/:id`                            | One run                                                      | signed in      |
-| `POST /runs/:id/cancel`                    | Stop it: at once when queued, else at the worker's next word | administrators |
+| Address (under `/api/v1`)                  | Does                                                         | Who          |
+| ------------------------------------------ | ------------------------------------------------------------ | ------------ |
+| `GET /runs?project=&state=&limit=&before=` | Runs, the newest first (`before`: the last `createdAt` seen) | what you see |
+| `GET /runs/:id`                            | One run                                                      | `ro`         |
+| `POST /runs/:id/cancel`                    | Stop it: at once when queued, else at the worker's next word | `operator`   |
 
 - **Limits:** `AFS_MAX_RUNS` runs at once on the server (4), `AFS_MAX_RUNS_PER_PROJECT` of one
   project (1). A run over a limit waits; another project's runs do not wait behind it.
@@ -665,13 +708,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   the reason; `cancelled` when stopped on request. A run longer than
   `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
 
-| Address (under `/api/v1`)         | Answers                                                                                                                    | Who            |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `GET /runs/:id/output`            | What Ansible wrote, secrets hidden (text)                                                                                  | signed in      |
-| `GET /runs/:id/view`              | How the run went, step by step, as the designer shows it                                                                   | signed in      |
-| `GET /runs/:id/events`            | The run as it goes, as server-sent events: `run`, `view`, `output` (with `next`), `end`; `?from=<next>` resumes the output | signed in      |
-| `GET /runs/:id/hosts/:node/:host` | What one host did in one step, from the run's events                                                                       | signed in      |
-| `POST /runs/:id/relaunch`         | The same run again (same commit, inputs and credentials), as a new run                                                     | administrators |
+| Address (under `/api/v1`)         | Answers                                                                                                                    | Who        |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `GET /runs/:id/output`            | What Ansible wrote, secrets hidden (text)                                                                                  | signed in  |
+| `GET /runs/:id/view`              | How the run went, step by step, as the designer shows it                                                                   | signed in  |
+| `GET /runs/:id/events`            | The run as it goes, as server-sent events: `run`, `view`, `output` (with `next`), `end`; `?from=<next>` resumes the output | signed in  |
+| `GET /runs/:id/hosts/:node/:host` | What one host did in one step, from the run's events                                                                       | signed in  |
+| `POST /runs/:id/relaunch`         | The same run again (same commit, inputs and credentials), as a new run                                                     | `operator` |
 
 **Watching a run:** the run page follows it live; a script reads the same with
 `curl -N -H "Authorization: Bearer $AFS_TOKEN" https://flows.example.net:8443/api/v1/runs/<id>/events`.

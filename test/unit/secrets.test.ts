@@ -36,6 +36,7 @@ import {
   parseKey,
 } from '../../src/server/secrets/masterKey';
 import { emptyWorkspaces } from './helpers/clean';
+import { grant } from './helpers/grant';
 
 const PASSWORD = 'correct horse battery staple';
 // Made up for the tests; not a key of anything.
@@ -486,6 +487,7 @@ describe('credentials over the API', () => {
     member = (await signIn('omar', false)).cookie;
     readOnly = (await createToken(database.db, dana.id, { name: 'ro', readOnly: true })).token;
     await createWorkspace(database.db, { key: 'net', name: 'Network' });
+    await grant(database.db, 'net', 'omar');
   });
   afterAll(async () => {
     await app.close();

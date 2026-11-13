@@ -80,6 +80,12 @@ export const ACTIONS: Record<string, Action> = {
     id: 'reply',
     parent: 'launch-config',
   },
+  'POST /api/v1/workspaces/:id/grants': {
+    action: 'grant.create',
+    id: 'reply',
+    parent: 'workspace',
+  },
+  'DELETE /api/v1/grants/:id': { action: 'grant.delete', id: at() },
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },
   'POST /git/:workspace/:repo/git-receive-pack': { action: 'git.push', id: 'none', self: true },
@@ -137,6 +143,25 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
       return one(
         db.selectFrom('launch_config').select('name as n').where('id', '=', id).executeTakeFirst(),
       );
+    case 'grant': {
+      const grant = await db
+        .selectFrom('access_grant')
+        .leftJoin('user_account', 'user_account.id', 'access_grant.principal_id')
+        .leftJoin('user_group', 'user_group.id', 'access_grant.principal_id')
+        .select([
+          'access_grant.level',
+          'access_grant.principal_type',
+          'access_grant.flow_file',
+          'user_account.login',
+          'user_group.name',
+        ])
+        .where('access_grant.id', '=', id)
+        .executeTakeFirst()
+        .catch(() => undefined);
+      if (!grant) return undefined;
+      const who = grant.principal_type === 'user' ? grant.login : `group ${grant.name}`;
+      return `${grant.level} for ${who}${grant.flow_file ? ` on ${grant.flow_file}` : ''}`;
+    }
     case 'run': {
       const run = await db
         .selectFrom('run')

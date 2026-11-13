@@ -248,6 +248,11 @@ export async function deleteUser(db: Db, id: string): Promise<void> {
     await trx.deleteFrom('session').where('user_id', '=', id).execute();
     await trx.deleteFrom('api_token').where('user_id', '=', id).execute();
     await trx.deleteFrom('group_member').where('user_id', '=', id).execute();
+    await trx
+      .deleteFrom('access_grant')
+      .where('principal_type', '=', 'user')
+      .where('principal_id', '=', id)
+      .execute();
     await trx.deleteFrom('user_account').where('id', '=', id).execute();
   });
 }
@@ -391,6 +396,11 @@ export async function updateGroup(
 export async function deleteGroup(db: Db, id: string): Promise<void> {
   await db.transaction().execute(async (trx) => {
     await trx.deleteFrom('group_member').where('group_id', '=', id).execute();
+    await trx
+      .deleteFrom('access_grant')
+      .where('principal_type', '=', 'group')
+      .where('principal_id', '=', id)
+      .execute();
     const done = await trx.deleteFrom('user_group').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new UserError('not_found', 'No such group');
   });

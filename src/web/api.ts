@@ -1,8 +1,9 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
+import type { Grant, GrantLevel, Level } from '../server/access/types';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { TokenInfo } from '../server/auth/tokens';
-import type { User } from '../server/auth/users';
+import type { Group, User } from '../server/auth/users';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
@@ -16,10 +17,14 @@ export type {
   Credential,
   FlowList,
   FlowSummary,
+  Grant,
+  GrantLevel,
+  Group,
   LaunchConfig,
   LaunchConfigInput,
   LaunchForm,
   LaunchRequest,
+  Level,
   PreparedLaunch,
   Problem,
   Project,
@@ -97,6 +102,26 @@ const queryOf = (filter: object) =>
 export const auditExport = (filter: AuditFilter & { format: 'csv' | 'json' }) =>
   `/api/v1/audit/export?${queryOf(filter)}`;
 
+/** What the person asking may do in a project (GET /projects/:id/access). */
+export interface ProjectAccess {
+  admin: boolean;
+  workspace: Level | null;
+  approve: boolean;
+  flows: Record<string, Level | null>;
+}
+
+/** Who can do what in a workspace, as their grants come out. */
+export interface WhoCan {
+  user: { id: string; login: string; name: string };
+  admin: boolean;
+  disabled: boolean;
+  service: boolean;
+  workspace: Level | null;
+  approve: boolean;
+  flows: { project: string; file: string; level: Level | null }[];
+  through: string[];
+}
+
 export const api = {
   meta: () => call<Meta>('GET', '/meta'),
   setupNeeded: () => call<{ needed: boolean }>('GET', '/setup'),
@@ -158,6 +183,19 @@ export const api = {
     ),
   launch: (id: string, request: LaunchRequest) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
+
+  projectAccess: (id: string) => call<ProjectAccess>('GET', `/projects/${id}/access`),
+  grants: (workspace: string) =>
+    call<Grant[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/grants`),
+  addGrant: (
+    workspace: string,
+    input: { user?: string; group?: string; level: GrantLevel; project?: string; flow?: string },
+  ) => call<Grant>('POST', `/workspaces/${encodeURIComponent(workspace)}/grants`, input),
+  removeGrant: (id: string) => call<void>('DELETE', `/grants/${encodeURIComponent(id)}`),
+  whoCan: (workspace: string) =>
+    call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
+  users: () => call<User[]>('GET', '/users'),
+  groups: () => call<Group[]>('GET', '/groups'),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: {

@@ -360,6 +360,13 @@ describe('workspaces and projects over HTTP', () => {
     repo.remove();
   });
 
+  /** The member (omar) gets ro on the workspace: access levels came with AFS-27. */
+  const grantMember = async (level = 'ro') =>
+    call('POST', '/api/v1/workspaces/network/grants', {
+      cookie: admin,
+      body: { user: 'omar', level },
+    });
+
   it('everyone signed in reads; only administrators change', async () => {
     expect((await call('GET', '/api/v1/workspaces')).statusCode).toBe(401);
     expect((await call('GET', '/api/v1/workspaces', { cookie: member })).json()).toEqual([]);
@@ -369,6 +376,16 @@ describe('workspaces and projects over HTTP', () => {
     );
     const made = await call('POST', '/api/v1/workspaces', { cookie: admin, body });
     expect(made.statusCode).toBe(201);
+    // A member sees no workspace until given a level on it, and is not told it is there.
+    expect((await call('GET', '/api/v1/workspaces/network', { cookie: member })).statusCode).toBe(
+      404,
+    );
+    expect((await grantMember()).statusCode).toBe(201);
+    expect(
+      (await call('GET', '/api/v1/workspaces', { cookie: member }))
+        .json()
+        .map((w: { key: string }) => w.key),
+    ).toEqual(['network']);
     // By id or by key.
     const id = (made.json() as { id: string }).id;
     expect(
@@ -399,6 +416,7 @@ describe('workspaces and projects over HTTP', () => {
       cookie: admin,
       body: { key: 'network', name: 'N' },
     });
+    await grantMember();
     const made = await call('POST', '/api/v1/workspaces/network/projects', {
       cookie: admin,
       body: { key: 'flows', name: 'Edge flows', gitUrl: repo.dir },
@@ -438,6 +456,7 @@ describe('workspaces and projects over HTTP', () => {
       cookie: admin,
       body: { key: 'network', name: 'N' },
     });
+    await grantMember();
     const project = (
       await call('POST', '/api/v1/workspaces/network/projects', {
         cookie: admin,
@@ -477,6 +496,7 @@ describe('workspaces and projects over HTTP', () => {
       cookie: admin,
       body: { key: 'network', name: 'N' },
     });
+    await grantMember();
     const project = (
       await call('POST', '/api/v1/workspaces/network/projects', {
         cookie: admin,

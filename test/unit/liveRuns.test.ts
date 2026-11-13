@@ -18,6 +18,7 @@ import { RunHub } from '../../src/server/runs/hub';
 import { RunQueue } from '../../src/server/runs/queue';
 import { pruneRuns } from '../../src/server/runs/retention';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
+import { grant } from './helpers/grant';
 
 const PASSWORD = 'correct horse battery staple';
 const bytes = newKey();
@@ -77,6 +78,7 @@ beforeAll(async () => {
   const omar = await createUser(database.db, { login: 'omar', name: 'Omar', password: PASSWORD });
   admin = (await createToken(database.db, dana.id, { name: 'a' })).token;
   member = (await createToken(database.db, omar.id, { name: 'm' })).token;
+  await grant(database.db, 'net', 'omar');
 });
 afterAll(async () => {
   await app.close();

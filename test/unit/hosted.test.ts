@@ -26,6 +26,7 @@ import {
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { emptyWorkspaces } from './helpers/clean';
+import { grant } from './helpers/grant';
 
 const PASSWORD = 'correct horse battery staple';
 const A = 'a'.repeat(40);
@@ -166,6 +167,7 @@ describe('hosted projects over the API', () => {
         ...(body ? { payload: JSON.stringify(body) } : {}),
       });
     await call('POST', '/api/v1/workspaces', { key: 'net', name: 'Network' });
+    await grant(database.db, 'net', 'omar');
     const made = await call('POST', '/api/v1/workspaces/net/projects', {
       key: 'flows',
       name: 'Flows',

@@ -57,11 +57,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   const config = match('/w/:workspace/:project/launch/:id', path);
   if (config?.workspace && config.project && config.id)
     return config.id === 'new' ? (
-      me.admin ? (
-        <LaunchConfigEdit workspace={config.workspace} project={config.project} />
-      ) : (
-        <NotFound />
-      )
+      <LaunchConfigEdit workspace={config.workspace} project={config.project} />
     ) : (
       <LaunchConfigPage
         me={me}
@@ -72,11 +68,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
     );
   const edit = match('/w/:workspace/:project/launch/:id/edit', path);
   if (edit?.workspace && edit.project && edit.id)
-    return me.admin ? (
-      <LaunchConfigEdit workspace={edit.workspace} project={edit.project} id={edit.id} />
-    ) : (
-      <NotFound />
-    );
+    return <LaunchConfigEdit workspace={edit.workspace} project={edit.project} id={edit.id} />;
   const workspace = match('/w/:workspace', path);
   if (workspace?.workspace) return <Workspace me={me} workspace={workspace.workspace} />;
   const project = match('/w/:workspace/:project', path);

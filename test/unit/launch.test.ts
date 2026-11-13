@@ -30,6 +30,7 @@ import {
 } from '../../src/server/secrets/credentials';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
+import { grant } from './helpers/grant';
 import { type TestRepo, testRepo } from './helpers/repo';
 
 const PASSWORD = 'correct horse battery staple';
@@ -134,6 +135,7 @@ for (const [name, config] of databases) {
       const dana = await signIn('dana', true);
       admin = dana.cookie;
       member = (await signIn('omar', false)).cookie;
+      await grant(db(), 'net', 'omar');
       readOnly = (await createToken(db(), dana.id, { name: 'ro', readOnly: true })).token;
     });
     afterAll(async () => {

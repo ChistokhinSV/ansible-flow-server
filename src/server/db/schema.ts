@@ -264,7 +264,27 @@ export interface AuditEntryTable {
   detail_json: string | null;
 }
 
+/**
+ * Who may do what where: a user or a group, a level, on a whole workspace or on one flow (a
+ * project's flow file). A flow grant replaces the workspace grant for that flow.
+ */
+export interface AccessGrantTable {
+  id: string;
+  /** user or group. */
+  principal_type: string;
+  principal_id: string;
+  /** ro, operator, rw, approve. */
+  level: string;
+  workspace_id: string;
+  /** Both set for a grant on one flow; both null for the whole workspace. */
+  project_id: string | null;
+  flow_file: string | null;
+  created_at: IsoTime;
+  created_by: string;
+}
+
 export interface Schema {
+  access_grant: AccessGrantTable;
   audit_entry: AuditEntryTable;
   run: RunTable;
   launch_config: LaunchConfigTable;

@@ -311,11 +311,19 @@ describe('signed in', () => {
   });
 
   it('a hosted project that is empty says to push; a project that is not there says so', async () => {
-    routes = signedInAs(omar);
+    routes = {
+      ...signedInAs(omar),
+      // ro on the workspace: the git panel is for who may clone.
+      'GET /projects/p2/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: {} },
+      }),
+    };
     window.history.replaceState(null, '', '/w/network/lab');
     render(<App />);
     await screen.findByRole('heading', { name: 'Lab' });
-    expect(screen.getByText(/The repository is empty: push a first commit to main/)).toBeTruthy();
+    expect(
+      await screen.findByText(/The repository is empty: push a first commit to main/),
+    ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Look at the source now' })).toBeNull();
     navigate('/w/network/nothing');
     await screen.findByText('There is no such project.');

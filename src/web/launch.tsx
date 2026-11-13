@@ -4,6 +4,7 @@
 // shown at the field it is about.
 import { readFields } from '@ansible-flow/core/run/launch';
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
+import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
   ApiError,
   api,
@@ -97,11 +98,17 @@ export function LaunchConfigsSection({
   project: Project;
 }) {
   const list = useLoad(() => api.launchConfigs(project.id), [project.id]);
+  const access = useProjectAccess(project.id).data;
+  // Who has rw on the workspace, or on one of its flows, may add a configuration for it.
+  const mayAdd =
+    me.admin ||
+    access?.workspace === 'rw' ||
+    Object.values(access?.flows ?? {}).some((l) => l === 'rw');
   return (
     <section className="panel" aria-labelledby="launch-configs">
       <div className="panel-head">
         <h2 id="launch-configs">Launch configurations</h2>
-        {me.admin && (
+        {mayAdd && (
           <Link to={`${base(workspace, project.key)}/launch/new`} className="button">
             Add a launch configuration
           </Link>
@@ -314,6 +321,7 @@ export function LaunchConfigPage({
 }) {
   const project = useProject(workspace, key);
   const config = useLoad(() => api.launchConfig(id), [id]);
+  const access = useProjectAccess(project.data?.id).data;
   const branches = useLoad(
     async () => (project.data ? (await api.branches(project.data.id)).branches : []),
     [project.data?.id],
@@ -358,6 +366,9 @@ export function LaunchConfigPage({
     );
 
   const fields = form.data?.fields ?? [];
+  const level = me.admin ? 'rw' : flowLevel(access, c.flowFile);
+  const mayLaunch = atLeast(level, 'operator');
+  const mayManage = atLeast(level, 'rw');
   const request = () => ({
     ...(mode ? { mode } : {}),
     ...(ref.trim() ? { ref: ref.trim() } : {}),
@@ -447,7 +458,7 @@ export function LaunchConfigPage({
     <>
       <Crumbs workspace={workspace} project={key} last={c.name} />
       <PageHead title={c.name} lead={c.description}>
-        {me.admin && (
+        {mayManage && (
           <>
             <Link to={`${launchAddress(workspace, key, c.id)}/edit`} className="button">
               Change
@@ -534,6 +545,7 @@ export function LaunchConfigPage({
                   value={ref}
                   onChange={(e) => setRef(e.target.value)}
                   onBlur={reread}
+                  disabled={!mayManage}
                   spellCheck={false}
                 />
               )}
@@ -550,6 +562,7 @@ export function LaunchConfigPage({
                   value={commit}
                   onChange={(e) => setCommit(e.target.value)}
                   onBlur={reread}
+                  disabled={!mayManage}
                   pattern="[0-9a-f]{40}"
                   spellCheck={false}
                 />
@@ -612,7 +625,7 @@ export function LaunchConfigPage({
             <button type="submit" disabled={!!busy || !form.data}>
               {busy === 'check' ? 'Looking…' : 'What would run'}
             </button>
-            {me.admin && (
+            {mayLaunch && (
               <button
                 type="button"
                 className="primary"
@@ -622,15 +635,20 @@ export function LaunchConfigPage({
                 {busy === 'launch' ? 'Launching…' : 'Launch'}
               </button>
             )}
-            {me.admin && (
+            {mayManage && (
               <button type="button" onClick={() => void keep()} disabled={!!busy || !form.data}>
                 Keep as start values
               </button>
             )}
           </div>
-          {!me.admin && (
+          {!mayLaunch && (
             <p className="muted">
-              Only administrators launch for now; anyone signed in can see what would run.
+              You may see what would run; launching needs operator on this flow.
+            </p>
+          )}
+          {mayLaunch && !mayManage && (
+            <p className="muted">
+              You launch what the configuration names: another branch or commit needs rw.
             </p>
           )}
         </form>
