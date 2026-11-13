@@ -14,6 +14,7 @@ import {
   Workspaces,
 } from './pages';
 import { Link, match, usePath } from './router';
+import { RunPage, RunsPage } from './runs';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
 
 type Session =
@@ -43,8 +44,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
     }
   }
   if (path === '/') return <Workspaces me={me} />;
-  if (path === '/runs')
-    return <NotBuilt title="Runs" what="Runs of flows, live and past, will be listed here." />;
+  if (path === '/runs') return <RunsPage />;
+  const one = match('/runs/:id', path);
+  if (one?.id) return <RunPage id={one.id} me={me} theme={theme} />;
   if (path === '/account') return <Account me={me} />;
   if (path === '/admin')
     return me.admin ? (
@@ -96,7 +98,11 @@ export function App() {
   const signedIn = (user: User) => setSession({ state: 'signed-in', user });
   const me = session.state === 'signed-in' ? session.user : undefined;
   const at = (to: string) =>
-    path === to || (to === '/' && path.startsWith('/w/')) ? 'page' : undefined;
+    path === to ||
+    (to === '/' && path.startsWith('/w/')) ||
+    (to === '/runs' && path.startsWith('/runs/'))
+      ? 'page'
+      : undefined;
 
   return (
     <>

@@ -36,6 +36,9 @@ export interface Config {
   eeImage: string;
   /** A run that takes longer is stopped, in minutes. */
   runTimeoutMinutes: number;
+  /** Ended runs older than this many days are removed, and beyond this many of one flow. */
+  runsKeepDays: number;
+  runsKeepPerFlow: number;
   /** Runs at once on this server, and of one project. */
   maxRuns: number;
   maxRunsPerProject: number;
@@ -141,6 +144,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const runTimeoutMinutes = Number(timeoutText);
   if (!/^\d+$/.test(timeoutText) || runTimeoutMinutes < 1 || runTimeoutMinutes > 10_080)
     problems.push(`AFS_RUN_TIMEOUT_MINUTES is "${timeoutText}": minutes, from 1 to 10080 (a week)`);
+  const keepOf = (name: string, fallback: number, max: number): number => {
+    const value = text(name);
+    if (value === undefined) return fallback;
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || n < 1 || n > max) {
+      problems.push(`${name} is "${value}": a number from 1 to ${max}`);
+      return fallback;
+    }
+    return n;
+  };
+  const runsKeepDays = keepOf('AFS_RUNS_KEEP_DAYS', 90, 3650);
+  const runsKeepPerFlow = keepOf('AFS_RUNS_KEEP_PER_FLOW', 200, 100_000);
   const maxRuns = countOf('AFS_MAX_RUNS', 4);
   const maxRunsPerProject = countOf('AFS_MAX_RUNS_PER_PROJECT', 1);
   const caFile = text('AFS_CA_FILE');
@@ -195,6 +210,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     containerEngine: engineText as Config['containerEngine'],
     eeImage,
     runTimeoutMinutes,
+    runsKeepDays,
+    runsKeepPerFlow,
     maxRuns,
     maxRunsPerProject,
     gitLocal: localText === 'on',

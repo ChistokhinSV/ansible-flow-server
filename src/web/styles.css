@@ -433,3 +433,53 @@ a.row:hover strong {
   border-radius: 8px;
   background: var(--bg);
 }
+
+/* --- runs */
+.badge.busy {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  min-height: 2.25rem;
+}
+.run-canvas {
+  height: 60vh;
+  min-height: 360px;
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+.run-canvas > p {
+  padding: 1rem;
+}
+.run-canvas .flow-frame {
+  border: 0;
+  border-radius: 8px;
+}
+.output {
+  margin: 0 0 0.75rem;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 0.75rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font:
+    0.85rem / 1.45 ui-monospace,
+    "Cascadia Code",
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

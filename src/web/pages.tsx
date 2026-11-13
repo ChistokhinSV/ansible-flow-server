@@ -10,6 +10,7 @@ import {
   type User,
 } from './api';
 import { Link, navigate } from './router';
+import { RunTable } from './runs';
 import type { ThemeChoice } from './theme';
 import { Copyable, Field, Form, Loading, PageHead, Time, useLoad } from './ui';
 
@@ -283,6 +284,7 @@ export function ProjectPage({
   const id = project?.id;
   const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
   const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
+  const runs = useLoad(async () => (id ? api.runs({ project: id, limit: 10 }) : []), [id]);
   const flows = useLoad(
     async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),
     [id, project?.commit],
@@ -384,6 +386,13 @@ export function ProjectPage({
           ))}
         </ul>
         {flows.data?.more && <p className="muted">There are more flows than are listed.</p>}
+      </section>
+
+      <section className="panel" aria-labelledby="runs">
+        <h2 id="runs">Recent runs</h2>
+        <Loading state={runs} />
+        {runs.data?.length === 0 && <p className="muted">None yet.</p>}
+        {!!runs.data?.length && <RunTable runs={runs.data} showProject={false} />}
       </section>
 
       <section className="panel" aria-labelledby="pushes">

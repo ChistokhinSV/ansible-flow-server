@@ -20,7 +20,9 @@ import { serverMeta } from './meta';
 import { Git } from './projects/git';
 import { ProjectSync } from './projects/sync';
 import { Executor } from './runs/executor';
+import { RunHub } from './runs/hub';
 import { RunQueue } from './runs/queue';
+import { pruneRuns } from './runs/retention';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
 import { loadMasterKey } from './secrets/masterKey';
@@ -150,6 +152,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let sweep: NodeJS.Timeout | undefined;
   let leases: NodeJS.Timeout | undefined;
   let executor: Executor | undefined;
+  let retention: NodeJS.Timeout | undefined;
+  const hub = new RunHub();
   let projects: ProjectSync | undefined;
   try {
     await database.ping();
@@ -217,6 +221,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       masterKey,
       runs,
       runOutput: (id) => executor?.outputFile(id) ?? '',
+      hub,
       // The pages are built beside the server (dist/server.js, dist/web).
       webDir: fileURLToPath(new URL('./web', import.meta.url)),
       instance: await instanceId(database.db),
@@ -248,7 +253,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     projects.start();
     // And runs are taken from the queue, when a container engine answers.
     executor = new Executor(
-      { db: database.db, git, sync: projects, queue: runs, key: masterKey, log },
+      { db: database.db, git, sync: projects, queue: runs, key: masterKey, log, hub },
       {
         dataDir: config.dataDir,
         engine: config.containerEngine,
@@ -259,6 +264,24 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
     );
     await executor.start();
+    // Ended runs past their keeping go, now and every hour.
+    const prune = () => {
+      if (!executor) return;
+      const output = executor.outputFile.bind(executor);
+      void pruneRuns(
+        database.db,
+        { days: config.runsKeepDays, perFlow: config.runsKeepPerFlow },
+        output,
+      ).then(
+        (n) => {
+          if (n) log.info({ runs: n }, 'Removed runs past their keeping');
+        },
+        (e) => log.error({ err: e }, 'Removing old runs failed'),
+      );
+    };
+    prune();
+    retention = setInterval(prune, 60 * 60 * 1000);
+    retention.unref();
 
     let reloadCertificate: (() => boolean) | undefined;
     if (served) {
@@ -334,7 +357,11 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           clearInterval(daily);
           clearInterval(sweep);
           clearInterval(leases);
+          clearInterval(retention);
+          clearInterval(retention);
           clearInterval(leases);
+          clearInterval(retention);
+          clearInterval(retention);
           redirect?.close();
           redirect?.closeAllConnections();
           // A fetch that is going is waited for: a mirror is not left half written.
@@ -352,6 +379,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     clearInterval(daily);
     clearInterval(sweep);
     clearInterval(leases);
+    clearInterval(retention);
     redirect?.close();
     await executor?.stop().catch(() => undefined);
     await projects?.stop().catch(() => undefined);

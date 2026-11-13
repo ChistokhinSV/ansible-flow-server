@@ -4,8 +4,9 @@ import type { TokenInfo } from '../server/auth/tokens';
 import type { User } from '../server/auth/users';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
+import type { Run } from '../server/runs/queue';
 
-export type { FlowList, FlowSummary, Project, Push, TokenInfo, User, Workspace };
+export type { FlowList, FlowSummary, Project, Push, Run, TokenInfo, User, Workspace };
 
 export class ApiError extends Error {
   constructor(
@@ -78,6 +79,17 @@ export const api = {
   branches: (id: string) => call<{ branches: string[] }>('GET', `/projects/${id}/branches`),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
+
+  runs: (filter: { project?: string; state?: string; limit?: number } = {}) =>
+    call<Run[]>(
+      'GET',
+      `/runs?${new URLSearchParams(
+        Object.entries(filter).map(([k, v]) => [k, String(v)]),
+      ).toString()}`,
+    ),
+  run: (id: string) => call<Run>('GET', `/runs/${encodeURIComponent(id)}`),
+  cancelRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/cancel`),
+  relaunchRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/relaunch`),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: { name: string; expiresInDays?: number; readOnly?: boolean }) =>
