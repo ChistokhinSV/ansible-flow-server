@@ -267,6 +267,40 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-22: the audit log.
+  '0011_audit': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('audit_entry')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('at', 'text', (c) => c.notNull())
+        .addColumn('actor_id', 'text')
+        .addColumn('actor_login', 'text')
+        .addColumn('token_id', 'text')
+        .addColumn('source', 'text', (c) => c.notNull())
+        .addColumn('action', 'text', (c) => c.notNull())
+        .addColumn('object_type', 'text', (c) => c.notNull())
+        .addColumn('object_id', 'text')
+        .addColumn('object_name', 'text')
+        .addColumn('result', 'text', (c) => c.notNull())
+        .addColumn('status', 'integer')
+        .addColumn('ip', 'text')
+        .addColumn('request_id', 'text')
+        .addColumn('detail_json', 'text')
+        .execute();
+      await db.schema.createIndex('audit_at').on('audit_entry').columns(['at', 'id']).execute();
+      await db.schema
+        .createIndex('audit_actor')
+        .on('audit_entry')
+        .columns(['actor_login', 'at'])
+        .execute();
+      await db.schema
+        .createIndex('audit_object')
+        .on('audit_entry')
+        .columns(['object_type', 'object_id', 'at'])
+        .execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

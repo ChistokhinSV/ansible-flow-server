@@ -2,6 +2,7 @@
 // (/healthz), whether it can do its work (/readyz: the database answers), and what it is
 // (/api/v1/meta, which clients read before they talk to it).
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
+import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import { registerLaunch } from './launch/routes';
@@ -81,6 +82,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (closing) setImmediate(() => app.server.closeIdleConnections());
   });
 
+  // First: its hooks see every route's answer.
+  registerAudit(app, { db: deps.database.db });
   registerAuth(app, {
     db: deps.database.db,
     // Behind a proxy the server itself speaks plain HTTP, but people reach it over HTTPS.

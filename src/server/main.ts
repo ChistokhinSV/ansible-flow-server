@@ -4,6 +4,8 @@
 //   node dist/server.js cert <command>  the server's certificate (tls/cli.ts)
 //   node dist/server.js user <command>  the people who sign in (auth/cli.ts)
 import { existsSync, readFileSync } from 'node:fs';
+import { userInfo } from 'node:os';
+import { auditCommand, changes } from './audit/cli';
 import { userCommand } from './auth/cli';
 import { type Config, ConfigError, loadConfig } from './config';
 import { openDatabase } from './db/database';
@@ -113,6 +115,23 @@ async function secrets(config: Config, args: string[]): Promise<number> {
   }
 }
 
+/** A command that changed something leaves its entry in the audit log. */
+async function audited(config: Config, command: string, args: string[]): Promise<void> {
+  const database = openDatabase(config.database);
+  try {
+    await migrate(database.db as never);
+    let osUser = 'unknown';
+    try {
+      osUser = userInfo().username;
+    } catch {}
+    await auditCommand(database.db, command, args, Number(process.exitCode ?? 0), osUser);
+  } catch (e) {
+    console.error(`The audit log could not be written: ${(e as Error).message}`);
+  } finally {
+    await database.close().catch(() => undefined);
+  }
+}
+
 const [command, ...rest] = process.argv.slice(2);
 if (command === 'check') process.exitCode = checkFlows(rest);
 else if (
@@ -123,10 +142,12 @@ else if (
 ) {
   const config = settings();
   if (config) {
+    const args = [...rest];
     if (command === 'cert') process.exitCode = await certCommand(config, rest);
     else if (command === 'user') process.exitCode = await users(config, rest);
     else if (command === 'secrets') process.exitCode = await secrets(config, rest);
     else await serve(config);
+    if (command && changes(command, args)) await audited(config, command, args);
   }
 } else {
   console.error(

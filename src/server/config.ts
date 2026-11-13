@@ -39,6 +39,8 @@ export interface Config {
   /** Ended runs older than this many days are removed, and beyond this many of one flow. */
   runsKeepDays: number;
   runsKeepPerFlow: number;
+  /** Audit entries older than this many days are removed; 0 keeps them all. */
+  auditKeepDays: number;
   /** Runs at once on this server, and of one project. */
   maxRuns: number;
   maxRunsPerProject: number;
@@ -156,6 +158,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
   const runsKeepDays = keepOf('AFS_RUNS_KEEP_DAYS', 90, 3650);
   const runsKeepPerFlow = keepOf('AFS_RUNS_KEEP_PER_FLOW', 200, 100_000);
+  const auditText = text('AFS_AUDIT_KEEP_DAYS') ?? '365';
+  const auditKeepDays = Number(auditText);
+  if (!/^\d+$/.test(auditText) || auditKeepDays > 36_500)
+    problems.push(`AFS_AUDIT_KEEP_DAYS is "${auditText}": days, from 0 (keep all) to 36500`);
   const maxRuns = countOf('AFS_MAX_RUNS', 4);
   const maxRunsPerProject = countOf('AFS_MAX_RUNS_PER_PROJECT', 1);
   const caFile = text('AFS_CA_FILE');
@@ -212,6 +218,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     runTimeoutMinutes,
     runsKeepDays,
     runsKeepPerFlow,
+    auditKeepDays: auditKeepDays > 36_500 || Number.isNaN(auditKeepDays) ? 365 : auditKeepDays,
     maxRuns,
     maxRunsPerProject,
     gitLocal: localText === 'on',

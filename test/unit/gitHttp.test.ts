@@ -1,6 +1,7 @@
 // The server as a git address, driven by the real git client over HTTP: clone, fetch and push
 // of a project the server hosts and of one with an external source, who may do which, and what
 // the server keeps of it.
+
 import { execFile, execFileSync } from 'node:child_process';
 import {
   existsSync,
@@ -17,6 +18,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../../src/server/app';
+import { listAudit } from '../../src/server/audit/store';
 import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
@@ -180,6 +182,14 @@ describe('a project the server hosts', () => {
       { login: 'dana', ref: 'main', to: first },
     ]);
     expect((await listPushes(database.db, project.id))[0]?.from).toBeUndefined();
+    // And the push is in the audit log, with the branch.
+    expect((await listAudit(database.db, { action: 'git.push' })).entries[0]).toMatchObject({
+      actor: { login: 'dana' },
+      source: 'git',
+      result: 'ok',
+      object: { type: 'project', id: project.id, name: 'net/flows' },
+      detail: { refs: [{ ref: 'main', to: first }] },
+    });
     // The commit keeps its own author; the push is the administrator's.
     expect((await git.commitInfo(project.id, first)).author).toBe('Lena Brandt');
     expect(lines.join('\n')).not.toContain(admin);
@@ -308,6 +318,13 @@ describe('who may use the git address', () => {
     }
     expect((await getProject(database.db, project.id))?.commit).toBe(first);
     expect(await listPushes(database.db, project.id)).toHaveLength(1);
+    // The refused pushes are in the audit log, refused at git's first question.
+    const refused = (await listAudit(database.db, { action: 'git.push', result: 'refused' }))
+      .entries;
+    expect(refused.slice(0, 2).map((e) => [e.actor?.login, e.status])).toEqual([
+      ['omar', 403],
+      ['dana', 403],
+    ]);
   });
 
   it('answers 404 for a project that is not there, and only speaks smart HTTP', async () => {

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { buildApp } from './app';
+import { pruneAudit } from './audit/store';
 import { sweepSessions } from './auth/sessions';
 import { setupCode } from './auth/setup';
 import { sweepTokens } from './auth/tokens';
@@ -264,8 +265,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
     );
     await executor.start();
-    // Ended runs past their keeping go, now and every hour.
+    // Ended runs and audit entries past their keeping go, now and every hour.
     const prune = () => {
+      void pruneAudit(database.db, config.auditKeepDays).then(
+        (n) => {
+          if (n) log.info({ entries: n }, 'Removed audit entries past their keeping');
+        },
+        (e) => log.error({ err: e }, 'Removing old audit entries failed'),
+      );
       if (!executor) return;
       const output = executor.outputFile.bind(executor);
       void pruneRuns(
@@ -357,10 +364,6 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           clearInterval(daily);
           clearInterval(sweep);
           clearInterval(leases);
-          clearInterval(retention);
-          clearInterval(retention);
-          clearInterval(leases);
-          clearInterval(retention);
           clearInterval(retention);
           redirect?.close();
           redirect?.closeAllConnections();
