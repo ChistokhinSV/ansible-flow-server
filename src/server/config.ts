@@ -27,6 +27,9 @@ export interface Config {
   trustedProxies: string[];
   /** A file of certificate authorities the server also trusts when it connects out. */
   caFile?: string;
+  /** The master key as text (AFS_MASTER_KEY), or the file it is in (AFS_MASTER_KEY_FILE). */
+  masterKey?: string;
+  masterKeyFile?: string;
   /** A project's repository may be a folder of this machine. Default: no. */
   gitLocal: boolean;
   /** Where the server keeps what it owns: the SQLite database, its certificate, the mirrors. */
@@ -110,6 +113,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       problems.push(`AFS_TRUSTED_PROXIES has "${proxy}": use addresses or networks (10.0.0.0/8)`);
 
   const caFile = text('AFS_CA_FILE');
+  const masterKey = text('AFS_MASTER_KEY');
+  const masterKeyFile = text('AFS_MASTER_KEY_FILE');
+  if (masterKey && masterKeyFile)
+    problems.push('AFS_MASTER_KEY and AFS_MASTER_KEY_FILE are both set: use one');
   const localText = (text('AFS_GIT_LOCAL') ?? 'off').toLowerCase();
   if (localText !== 'on' && localText !== 'off')
     problems.push(`AFS_GIT_LOCAL is "${localText}": use on or off`);
@@ -152,6 +159,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ...(publicUrl ? { publicUrl } : {}),
     trustedProxies,
     ...(caFile ? { caFile: resolve(caFile) } : {}),
+    ...(masterKey ? { masterKey } : {}),
+    ...(masterKeyFile ? { masterKeyFile: resolve(masterKeyFile) } : {}),
     gitLocal: localText === 'on',
     dataDir,
     database,

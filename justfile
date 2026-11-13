@@ -54,6 +54,10 @@ user *args: build
 web-dev:
     npx --no-install vite --config vite.config.mts
 
+# The master key and what is sealed with it: `just secrets status`, rotate (stop the server first)
+secrets *args: build
+    node dist/server.js secrets {{ args }}
+
 # Remove build output
 clean:
     node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"

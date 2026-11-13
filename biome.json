@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!vendor", "!data", "!media/icons", "!test/fixtures"]
+    "includes": ["**", "!dist", "!vendor", "!data", "!media/icons", "!design", "!test/fixtures"]
   },
   "formatter": {
     "enabled": true,

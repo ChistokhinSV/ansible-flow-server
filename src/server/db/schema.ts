@@ -98,6 +98,8 @@ export interface ProjectTable {
   synced_at: IsoTime | null;
   /** Ask the source this often, in seconds; 0: only when told to. */
   poll_seconds: number;
+  /** The credential the server signs in to the source with; null: none. */
+  git_credential_id: string | null;
   /** SHA-256 of the token a push hook must show; null: no hook. */
   hook_token_hash: string | null;
   created_at: IsoTime;
@@ -135,7 +137,27 @@ export interface GitPushTable {
   created_at: IsoTime;
 }
 
+/** A credential of a workspace; its secret part is sealed with the master key. */
+export interface CredentialTable {
+  id: string;
+  workspace_id: string;
+  /** Unique in its workspace. */
+  name: string;
+  /** What it holds (secrets/credentials.ts). */
+  kind: string;
+  description: string | null;
+  /** The part that is not secret, as JSON. */
+  fields_json: string;
+  /** The names of the secret parts it holds, as JSON. */
+  has_json: string;
+  /** The secret part: JSON, sealed (secrets/crypto.ts). */
+  secret_enc: string;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
 export interface Schema {
+  credential: CredentialTable;
   git_push: GitPushTable;
   setting: SettingTable;
   api_token: ApiTokenTable;

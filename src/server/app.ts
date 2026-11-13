@@ -8,6 +8,8 @@ import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
+import type { MasterKey } from './secrets/masterKey';
+import { registerCredentials } from './secrets/routes';
 import { webHandler } from './web';
 
 export interface AppDeps {
@@ -26,6 +28,8 @@ export interface AppDeps {
   secureCookies?: boolean;
   /** Workspaces and projects: the mirrors and what keeps them up to date. */
   projects?: Omit<ProjectDeps, 'db'>;
+  /** The master key: with it the server keeps credentials. */
+  masterKey?: MasterKey;
   /** The folder of the built web application (dist/web); without it there are no pages. */
   webDir?: string;
 }
@@ -77,6 +81,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerProjects(app, { db: deps.database.db, ...deps.projects });
     registerGit(app, { db: deps.database.db, ...deps.projects });
   }
+
+  if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

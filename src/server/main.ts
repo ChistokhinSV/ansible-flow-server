@@ -11,6 +11,7 @@ import { migrate } from './db/migrations';
 import { summarizeFlow } from './flows';
 import { createLogger } from './log';
 import { serverMeta } from './meta';
+import { secretsCommand } from './secrets/cli';
 import { type RunningServer, startServer } from './serve';
 import { certCommand } from './tls/cli';
 
@@ -98,18 +99,38 @@ async function users(config: Config, args: string[]): Promise<number> {
   }
 }
 
+/** A secrets command works on the database and the key file directly: stop the server first. */
+async function secrets(config: Config, args: string[]): Promise<number> {
+  const database = openDatabase(config.database);
+  try {
+    await migrate(database.db as never);
+    return await secretsCommand(database.db, config, args);
+  } catch (e) {
+    console.error(`The secrets could not be used: ${(e as Error).message}`);
+    return 1;
+  } finally {
+    await database.close().catch(() => undefined);
+  }
+}
+
 const [command, ...rest] = process.argv.slice(2);
 if (command === 'check') process.exitCode = checkFlows(rest);
-else if (command === undefined || command === 'cert' || command === 'user') {
+else if (
+  command === undefined ||
+  command === 'cert' ||
+  command === 'user' ||
+  command === 'secrets'
+) {
   const config = settings();
   if (config) {
     if (command === 'cert') process.exitCode = await certCommand(config, rest);
     else if (command === 'user') process.exitCode = await users(config, rest);
+    else if (command === 'secrets') process.exitCode = await secrets(config, rest);
     else await serve(config);
   }
 } else {
   console.error(
-    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>, user <command>`,
+    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>, user <command>, secrets <command>`,
   );
   process.exitCode = 2;
 }

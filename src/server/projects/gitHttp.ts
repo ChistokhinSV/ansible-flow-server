@@ -132,10 +132,13 @@ export function registerGit(app: FastifyInstance, deps: ProjectDeps): void {
 
       const serve = async () => {
         const before = push ? await git.refs(project.id) : undefined;
+        const auth =
+          push && project.gitUrl ? await sync.auth(project).catch(() => undefined) : undefined;
         const child = git.serve(project.id, toGit(service), {
           protocol: push ? undefined : protocolOf(request),
           protectedRef: project.gitRef,
           upstream: project.gitUrl,
+          auth,
         });
         // The answer ends only when the server's own bookkeeping is done: a client that reads
         // the project right after its push sees the pushed commit.

@@ -32,6 +32,7 @@ for (const [name, config] of databases) {
           'git_push',
           'api_token',
           'project',
+          'credential',
           'workspace',
           'session',
           'group_member',

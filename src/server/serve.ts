@@ -19,6 +19,9 @@ import type { Logger } from './log';
 import { serverMeta } from './meta';
 import { Git } from './projects/git';
 import { ProjectSync } from './projects/sync';
+import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
+import { SealError } from './secrets/crypto';
+import { loadMasterKey } from './secrets/masterKey';
 import { type CertificateInfo, certificateProblems, certificatesOf } from './tls/certificates';
 import { CertificateStore } from './tls/store';
 
@@ -158,12 +161,41 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
       'Database ready',
     );
-    const git = new Git({ reposDir: join(config.dataDir, 'repos'), allowLocal: config.gitLocal });
-    projects = new ProjectSync(database.db, git, log);
+    const git = new Git({
+      reposDir: join(config.dataDir, 'repos'),
+      allowLocal: config.gitLocal,
+      // With authorities of the network's own (AFS_CA_FILE), git is given all the server trusts.
+      ...(config.caFile ? { caBundle: tls.getCACertificates('default').join('\n') } : {}),
+    });
+    // The master key: made at a first start, and then it must be the one the secrets need.
+    const masterKey = loadMasterKey(config);
+    try {
+      await checkKey(database.db, masterKey);
+    } catch (e) {
+      if (e instanceof SealError)
+        throw new Error(
+          `The master key is not the one this database's secrets were sealed with. ${e.message}. Give the server the right key (AFS_MASTER_KEY or AFS_MASTER_KEY_FILE).`,
+        );
+      throw e;
+    }
+    if (masterKey.source === 'generated')
+      log.warn(
+        { file: masterKey.file, key: masterKey.id },
+        'Made a master key. Keep a copy somewhere safe: stored credentials cannot be read without it',
+      );
+    else log.info({ key: masterKey.id, from: masterKey.source }, 'Master key ready');
+    const db = database.db;
+    projects = new ProjectSync(db, git, log, async (project) => {
+      if (!project.gitCredential) return undefined;
+      const revealed = await reveal(db, masterKey, project.gitCredential);
+      if (!revealed) throw new Error('The credential is gone');
+      return gitAuthOf(revealed);
+    });
     app = buildApp({
       log,
       database,
       projects: { git, sync: projects, allowLocal: config.gitLocal },
+      masterKey,
       // The pages are built beside the server (dist/server.js, dist/web).
       webDir: fileURLToPath(new URL('./web', import.meta.url)),
       instance: await instanceId(database.db),

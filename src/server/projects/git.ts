@@ -33,6 +33,12 @@ export interface GitOptions {
   reposDir: string;
   /** Allow a repository that is a folder on this machine (tests, a single-machine install). */
   allowLocal: boolean;
+  /**
+   * Every certificate authority the server trusts when it connects out, as PEM: the usual ones
+   * and those of AFS_CA_FILE. Given, git trusts exactly these; not given, git trusts what the
+   * machine does.
+   */
+  caBundle?: string;
 }
 
 /**
@@ -56,7 +62,17 @@ export function gitUrlProblem(url: string, allowLocal: boolean): string | undefi
       return 'The repository address is not a URL';
     }
   }
-  if (/^http:\/\//i.test(url)) return 'A repository is fetched over https or ssh, not plain http';
+  if (/^http:\/\//i.test(url)) {
+    // Plain http only to this machine itself, and only where folders of it are allowed too.
+    let host = '';
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      return 'The repository address is not a URL';
+    }
+    if (allowLocal && ['127.0.0.1', 'localhost', '[::1]'].includes(host)) return undefined;
+    return 'A repository is fetched over https or ssh, not plain http';
+  }
   if (/^file:\/\//i.test(url) || isAbsolute(url))
     return allowLocal
       ? undefined
@@ -76,6 +92,27 @@ const COMMIT = /^[0-9a-f]{40}$/;
 /** Takes what could be a secret out of git's words before they are shown or logged. */
 export const scrub = (text: string) => text.replace(/\/\/[^/\s@]+@/g, '//***@').trim();
 
+/** What the server signs in to a source with, over HTTPS. */
+export interface GitAuth {
+  username: string;
+  password: string;
+}
+
+/**
+ * How a sign-in reaches git for one call: as a setting in the call's own environment, for the
+ * source's own address only. It is in no file, no argument list and no address, and git does
+ * not send it to another host the source may point to.
+ */
+export function authEnv(url: string, auth: GitAuth | undefined): Record<string, string> {
+  if (!auth || !/^https?:\/\//i.test(url)) return {};
+  const basic = Buffer.from(`${auth.username}:${auth.password}`, 'utf8').toString('base64');
+  return {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: `http.${new URL(url).origin}/.extraheader`,
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+  };
+}
+
 /** What a git client asks the server to run. */
 export type GitService = 'upload-pack' | 'receive-pack';
 
@@ -86,6 +123,8 @@ export interface ServeOptions {
   protectedRef?: string;
   /** For a push to a project with an external source: where the push is passed on to. */
   upstream?: string;
+  /** The sign-in for that source. */
+  auth?: GitAuth;
 }
 
 /**
@@ -131,6 +170,7 @@ exit 0
 export class Git {
   private readonly emptyConfig: string;
   private readonly hooksDir: string;
+  private readonly caFile: string | undefined;
 
   constructor(private readonly options: GitOptions) {
     mkdirSync(options.reposDir, { recursive: true });
@@ -138,6 +178,12 @@ export class Git {
     // must not: this empty file stands in for both.
     this.emptyConfig = join(options.reposDir, 'gitconfig');
     if (!existsSync(this.emptyConfig)) writeFileSync(this.emptyConfig, '');
+    if (options.caBundle) {
+      // Git reads authorities from a file. It is written at every start, from what the server
+      // itself trusts, so git and the server never disagree about a source's certificate.
+      this.caFile = join(options.reposDir, 'ca-bundle.pem');
+      writeFileSync(this.caFile, options.caBundle);
+    }
     this.hooksDir = join(options.reposDir, 'hooks');
     mkdirSync(this.hooksDir, { recursive: true });
     const hook = join(this.hooksDir, 'pre-receive');
@@ -163,6 +209,8 @@ export class Git {
       'core.fsmonitor=false',
       '-c',
       'gc.auto=0',
+      // On Windows git asks the system's own store unless told to use the file it is given.
+      ...(this.caFile ? ['-c', 'http.schannelUseSSLCAInfo=true'] : []),
     ];
   }
 
@@ -173,7 +221,11 @@ export class Git {
       HOME: process.env.HOME,
       USERPROFILE: process.env.USERPROFILE,
       // The server's own outgoing trust (AFS_CA_FILE) and proxy, when it has them.
-      ...(process.env.GIT_SSL_CAINFO ? { GIT_SSL_CAINFO: process.env.GIT_SSL_CAINFO } : {}),
+      ...(this.caFile
+        ? { GIT_SSL_CAINFO: this.caFile }
+        : process.env.GIT_SSL_CAINFO
+          ? { GIT_SSL_CAINFO: process.env.GIT_SSL_CAINFO }
+          : {}),
       ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: this.emptyConfig,
@@ -183,7 +235,7 @@ export class Git {
       SSH_ASKPASS: '',
       GCM_INTERACTIVE: 'never',
       GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=20',
-      GIT_ALLOW_PROTOCOL: this.options.allowLocal ? 'https:ssh:file' : 'https:ssh',
+      GIT_ALLOW_PROTOCOL: this.options.allowLocal ? 'https:ssh:file:http' : 'https:ssh',
       LC_ALL: 'C',
       ...extra,
     } as NodeJS.ProcessEnv;
@@ -240,8 +292,8 @@ export class Git {
     });
   }
 
-  /** Brings the mirror up to date with every branch of `url`. */
-  async fetch(projectId: string, url: string): Promise<void> {
+  /** Brings the mirror up to date with every branch of `url`, signed in with `auth` if given. */
+  async fetch(projectId: string, url: string, auth?: GitAuth): Promise<void> {
     const problem = gitUrlProblem(url, this.options.allowLocal);
     if (problem) throw new GitError(problem);
     // Branches only, exactly as the source has them: one deleted there is deleted here.
@@ -256,7 +308,7 @@ export class Git {
         url,
         '+refs/heads/*:refs/heads/*',
       ],
-      { cwd: this.mirror(projectId), timeoutMs: FETCH_TIMEOUT_MS },
+      { cwd: this.mirror(projectId), timeoutMs: FETCH_TIMEOUT_MS, env: authEnv(url, auth) },
     );
   }
 
@@ -399,6 +451,8 @@ export class Git {
           ...(push
             ? { AFS_PROTECTED: options.protectedRef ?? '', AFS_UPSTREAM: options.upstream ?? '' }
             : {}),
+          // The hook's own push to the source runs in this environment and so signs in too.
+          ...(push && options.upstream ? authEnv(options.upstream, options.auth) : {}),
         }),
       },
     );
