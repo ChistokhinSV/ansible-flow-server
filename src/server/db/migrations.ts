@@ -267,6 +267,33 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-27: access levels.
+  '0013_access_grants': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('access_grant')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('principal_type', 'text', (c) => c.notNull())
+        .addColumn('principal_id', 'text', (c) => c.notNull())
+        .addColumn('level', 'text', (c) => c.notNull())
+        .addColumn('workspace_id', 'text', (c) => c.notNull())
+        .addColumn('project_id', 'text')
+        .addColumn('flow_file', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createIndex('access_grant_principal')
+        .on('access_grant')
+        .columns(['principal_type', 'principal_id'])
+        .execute();
+      await db.schema
+        .createIndex('access_grant_workspace')
+        .on('access_grant')
+        .columns(['workspace_id'])
+        .execute();
+    },
+  },
   // AFS-23: service accounts, and tokens for one workspace.
   '0012_service_accounts': {
     async up(db: Kysely<unknown>) {

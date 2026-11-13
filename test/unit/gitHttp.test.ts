@@ -33,6 +33,7 @@ import {
   type Project,
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
+import { grant } from './helpers/grant';
 import { type TestRepo, testRepo } from './helpers/repo';
 
 const PASSWORD = 'correct horse battery staple';
@@ -85,6 +86,7 @@ beforeEach(async () => {
   readOnly = (await createToken(database.db, root_.id, { name: 'ro', readOnly: true })).token;
   member = (await createToken(database.db, omar.id, { name: 'git' })).token;
   workspaceId = (await createWorkspace(database.db, { key: 'net', name: 'Network' })).id;
+  await grant(database.db, 'net', 'omar');
 });
 afterEach(async () => {
   await sync.stop();

@@ -153,6 +153,7 @@ export async function deleteWorkspace(db: Db, id: string): Promise<void> {
       .execute();
     if (projects.length)
       throw new ProjectError('not_empty', 'The workspace still has projects: delete them first');
+    await trx.deleteFrom('access_grant').where('workspace_id', '=', id).execute();
     const done = await trx.deleteFrom('workspace').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new ProjectError('not_found', 'No such workspace');
   });
@@ -392,6 +393,7 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
       )
       .execute();
     await trx.deleteFrom('launch_config').where('project_id', '=', id).execute();
+    await trx.deleteFrom('access_grant').where('project_id', '=', id).execute();
     const done = await trx.deleteFrom('project').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new ProjectError('not_found', 'No such project');
   });

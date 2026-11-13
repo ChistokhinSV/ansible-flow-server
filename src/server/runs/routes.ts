@@ -14,7 +14,10 @@ import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { hostOutput } from '@ansible-flow/core/run/events';
 import type { FastifyInstance } from 'fastify';
-import { administrator, signedIn } from '../auth/guards';
+import type { Kysely } from 'kysely';
+import { accessOf } from '../access/grants';
+import { signedIn } from '../auth/guards';
+import type { Schema } from '../db/schema';
 import type { RunHub, RunNews } from './hub';
 import { ACTIVE, type RunQueue, type RunState, STATES } from './queue';
 
@@ -54,6 +57,8 @@ export function registerRuns(
   outputFile?: (runId: string) => string,
   /** What runs going here say while they go. */
   hub?: RunHub,
+  /** The database, to read who may see which runs. */
+  db?: Kysely<Schema>,
 ): void {
   /** The streams open now: a server that closes ends them, or it would wait for them. */
   const streams = new Set<ServerResponse>();
@@ -262,7 +267,12 @@ export function registerRuns(
         },
       },
     },
-    async (request, reply) => (signedIn(request, reply) ? queue.list(request.query) : reply),
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      // Only the runs of what this person may see.
+      const visible = db ? (await accessOf(db, request))?.visible() : undefined;
+      return queue.list({ ...request.query, ...(visible ? { visible } : {}) });
+    },
   );
 
   app.get<{ Params: { id: string } }>(
@@ -282,7 +292,8 @@ export function registerRuns(
     '/api/v1/runs/:id/cancel',
     { schema: ID },
     async (request, reply) => {
-      const me = administrator(request, reply);
+      // operator on the run's flow: checked before (api/catalog.ts).
+      const me = signedIn(request, reply);
       if (!me) return reply;
       const run = await queue.cancel(request.params.id, me.login);
       if (!run) return reply.code(404).send(NONE);
@@ -300,7 +311,7 @@ export function registerRuns(
     '/api/v1/runs/:id/relaunch',
     { schema: ID },
     async (request, reply) => {
-      const me = administrator(request, reply);
+      const me = signedIn(request, reply);
       if (!me) return reply;
       const run = await queue.relaunch(request.params.id, me);
       if (!run) return reply.code(404).send(NONE);

@@ -103,6 +103,11 @@ export interface RunFilter {
   limit?: number;
   /** Runs made before this time: the next page. */
   before?: string;
+  /**
+   * Only runs someone may see (AFS-27): of these workspaces, or of these flows (project, file).
+   * Absent: every run.
+   */
+  visible?: { workspaces: string[]; flows: [string, string][] };
 }
 
 type Db = Kysely<Schema>;
@@ -253,6 +258,29 @@ export class RunQueue {
     if (filter.flow) query = query.where('flow_file', '=', filter.flow);
     if (filter.state) query = query.where('state', '=', filter.state);
     if (filter.before) query = query.where('created_at', '<', filter.before);
+    const visible = filter.visible;
+    if (visible) {
+      if (!visible.workspaces.length && !visible.flows.length) return [];
+      query = query.where((eb) =>
+        eb.or([
+          ...(visible.workspaces.length
+            ? [
+                eb(
+                  'project_id',
+                  'in',
+                  eb
+                    .selectFrom('project')
+                    .select('project.id')
+                    .where('project.workspace_id', 'in', visible.workspaces),
+                ),
+              ]
+            : []),
+          ...visible.flows.map(([project, file]) =>
+            eb.and([eb('project_id', '=', project), eb('flow_file', '=', file)]),
+          ),
+        ]),
+      );
+    }
     return (await query.execute()).map((row) => this.of(row));
   }
 

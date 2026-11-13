@@ -34,6 +34,11 @@ Nothing is released yet.
   - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
+- Access levels: administrators give a user or a group `ro`, `operator`, `rw` or `approve` on a whole workspace or on one flow, on the workspace's page or over the API. See [Access levels](README.md#access-levels).
+  - `ro` sees the workspace's projects, flows, launch configurations and runs, and clones; `operator` also launches as a configuration says and stops runs; `rw` also launches another branch or commit, manages launch configurations and pushes through the server.
+  - A grant on one flow replaces the workspace's for that flow; the highest of a person's own and their groups' grants counts.
+  - **Who can do what** on the workspace's page lists every person with access as their grants come out.
+  - People who are not administrators now see only what they were given: give grants after upgrading.
 - The API is described as an OpenAPI 3.1 document at `/api/v1/openapi.json`, and the **API reference** page shows it by subject: what each address does, who may call it, what it takes. See [The API](README.md#the-api).
 - Service accounts: an identity for a pipeline or program, with no password, signed in only with tokens an administrator makes for it (`"service": true`, or `user add --service`). See [Service accounts](README.md#service-accounts).
 - An access token can be limited to one workspace: it reaches that workspace's projects, credentials, launch configurations, runs and repositories, and nothing that spans workspaces. Choose it when making the token, or `user token --workspace`.

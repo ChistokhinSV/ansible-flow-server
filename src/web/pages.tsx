@@ -2,6 +2,7 @@
 // do is shown only to them (the server decides either way).
 
 import { useId, useState } from 'react';
+import { useProjectAccess, WorkspaceAccess } from './access';
 import {
   api,
   type FlowList,
@@ -264,6 +265,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
           </li>
         ))}
       </ul>
+      {me.admin && space.data && <WorkspaceAccess workspace={space.data.key} />}
     </>
   );
 }
@@ -285,6 +287,7 @@ export function ProjectPage({
   );
   const project = found.data;
   const id = project?.id;
+  const access = useProjectAccess(id).data;
   const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
   const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
   const runs = useLoad(async () => (id ? api.runs({ project: id, limit: 10 }) : []), [id]);
@@ -324,7 +327,7 @@ export function ProjectPage({
         title={project.name}
         lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
       >
-        {me.admin && !project.hosted && (
+        {(me.admin || access?.workspace === 'rw') && !project.hosted && (
           <button type="button" onClick={look} disabled={looking}>
             {looking ? 'Looking…' : 'Look at the source now'}
           </button>
@@ -358,18 +361,21 @@ export function ProjectPage({
         </dl>
       </section>
 
-      <section className="panel" aria-labelledby="git">
-        <h2 id="git">Work on it with git</h2>
-        <p>
-          <Copyable text={`git clone ${address}`} label="the clone command" />
-        </p>
-        <p className="muted">
-          The password is an <Link to="/account">access token</Link>; any user name will do.
-          {project.hosted &&
-            !project.commit &&
-            ` The repository is empty: push a first commit to ${project.gitRef}.`}
-        </p>
-      </section>
+      {/* The repository holds every flow: it is for who has a level on the workspace. */}
+      {(me.admin || access?.workspace) && (
+        <section className="panel" aria-labelledby="git">
+          <h2 id="git">Work on it with git</h2>
+          <p>
+            <Copyable text={`git clone ${address}`} label="the clone command" />
+          </p>
+          <p className="muted">
+            The password is an <Link to="/account">access token</Link>; any user name will do.
+            {project.hosted &&
+              !project.commit &&
+              ` The repository is empty: push a first commit to ${project.gitRef}.`}
+          </p>
+        </section>
+      )}
 
       <section className="panel" aria-labelledby="flows">
         <h2 id="flows">Flows</h2>

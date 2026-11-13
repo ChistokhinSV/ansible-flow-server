@@ -2,6 +2,7 @@
 // (/healthz), whether it can do its work (/readyz: the database answers), and what it is
 // (/api/v1/meta, which clients read before they talk to it).
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
+import { registerAccess } from './access/routes';
 import { registerCatalog } from './api/catalog';
 import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
@@ -104,8 +105,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   }
 
+  if (deps.projects) registerAccess(app, { db: deps.database.db });
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
-  if (deps.runs) registerRuns(app, deps.runs, deps.runOutput, deps.hub);
+  if (deps.runs) registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

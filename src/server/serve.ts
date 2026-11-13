@@ -154,6 +154,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let leases: NodeJS.Timeout | undefined;
   let executor: Executor | undefined;
   let retention: NodeJS.Timeout | undefined;
+  let stopPruning: () => Promise<unknown> = async () => undefined;
   const hub = new RunHub();
   let projects: ProjectSync | undefined;
   try {
@@ -266,24 +267,36 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     );
     await executor.start();
     // Ended runs and audit entries past their keeping go, now and every hour.
+    // What is being removed now: a server that stops waits for it before it closes the database
+    // (closing SQLite under a query in flight can bring the process down).
+    const pruning = new Set<Promise<unknown>>();
+    const track = (work: Promise<unknown>) => {
+      pruning.add(work);
+      void work.finally(() => pruning.delete(work));
+    };
+    stopPruning = () => Promise.allSettled([...pruning]);
     const prune = () => {
-      void pruneAudit(database.db, config.auditKeepDays).then(
-        (n) => {
-          if (n) log.info({ entries: n }, 'Removed audit entries past their keeping');
-        },
-        (e) => log.error({ err: e }, 'Removing old audit entries failed'),
+      track(
+        pruneAudit(database.db, config.auditKeepDays).then(
+          (n) => {
+            if (n) log.info({ entries: n }, 'Removed audit entries past their keeping');
+          },
+          (e) => log.error({ err: e }, 'Removing old audit entries failed'),
+        ),
       );
       if (!executor) return;
       const output = executor.outputFile.bind(executor);
-      void pruneRuns(
-        database.db,
-        { days: config.runsKeepDays, perFlow: config.runsKeepPerFlow },
-        output,
-      ).then(
-        (n) => {
-          if (n) log.info({ runs: n }, 'Removed runs past their keeping');
-        },
-        (e) => log.error({ err: e }, 'Removing old runs failed'),
+      track(
+        pruneRuns(
+          database.db,
+          { days: config.runsKeepDays, perFlow: config.runsKeepPerFlow },
+          output,
+        ).then(
+          (n) => {
+            if (n) log.info({ runs: n }, 'Removed runs past their keeping');
+          },
+          (e) => log.error({ err: e }, 'Removing old runs failed'),
+        ),
       );
     };
     prune();
@@ -371,6 +384,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           await executor?.stop();
           await projects?.stop();
           await running.close();
+          await stopPruning();
           await database.close();
           log.info('Stopped');
         })();
@@ -387,6 +401,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     await executor?.stop().catch(() => undefined);
     await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);
+    await stopPruning();
     await database.close().catch(() => undefined);
     throw e;
   }

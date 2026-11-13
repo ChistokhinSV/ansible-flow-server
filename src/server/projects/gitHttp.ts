@@ -11,6 +11,7 @@
 import { PassThrough, type Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { type Access, accessOf, atLeast } from '../access/grants';
 import { recordAudit } from '../audit/store';
 import type { SessionUser } from '../auth/sessions';
 import { type GitService, MAX_PUSH_BYTES, scrub } from './git';
@@ -29,11 +30,12 @@ const toGit = (service: Service) => service.slice(4) as GitService;
 const pkt = (text: string) => (Buffer.byteLength(text) + 4).toString(16).padStart(4, '0') + text;
 
 /**
- * May this person push to this project? Until access levels exist (AFS-27) pushing is changing
- * a project, which administrators do. This function is the one place that rule lives.
+ * May this person push to this project? `rw` on its workspace (AFS-27): a push changes every
+ * flow of the repository, so a grant on one flow is not enough. This is the one place the rule
+ * lives; reading needs `ro` on the workspace, checked before (api/catalog.ts).
  */
-export function mayPush(user: SessionUser, _project: Project): boolean {
-  return user.admin;
+export function mayPush(access: Access | undefined, project: Project): boolean {
+  return atLeast(access?.onWorkspace(project.workspace), 'rw');
 }
 
 export function registerGit(app: FastifyInstance, deps: ProjectDeps): void {
@@ -81,7 +83,7 @@ export function registerGit(app: FastifyInstance, deps: ProjectDeps): void {
       refuse(reply, 403, 'This token may only read');
       return undefined;
     }
-    if (push && !mayPush(user, project)) {
+    if (push && !mayPush(await accessOf(db, request), project)) {
       refuse(reply, 403, 'You may read this project, not push to it');
       return undefined;
     }

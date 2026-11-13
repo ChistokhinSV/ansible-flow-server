@@ -4,6 +4,7 @@
 // is not in the list stops the server from being built, so none goes undescribed or unchecked.
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import type { Kysely } from 'kysely';
+import { accessOf, atLeast, type Level } from '../access/grants';
 import type { Schema } from '../db/schema';
 import { serverMeta } from '../meta';
 
@@ -14,7 +15,15 @@ export type Who =
   | 'session'
   | 'administrators'
   | 'administrator session'
-  | 'push hook token';
+  | 'push hook token'
+  // Access levels (AFS-27), on what the route reaches: the flow when it reaches one, else the
+  // workspace; "can see" is any grant in the workspace (or on a flow of the project).
+  | 'can see'
+  | 'ro'
+  | 'operator'
+  | 'rw'
+  | 'ro on the workspace'
+  | 'rw on the workspace';
 
 /**
  * Which workspace a route reaches, for a token made for one workspace: one named by a route
@@ -31,6 +40,7 @@ export type Reach =
   | { config: string }
   | { run: string }
   | { credential: string }
+  | { grant: string }
   | { gitWorkspace: string }
   | { projectQuery: string };
 
@@ -272,6 +282,27 @@ export const ROUTES: Record<string, RouteDoc> = {
     R,
   )('The same run again, as a new run'),
 
+  'GET /api/v1/workspaces/:id/grants': S(
+    'Access',
+    'administrators',
+    W,
+  )('The grants of a workspace: who has which level, on it or on one flow'),
+  'POST /api/v1/workspaces/:id/grants': S(
+    'Access',
+    'administrators',
+    W,
+  )('Give a user or group a level (ro, operator, rw, approve) on the workspace or one flow'),
+  'DELETE /api/v1/grants/:id': S('Access', 'administrators', { grant: 'id' })('Take a grant back'),
+  'GET /api/v1/workspaces/:id/access': S(
+    'Access',
+    'administrators',
+    W,
+  )('Who can do what in a workspace, as their grants and groups come out'),
+  'GET /api/v1/projects/:id/access': S(
+    'Access',
+    'signed in',
+    P,
+  )('What you may do in a project: your level on it and on each flow'),
   'GET /api/v1/audit': S(
     'Audit',
     'administrators',
@@ -284,61 +315,138 @@ export const ROUTES: Record<string, RouteDoc> = {
   )('The audit log as a CSV or JSON file'),
 };
 
-/** The workspace (id) a route reaches for this request; undefined when it reaches none. */
-async function workspaceOf(
+/**
+ * The access level each route needs (AFS-27), in place of "signed in" or "administrators" in
+ * the list above. Routes not named here keep theirs. Lists that span what a person may see
+ * (workspaces, projects, flows, runs) are narrowed by their handlers.
+ */
+const NEEDS: Record<string, Who> = {
+  'GET /api/v1/workspaces/:id': 'can see',
+  'GET /api/v1/workspaces/:id/projects': 'can see',
+  'GET /api/v1/projects/:id': 'can see',
+  'GET /api/v1/projects/:id/branches': 'can see',
+  'GET /api/v1/projects/:id/pushes': 'can see',
+  'GET /api/v1/projects/:id/flows': 'can see',
+  'GET /api/v1/projects/:id/access': 'can see',
+  'GET /api/v1/projects/:id/flows/view': 'ro',
+  'POST /api/v1/projects/:id/sync': 'rw on the workspace',
+  'GET /git/:workspace/:repo/info/refs': 'ro on the workspace',
+  'POST /git/:workspace/:repo/git-upload-pack': 'ro on the workspace',
+  'POST /git/:workspace/:repo/git-receive-pack': 'rw on the workspace',
+  'GET /api/v1/workspaces/:id/credentials': 'ro on the workspace',
+  'GET /api/v1/credentials/:id': 'ro on the workspace',
+  'GET /api/v1/projects/:id/launch-configs': 'can see',
+  // The flow is in the body: the handler asks for rw on it.
+  'POST /api/v1/projects/:id/launch-configs': 'can see',
+  'GET /api/v1/launch-configs/:id': 'ro',
+  'PATCH /api/v1/launch-configs/:id': 'rw',
+  'DELETE /api/v1/launch-configs/:id': 'rw',
+  'GET /api/v1/launch-configs/:id/form': 'ro',
+  'POST /api/v1/launch-configs/:id/check': 'ro',
+  // Another branch or commit than the configuration's: the handler asks for rw.
+  'POST /api/v1/launch-configs/:id/launch': 'operator',
+  'GET /api/v1/runs/:id': 'ro',
+  'GET /api/v1/runs/:id/output': 'ro',
+  'GET /api/v1/runs/:id/view': 'ro',
+  'GET /api/v1/runs/:id/hosts/:node/:host': 'ro',
+  'GET /api/v1/runs/:id/events': 'ro',
+  'POST /api/v1/runs/:id/cancel': 'operator',
+  'POST /api/v1/runs/:id/relaunch': 'operator',
+};
+for (const [route, who] of Object.entries(NEEDS)) {
+  const doc = ROUTES[route];
+  if (doc) doc.who = who;
+}
+/** The level a `who` asks for; none for the rest (signed in, administrators, ...). */
+const LEVEL_OF: Partial<Record<Who, Level | 'see'>> = {
+  'can see': 'see',
+  ro: 'ro',
+  operator: 'operator',
+  rw: 'rw',
+  'ro on the workspace': 'ro',
+  'rw on the workspace': 'rw',
+};
+/** flows/view names its flow in the query. */
+const FLOW_QUERY: Record<string, string> = { 'GET /api/v1/projects/:id/flows/view': 'path' };
+
+/** What a route reaches: the workspace, and the project and flow when it reaches one. */
+interface Target {
+  workspace: string;
+  project?: string;
+  file?: string;
+}
+
+/** What a route reaches for this request; undefined when it reaches no workspace. */
+async function targetOf(
   db: Kysely<Schema>,
   reach: Reach,
   request: FastifyRequest,
-): Promise<string | undefined> {
+  flowQuery?: string,
+): Promise<Target | undefined> {
   if (typeof reach === 'string') return undefined;
   const params = request.params as Record<string, string | undefined>;
   const query = request.query as Record<string, string | undefined>;
-  const value = (name: string) => params[name] ?? undefined;
-  const first = async (q: Promise<{ w: string } | undefined>) => (await q)?.w;
   if ('workspace' in reach || 'gitWorkspace' in reach) {
-    const key = value('workspace' in reach ? reach.workspace : reach.gitWorkspace);
+    const key = params['workspace' in reach ? reach.workspace : reach.gitWorkspace];
     if (!key) return undefined;
-    return first(
-      db
-        .selectFrom('workspace')
-        .select('id as w')
-        .where((eb) => eb.or([eb('id', '=', key), eb('key', '=', key)]))
-        .executeTakeFirst(),
-    );
+    const row = await db
+      .selectFrom('workspace')
+      .select('id')
+      .where((eb) => eb.or([eb('id', '=', key), eb('key', '=', key)]))
+      .executeTakeFirst();
+    return row ? { workspace: row.id } : undefined;
   }
-  const projectWorkspace = (id: string | undefined) =>
-    id
-      ? first(
-          db
-            .selectFrom('project')
-            .select('workspace_id as w')
-            .where('id', '=', id)
-            .executeTakeFirst(),
-        )
-      : Promise.resolve(undefined);
-  if ('project' in reach) return projectWorkspace(value(reach.project));
-  if ('projectQuery' in reach) return projectWorkspace(query[reach.projectQuery]);
-  if ('credential' in reach) {
-    const id = value(reach.credential);
-    return id
-      ? first(
-          db
-            .selectFrom('credential')
-            .select('workspace_id as w')
-            .where('id', '=', id)
-            .executeTakeFirst(),
-        )
+  const ofProject = async (id: string | undefined, file?: string) => {
+    if (!id) return undefined;
+    const row = await db
+      .selectFrom('project')
+      .select('workspace_id')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row
+      ? { workspace: row.workspace_id, project: id, ...(file ? { file } : {}) }
       : undefined;
+  };
+  if ('project' in reach)
+    return ofProject(params[reach.project], flowQuery ? query[flowQuery] : undefined);
+  if ('projectQuery' in reach) return ofProject(query[reach.projectQuery]);
+  if ('grant' in reach) {
+    const id = params[reach.grant];
+    const row = id
+      ? await db
+          .selectFrom('access_grant')
+          .select('workspace_id')
+          .where('id', '=', id)
+          .executeTakeFirst()
+      : undefined;
+    return row ? { workspace: row.workspace_id } : undefined;
   }
-  const table = 'config' in reach ? 'launch_config' : 'run';
-  const id = value('config' in reach ? reach.config : reach.run);
+  if ('credential' in reach) {
+    const id = params[reach.credential];
+    const row = id
+      ? await db
+          .selectFrom('credential')
+          .select('workspace_id')
+          .where('id', '=', id)
+          .executeTakeFirst()
+      : undefined;
+    return row ? { workspace: row.workspace_id } : undefined;
+  }
+  const id = params['config' in reach ? reach.config : reach.run];
   if (!id) return undefined;
-  const row = await db
-    .selectFrom(table)
-    .select('project_id')
-    .where('id', '=', id)
-    .executeTakeFirst();
-  return projectWorkspace(row?.project_id);
+  const row =
+    'config' in reach
+      ? await db
+          .selectFrom('launch_config')
+          .select(['project_id', 'flow_file'])
+          .where('id', '=', id)
+          .executeTakeFirst()
+      : await db
+          .selectFrom('run')
+          .select(['project_id', 'flow_file'])
+          .where('id', '=', id)
+          .executeTakeFirst();
+  return row ? ofProject(row.project_id, row.flow_file) : undefined;
 }
 
 interface Seen {
@@ -477,7 +585,7 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
     if (!scope || !route) return;
     const doc = ROUTES[`${request.method} ${route}`];
     if (!doc || doc.reach === 'self' || doc.reach === 'anyone') return;
-    const reached = await workspaceOf(deps.db, doc.reach, request);
+    const reached = (await targetOf(deps.db, doc.reach, request))?.workspace;
     if (reached === scope) return;
     return reply.code(403).send({
       error: 'out_of_scope',
@@ -485,6 +593,39 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
         doc.reach === 'server'
           ? 'This token is for one workspace: it cannot reach this'
           : 'This token is for another workspace',
+    });
+  });
+
+  // The access level a route needs, on what it reaches (AFS-27). Who is not signed in is told
+  // so by the route itself; what does not exist is the route's to say (404).
+  app.addHook('preHandler', async (request, reply) => {
+    const route = request.routeOptions.url;
+    if (!route || !request.user) return;
+    const key = `${request.method} ${route}`;
+    const doc = ROUTES[key];
+    if (!doc) return;
+    const level = LEVEL_OF[doc.who];
+    if (!level) return;
+    const target = await targetOf(deps.db, doc.reach, request, FLOW_QUERY[key]);
+    if (!target) return;
+    const access = await accessOf(deps.db, request);
+    if (!access || access.admin) return;
+    const allowed =
+      level === 'see'
+        ? access.sees(target.workspace, target.project)
+        : atLeast(
+            doc.who.endsWith('on the workspace') || !target.project || !target.file
+              ? access.onWorkspace(target.workspace)
+              : access.onFlow(target.workspace, target.project, target.file),
+            level,
+          );
+    if (allowed) return;
+    // Who may not see it at all is not told it is there.
+    if (!access.sees(target.workspace, target.project))
+      return reply.code(404).send({ error: 'not_found', message: 'Nothing here, or not for you' });
+    return reply.code(403).send({
+      error: 'forbidden',
+      message: `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,
     });
   });
 

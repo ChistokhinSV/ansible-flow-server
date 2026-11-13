@@ -30,6 +30,7 @@ for (const [name, config] of databases) {
         // A database the tests own: start from nothing. Children before their parents.
         for (const table of [
           'audit_entry',
+          'access_grant',
           'run',
           'launch_config_credential',
           'launch_config',

@@ -1,5 +1,6 @@
-// Workspaces and projects over HTTP. Until access levels exist (AFS-27): everyone signed in may
-// read them, administrators change them.
+// Workspaces and projects over HTTP. Administrators make and change them; others see the
+// workspaces, projects and flows they have a grant on (AFS-27; the level each route needs is in
+// api/catalog.ts, and the lists here are narrowed to what the person may see).
 //   /api/v1/workspaces, /workspaces/:id            :id is the workspace's id or its key
 //   /api/v1/workspaces/:id/projects
 //   /api/v1/projects/:id, /sync, /branches, /pushes, /hook
@@ -7,6 +8,7 @@
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { accessOf } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
@@ -76,9 +78,11 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
 
   // --- workspaces
 
-  app.get('/api/v1/workspaces', async (request, reply) =>
-    signedIn(request, reply) ? listWorkspaces(db) : reply,
-  );
+  app.get('/api/v1/workspaces', async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const access = await accessOf(db, request);
+    return (await listWorkspaces(db)).filter((w) => access?.sees(w.id));
+  });
 
   app.post<{ Body: { key: string; name: string; description?: string } }>(
     '/api/v1/workspaces',
@@ -144,7 +148,9 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   app.get<WithId>('/api/v1/workspaces/:id/projects', { schema: ID }, async (request, reply) => {
     if (!signedIn(request, reply)) return reply;
     const workspace = await getWorkspace(db, request.params.id);
-    return workspace ? listProjects(db, workspace.id) : reply.code(404).send(NO_WORKSPACE);
+    if (!workspace) return reply.code(404).send(NO_WORKSPACE);
+    const access = await accessOf(db, request);
+    return (await listProjects(db, workspace.id)).filter((p) => access?.sees(workspace.id, p.id));
   });
 
   type NewProjectBody = {
@@ -242,7 +248,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   );
 
   app.post<WithId>('/api/v1/projects/:id/sync', { schema: ID }, async (request, reply) => {
-    if (!administrator(request, reply)) return reply;
+    // rw on the workspace: checked before (api/catalog.ts).
+    if (!signedIn(request, reply)) return reply;
     return (await deps.sync.sync(request.params.id)) ?? reply.code(404).send(NO_PROJECT);
   });
 
@@ -284,7 +291,13 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     const project = await getProject(db, request.params.id);
     if (!project) return reply.code(404).send(NO_PROJECT);
     try {
-      return await flows.list(project.id, project.commit);
+      const list = await flows.list(project.id, project.commit);
+      // Someone with grants on some flows only sees those.
+      const access = await accessOf(db, request);
+      return {
+        ...list,
+        flows: list.flows.filter((f) => access?.onFlow(project.workspace, project.id, f.file)),
+      };
     } catch (e) {
       // A repository that cannot be read just now has no list; the project's page says why.
       if (e instanceof GitError) return { commit: project.commit, flows: [] };
@@ -334,6 +347,29 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       }
     },
   );
+
+  /** What the person asking may do in this project: for the pages, to show what applies. */
+  app.get<WithId>('/api/v1/projects/:id/access', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const project = await getProject(db, request.params.id);
+    if (!project) return reply.code(404).send(NO_PROJECT);
+    const access = await accessOf(db, request);
+    if (!access) return reply;
+    let files: string[] = [];
+    try {
+      files = (await flows.list(project.id, project.commit)).flows.map((f) => f.file);
+    } catch (e) {
+      if (!(e instanceof GitError)) throw e;
+    }
+    return {
+      admin: access.admin,
+      workspace: access.onWorkspace(project.workspace) ?? null,
+      approve: access.approves(project.workspace),
+      flows: Object.fromEntries(
+        files.map((file) => [file, access.onFlow(project.workspace, project.id, file) ?? null]),
+      ),
+    };
+  });
 
   // --- the push hook
 

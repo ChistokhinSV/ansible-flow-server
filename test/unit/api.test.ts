@@ -19,6 +19,7 @@ import { ProjectSync } from '../../src/server/projects/sync';
 import { RunQueue } from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
+import { grant } from './helpers/grant';
 
 const PASSWORD = 'correct horse battery staple';
 const bytes = newKey();
@@ -226,6 +227,7 @@ for (const [name, config] of databases) {
       expect(asked).toEqual([]);
       expect(await run('token', 'deploy-bot', '--workspace', 'net', '--name', 'deploy')).toBe(0);
       const token = out.at(-1) as string;
+      await grant(db(), 'net', 'deploy-bot');
       expect((await call('GET', '/api/v1/workspaces/net', token)).statusCode).toBe(200);
       expect((await call('GET', '/api/v1/workspaces/lab', token)).statusCode).toBe(403);
       expect(await run('token', 'deploy-bot', '--workspace', 'nowhere')).toBe(1);

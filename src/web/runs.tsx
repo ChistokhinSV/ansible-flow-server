@@ -1,6 +1,7 @@
 // The run pages: every run, newest first; and one run, live while it goes: its canvas, its
 // output, and what can be done with it.
 import { useEffect, useRef, useState } from 'react';
+import { atLeast, flowLevel, useProjectAccess } from './access';
 import { api, type Run, type User } from './api';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
@@ -112,6 +113,7 @@ export function RunsPage() {
 
 export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeChoice }) {
   const [run, setRun] = useState<Run>();
+  const access = useProjectAccess(run?.project).data;
   const [output, setOutput] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -155,6 +157,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     );
   if (!run) return <Loading state={{ loading: true }} />;
   const going = ACTIVE.includes(run.state);
+  // operator on the run's flow stops it and runs it again.
+  const mayAct = me.admin || atLeast(flowLevel(access, run.flow.file), 'operator');
   const act = async (what: 'cancel' | 'relaunch') => {
     setBusy(true);
     try {
@@ -184,7 +188,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           </>
         }
       >
-        {me.admin && going && (
+        {mayAct && going && (
           <button
             type="button"
             className="danger"
@@ -194,7 +198,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             Stop
           </button>
         )}
-        {me.admin && !going && (
+        {mayAct && !going && (
           <button type="button" disabled={busy} onClick={() => act('relaunch')}>
             Run again
           </button>

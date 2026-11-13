@@ -14,6 +14,7 @@ import { FlowError, ProjectFlows } from '../../src/server/projects/flows';
 import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
+import { grant } from './helpers/grant';
 import { type TestRepo, testRepo } from './helpers/repo';
 
 const PASSWORD = 'correct horse battery staple';
@@ -60,6 +61,7 @@ beforeAll(async () => {
   empty = await createProject(database.db, workspace.id, { key: 'new', name: 'New' }, true);
   await sync.sync(empty.id);
   await createUser(database.db, { login: 'omar', name: 'Omar', password: PASSWORD });
+  await grant(database.db, 'net', 'omar');
   const signIn = await app.inject({
     method: 'POST',
     url: '/api/v1/session',

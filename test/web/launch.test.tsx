@@ -64,6 +64,14 @@ beforeEach(() => {
   asked = [];
   window.localStorage.clear();
   window.scrollTo = () => undefined;
+  // Launch opens the run's page, which follows the run's stream: here it says nothing.
+  vi.stubGlobal(
+    'EventSource',
+    class {
+      addEventListener() {}
+      close() {}
+    },
+  );
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${url.replace('/api/v1', '')}`;
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
@@ -195,6 +203,24 @@ describe('the launch form', () => {
     expect(launched?.body).toMatchObject({
       inputs: { api_password: 's3cret-value', retries: '5' },
     });
+  });
+});
+
+describe('what a level shows', () => {
+  it('an operator on the flow launches as configured: no other branch, no start values, no change', async () => {
+    routes = {
+      ...common(omar),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: { [flow.file]: 'operator' } },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    expect(await screen.findByRole('button', { name: 'Launch' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Keep as start values' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
+    expect((screen.getByLabelText(/^Branch/) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/another branch or commit needs rw/)).toBeTruthy();
   });
 });
 
