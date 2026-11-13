@@ -7,6 +7,8 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import { buildApp } from './app';
+import { sweepSessions } from './auth/sessions';
+import { setupCode } from './auth/setup';
 import { type Config, publicHost, withoutPassword } from './config';
 import { openDatabase } from './db/database';
 import { migrate } from './db/migrations';
@@ -136,6 +138,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let redirect: Server | undefined;
   let watcher: FSWatcher | undefined;
   let daily: NodeJS.Timeout | undefined;
+  let sweep: NodeJS.Timeout | undefined;
   try {
     await database.ping();
     const applied = await migrate(database.db as never);
@@ -156,7 +159,26 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       trustedProxies: config.trustedProxies,
+      // Plain HTTP by the server itself is only for behind a proxy that does HTTPS; when the
+      // settings say people come over plain HTTP, the cookie must travel that way too.
+      secureCookies:
+        !config.publicUrl?.startsWith('http://') && (config.tls === 'on' || !!config.publicUrl),
     });
+    // A new server has no user. Its first administrator is made by whoever can read this line.
+    const code = await setupCode(database.db);
+    if (code)
+      log.warn(
+        { setup: code },
+        'No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin)',
+      );
+    sweep = setInterval(
+      () =>
+        void sweepSessions(database.db).catch((e) =>
+          log.warn({ err: e }, 'Ended sessions were not removed'),
+        ),
+      60 * 60 * 1000,
+    );
+    sweep.unref();
     const url = await app.listen({ host: config.host, port: config.port });
     const running = app;
 
@@ -232,6 +254,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           log.info({ why }, 'Shutting down');
           watcher?.close();
           clearInterval(daily);
+          clearInterval(sweep);
           redirect?.close();
           redirect?.closeAllConnections();
           await running.close();
@@ -244,6 +267,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   } catch (e) {
     watcher?.close();
     clearInterval(daily);
+    clearInterval(sweep);
     redirect?.close();
     await app?.close().catch(() => undefined);
     await database.close().catch(() => undefined);

@@ -2,8 +2,12 @@
 //   node dist/server.js                 start the server
 //   node dist/server.js check <flows>   read flow files and say what they are (no server)
 //   node dist/server.js cert <command>  the server's certificate (tls/cli.ts)
+//   node dist/server.js user <command>  the people who sign in (auth/cli.ts)
 import { existsSync, readFileSync } from 'node:fs';
+import { userCommand } from './auth/cli';
 import { type Config, ConfigError, loadConfig } from './config';
+import { openDatabase } from './db/database';
+import { migrate } from './db/migrations';
 import { summarizeFlow } from './flows';
 import { createLogger } from './log';
 import { serverMeta } from './meta';
@@ -80,17 +84,32 @@ async function serve(config: Config): Promise<void> {
   process.on('SIGTERM', () => stop('SIGTERM'));
 }
 
+/** A user command works on the database directly, with or without a server running. */
+async function users(config: Config, args: string[]): Promise<number> {
+  const database = openDatabase(config.database);
+  try {
+    await migrate(database.db as never);
+    return await userCommand(database.db, args);
+  } catch (e) {
+    console.error(`The database could not be used: ${(e as Error).message}`);
+    return 1;
+  } finally {
+    await database.close().catch(() => undefined);
+  }
+}
+
 const [command, ...rest] = process.argv.slice(2);
 if (command === 'check') process.exitCode = checkFlows(rest);
-else if (command === undefined || command === 'cert') {
+else if (command === undefined || command === 'cert' || command === 'user') {
   const config = settings();
   if (config) {
     if (command === 'cert') process.exitCode = await certCommand(config, rest);
+    else if (command === 'user') process.exitCode = await users(config, rest);
     else await serve(config);
   }
 } else {
   console.error(
-    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>`,
+    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>, user <command>`,
   );
   process.exitCode = 2;
 }
