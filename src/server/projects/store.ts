@@ -373,6 +373,13 @@ export async function updateProject(
 export async function deleteProject(db: Db, id: string): Promise<void> {
   await db.transaction().execute(async (trx) => {
     await trx.deleteFrom('git_push').where('project_id', '=', id).execute();
+    await trx
+      .deleteFrom('launch_config_credential')
+      .where('config_id', 'in', (eb) =>
+        eb.selectFrom('launch_config').select('id').where('project_id', '=', id),
+      )
+      .execute();
+    await trx.deleteFrom('launch_config').where('project_id', '=', id).execute();
     const done = await trx.deleteFrom('project').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new ProjectError('not_found', 'No such project');
   });

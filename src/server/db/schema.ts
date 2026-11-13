@@ -156,7 +156,40 @@ export interface CredentialTable {
   updated_at: IsoTime;
 }
 
+/** A flow of a project with what a run of it needs, saved under a name. */
+export interface LaunchConfigTable {
+  id: string;
+  project_id: string;
+  /** Unique in its project. */
+  name: string;
+  description: string | null;
+  flow_file: string;
+  /** Another branch than the project's; null: the project's. */
+  git_ref: string | null;
+  /** A pinned commit; null: the newest of the branch. */
+  commit_id: string | null;
+  inventory: string | null;
+  ee_image: string | null;
+  /** check or real. */
+  mode: string;
+  run_limit: string | null;
+  /** Start values of the flow's inputs, as JSON. */
+  inputs_json: string;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
+/** A credential a launch configuration's runs get. */
+export interface LaunchConfigCredentialTable {
+  config_id: string;
+  credential_id: string;
+  /** The order they were named in. */
+  position: number;
+}
+
 export interface Schema {
+  launch_config: LaunchConfigTable;
+  launch_config_credential: LaunchConfigCredentialTable;
   credential: CredentialTable;
   git_push: GitPushTable;
   setting: SettingTable;

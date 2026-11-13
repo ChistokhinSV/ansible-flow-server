@@ -35,6 +35,7 @@ import {
   newKey,
   parseKey,
 } from '../../src/server/secrets/masterKey';
+import { emptyWorkspaces } from './helpers/clean';
 
 const PASSWORD = 'correct horse battery staple';
 // Made up for the tests; not a key of anything.
@@ -148,8 +149,7 @@ for (const [name, config] of databases) {
       await database?.close();
     });
     beforeEach(async () => {
-      for (const table of ['git_push', 'project', 'credential', 'workspace'] as const)
-        await db().deleteFrom(table).execute();
+      await emptyWorkspaces(db());
       await db().deleteFrom('setting').where('name', '=', 'secrets.check').execute();
       workspace = (await createWorkspace(db(), { key: 'net', name: 'Network' })).id;
     });

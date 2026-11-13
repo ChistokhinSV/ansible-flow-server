@@ -1,0 +1,190 @@
+// Launch configurations over HTTP. Until access levels exist (AFS-27): everyone signed in sees
+// them and asks what a launch would run; administrators make and change them.
+//   /api/v1/projects/:id/launch-configs
+//   /api/v1/launch-configs/:id
+//   /api/v1/launch-configs/:id/form     the flow's inputs as a form, with the start values
+//   /api/v1/launch-configs/:id/check    what a launch would run, or what stands in its way
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { administrator, signedIn } from '../auth/guards';
+import { getProject } from '../projects/store';
+import { type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
+import { type LaunchRequest, type PrepareDeps, prepareLaunch, withoutSecrets } from './prepare';
+
+const STATUS: Record<LaunchError['code'], number> = { invalid: 400, not_found: 404, taken: 409 };
+const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
+const orNull = (max: number) => ({ type: ['string', 'null'], maxLength: max });
+const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
+const NONE = { error: 'not_found', message: 'No such launch configuration' };
+
+const CONFIG = {
+  name: text(100, 1),
+  description: text(1000),
+  flowFile: text(500, 1),
+  gitRef: orNull(200),
+  commit: orNull(40),
+  inventory: orNull(500),
+  eeImage: orNull(300),
+  mode: { type: 'string', enum: ['check', 'real'] },
+  limit: orNull(500),
+  // Values of any kind the flow's inputs take; the store checks each against its input.
+  inputs: { type: 'object', maxProperties: 200 },
+  credentials: { type: 'array', maxItems: 20, items: text(64, 1) },
+};
+const REQUEST = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    mode: CONFIG.mode,
+    ref: text(200, 1),
+    commit: text(40, 40),
+    limit: text(500),
+    inputs: {
+      type: 'object',
+      maxProperties: 200,
+      additionalProperties: { type: 'string', maxLength: 100_000 },
+    },
+  },
+};
+
+export function registerLaunch(app: FastifyInstance, deps: PrepareDeps): void {
+  const configs = new LaunchConfigs(deps.db, deps.git);
+  const answering =
+    <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
+    async (request: R, reply: FastifyReply) => {
+      try {
+        return await handler(request, reply);
+      } catch (e) {
+        if (e instanceof LaunchError)
+          return reply.code(STATUS[e.code]).send({
+            error: e.code,
+            message: e.message,
+            ...(e.field ? { field: e.field } : {}),
+          });
+        throw e;
+      }
+    };
+  type WithId = { Params: { id: string } };
+
+  app.get<WithId>('/api/v1/projects/:id/launch-configs', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    if (!(await getProject(deps.db, request.params.id)))
+      return reply.code(404).send({ error: 'not_found', message: 'No such project' });
+    return configs.list(request.params.id);
+  });
+
+  app.post<WithId & { Body: LaunchConfigInput }>(
+    '/api/v1/projects/:id/launch-configs',
+    {
+      schema: {
+        ...ID,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'flowFile'],
+          properties: CONFIG,
+        },
+      },
+    },
+    answering(async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const made = await configs.create(request.params.id, request.body);
+      request.log.info(
+        { by: me.login, config: made.name, flow: made.flowFile, mode: made.mode },
+        'Launch configuration added',
+      );
+      return reply.code(201).send(made);
+    }),
+  );
+
+  app.get<WithId>('/api/v1/launch-configs/:id', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    return (await configs.get(request.params.id)) ?? reply.code(404).send(NONE);
+  });
+
+  app.patch<WithId & { Body: Partial<LaunchConfigInput> }>(
+    '/api/v1/launch-configs/:id',
+    {
+      schema: {
+        ...ID,
+        body: { type: 'object', additionalProperties: false, properties: CONFIG },
+      },
+    },
+    answering(async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const changed = await configs.update(request.params.id, request.body);
+      request.log.info(
+        { by: me.login, config: changed.name, changed: Object.keys(request.body) },
+        'Launch configuration changed',
+      );
+      return changed;
+    }),
+  );
+
+  app.delete<WithId>(
+    '/api/v1/launch-configs/:id',
+    { schema: ID },
+    answering(async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const config = await configs.get(request.params.id);
+      if (!config) return reply.code(404).send(NONE);
+      await configs.delete(config.id);
+      request.log.info({ by: me.login, config: config.name }, 'Launch configuration deleted');
+      return reply.code(204).send();
+    }),
+  );
+
+  /** The form of a launch: reads only, and does not ask the source (a page opens fast). */
+  app.get<WithId & { Querystring: { mode?: 'check' | 'real'; ref?: string; commit?: string } }>(
+    '/api/v1/launch-configs/:id/form',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { mode: CONFIG.mode, ref: text(200, 1), commit: text(40, 40) },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const config = await configs.get(request.params.id);
+      if (!config) return reply.code(404).send(NONE);
+      const prepared = await prepareLaunch(deps, config, request.query, false);
+      // A form with empty required inputs is still a form: only what leaves no form is refused.
+      if (prepared.form) return prepared.form;
+      return reply
+        .code(422)
+        .send({ error: 'not_ready', problems: prepared.ok ? [] : prepared.problems });
+    },
+  );
+
+  /**
+   * What a launch would run: the commit (after a look at the source), the inputs as the flow
+   * reads them, the hosts it starts on. Nothing runs. 422 lists everything in the way.
+   * It is a POST because typed inputs can be secret: they do not belong in an address.
+   */
+  app.post<WithId & { Body: LaunchRequest }>(
+    '/api/v1/launch-configs/:id/check',
+    { schema: { ...ID, body: REQUEST } },
+    async (request, reply) => {
+      // Asking changes nothing, so a read-only token may ask.
+      if (!request.user)
+        return reply.code(401).send({ error: 'unauthorized', message: 'Sign in first' });
+      const config = await configs.get(request.params.id);
+      if (!config) return reply.code(404).send(NONE);
+      const prepared = await prepareLaunch(deps, config, request.body ?? {});
+      if (!prepared.ok)
+        return reply.code(422).send({
+          error: 'not_ready',
+          message: prepared.problems[0]?.message ?? 'The launch is not ready',
+          problems: prepared.problems,
+          ...(prepared.form ? { form: prepared.form } : {}),
+        });
+      return { launch: withoutSecrets(prepared.launch, prepared.form.fields), form: prepared.form };
+    },
+  );
+}

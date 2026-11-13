@@ -36,6 +36,7 @@ import {
 import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
+import { emptyPeople } from './helpers/clean';
 
 const PASSWORD = 'correct horse battery staple';
 
@@ -131,8 +132,7 @@ for (const [name, config] of databases) {
     });
     beforeEach(async () => {
       // Each test starts with no people. Children first, for a database without cascades on.
-      for (const table of ['session', 'group_member', 'user_group', 'user_account'] as const)
-        await db().deleteFrom(table).execute();
+      await emptyPeople(db());
       await sql`delete from setting where name = 'setup.code'`.execute(db());
     });
 

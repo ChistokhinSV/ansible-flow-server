@@ -1,0 +1,71 @@
+# ADR-0014: Launch configurations, and settling a launch
+
+- Status: accepted (2026-11-13, AFS-18). Builds on ADR-0003 (which commit runs), ADR-0012
+  (flows), ADR-0013 (credentials)
+- Context: a run needs a flow, a commit, inputs, an inventory, an execution environment and
+  credentials. People should choose that once and launch many times; a schedule and an API call
+  need the same thing by name
+
+## Decision
+
+**A launch configuration** (`src/server/launch/configs.ts`) belongs to a project and names: a
+flow file, optionally a branch or a pinned commit, an inventory path in the repository, an
+execution environment image, check or real, a limit, start values for the flow's inputs, and
+credentials. It holds **no secret** and **no copy of the flow**.
+
+**Saved only if it could run now.** Everything it says is checked against the project when it
+is made or changed: the flow exists at the commit and has no errors; the inventory path exists;
+the branch or commit exists; each start value is for an input the flow has and reads as that
+input's type; the credentials are the workspace's, of a kind a run takes, and one each of the
+ways to sign in (`ssh_key`, `login`) and to become another user. A refusal names the setting it
+is about (`field`), for a form.
+
+**No secret-looking input is kept.** The designer's own rule decides what looks like a secret
+(`launchFields`). Such a value is given at launch or comes from a credential.
+
+**Settling a launch** (`launch/prepare.ts`) turns a configuration and what a person adds into
+exactly what would run, or the list of everything in the way:
+
+- **Which commit:** what the launch names (a branch or a commit), else what the configuration
+  names, else the newest commit of the project's branch. For a project with a source the server
+  looks at the source first. A source that cannot be read stops the launch: it would run an
+  older commit than the person thinks.
+- **The inputs:** typed text is read as each input's type with the designer's code
+  (`readFields`), so `fw-edge-01, fw-edge-02` is a host list here as it is in VS Code.
+- **The answer** names the commit, the flow and its version, the mode, the inputs, the hosts and
+  groups the flow starts on, the credentials. A secret-looking input's value is not repeated in
+  the answer.
+
+**Two requests:** `GET …/form` is the flow's inputs as a form (it does not ask the source, so a
+page opens fast); `POST …/check` settles a launch and runs nothing. The run itself is made from
+the same settled launch by the queue (AFS-19).
+
+**A credential a configuration names is in use**: it is counted and not deleted until taken
+out. A configuration goes with its project.
+
+**Who** (until AFS-27): everyone signed in reads and asks; administrators make and change.
+
+## Not in this decision
+
+- Starting the run (AFS-19, AFS-20), the pages (AFS-65).
+- The hosts a launch would touch as the inventory has them, which needs the probe in the
+  execution environment (AFS-20).
+- Whether real runs may be limited to the project's branch (AFS-27).
+- Which images may be used (AFS-32).
+
+## Alternatives considered
+
+- **Checking only at launch.** Saving never fails. But a configuration that cannot run is found
+  by the schedule at night instead of by the person who made the mistake.
+- **Keeping inputs as typed text.** Simple. But a start value would be read differently if the
+  flow's input changed type; kept as values, the change is caught when the configuration is
+  next saved or launched.
+- **A copy of the flow in the configuration.** Launches would not depend on git. But two texts
+  of one flow is what ADR-0003 exists to prevent.
+
+## Consequences
+
+- Changing a flow's inputs can make a saved configuration not ready: the launch says which
+  input, and the configuration is fixed by saving it again.
+- A configuration made for one flow and pointed at another must have its start values replaced
+  in the same change.
