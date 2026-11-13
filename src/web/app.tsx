@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { AdminPage, AuditPage } from './audit';
+import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import {
   Account,
   FlowPage,
@@ -51,6 +52,29 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/account') return <Account me={me} />;
   if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
+  const config = match('/w/:workspace/:project/launch/:id', path);
+  if (config?.workspace && config.project && config.id)
+    return config.id === 'new' ? (
+      me.admin ? (
+        <LaunchConfigEdit workspace={config.workspace} project={config.project} />
+      ) : (
+        <NotFound />
+      )
+    ) : (
+      <LaunchConfigPage
+        me={me}
+        workspace={config.workspace}
+        project={config.project}
+        id={config.id}
+      />
+    );
+  const edit = match('/w/:workspace/:project/launch/:id/edit', path);
+  if (edit?.workspace && edit.project && edit.id)
+    return me.admin ? (
+      <LaunchConfigEdit workspace={edit.workspace} project={edit.project} id={edit.id} />
+    ) : (
+      <NotFound />
+    );
   const workspace = match('/w/:workspace', path);
   if (workspace?.workspace) return <Workspace me={me} workspace={workspace.workspace} />;
   const project = match('/w/:workspace/:project', path);

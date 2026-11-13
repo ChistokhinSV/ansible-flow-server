@@ -3,15 +3,25 @@
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { User } from '../server/auth/users';
+import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
+import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
+import type { Credential } from '../server/secrets/credentials';
 
 export type {
   AuditEntry,
   AuditFilter,
+  Credential,
   FlowList,
   FlowSummary,
+  LaunchConfig,
+  LaunchConfigInput,
+  LaunchForm,
+  LaunchRequest,
+  PreparedLaunch,
+  Problem,
   Project,
   Push,
   Run,
@@ -25,6 +35,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** The rest of the refusal: the field it is about, the problems of a launch. */
+    readonly details: { field?: string; problems?: Problem[]; form?: LaunchForm } = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -58,6 +70,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     reply.status,
     data?.error ?? 'error',
     data?.message ?? `The server answered ${reply.status}`,
+    {
+      ...(typeof data?.field === 'string' ? { field: data.field } : {}),
+      ...(Array.isArray(data?.problems) ? { problems: data.problems } : {}),
+      ...(data?.form ? { form: data.form } : {}),
+    },
   );
 }
 
@@ -117,6 +134,30 @@ export const api = {
 
   audit: (filter: AuditFilter) =>
     call<{ entries: AuditEntry[]; next?: string }>('GET', `/audit?${queryOf(filter)}`),
+
+  credentials: (workspace: string) =>
+    call<Credential[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/credentials`),
+
+  launchConfigs: (project: string) =>
+    call<LaunchConfig[]>('GET', `/projects/${project}/launch-configs`),
+  launchConfig: (id: string) =>
+    call<LaunchConfig>('GET', `/launch-configs/${encodeURIComponent(id)}`),
+  addLaunchConfig: (project: string, input: LaunchConfigInput) =>
+    call<LaunchConfig>('POST', `/projects/${project}/launch-configs`, input),
+  changeLaunchConfig: (id: string, input: Partial<LaunchConfigInput>) =>
+    call<LaunchConfig>('PATCH', `/launch-configs/${encodeURIComponent(id)}`, input),
+  deleteLaunchConfig: (id: string) =>
+    call<void>('DELETE', `/launch-configs/${encodeURIComponent(id)}`),
+  launchForm: (id: string, query: { mode?: string; ref?: string; commit?: string } = {}) =>
+    call<LaunchForm>('GET', `/launch-configs/${encodeURIComponent(id)}/form?${queryOf(query)}`),
+  checkLaunch: (id: string, request: LaunchRequest) =>
+    call<{ launch: PreparedLaunch; form: LaunchForm }>(
+      'POST',
+      `/launch-configs/${encodeURIComponent(id)}/check`,
+      request,
+    ),
+  launch: (id: string, request: LaunchRequest) =>
+    call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: { name: string; expiresInDays?: number; readOnly?: boolean }) =>
