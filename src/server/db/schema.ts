@@ -101,8 +101,24 @@ export interface ProjectTable {
   updated_at: IsoTime;
 }
 
+/** A personal access token: a program acts as its owner with it. */
+export interface ApiTokenTable {
+  id: string;
+  user_id: string;
+  name: string;
+  /** SHA-256 of the token, in hex. */
+  token_hash: string;
+  /** The token's last four characters, to tell one from another. */
+  hint: string;
+  read_only: Flag;
+  created_at: IsoTime;
+  last_used_at: IsoTime | null;
+  expires_at: IsoTime | null;
+}
+
 export interface Schema {
   setting: SettingTable;
+  api_token: ApiTokenTable;
   workspace: WorkspaceTable;
   project: ProjectTable;
   user_account: UserAccountTable;

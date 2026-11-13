@@ -1,7 +1,7 @@
 # ADR-0003: A project's flows live in git
 
-- Status: accepted (2026-11-13, AFS-9; product-owner decision "both modes per project"). Not
-  implemented yet (AFS-13, AFS-14)
+- Status: accepted (2026-11-13, AFS-9; product-owner decision "both modes per project"); amended
+  the same day, see below. External projects: AFS-13. The server as git address: AFS-14
 - Context: people design flows in VS Code and will later edit them in the browser; the server runs
   them. All three must agree on which text of a flow is the flow
 
@@ -20,6 +20,25 @@
   for a check-mode run (AFS-26). A real run needs a commit on the branch that may run.
 - **Editing in the browser, when it comes,** is a commit by that person on a branch. Two people
   changing one flow is a git conflict, solved with git's tools, not a second versioning system.
+
+## Amendment (2026-11-13, product owner): one behaviour for both kinds of project
+
+Asked while AFS-14 was planned: with an external repository, would a person edit in the browser
+(the server pushes for them) but be unable to push from VS Code without their own access to that
+repository? The server does not, and will not, check a person's rights at the git host, so the
+two ways in must behave the same.
+
+- **The server is the git address of every project.** `git clone` and `git push` go to the
+  server for a hosted project and for an external one alike, signed in with a personal access
+  token (ADR-0009). What a person may do is decided by their access level on the server, nowhere
+  else.
+- **For an external project a push is passed on** to the source with the project's credential,
+  and accepted only when the source accepts it. The server records who pushed. The source stays
+  the truth; a person who has their own access to it may still use it directly.
+- **A run takes the newest commit of the project's branch unless told otherwise.** A launch may
+  name another branch or a commit. Whether a real run may be limited to the project's branch is
+  decided with access levels (AFS-27); this replaces "the server runs only commits on the
+  project's branch that may run" above.
 
 ## Alternatives considered
 

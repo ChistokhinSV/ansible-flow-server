@@ -63,6 +63,9 @@ function plain(key: string, value: unknown, depth = 0): unknown {
     return { message: value.message, ...(code ? { code } : {}) };
   }
   if (typeof value === 'bigint') return value.toString();
+  // An access token is recognised by its shape, whatever the field around it is called.
+  if (typeof value === 'string' && /afs_[A-Za-z0-9_-]{43}/.test(value))
+    return value.replace(/afs_[A-Za-z0-9_-]{43}/g, HIDDEN);
   if (typeof value !== 'object') return value;
   const o = value as Record<string, unknown>;
   if (key === 'req' && typeof o.method === 'string')

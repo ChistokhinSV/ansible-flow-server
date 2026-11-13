@@ -15,7 +15,7 @@ own code, with who may run what, who must approve, and a record of every run.
 
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
-users and groups and signs them in, keeps workspaces and projects in step with their git
+users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
 repositories, answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
@@ -200,16 +200,19 @@ or, on the server's machine, with no code and the password typed unseen:
 just user add dana --name "Dana Whitfield" --admin
 ```
 
-| Address (under `/api/v1`) | Does                                         | Who            |
-| ------------------------- | -------------------------------------------- | -------------- |
-| `POST /session`           | Sign in with `{"login","password"}`          | anyone         |
-| `GET /session`            | Who am I, with my groups                     | signed in      |
-| `DELETE /session`         | Sign out                                     | anyone         |
-| `PUT /session/password`   | Change my password: `{"current","password"}` | signed in      |
-| `/users`, `/users/:id`    | List, add, change, disable, delete people    | administrators |
-| `PUT /users/:id/password` | Set someone's password                       | administrators |
-| `/groups`, `/groups/:id`  | List, add, change, delete groups             | administrators |
-| `PUT /groups/:id/members` | Set a group's members: `{"users":[ids]}`     | administrators |
+| Address (under `/api/v1`)                                  | Does                                         | Who                               |
+| ---------------------------------------------------------- | -------------------------------------------- | --------------------------------- |
+| `POST /session`                                            | Sign in with `{"login","password"}`          | anyone                            |
+| `GET /session`                                             | Who am I, with my groups                     | signed in                         |
+| `DELETE /session`                                          | Sign out                                     | anyone                            |
+| `PUT /session/password`                                    | Change my password: `{"current","password"}` | signed in                         |
+| `GET /tokens`, `POST /tokens`                              | My access tokens; make one (shown once)      | signed in; making needs a session |
+| `DELETE /tokens/:id`                                       | Revoke one of my tokens                      | signed in, with a session         |
+| `/users`, `/users/:id`                                     | List, add, change, disable, delete people    | administrators                    |
+| `PUT /users/:id/password`                                  | Set someone's password                       | administrators                    |
+| `GET /users/:id/tokens`, `DELETE /users/:id/tokens/:token` | See and revoke someone's tokens              | administrators                    |
+| `/groups`, `/groups/:id`                                   | List, add, change, delete groups             | administrators                    |
+| `PUT /groups/:id/members`                                  | Set a group's members: `{"users":[ids]}`     | administrators                    |
 
 - A password has at least 12 characters and is kept only as an argon2id hash.
 - A session lasts 8 hours without use and 7 days at most. Its cookie is not readable by scripts
@@ -221,16 +224,53 @@ just user add dana --name "Dana Whitfield" --admin
 
 When nobody can sign in, the way back is the machine the server runs on:
 
-| Command                                         | Does                                                  |
-| ----------------------------------------------- | ----------------------------------------------------- |
-| `user list`                                     | Everyone, with level, state and groups                |
-| `user add <login> [--name] [--email] [--admin]` | Adds a person; the password is typed unseen, or piped |
-| `user password <login>`                         | Sets a password and ends that person's sessions       |
-| `user disable <login>`, `user enable <login>`   | Disabling signs the person out                        |
-| `user admin <login> on\|off`                    | Makes, or unmakes, an administrator                   |
+| Command                                              | Does                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------- |
+| `user list`                                          | Everyone, with level, state and groups                      |
+| `user add <login> [--name] [--email] [--admin]`      | Adds a person; the password is typed unseen, or piped       |
+| `user password <login>`                              | Sets a password and ends that person's sessions             |
+| `user disable <login>`, `user enable <login>`        | Disabling signs the person out                              |
+| `user admin <login> on\|off`                         | Makes, or unmakes, an administrator                         |
+| `user token <login> [--name] [--days] [--read-only]` | Prints a new access token for that person, and nothing else |
 
-Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP,
-and tokens for scripts.
+#### Access tokens
+
+A program (git, the VS Code extension, a pipeline) signs in with an access token, not a
+password. A token is a person's and acts as that person. Make one while signed in:
+
+```sh
+curl --cacert data/tls/certificate.pem --cookie cookies.txt \
+  -H 'content-type: application/json' https://flows.example.net:8443/api/v1/tokens \
+  -d '{"name":"laptop git","expiresInDays":90,"readOnly":false}'
+```
+
+```json
+{
+  "id": "0b6f5c1e-8f0e-4d0a-9a53-6d0f8f1f2c77",
+  "name": "laptop git",
+  "hint": "Xk3Q",
+  "readOnly": false,
+  "createdAt": "2026-11-13T09:44:37.512Z",
+  "expiresAt": "2027-02-11T09:44:37.512Z",
+  "token": "afs_<43 characters, shown this once>"
+}
+```
+
+and use it as a bearer, or as the password of HTTP Basic with any user name (what git sends):
+
+```sh
+curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
+  https://flows.example.net:8443/api/v1/workspaces
+```
+
+- The server keeps a hash of the token: it cannot show it again. Lost means revoke and make anew.
+- A token lasts 90 days unless you say otherwise, a year at most. It stops when it is revoked,
+  at its end, and while its owner is disabled. A person has at most 50.
+- A read-only token (`"readOnly": true`) reads and changes nothing.
+- A token cannot make or revoke tokens, or set a password: those take a password sign-in.
+- Keep it in an environment variable or a credential store, never in a repository or an address.
+
+Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP.
 
 ### Workspaces and projects
 
