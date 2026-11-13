@@ -30,6 +30,12 @@ export interface Config {
   /** The master key as text (AFS_MASTER_KEY), or the file it is in (AFS_MASTER_KEY_FILE). */
   masterKey?: string;
   masterKeyFile?: string;
+  /** The container engine runs use (`auto`: docker, else podman; `off`: none). */
+  containerEngine: 'auto' | 'docker' | 'podman' | 'off';
+  /** The execution environment image a run uses unless its launch names one. */
+  eeImage: string;
+  /** A run that takes longer is stopped, in minutes. */
+  runTimeoutMinutes: number;
   /** Runs at once on this server, and of one project. */
   maxRuns: number;
   maxRunsPerProject: number;
@@ -125,6 +131,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     }
     return n;
   };
+  const engineText = (text('AFS_CONTAINER_ENGINE') ?? 'auto').toLowerCase();
+  if (!['auto', 'docker', 'podman', 'off'].includes(engineText))
+    problems.push(`AFS_CONTAINER_ENGINE is "${engineText}": use auto, docker, podman or off`);
+  const eeImage = text('AFS_EE_IMAGE') ?? 'ghcr.io/ansible/community-ansible-dev-tools:latest';
+  if (!/^[A-Za-z0-9][\w.\-/:@]{0,299}$/.test(eeImage))
+    problems.push(`AFS_EE_IMAGE is "${eeImage}": not the name of a container image`);
+  const timeoutText = text('AFS_RUN_TIMEOUT_MINUTES') ?? '240';
+  const runTimeoutMinutes = Number(timeoutText);
+  if (!/^\d+$/.test(timeoutText) || runTimeoutMinutes < 1 || runTimeoutMinutes > 10_080)
+    problems.push(`AFS_RUN_TIMEOUT_MINUTES is "${timeoutText}": minutes, from 1 to 10080 (a week)`);
   const maxRuns = countOf('AFS_MAX_RUNS', 4);
   const maxRunsPerProject = countOf('AFS_MAX_RUNS_PER_PROJECT', 1);
   const caFile = text('AFS_CA_FILE');
@@ -176,6 +192,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ...(caFile ? { caFile: resolve(caFile) } : {}),
     ...(masterKey ? { masterKey } : {}),
     ...(masterKeyFile ? { masterKeyFile: resolve(masterKeyFile) } : {}),
+    containerEngine: engineText as Config['containerEngine'],
+    eeImage,
+    runTimeoutMinutes,
     maxRuns,
     maxRunsPerProject,
     gitLocal: localText === 'on',

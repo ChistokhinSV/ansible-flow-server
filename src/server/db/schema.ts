@@ -230,6 +230,8 @@ export interface RunTable {
   cancel_requested: Flag;
   cancelled_by: string | null;
   error: string | null;
+  /** How the run went, as the designer shows it (its RunView), as JSON. */
+  view_json: string | null;
 }
 
 export interface Schema {

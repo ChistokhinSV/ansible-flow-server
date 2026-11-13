@@ -217,10 +217,21 @@ export class RunQueue {
         cancel_requested: 0,
         cancelled_by: null,
         error: null,
+        view_json: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
     });
+  }
+
+  /** How a run went, as the designer shows it; undefined until it ended (or when it never ran). */
+  async view(id: string): Promise<unknown | undefined> {
+    const row = await this.db
+      .selectFrom('run')
+      .select('view_json')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row?.view_json ? JSON.parse(row.view_json) : undefined;
   }
 
   async get(id: string): Promise<Run | undefined> {
@@ -368,6 +379,8 @@ export class RunQueue {
     outcome: Outcome,
     error?: string,
     now = new Date(),
+    /** How it went, as the designer shows it. */
+    view?: unknown,
   ): Promise<boolean> {
     return this.locked(async (trx) => {
       const row = await this.leased(trx, id, token, now);
@@ -376,6 +389,7 @@ export class RunQueue {
         .updateTable('run')
         .set({
           state: outcome,
+          ...(view !== undefined ? { view_json: JSON.stringify(view) } : {}),
           ended_at: iso(now),
           started_at: row.started_at ?? iso(now),
           error: outcome === 'succeeded' ? null : (error?.slice(0, 2000) ?? null),

@@ -5,7 +5,7 @@
 // limit on every call, and only addresses the server is willing to fetch from.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { rename } from 'node:fs/promises';
+import { rename, rm } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 
 /** How long a fetch may take. */
@@ -392,6 +392,39 @@ export class Git {
         throw new GitError(`The file is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`);
       return undefined;
     }
+  }
+
+  /**
+   * Puts `dir` exactly at `commit`: the repository's files and nothing else. A folder that
+   * is a checkout already is reset and cleaned; otherwise one is made (a git worktree of the
+   * mirror, so the objects are not copied).
+   */
+  async checkout(projectId: string, commit: string, dir: string): Promise<void> {
+    if (!COMMIT.test(commit)) throw new GitError('Not a commit');
+    const mirror = this.mirror(projectId);
+    const opts = { timeoutMs: FETCH_TIMEOUT_MS };
+    await this.run(['--git-dir', mirror, 'worktree', 'prune'], opts);
+    if (existsSync(join(dir, '.git'))) {
+      await this.run(['-C', dir, 'reset', '--hard', '--quiet', commit], opts);
+      await this.run(['-C', dir, 'clean', '-ffdxq'], opts);
+      return;
+    }
+    await this.run(
+      ['--git-dir', mirror, 'worktree', 'add', '--force', '--detach', '--quiet', dir, commit],
+      opts,
+    );
+  }
+
+  /** Removes a working folder made by `checkout`. */
+  async removeCheckout(projectId: string, dir: string): Promise<void> {
+    const mirror = this.mirror(projectId);
+    await this.run(['--git-dir', mirror, 'worktree', 'remove', '--force', dir], {
+      timeoutMs: READ_TIMEOUT_MS,
+    }).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+    await this.run(['--git-dir', mirror, 'worktree', 'prune'], {
+      timeoutMs: READ_TIMEOUT_MS,
+    }).catch(() => undefined);
   }
 
   /** True when the repository has this commit. */

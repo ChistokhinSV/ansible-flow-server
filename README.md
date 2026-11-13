@@ -17,7 +17,7 @@ own code, with who may run what, who must approve, and a record of every run.
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
 users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
 repositories and is itself the git address of every project (clone, fetch, push), keeps credentials encrypted and signs in to private repositories with them, keeps launch
-configurations and says what a launch would run, has web pages to sign
+configurations, and runs flows in execution environment containers, has web pages to sign
 in and look at workspaces, projects and their flows on the designer's canvas (read-only), answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
@@ -118,25 +118,28 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting                    | Default                                  | Meaning                                                                 |
-| -------------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
-| `AFS_HOST`                 | `127.0.0.1`                              | The address to listen on; `0.0.0.0` for every interface                 |
-| `AFS_PORT`                 | `8443`                                   | The port (`8080` with `AFS_TLS=off`)                                    |
-| `AFS_PUBLIC_URL`           | none                                     | The address people open, like `https://flows.example.net`               |
-| `AFS_HTTP_PORT`            | none                                     | A port that redirects plain HTTP to HTTPS                               |
-| `AFS_TLS`                  | `on`                                     | `off` behind a proxy that does HTTPS                                    |
-| `AFS_TRUSTED_PROXIES`      | none                                     | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
-| `AFS_CA_FILE`              | none                                     | Certificate authorities of your network, for outgoing connections       |
-| `AFS_MASTER_KEY_FILE`      | `<data>/master.key`, made at first start | The file with the master key that stored credentials are encrypted with |
-| `AFS_MASTER_KEY`           | none                                     | The master key itself (base64 of 32 bytes), instead of a file           |
-| `AFS_MAX_RUNS`             | `4`                                      | Runs at once on this server                                             |
-| `AFS_MAX_RUNS_PER_PROJECT` | `1`                                      | Runs at once of one project                                             |
-| `AFS_GIT_LOCAL`            | `off`                                    | `on`: a project's repository may be a folder of this machine            |
-| `AFS_DATA_DIR`             | `data`                                   | Where the server keeps what it owns                                     |
-| `AFS_DATABASE_URL`         | `sqlite:afs.db`                          | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
-| `AFS_LOG_LEVEL`            | `info`                                   | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
-| `AFS_LOG_FORMAT`           | `text`                                   | `text`, or `json` for one object a line                                 |
-| `AFS_ENV_FILE`             | `.env`                                   | Another file to read the settings from                                  |
+| Setting                    | Default                                              | Meaning                                                                 |
+| -------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| `AFS_HOST`                 | `127.0.0.1`                                          | The address to listen on; `0.0.0.0` for every interface                 |
+| `AFS_PORT`                 | `8443`                                               | The port (`8080` with `AFS_TLS=off`)                                    |
+| `AFS_PUBLIC_URL`           | none                                                 | The address people open, like `https://flows.example.net`               |
+| `AFS_HTTP_PORT`            | none                                                 | A port that redirects plain HTTP to HTTPS                               |
+| `AFS_TLS`                  | `on`                                                 | `off` behind a proxy that does HTTPS                                    |
+| `AFS_TRUSTED_PROXIES`      | none                                                 | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
+| `AFS_CA_FILE`              | none                                                 | Certificate authorities of your network, for outgoing connections       |
+| `AFS_MASTER_KEY_FILE`      | `<data>/master.key`, made at first start             | The file with the master key that stored credentials are encrypted with |
+| `AFS_MASTER_KEY`           | none                                                 | The master key itself (base64 of 32 bytes), instead of a file           |
+| `AFS_MAX_RUNS`             | `4`                                                  | Runs at once on this server                                             |
+| `AFS_MAX_RUNS_PER_PROJECT` | `1`                                                  | Runs at once of one project                                             |
+| `AFS_CONTAINER_ENGINE`     | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`     |
+| `AFS_EE_IMAGE`             | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                        |
+| `AFS_RUN_TIMEOUT_MINUTES`  | `240`                                                | A run that takes longer is stopped                                      |
+| `AFS_GIT_LOCAL`            | `off`                                                | `on`: a project's repository may be a folder of this machine            |
+| `AFS_DATA_DIR`             | `data`                                               | Where the server keeps what it owns                                     |
+| `AFS_DATABASE_URL`         | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
+| `AFS_LOG_LEVEL`            | `info`                                               | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
+| `AFS_LOG_FORMAT`           | `text`                                               | `text`, or `json` for one object a line                                 |
+| `AFS_ENV_FILE`             | `.env`                                               | Another file to read the settings from                                  |
 
 With PostgreSQL:
 
@@ -528,8 +531,9 @@ Not there yet: the pages.
 
 ### Runs
 
-A launch makes a run and puts it in the queue. **Nothing runs flows yet** (the executor is the
-next part): a run stays `queued` until it is cancelled.
+A launch makes a run and puts it in the queue. The server takes runs from the queue and runs
+them with Ansible in an execution environment container (docker or podman), the way the same
+run from VS Code would.
 
 ```sh
 curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launch \
@@ -583,6 +587,35 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 - A secret typed at launch is kept sealed and shown as `***`.
 - A project with a run going is not deleted; its ended runs go with it.
 - Runs in the queue survive a restart.
+
+**How a run is run:**
+
+- The repository at the run's commit; the flow's code is generated fresh from the flow at that
+  commit (a hand-edited `generated/` file has no effect).
+- In the launch's image, else `AFS_EE_IMAGE`. Without a container engine (or with
+  `AFS_CONTAINER_ENGINE=off`) runs wait in the queue.
+- Credentials: SSH key (mounted read-only for the run, a key without a passphrase), login and
+  become passwords, the vault password, and environment variables. Secret values are hidden in
+  the output.
+- Ended: `succeeded` when Ansible ended well and wrote its events; `failed` otherwise, with
+  the reason; `cancelled` when stopped on request. A run longer than
+  `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+
+| Address (under `/api/v1`) | Answers                                                  | Who       |
+| ------------------------- | -------------------------------------------------------- | --------- |
+| `GET /runs/:id/output`    | What Ansible wrote, secrets hidden (text)                | signed in |
+| `GET /runs/:id/view`      | How the run went, step by step, as the designer shows it | signed in |
+
+**The server in a container** runs flows in sibling containers: give it the engine's socket and
+mount the data folder at the same path as on the host.
+
+```sh
+docker run -d --name flow-server \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /srv/flow-server:/srv/flow-server -e AFS_DATA_DIR=/srv/flow-server/data \
+  -e AFS_TLS=off -e AFS_HOST=0.0.0.0 -p 8080:8080 \
+  <an image with Node.js 24, git and the docker command> node dist/server.js
+```
 
 ## Development
 
