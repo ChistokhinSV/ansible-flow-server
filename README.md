@@ -610,6 +610,7 @@ Layout:
 | `test/web/`    | Tests of the web pages                                          |
 | `test/unit/`   | Unit tests; `test/fixtures/` has sample flows from the designer |
 | `scripts/`     | Build and package scripts                                       |
+| `CHANGELOG.md` | What changed, for people who use the server                     |
 | `docs/adr/`    | Architecture decisions, one file each                           |
 | `media/icons/` | The icon set                                                    |
 | `vendor/`      | The designer's packages as tarballs (not in git)                |
