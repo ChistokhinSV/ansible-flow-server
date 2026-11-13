@@ -14,6 +14,7 @@ import { engineFor } from '@ansible-flow/core/engine/engines';
 import { parseFlow } from '@ansible-flow/core/flow/document';
 import { validateFlow } from '@ansible-flow/core/flow/validate';
 import type { RunView } from '@ansible-flow/core/protocol';
+import { stripAnsi } from '@ansible-flow/core/run/ansi';
 import type { Environment } from '@ansible-flow/core/run/environment';
 import { REDACTED } from '@ansible-flow/core/run/redact';
 import { startProcess } from '@ansible-flow/node/run/exec';
@@ -29,6 +30,7 @@ import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
 import type { MasterKey } from '../secrets/masterKey';
 import { CredentialProblem, runCredentials } from './credentials';
+import type { RunHub } from './hub';
 import type { Job, Outcome, RunQueue } from './queue';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
@@ -69,6 +71,8 @@ export interface ExecutorDeps {
   queue: RunQueue;
   key: MasterKey;
   log: Logger;
+  /** Where what a going run says is heard by those who watch it. */
+  hub?: RunHub;
 }
 
 /** Why a run was stopped from outside. */
@@ -269,9 +273,12 @@ export class Executor {
     const line = (text: string) => {
       if (!output) return;
       if (written > MAX_OUTPUT) return;
-      const shown = `${hide(text, hidden)}\n`;
+      // Plain text: colours are for a terminal, and the page shows its own.
+      const shown = `${hide(stripAnsi(text), hidden)}\n`;
       written += shown.length;
-      output.write(written > MAX_OUTPUT ? '… the output is longer than is kept\n' : shown);
+      const kept = written > MAX_OUTPUT ? '… the output is longer than is kept\n' : shown;
+      output.write(kept);
+      this.deps.hub?.publish(r.id, { kind: 'output', text: kept });
     };
     const finish = async (outcome: Outcome, error?: string, view?: RunView) => {
       if (why === 'lost') {
@@ -279,6 +286,7 @@ export class Executor {
         return;
       }
       const done = await queue.finish(r.id, token, outcome, error, new Date(), view);
+      this.deps.hub?.ended(r.id);
       if (!done) say.warn('The lease ran out before the run could be recorded');
       say.info({ outcome, ...(error ? { why: error } : {}) }, 'Run ended');
     };
@@ -360,15 +368,17 @@ export class Executor {
       };
       line(`Environment: ${env.label}`);
       if (controller.signal.aborted) return await finish(...stoppedWhy());
-      if (!(await queue.start(r.id, token))) {
-        why ??= 'lost';
-        return;
-      }
-
       let last: RunView | undefined;
       const runner = this.options.runner ?? runFlow;
       const runId = `${stamp()}-${r.number}`;
       const storage = join(this.options.dataDir, 'runs', project.id);
+      if (
+        !(await queue.start(r.id, token, new Date(), join(runsDir(storage, doc.flow.id), runId)))
+      ) {
+        why ??= 'lost';
+        return;
+      }
+      this.deps.hub?.publish(r.id, { kind: 'state' });
       const view = await runner(
         {
           id: runId,
@@ -391,6 +401,7 @@ export class Executor {
         {
           report: (v) => {
             last = v;
+            this.deps.hub?.publish(r.id, { kind: 'view', view: v });
           },
           log: line,
           // The engine gets the container's variables in its own environment, not as arguments.

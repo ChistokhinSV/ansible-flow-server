@@ -261,6 +261,12 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('view_json', 'text').execute();
     },
   },
+  // AFS-21: where a run's events are.
+  '0010_run_dir': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

@@ -232,6 +232,8 @@ export interface RunTable {
   error: string | null;
   /** How the run went, as the designer shows it (its RunView), as JSON. */
   view_json: string | null;
+  /** The designer's folder of the run: its events. */
+  run_dir: string | null;
 }
 
 export interface Schema {

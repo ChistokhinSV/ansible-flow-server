@@ -96,6 +96,8 @@ export interface QueueLimits {
 
 export interface RunFilter {
   project?: string;
+  /** The flow's file in the repository (with `project`). */
+  flow?: string;
   state?: RunState;
   /** The newest first; at most this many (1 to 200). */
   limit?: number;
@@ -218,6 +220,7 @@ export class RunQueue {
         cancelled_by: null,
         error: null,
         view_json: null,
+        run_dir: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
@@ -247,6 +250,7 @@ export class RunQueue {
       .orderBy('number', 'desc')
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 200));
     if (filter.project) query = query.where('project_id', '=', filter.project);
+    if (filter.flow) query = query.where('flow_file', '=', filter.flow);
     if (filter.state) query = query.where('state', '=', filter.state);
     if (filter.before) query = query.where('created_at', '<', filter.before);
     return (await query.execute()).map((row) => this.of(row));
@@ -358,17 +362,88 @@ export class RunQueue {
    * The worker begins to run it: from now on, if the worker goes away, the run is lost rather
    * than given to another worker. A resumed run keeps the time it first started.
    */
-  start(id: string, token: string, now = new Date()): Promise<boolean> {
+  start(id: string, token: string, now = new Date(), runDir?: string): Promise<boolean> {
     return this.locked(async (trx) => {
       const row = await this.leased(trx, id, token, now);
       if (!row) return false;
-      if (!row.started_at)
-        await trx
-          .updateTable('run')
-          .set({ started_at: iso(now), updated_at: iso(now) })
-          .where('id', '=', id)
-          .execute();
+      await trx
+        .updateTable('run')
+        .set({
+          ...(row.started_at ? {} : { started_at: iso(now) }),
+          ...(runDir ? { run_dir: runDir } : {}),
+          updated_at: iso(now),
+        })
+        .where('id', '=', id)
+        .execute();
       return true;
+    });
+  }
+
+  /** The designer's folder of the run (its events), once it started. */
+  async runDir(id: string): Promise<string | undefined> {
+    const row = await this.db
+      .selectFrom('run')
+      .select('run_dir')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row?.run_dir ?? undefined;
+  }
+
+  /** When the run's record last changed: watchers compare it to know there is news. */
+  async changedAt(id: string): Promise<string | undefined> {
+    const row = await this.db
+      .selectFrom('run')
+      .select('updated_at')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row?.updated_at;
+  }
+
+  /**
+   * The same run again: the same commit, flow, mode, inputs (secrets too) and credentials, as a
+   * new run in the queue, asked for by `by`. Undefined when there is no such run.
+   */
+  relaunch(
+    id: string,
+    by: { id: string; login: string },
+    now = new Date(),
+  ): Promise<Run | undefined> {
+    return this.locked(async (trx) => {
+      const old = await trx.selectFrom('run').selectAll().where('id', '=', id).executeTakeFirst();
+      if (!old) return undefined;
+      const last = await trx
+        .selectFrom('run')
+        .select((eb) => eb.fn.max('number').as('n'))
+        .where('project_id', '=', old.project_id)
+        .executeTakeFirst();
+      const fresh = randomUUID();
+      const at = iso(now);
+      const row: Row = {
+        ...old,
+        id: fresh,
+        number: Number(last?.n ?? 0) + 1,
+        // The inputs are sealed to their run: opened from the old one, sealed to the new one.
+        inputs_enc: seal(this.key, open(this.key, old.inputs_enc, context(old.id)), context(fresh)),
+        state: 'queued',
+        requested_by: by.id,
+        requested_login: by.login,
+        created_at: at,
+        updated_at: at,
+        claimed_at: null,
+        started_at: null,
+        ended_at: null,
+        attempts: 0,
+        lease_owner: null,
+        lease_token: null,
+        lease_until: null,
+        cancel_requested: 0,
+        cancelled_by: null,
+        error: null,
+        view_json: null,
+        run_dir: null,
+      };
+      await trx.insertInto('run').values(row).execute();
+      return this.of(row);
     });
   }
 

@@ -223,6 +223,8 @@ describe('the cert commands', () => {
     containerEngine: 'off',
     eeImage: 'afd-ee:2.19',
     runTimeoutMinutes: 240,
+    runsKeepDays: 90,
+    runsKeepPerFlow: 200,
     maxRuns: 4,
     maxRunsPerProject: 1,
     gitLocal: false,

@@ -134,6 +134,8 @@ problem is named.
 | `AFS_CONTAINER_ENGINE`     | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`     |
 | `AFS_EE_IMAGE`             | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                        |
 | `AFS_RUN_TIMEOUT_MINUTES`  | `240`                                                | A run that takes longer is stopped                                      |
+| `AFS_RUNS_KEEP_DAYS`       | `90`                                                 | Ended runs older than this are removed, with their output               |
+| `AFS_RUNS_KEEP_PER_FLOW`   | `200`                                                | Of one flow in one project, at most this many ended runs are kept       |
 | `AFS_GIT_LOCAL`            | `off`                                                | `on`: a project's repository may be a folder of this machine            |
 | `AFS_DATA_DIR`             | `data`                                               | Where the server keeps what it owns                                     |
 | `AFS_DATABASE_URL`         | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
@@ -294,13 +296,16 @@ setup code from its log); after that, sign-in.
 | `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                        |
 | `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed |
 | `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                        |
+| `/runs`                                | Every run, the newest first, filtered by state                                              |
+| `/runs/<id>`                           | One run: what ran, the run on the canvas, its output as it comes; Stop and Run again        |
 | `/account`                             | Your access tokens: make (shown once), list, revoke                                         |
-| `/runs`, `/admin`                      | Placeholders: not built yet                                                                 |
+| `/admin`                               | Placeholder: not built yet                                                                  |
 
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
-- Not there yet: runs, the pages for people, groups and the certificate.
+- A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas.
+- Not there yet: launching from the pages, the pages for people, groups and the certificate.
 
 ### Workspaces and projects
 
@@ -601,10 +606,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   the reason; `cancelled` when stopped on request. A run longer than
   `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
 
-| Address (under `/api/v1`) | Answers                                                  | Who       |
-| ------------------------- | -------------------------------------------------------- | --------- |
-| `GET /runs/:id/output`    | What Ansible wrote, secrets hidden (text)                | signed in |
-| `GET /runs/:id/view`      | How the run went, step by step, as the designer shows it | signed in |
+| Address (under `/api/v1`)         | Answers                                                                                                                    | Who            |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `GET /runs/:id/output`            | What Ansible wrote, secrets hidden (text)                                                                                  | signed in      |
+| `GET /runs/:id/view`              | How the run went, step by step, as the designer shows it                                                                   | signed in      |
+| `GET /runs/:id/events`            | The run as it goes, as server-sent events: `run`, `view`, `output` (with `next`), `end`; `?from=<next>` resumes the output | signed in      |
+| `GET /runs/:id/hosts/:node/:host` | What one host did in one step, from the run's events                                                                       | signed in      |
+| `POST /runs/:id/relaunch`         | The same run again (same commit, inputs and credentials), as a new run                                                     | administrators |
+
+**Watching a run:** the run page follows it live; a script reads the same with
+`curl -N -H "Authorization: Bearer $AFS_TOKEN" https://flows.example.net:8443/api/v1/runs/<id>/events`.
+Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW`
+(200) of one flow, with their output.
 
 **The server in a container** runs flows in sibling containers: give it the engine's socket and
 mount the data folder at the same path as on the host.

@@ -9,6 +9,7 @@ import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
+import type { RunHub } from './runs/hub';
 import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
 import type { MasterKey } from './secrets/masterKey';
@@ -35,6 +36,8 @@ export interface AppDeps {
   runs?: RunQueue;
   /** Where a run's output is kept, when this server runs flows. */
   runOutput?: (runId: string) => string;
+  /** What runs going here say while they go. */
+  hub?: RunHub;
   /** The master key: with it the server keeps credentials. */
   masterKey?: MasterKey;
   /** The folder of the built web application (dist/web); without it there are no pages. */
@@ -96,7 +99,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }
 
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
-  if (deps.runs) registerRuns(app, deps.runs, deps.runOutput);
+  if (deps.runs) registerRuns(app, deps.runs, deps.runOutput, deps.hub);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

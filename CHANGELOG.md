@@ -28,3 +28,9 @@ Nothing is released yet.
   - SSH keys, login and become passwords, vault passwords and environment variables from the credentials store; secret values are hidden in the output.
   - A run's output and how it went, step by step, are kept; a run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
   - The server can itself run in a container, with the engine's socket.
+- Runs can be watched as they go. See [Runs](README.md#runs).
+  - **Runs** page: every run, filtered by state. A project's page lists its recent runs.
+  - A run's page: what ran, the run on the flow's canvas live (hosts through each step), and Ansible's output as it comes. Administrators can **Stop** a run and **Run again** an ended one with the same commit, inputs and credentials.
+  - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
+  - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
+  - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.

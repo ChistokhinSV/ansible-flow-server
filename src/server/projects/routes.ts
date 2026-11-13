@@ -292,7 +292,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     }
   });
 
-  app.get<WithId & { Querystring: { path: string } }>(
+  /** One flow as the designer shows it: at the project's commit, or at `commit` (a run's). */
+  app.get<WithId & { Querystring: { path: string; commit?: string } }>(
     '/api/v1/projects/:id/flows/view',
     {
       schema: {
@@ -300,7 +301,10 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         querystring: {
           type: 'object',
           required: ['path'],
-          properties: { path: text(1000, 1) },
+          properties: {
+            path: text(1000, 1),
+            commit: { type: 'string', pattern: '^[0-9a-f]{40}$' },
+          },
         },
       },
     },
@@ -308,12 +312,17 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       if (!signedIn(request, reply)) return reply;
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
-      if (!project.commit)
+      const commit = request.query.commit ?? project.commit;
+      if (!commit)
         return reply
           .code(404)
           .send({ error: 'not_found', message: 'The project has no commit yet' });
+      if (request.query.commit && !(await deps.git.hasCommit(project.id, commit)))
+        return reply
+          .code(404)
+          .send({ error: 'not_found', message: 'The project has no such commit' });
       try {
-        return await flows.view(project.id, project.commit, request.query.path);
+        return await flows.view(project.id, commit, request.query.path);
       } catch (e) {
         if (e instanceof FlowError)
           return reply
