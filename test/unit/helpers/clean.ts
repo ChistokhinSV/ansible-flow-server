@@ -23,5 +23,7 @@ export async function emptyWorkspaces(db: Kysely<Schema>): Promise<void> {
 }
 
 export async function emptyPeople(db: Kysely<Schema>): Promise<void> {
+  // The audit log names people and things but holds no keys to them; it goes with the people.
+  await db.deleteFrom('audit_entry').execute();
   for (const table of PEOPLE) await db.deleteFrom(table).execute();
 }

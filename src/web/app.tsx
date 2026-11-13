@@ -1,11 +1,12 @@
 // The application: who is signed in, the frame around every page, and which page an address is.
+
 import { useCallback, useEffect, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
+import { AdminPage, AuditPage } from './audit';
 import {
   Account,
   FlowPage,
-  NotBuilt,
   NotFound,
   ProjectPage,
   Setup,
@@ -48,15 +49,8 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   const one = match('/runs/:id', path);
   if (one?.id) return <RunPage id={one.id} me={me} theme={theme} />;
   if (path === '/account') return <Account me={me} />;
-  if (path === '/admin')
-    return me.admin ? (
-      <NotBuilt
-        title="Administration"
-        what="People, groups and the server's certificate will be managed here; until then they are managed with the server's commands and API."
-      />
-    ) : (
-      <NotFound />
-    );
+  if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
+  if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
   const workspace = match('/w/:workspace', path);
   if (workspace?.workspace) return <Workspace me={me} workspace={workspace.workspace} />;
   const project = match('/w/:workspace/:project', path);
@@ -100,7 +94,8 @@ export function App() {
   const at = (to: string) =>
     path === to ||
     (to === '/' && path.startsWith('/w/')) ||
-    (to === '/runs' && path.startsWith('/runs/'))
+    (to === '/runs' && path.startsWith('/runs/')) ||
+    (to === '/admin' && path.startsWith('/admin/'))
       ? 'page'
       : undefined;
 

@@ -483,3 +483,35 @@ select {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* --- audit log */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  min-height: 2.25rem;
+  text-decoration: none;
+}
+a.button:hover {
+  border-color: var(--accent);
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+.filters input {
+  max-width: 11rem;
+}
+td.detail {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  min-width: 12rem;
+}

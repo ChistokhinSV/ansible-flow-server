@@ -136,6 +136,7 @@ problem is named.
 | `AFS_RUN_TIMEOUT_MINUTES`  | `240`                                                | A run that takes longer is stopped                                      |
 | `AFS_RUNS_KEEP_DAYS`       | `90`                                                 | Ended runs older than this are removed, with their output               |
 | `AFS_RUNS_KEEP_PER_FLOW`   | `200`                                                | Of one flow in one project, at most this many ended runs are kept       |
+| `AFS_AUDIT_KEEP_DAYS`      | `365`                                                | Audit entries older than this are removed; `0` keeps them all           |
 | `AFS_GIT_LOCAL`            | `off`                                                | `on`: a project's repository may be a folder of this machine            |
 | `AFS_DATA_DIR`             | `data`                                               | Where the server keeps what it owns                                     |
 | `AFS_DATABASE_URL`         | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
@@ -299,12 +300,14 @@ setup code from its log); after that, sign-in.
 | `/runs`                                | Every run, the newest first, filtered by state                                              |
 | `/runs/<id>`                           | One run: what ran, the run on the canvas, its output as it comes; Stop and Run again        |
 | `/account`                             | Your access tokens: make (shown once), list, revoke                                         |
-| `/admin`                               | Placeholder: not built yet                                                                  |
+| `/admin`                               | Administration: the audit log; people, groups and the certificate are not built yet         |
+| `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON              |
 
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
 - A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas.
+- Administrators read the audit log at `/admin/audit` and export it.
 - Not there yet: launching from the pages, the pages for people, groups and the certificate.
 
 ### Workspaces and projects
@@ -628,6 +631,45 @@ docker run -d --name flow-server \
   -v /srv/flow-server:/srv/flow-server -e AFS_DATA_DIR=/srv/flow-server/data \
   -e AFS_TLS=off -e AFS_HOST=0.0.0.0 -p 8080:8080 \
   <an image with Node.js 24, git and the docker command> node dist/server.js
+```
+
+### The audit log
+
+Everything that changes something, or tries to, leaves an entry: who (the user, and the token
+when one was used), from where (`ui`: the pages, `api`: a token, `git`, `cli`: the server's
+commands), what (`run.launch`, `user.change`, `session.sign-in`, ...), to what (by id and by
+name, so a deleted thing is still named), how it ended (`ok`, `refused`, `failed`, with the
+HTTP status), the client's address and the request id of the server's log.
+
+- Sign-ins, refused ones too (by the login tried); sign-outs; passwords set or changed.
+- Tokens made and revoked; people and groups made, changed, deleted.
+- Workspaces, projects, credentials and launch configurations made, changed, deleted; syncs and
+  push hooks.
+- Runs launched, stopped, run again. Pushes through the server with the branches they moved;
+  refused pushes.
+- The `user`, `cert` and `secrets` commands that change something, with the machine's user.
+- Exports of the log itself.
+
+An entry never holds a secret: of what a request sent it keeps the names of the changed fields
+and the yes/no and number values, never text. Entries are only added; those older than
+`AFS_AUDIT_KEEP_DAYS` (365, `0` keeps all) are removed every hour. Administrators read it on the
+page `/admin/audit`, or:
+
+| Address (under `/api/v1`) | Answers                                                                                                                                                                                               | Who            |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `GET /audit`              | `{entries, next}`, newest first. Filters: `actor`, `action` (`run` or `run.launch`), `objectType`, `objectId`, `result`, `source`, `from`, `to`. Paging: `before=<next>`, `limit` (100, at most 1000) | administrators |
+| `GET /audit/export`       | The same filters, as a file: `format=csv` (default) or `json`; at most 50000 entries                                                                                                                  | administrators |
+
+```sh
+curl -H "Authorization: Bearer $AFS_TOKEN" -o audit.csv \
+  "https://flows.example.net:8443/api/v1/audit/export?format=csv&action=run&from=2026-11-01"
+```
+
+```text
+at,actor,token,source,action,object_type,object_id,object_name,result,status,ip,request,detail
+2026-11-13T09:12:04.118Z,dana,,ui,run.stop,run,6f1c…,#12,ok,202,192.0.2.10,req-2k,
+2026-11-13T09:11:40.502Z,dana,8a0e…,api,run.launch,run,6f1c…,#12,ok,201,192.0.2.10,req-2h,"{""launch-config"":""c41d…""}"
+2026-11-13T08:59:13.077Z,omar,,git,git.push,project,,net/firewalls,refused,403,192.0.2.25,req-1x,
 ```
 
 ## Development

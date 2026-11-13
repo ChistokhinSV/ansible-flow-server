@@ -1,12 +1,24 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
+import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { User } from '../server/auth/users';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
 
-export type { FlowList, FlowSummary, Project, Push, Run, TokenInfo, User, Workspace };
+export type {
+  AuditEntry,
+  AuditFilter,
+  FlowList,
+  FlowSummary,
+  Project,
+  Push,
+  Run,
+  TokenInfo,
+  User,
+  Workspace,
+};
 
 export class ApiError extends Error {
   constructor(
@@ -56,6 +68,18 @@ export interface Meta {
 }
 export type NewToken = TokenInfo & { token: string };
 
+/** A filter as the query of an address. */
+const queryOf = (filter: object) =>
+  new URLSearchParams(
+    Object.entries(filter)
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([k, v]) => [k, String(v)]),
+  ).toString();
+
+/** Where the audit log is taken away from, with a filter, as CSV or JSON. */
+export const auditExport = (filter: AuditFilter & { format: 'csv' | 'json' }) =>
+  `/api/v1/audit/export?${queryOf(filter)}`;
+
 export const api = {
   meta: () => call<Meta>('GET', '/meta'),
   setupNeeded: () => call<{ needed: boolean }>('GET', '/setup'),
@@ -90,6 +114,9 @@ export const api = {
   run: (id: string) => call<Run>('GET', `/runs/${encodeURIComponent(id)}`),
   cancelRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/cancel`),
   relaunchRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/relaunch`),
+
+  audit: (filter: AuditFilter) =>
+    call<{ entries: AuditEntry[]; next?: string }>('GET', `/audit?${queryOf(filter)}`),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: { name: string; expiresInDays?: number; readOnly?: boolean }) =>

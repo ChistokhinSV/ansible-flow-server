@@ -11,6 +11,7 @@
 import { PassThrough, type Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { recordAudit } from '../audit/store';
 import type { SessionUser } from '../auth/sessions';
 import { type GitService, MAX_PUSH_BYTES, scrub } from './git';
 import type { ProjectDeps } from './routes';
@@ -194,6 +195,28 @@ export function registerGit(app: FastifyInstance, deps: ProjectDeps): void {
               pushed.push({ ref, from: before.get(ref), to: after.get(ref) });
           if (!pushed.length) return;
           await recordPushes(db, project.id, user, pushed);
+          await recordAudit(db, {
+            actor: { id: user.id, login: user.login },
+            ...(user.token ? { token: user.token.id } : {}),
+            source: 'git',
+            action: 'git.push',
+            object: {
+              type: 'project',
+              id: project.id,
+              name: `${request.params.workspace}/${project.key}`,
+            },
+            result: code === 0 ? 'ok' : 'failed',
+            status: 200,
+            ip: request.ip,
+            request: request.id,
+            detail: {
+              refs: pushed.map((p) => ({
+                ref: p.ref,
+                ...(p.from ? { from: p.from } : {}),
+                ...(p.to ? { to: p.to } : {}),
+              })),
+            },
+          });
           request.log.info(
             {
               by: user.login,

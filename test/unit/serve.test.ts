@@ -26,6 +26,7 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       eeImage: 'afd-ee:2.19',
       runTimeoutMinutes: 240,
       runsKeepDays: 90,
+      auditKeepDays: 365,
       runsKeepPerFlow: 200,
       maxRuns: 4,
       maxRunsPerProject: 1,

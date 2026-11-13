@@ -236,7 +236,32 @@ export interface RunTable {
   run_dir: string | null;
 }
 
+/** One thing someone did (or tried), as the audit log keeps it. Rows are only added. */
+export interface AuditEntryTable {
+  id: string;
+  at: IsoTime;
+  /** Who: the user, when known (a refused sign-in may name only the login tried). */
+  actor_id: string | null;
+  actor_login: string | null;
+  /** The personal access token the request was signed in with. */
+  token_id: string | null;
+  /** ui, api, git, cli, server. */
+  source: string;
+  action: string;
+  object_type: string;
+  object_id: string | null;
+  object_name: string | null;
+  /** ok, refused, failed. */
+  result: string;
+  status: number | null;
+  ip: string | null;
+  request_id: string | null;
+  /** What else is worth knowing, as JSON; never a secret value. */
+  detail_json: string | null;
+}
+
 export interface Schema {
+  audit_entry: AuditEntryTable;
   run: RunTable;
   launch_config: LaunchConfigTable;
   launch_config_credential: LaunchConfigCredentialTable;
