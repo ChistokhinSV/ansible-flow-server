@@ -18,6 +18,7 @@ import {
   Workspace,
   Workspaces,
 } from './pages';
+import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
@@ -58,6 +59,11 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
   if (path === '/admin/notifications') return me.admin ? <NotificationsPage /> : <NotFound />;
+  if (path === '/admin/people') return me.admin ? <PeoplePage /> : <NotFound />;
+  const person = match('/admin/people/:id', path);
+  if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <NotFound />;
+  const group = match('/admin/groups/:id', path);
+  if (group?.id) return me.admin ? <GroupPage id={group.id} /> : <NotFound />;
   const config = match('/w/:workspace/:project/launch/:id', path);
   if (config?.workspace && config.project && config.id)
     return config.id === 'new' ? (

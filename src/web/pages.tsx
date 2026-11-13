@@ -1,21 +1,14 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { useProjectAccess, WorkspaceAccess } from './access';
-import {
-  api,
-  type FlowList,
-  type FlowSummary,
-  type NewToken,
-  type Project,
-  type User,
-  type Workspace as WorkspaceInfo,
-} from './api';
+import { api, type FlowList, type FlowSummary, type Project, type User } from './api';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
 import type { ThemeChoice } from './theme';
+import { TokensPanel } from './tokens';
 import { Copyable, Field, Form, Loading, PageHead, Time, useLoad } from './ui';
 
 // --- before anyone is signed in
@@ -648,193 +641,24 @@ function Profile({ me }: { me: User }) {
 }
 
 export function Account({ me }: { me: User }) {
-  const tokens = useLoad(api.tokens, []);
-  const workspaces = useLoad(api.workspaces, []);
-  const [input, setInput] = useState({
-    name: '',
-    days: 90,
-    readOnly: false,
-    workspace: '',
-    mcpApprovals: false,
-  });
-  const workspaceName = (id?: string) =>
-    id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
-  const [made, setMade] = useState<NewToken>();
   return (
     <>
       <PageHead title="My account" lead={`${me.name} (${me.login})`} />
       <Profile me={me} />
-      <section className="panel" aria-labelledby="tokens">
-        <h2 id="tokens">Access tokens</h2>
-        <p className="muted">
-          A program signs in with a token instead of your password: git, the VS Code extension, a
-          script. A token acts as you. What a program can ask is in the{' '}
-          <Link to="/docs/api">API reference</Link>.
-        </p>
-        {made && (
-          <div className="notice ok" role="status">
-            <p>
-              <strong>Copy the token now.</strong> It is not shown again.
-            </p>
-            <Copyable text={made.token} label="the token" />
-            <p>
-              <button type="button" onClick={() => setMade(undefined)}>
-                I have copied it
-              </button>
-            </p>
-          </div>
-        )}
-        <Loading state={tokens} />
-        {tokens.data?.length === 0 && <p className="muted">You have no token.</p>}
-        {!!tokens.data?.length && (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Ends with</th>
-                  <th scope="col">May</th>
-                  <th scope="col">Reaches</th>
-                  <th scope="col">Last used</th>
-                  <th scope="col">Expires</th>
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {tokens.data.map((t) => (
-                  <tr key={t.id}>
-                    <td>{t.name}</td>
-                    <td>
-                      <code>…{t.hint}</code>
-                    </td>
-                    <td>
-                      {t.readOnly ? 'read' : 'read and change'}
-                      {t.mcpApprovals ? ', decide approvals (agents)' : ''}
-                    </td>
-                    <td>{t.workspace ? workspaceName(t.workspace) : 'all workspaces'}</td>
-                    <td>
-                      <Time at={t.lastUsedAt} />
-                    </td>
-                    <td>
-                      <Time at={t.expiresAt} />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="danger"
-                        aria-label={`Revoke ${t.name}`}
-                        onClick={async () => {
-                          if (!window.confirm(`Revoke the token "${t.name}"? It stops working.`))
-                            return;
-                          await api.revokeToken(t.id).catch(() => undefined);
-                          tokens.reload();
-                        }}
-                      >
-                        Revoke
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <h3>Make a token</h3>
-        <Form
-          submit="Make token"
-          onSubmit={async () => {
-            setMade(
-              await api.addToken({
-                name: input.name,
-                expiresInDays: input.days,
-                readOnly: input.readOnly,
-                ...(input.mcpApprovals && !input.readOnly ? { mcpApprovals: true } : {}),
-                ...(input.workspace ? { workspace: input.workspace } : {}),
-              }),
-            );
-            setInput({ ...input, name: '' });
-            tokens.reload();
-          }}
-        >
-          <Field
-            label="Name"
-            value={input.name}
-            onChange={(e) => setInput({ ...input, name: e.target.value })}
-            required
-            maxLength={100}
-            placeholder="laptop git"
-            hint="What will use it, so you know which one to revoke."
-          />
-          <Field
-            label="Days until it expires"
-            type="number"
-            min={1}
-            max={365}
-            value={input.days}
-            onChange={(e) => setInput({ ...input, days: Number(e.target.value) })}
-            required
-          />
-          <label className="choice">
-            <input
-              type="checkbox"
-              checked={input.readOnly}
-              onChange={(e) => setInput({ ...input, readOnly: e.target.checked })}
-            />
-            Read only (can clone and read, cannot push or change anything)
-          </label>
-          <label className="choice">
-            <input
-              type="checkbox"
-              checked={input.mcpApprovals && !input.readOnly}
-              disabled={input.readOnly}
-              onChange={(e) => setInput({ ...input, mcpApprovals: e.target.checked })}
-            />
-            An agent with this token may decide approvals over MCP (off: approvals stay with people)
-          </label>
-          <WorkspaceChoice
-            value={input.workspace}
-            workspaces={workspaces.data ?? []}
-            onChange={(workspace) => setInput({ ...input, workspace })}
-          />
-        </Form>
-      </section>
+      <TokensPanel
+        load={api.tokens}
+        add={api.addToken}
+        revoke={api.revokeToken}
+        none="You have no token."
+        intro={
+          <p className="muted">
+            A program signs in with a token instead of your password: git, the VS Code extension, a
+            script. A token acts as you. What a program can ask is in the{' '}
+            <Link to="/docs/api">API reference</Link>.
+          </p>
+        }
+      />
     </>
-  );
-}
-
-/** Which workspace a token reaches: all, or one. */
-function WorkspaceChoice({
-  value,
-  workspaces,
-  onChange,
-}: {
-  value: string;
-  workspaces: WorkspaceInfo[];
-  onChange: (id: string) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="field">
-      <label htmlFor={id}>Reaches</label>
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-describedby={`${id}-hint`}
-      >
-        <option value="">all workspaces you can reach</option>
-        {workspaces.map((w) => (
-          <option key={w.id} value={w.id}>
-            only {w.name} ({w.key})
-          </option>
-        ))}
-      </select>
-      <small id={`${id}-hint`} className="muted">
-        A token for one workspace cannot reach another, nor what spans them (all runs, people).
-      </small>
-    </div>
   );
 }
 

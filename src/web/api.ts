@@ -227,6 +227,54 @@ export const api = {
   users: () => call<User[]>('GET', '/users'),
   groups: () => call<Group[]>('GET', '/groups'),
 
+  // People and groups (administrators, AFS-56).
+  user: (id: string) => call<User>('GET', `/users/${encodeURIComponent(id)}`),
+  addUser: (input: {
+    login: string;
+    name?: string;
+    password?: string;
+    email?: string;
+    admin?: boolean;
+    service?: boolean;
+  }) => call<User>('POST', '/users', input),
+  changeUser: (
+    id: string,
+    input: {
+      name?: string;
+      email?: string | null;
+      webhookUrl?: string | null;
+      admin?: boolean;
+      disabled?: boolean;
+    },
+  ) => call<User>('PATCH', `/users/${encodeURIComponent(id)}`, input),
+  setUserPassword: (id: string, password: string) =>
+    call<void>('PUT', `/users/${encodeURIComponent(id)}/password`, { password }),
+  deleteUser: (id: string) => call<void>('DELETE', `/users/${encodeURIComponent(id)}`),
+  userTokens: (id: string) => call<TokenInfo[]>('GET', `/users/${encodeURIComponent(id)}/tokens`),
+  addUserToken: (
+    id: string,
+    input: {
+      name: string;
+      expiresInDays?: number;
+      readOnly?: boolean;
+      workspace?: string;
+      mcpApprovals?: boolean;
+    },
+  ) => call<NewToken>('POST', `/users/${encodeURIComponent(id)}/tokens`, input),
+  revokeUserToken: (id: string, token: string) =>
+    call<void>('DELETE', `/users/${encodeURIComponent(id)}/tokens/${encodeURIComponent(token)}`),
+  group: (id: string) => call<Group>('GET', `/groups/${encodeURIComponent(id)}`),
+  addGroup: (input: { name: string; email?: string; webhookUrl?: string }) =>
+    call<Group>('POST', '/groups', input),
+  changeGroup: (
+    id: string,
+    input: { name?: string; email?: string | null; webhookUrl?: string | null },
+  ) => call<Group>('PATCH', `/groups/${encodeURIComponent(id)}`, input),
+  /** `users`: their ids. */
+  setMembers: (id: string, users: string[]) =>
+    call<Group>('PUT', `/groups/${encodeURIComponent(id)}/members`, { users }),
+  deleteGroup: (id: string) => call<void>('DELETE', `/groups/${encodeURIComponent(id)}`),
+
   notifySettings: () => call<NotifySettings>('GET', '/notifications/settings'),
   setSmtp: (input: {
     host: string;
