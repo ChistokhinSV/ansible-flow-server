@@ -6,6 +6,7 @@ import { isIP } from 'node:net';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
+import { fileURLToPath } from 'node:url';
 import { buildApp } from './app';
 import { sweepSessions } from './auth/sessions';
 import { setupCode } from './auth/setup';
@@ -163,6 +164,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       log,
       database,
       projects: { git, sync: projects, allowLocal: config.gitLocal },
+      // The pages are built beside the server (dist/server.js, dist/web).
+      webDir: fileURLToPath(new URL('./web', import.meta.url)),
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       trustedProxies: config.trustedProxies,

@@ -8,6 +8,7 @@ import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
+import { webHandler } from './web';
 
 export interface AppDeps {
   log: Logger;
@@ -25,6 +26,8 @@ export interface AppDeps {
   secureCookies?: boolean;
   /** Workspaces and projects: the mirrors and what keeps them up to date. */
   projects?: Omit<ProjectDeps, 'db'>;
+  /** The folder of the built web application (dist/web); without it there are no pages. */
+  webDir?: string;
 }
 
 export interface MetaReply extends ServerMeta {
@@ -97,10 +100,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }),
   );
 
-  app.setNotFoundHandler((request, reply) =>
-    reply
-      .code(404)
-      .send({ error: 'not_found', message: `Nothing at ${request.url.split('?')[0]}` }),
+  // Whatever is not the server's own address is the web application's: one of its files, or
+  // one of its pages (which are all the same file).
+  const web = deps.webDir ? webHandler(deps.webDir) : undefined;
+  if (deps.webDir && !web)
+    app.log.warn({ folder: deps.webDir }, 'No built web application: the server has no pages');
+  app.setNotFoundHandler(
+    (request, reply) =>
+      web?.(request, reply) ??
+      reply
+        .code(404)
+        .send({ error: 'not_found', message: `Nothing at ${request.url.split('?')[0]}` }),
   );
 
   app.setErrorHandler((error: FastifyError, request, reply) => {

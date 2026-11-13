@@ -1,0 +1,552 @@
+// The pages. Each reads what it shows from the API when it opens; what only administrators may
+// do is shown only to them (the server decides either way).
+import { useState } from 'react';
+import { api, type NewToken, type Project, type User } from './api';
+import { Link, navigate } from './router';
+import { Copyable, Field, Form, Loading, PageHead, Time, useLoad } from './ui';
+
+// --- before anyone is signed in
+
+export function Setup({ onDone }: { onDone: (user: User) => void }) {
+  const [input, setInput] = useState({ code: '', login: '', name: '', password: '' });
+  const set = (key: keyof typeof input) => (e: { target: { value: string } }) =>
+    setInput((before) => ({ ...before, [key]: e.target.value }));
+  return (
+    <main className="narrow" id="main">
+      <h1>Set up Ansible Flow Server</h1>
+      <p className="muted">
+        This server has no user yet. Make its first administrator. The setup code is in the server's
+        log, written when it started.
+      </p>
+      <Form submit="Make the administrator" onSubmit={async () => onDone(await api.setup(input))}>
+        <Field label="Setup code" value={input.code} onChange={set('code')} required autoFocus />
+        <Field
+          label="Login"
+          value={input.login}
+          onChange={set('login')}
+          required
+          autoComplete="username"
+        />
+        <Field
+          label="Name"
+          value={input.name}
+          onChange={set('name')}
+          required
+          autoComplete="name"
+        />
+        <Field
+          label="Password"
+          type="password"
+          value={input.password}
+          onChange={set('password')}
+          required
+          minLength={12}
+          autoComplete="new-password"
+          hint="At least 12 characters. A few words work well."
+        />
+      </Form>
+    </main>
+  );
+}
+
+export function SignIn({ onDone }: { onDone: (user: User) => void }) {
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  return (
+    <main className="narrow" id="main">
+      <h1>Sign in</h1>
+      <Form submit="Sign in" onSubmit={async () => onDone(await api.signIn(login, password))}>
+        <Field
+          label="Login"
+          value={login}
+          onChange={(e) => setLogin(e.target.value)}
+          required
+          autoFocus
+          autoComplete="username"
+        />
+        <Field
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          autoComplete="current-password"
+        />
+      </Form>
+    </main>
+  );
+}
+
+// --- workspaces
+
+export function Workspaces({ me }: { me: User }) {
+  const list = useLoad(api.workspaces, []);
+  const [adding, setAdding] = useState(false);
+  const [input, setInput] = useState({ key: '', name: '' });
+  return (
+    <>
+      <PageHead title="Workspaces" lead="A workspace is a team's space: its projects live in it.">
+        {me.admin && !adding && (
+          <button type="button" className="primary" onClick={() => setAdding(true)}>
+            Add workspace
+          </button>
+        )}
+      </PageHead>
+      {adding && (
+        <section className="panel" aria-label="Add workspace">
+          <Form
+            submit="Add"
+            onCancel={() => setAdding(false)}
+            onSubmit={async () => {
+              const made = await api.addWorkspace(input);
+              navigate(`/w/${made.key}`);
+            }}
+          >
+            <Field
+              label="Name"
+              value={input.name}
+              onChange={(e) => setInput({ ...input, name: e.target.value })}
+              required
+              autoFocus
+            />
+            <Field
+              label="Key"
+              value={input.key}
+              onChange={(e) => setInput({ ...input, key: e.target.value })}
+              required
+              pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+              hint="Used in addresses: lower-case letters, digits and dashes."
+            />
+          </Form>
+        </section>
+      )}
+      <Loading state={list} />
+      {list.data?.length === 0 && (
+        <p className="empty">
+          No workspace yet.{' '}
+          {me.admin ? 'Add the first one.' : 'An administrator makes the first one.'}
+        </p>
+      )}
+      <ul className="cards">
+        {list.data?.map((w) => (
+          <li key={w.id}>
+            <Link to={`/w/${w.key}`} className="card">
+              <strong>{w.name}</strong>
+              <span className="muted">
+                {w.key} · {w.projects} {w.projects === 1 ? 'project' : 'projects'}
+              </span>
+              {w.description && <span>{w.description}</span>}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** What a project's last look at its source found, in a word and a colour. */
+function SyncBadge({ project }: { project: Project }) {
+  const { state, error } = project.sync;
+  if (state === 'ok') return <span className="badge ok">up to date</span>;
+  if (state === 'error')
+    return (
+      <span className="badge bad" title={error}>
+        cannot be read
+      </span>
+    );
+  return <span className="badge">{project.hosted ? 'empty' : 'not read yet'}</span>;
+}
+
+export function Workspace({ me, workspace }: { me: User; workspace: string }) {
+  const space = useLoad(() => api.workspace(workspace), [workspace]);
+  const projects = useLoad(() => api.projects(workspace), [workspace]);
+  const [adding, setAdding] = useState(false);
+  const [input, setInput] = useState({ key: '', name: '', gitUrl: '', hosted: true });
+  return (
+    <>
+      <nav aria-label="Breadcrumb" className="crumbs">
+        <Link to="/">Workspaces</Link> / <span aria-current="page">{workspace}</span>
+      </nav>
+      <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
+        {me.admin && space.data && !adding && (
+          <button type="button" className="primary" onClick={() => setAdding(true)}>
+            Add project
+          </button>
+        )}
+      </PageHead>
+      <Loading state={space.error ? space : projects} />
+      {adding && (
+        <section className="panel" aria-label="Add project">
+          <Form
+            submit="Add"
+            onCancel={() => setAdding(false)}
+            onSubmit={async () => {
+              const made = await api.addProject(workspace, {
+                key: input.key,
+                name: input.name,
+                ...(input.hosted ? {} : { gitUrl: input.gitUrl }),
+              });
+              navigate(`/w/${workspace}/${made.key}`);
+            }}
+          >
+            <Field
+              label="Name"
+              value={input.name}
+              onChange={(e) => setInput({ ...input, name: e.target.value })}
+              required
+              autoFocus
+            />
+            <Field
+              label="Key"
+              value={input.key}
+              onChange={(e) => setInput({ ...input, key: e.target.value })}
+              required
+              pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+              hint="Used in addresses: lower-case letters, digits and dashes."
+            />
+            <fieldset>
+              <legend>Repository</legend>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="kind"
+                  checked={input.hosted}
+                  onChange={() => setInput({ ...input, hosted: true })}
+                />
+                Kept by this server (starts empty)
+              </label>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="kind"
+                  checked={!input.hosted}
+                  onChange={() => setInput({ ...input, hosted: false })}
+                />
+                An existing repository
+              </label>
+            </fieldset>
+            {!input.hosted && (
+              <Field
+                label="Repository address"
+                value={input.gitUrl}
+                onChange={(e) => setInput({ ...input, gitUrl: e.target.value })}
+                required
+                placeholder="https://git.example.net/network/edge-flows.git"
+                hint="https://, ssh:// or git@host:path. No password in the address."
+              />
+            )}
+          </Form>
+        </section>
+      )}
+      {projects.data?.length === 0 && <p className="empty">No project in this workspace yet.</p>}
+      <ul className="cards">
+        {projects.data?.map((p) => (
+          <li key={p.id}>
+            <Link to={`/w/${workspace}/${p.key}`} className="card">
+              <strong>{p.name}</strong>
+              <span className="muted">
+                {p.key} · {p.hosted ? 'kept by this server' : 'external repository'} · {p.gitRef}
+              </span>
+              <SyncBadge project={p} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+// --- a project
+
+export function ProjectPage({
+  me,
+  workspace,
+  project: key,
+}: {
+  me: User;
+  workspace: string;
+  project: string;
+}) {
+  const found = useLoad(
+    async () => (await api.projects(workspace)).find((p) => p.key === key),
+    [workspace, key],
+  );
+  const project = found.data;
+  const id = project?.id;
+  const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
+  const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
+  const [looking, setLooking] = useState(false);
+  const look = async () => {
+    if (!id) return;
+    setLooking(true);
+    await api.syncProject(id).catch(() => undefined);
+    setLooking(false);
+    found.reload();
+    branches.reload();
+  };
+  const crumbs = (
+    <nav aria-label="Breadcrumb" className="crumbs">
+      <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
+      <span aria-current="page">{key}</span>
+    </nav>
+  );
+  if (!project)
+    return (
+      <>
+        {crumbs}
+        <PageHead title={key} />
+        <Loading state={found} />
+        {!found.loading && !found.error && <p className="empty">There is no such project.</p>}
+      </>
+    );
+  const address = `${window.location.origin}${project.gitPath}`;
+  return (
+    <>
+      {crumbs}
+      <PageHead
+        title={project.name}
+        lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+      >
+        {me.admin && !project.hosted && (
+          <button type="button" onClick={look} disabled={looking}>
+            {looking ? 'Looking…' : 'Look at the source now'}
+          </button>
+        )}
+      </PageHead>
+
+      <section className="panel" aria-labelledby="state">
+        <h2 id="state">State</h2>
+        <dl className="facts">
+          <dt>Source</dt>
+          <dd>
+            <SyncBadge project={project} />{' '}
+            {project.sync.error && <span className="bad-text">{project.sync.error}</span>}
+          </dd>
+          <dt>Branch that runs</dt>
+          <dd>
+            <code>{project.gitRef}</code>
+          </dd>
+          <dt>Commit</dt>
+          <dd>
+            {project.commit ? <code>{project.commit.slice(0, 12)}</code> : 'none yet'}
+            {project.sync.at && (
+              <span className="muted">
+                {' '}
+                · looked at <Time at={project.sync.at} />
+              </span>
+            )}
+          </dd>
+          <dt>Branches</dt>
+          <dd>{branches.data?.length ? branches.data.join(', ') : 'none yet'}</dd>
+        </dl>
+      </section>
+
+      <section className="panel" aria-labelledby="git">
+        <h2 id="git">Work on it with git</h2>
+        <p>
+          <Copyable text={`git clone ${address}`} label="the clone command" />
+        </p>
+        <p className="muted">
+          The password is an <Link to="/account">access token</Link>; any user name will do.
+          {project.hosted &&
+            !project.commit &&
+            ` The repository is empty: push a first commit to ${project.gitRef}.`}
+        </p>
+      </section>
+
+      <section className="panel" aria-labelledby="flows">
+        <h2 id="flows">Flows</h2>
+        <p className="muted">
+          The flows of this project will be listed and shown here. This part of the server is not
+          built yet.
+        </p>
+      </section>
+
+      <section className="panel" aria-labelledby="pushes">
+        <h2 id="pushes">Pushes through this server</h2>
+        <Loading state={pushes} />
+        {pushes.data?.length === 0 && <p className="muted">None yet.</p>}
+        {!!pushes.data?.length && (
+          <div className="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">When</th>
+                  <th scope="col">Who</th>
+                  <th scope="col">Branch</th>
+                  <th scope="col">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pushes.data.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <Time at={p.at} />
+                    </td>
+                    <td>{p.login}</td>
+                    <td>
+                      <code>{p.ref}</code>
+                    </td>
+                    <td>
+                      <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
+                      <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+// --- my account
+
+export function Account({ me }: { me: User }) {
+  const tokens = useLoad(api.tokens, []);
+  const [input, setInput] = useState({ name: '', days: 90, readOnly: false });
+  const [made, setMade] = useState<NewToken>();
+  return (
+    <>
+      <PageHead title="My account" lead={`${me.name} (${me.login})`} />
+      <section className="panel" aria-labelledby="tokens">
+        <h2 id="tokens">Access tokens</h2>
+        <p className="muted">
+          A program signs in with a token instead of your password: git, the VS Code extension, a
+          script. A token acts as you.
+        </p>
+        {made && (
+          <div className="notice ok" role="status">
+            <p>
+              <strong>Copy the token now.</strong> It is not shown again.
+            </p>
+            <Copyable text={made.token} label="the token" />
+            <p>
+              <button type="button" onClick={() => setMade(undefined)}>
+                I have copied it
+              </button>
+            </p>
+          </div>
+        )}
+        <Loading state={tokens} />
+        {tokens.data?.length === 0 && <p className="muted">You have no token.</p>}
+        {!!tokens.data?.length && (
+          <div className="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Ends with</th>
+                  <th scope="col">May</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col">Expires</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.data.map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.name}</td>
+                    <td>
+                      <code>…{t.hint}</code>
+                    </td>
+                    <td>{t.readOnly ? 'read' : 'read and change'}</td>
+                    <td>
+                      <Time at={t.lastUsedAt} />
+                    </td>
+                    <td>
+                      <Time at={t.expiresAt} />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label={`Revoke ${t.name}`}
+                        onClick={async () => {
+                          if (!window.confirm(`Revoke the token "${t.name}"? It stops working.`))
+                            return;
+                          await api.revokeToken(t.id).catch(() => undefined);
+                          tokens.reload();
+                        }}
+                      >
+                        Revoke
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <h3>Make a token</h3>
+        <Form
+          submit="Make token"
+          onSubmit={async () => {
+            setMade(
+              await api.addToken({
+                name: input.name,
+                expiresInDays: input.days,
+                readOnly: input.readOnly,
+              }),
+            );
+            setInput({ ...input, name: '' });
+            tokens.reload();
+          }}
+        >
+          <Field
+            label="Name"
+            value={input.name}
+            onChange={(e) => setInput({ ...input, name: e.target.value })}
+            required
+            maxLength={100}
+            placeholder="laptop git"
+            hint="What will use it, so you know which one to revoke."
+          />
+          <Field
+            label="Days until it expires"
+            type="number"
+            min={1}
+            max={365}
+            value={input.days}
+            onChange={(e) => setInput({ ...input, days: Number(e.target.value) })}
+            required
+          />
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={input.readOnly}
+              onChange={(e) => setInput({ ...input, readOnly: e.target.checked })}
+            />
+            Read only (can clone and read, cannot push or change anything)
+          </label>
+        </Form>
+      </section>
+    </>
+  );
+}
+
+// --- parts of the server that are not built yet
+
+export function NotBuilt({ title, what }: { title: string; what: string }) {
+  return (
+    <>
+      <PageHead title={title} />
+      <p className="empty">{what} This part of the server is not built yet.</p>
+    </>
+  );
+}
+
+export function NotFound() {
+  return (
+    <>
+      <PageHead title="Nothing here" />
+      <p className="empty">
+        There is no page at this address. <Link to="/">Go to the workspaces.</Link>
+      </p>
+    </>
+  );
+}

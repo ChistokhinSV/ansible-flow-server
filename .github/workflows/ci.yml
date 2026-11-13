@@ -52,7 +52,7 @@ jobs:
       - run: npm ci --no-fund --no-audit
 
       - name: Type check
-        run: npx --no-install tsc -p tsconfig.json
+        run: npx --no-install tsc -p tsconfig.json && npx --no-install tsc -p tsconfig.web.json
 
       - name: Lint and format
         run: npx --no-install biome ci .
