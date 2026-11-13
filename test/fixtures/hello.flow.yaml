@@ -1,0 +1,110 @@
+# Hello, Ansible: the smallest useful flow. Copy it with Open Sample Flow…, then Run as Skeleton on localhost.
+schema_version: 2
+flow:
+  id: 01M6GPM95NZM7QW2BDFB073CNN
+  key: hello
+  name: Hello, Ansible
+  version: 1
+  goal: 'The smallest useful flow: reach each host, read a few facts and say hello. Run it as a skeleton on localhost.'
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+nodes:
+- id: 01M6GPM95RHBYFR7H44Z8GD2HB
+  key: start
+  type: start
+  title: Start
+- id: 01M6GPM95RHBYFR7H44Z8GD2HC
+  key: done
+  type: end
+  title: Done
+  outcome: success
+- id: 01M6GPM979RJPCDJ0XFF22GBSV
+  key: ping
+  type: task
+  title: Check the host answers
+  status: implemented
+  intent: 'Ping each host: Ansible can reach it and run Python there.'
+  impl:
+    kind: module
+    ref: ansible.builtin.ping
+- id: 01M6GPM99KC9TX091MCH61REQV
+  key: facts
+  type: task
+  title: Read a few facts
+  status: implemented
+  intent: Gather a small set of facts about each host.
+  impl:
+    kind: module
+    ref: ansible.builtin.setup
+    params:
+      gather_subset:
+      - min
+- id: 01M6GPM9B1D563X8PKD5041JHV
+  key: say-hello
+  type: task
+  title: Say hello
+  status: implemented
+  intent: Print a hello message with the name of each host.
+  impl:
+    kind: module
+    ref: ansible.builtin.debug
+    params:
+      msg: Hello from {{ inventory_hostname }}
+- id: 01M6GPM9CA039FX7GVNYTH6JEP
+  key: stopped
+  type: end
+  title: Stopped
+  outcome: failed
+edges:
+- id: 01M6GPM95RHBYFR7H44Z8GD2HD
+  from:
+    node: 01M6GPM95RHBYFR7H44Z8GD2HB
+    port: ok_hosts
+  to:
+    node: 01M6GPM979RJPCDJ0XFF22GBSV
+    port: in
+- id: 01M6GPM97W4B2AMEW6HFHXRBCG
+  from:
+    node: 01M6GPM979RJPCDJ0XFF22GBSV
+    port: ok_hosts
+  to:
+    node: 01M6GPM99KC9TX091MCH61REQV
+    port: in
+- id: 01M6GPM9A7GQS7FR6FKHTWMKAF
+  from:
+    node: 01M6GPM99KC9TX091MCH61REQV
+    port: ok_hosts
+  to:
+    node: 01M6GPM9B1D563X8PKD5041JHV
+    port: in
+- id: 01M6GPM9BGHTH5YB4114WK24SP
+  from:
+    node: 01M6GPM9B1D563X8PKD5041JHV
+    port: ok_hosts
+  to:
+    node: 01M6GPM95RHBYFR7H44Z8GD2HC
+    port: in
+- id: 01M6GPM9CA039FX7GVNYTH6JEQ
+  from:
+    node: 01M6GPM979RJPCDJ0XFF22GBSV
+    port: failed_hosts
+  to:
+    node: 01M6GPM9CA039FX7GVNYTH6JEP
+    port: in
+- id: 01M6GPM9CXF8DC6THEBZE6R4XM
+  from:
+    node: 01M6GPM99KC9TX091MCH61REQV
+    port: failed_hosts
+  to:
+    node: 01M6GPM9CA039FX7GVNYTH6JEP
+    port: in
+- id: 01M6GPM9DHTDHEPP5YCJ04A8F5
+  from:
+    node: 01M6GPM9B1D563X8PKD5041JHV
+    port: failed_hosts
+  to:
+    node: 01M6GPM9CA039FX7GVNYTH6JEP
+    port: in

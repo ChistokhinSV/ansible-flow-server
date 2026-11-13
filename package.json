@@ -1,0 +1,27 @@
+{
+  "name": "ansible-flow-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run Ansible Flow Designer flows for a team: shared projects, access levels, approvals, schedules, execution environments, a REST API and MCP.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ChistokhinSV/ansible-flow-server.git"
+  },
+  "dependencies": {
+    "@ansible-flow/assets": "file:vendor/ansible-flow-assets-0.84.0.tgz",
+    "@ansible-flow/core": "file:vendor/ansible-flow-core-0.84.0.tgz",
+    "@ansible-flow/node": "file:vendor/ansible-flow-node-0.84.0.tgz"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

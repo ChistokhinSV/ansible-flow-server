@@ -1,0 +1,47 @@
+# Checks every push to main and every pull request: the type check, Biome and the unit tests, as
+# `just check` and `just test` run them.
+#
+# The designer's packages (@ansible-flow/*) are installed from npm here. Until they are published,
+# package.json names tarballs in vendor/ (ADR-0002), which is not in git, so this workflow fails at
+# its install step: it starts to pass with the change that names the published version.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-fund --no-audit
+
+      - name: Type check
+        run: npx --no-install tsc -p tsconfig.json
+
+      - name: Lint and format
+        run: npx --no-install biome ci .
+
+      - name: Unit tests
+        run: npx --no-install vitest run
+
+      - name: Build
+        run: node scripts/build.mjs

@@ -1,0 +1,6 @@
+# Flow documents are edited byte for byte: git must never rewrite their line endings.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.tgz binary

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+# The Ansible Flow Designer packages as tarballs, until they are on npm (just afd-packages)
+vendor/
+# The server's data when it runs from the repository: database, repositories, runs, certificates
+data/
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+# Local tooling
+.claude/

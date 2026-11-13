@@ -1,0 +1,376 @@
+# Sample flow (Ansible Flow Designer): a firewall firmware upgrade with pre-checks, a backup, an
+# approval, polling until the device is back, post-checks and rollback. Steps are drafts: a skeleton
+# run works anywhere, and the tutorials bind them (docs/guide/tutorials/02-design-to-production.md).
+schema_version: 2
+flow:
+  id: 01M67T3CFH6SVM3YWJRWKZG530
+  key: firewall-upgrade
+  name: Firewall firmware upgrade
+  version: 1
+  goal: Upgrade firewalls to one target firmware with pre-checks, a configuration backup, an approval, post-checks and automatic rollback.
+  owner: netops
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+    target_version:
+      type: string
+      required: true
+    backup_dir:
+      type: string
+      default: /srv/backups
+nodes:
+- id: 01M67T3CFKMVBF5BVBNRBM9F9M
+  key: start
+  type: start
+  title: Start
+- id: 01M67T3CFKMVBF5BVBNRBM9F9N
+  key: precheck
+  type: subflow
+  title: Pre-checks
+  status: specified
+  intent: Read-only checks; hosts already on the target version leave as unchanged.
+  ports: [unchanged]
+  outputs:
+    fw_version:
+      type: string
+  subflow:
+    nodes:
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA2
+      key: read-status
+      type: task
+      title: Read device status
+      status: specified
+      intent: One API call for version, model and HA state.
+      outputs:
+        status:
+          type: dict
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA3
+      key: normalize
+      type: task
+      title: Normalize facts
+      status: specified
+      intent: Flatten the API answer into the values later checks read.
+      inputs:
+        status:
+          type: dict
+          from: read-status.status
+      outputs:
+        fw_version:
+          type: string
+        fw_model:
+          type: string
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA4
+      key: on-target
+      type: decision
+      title: Already on target?
+      status: implemented
+      condition: fw_version == target_version
+      inputs:
+        fw_version:
+          type: string
+          from: normalize.fw_version
+        target_version:
+          type: string
+          from: flow.target_version
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA5
+      key: check-path
+      type: task
+      title: Check the upgrade path
+      status: specified
+      intent: Only newer versions of the same major release; no downgrade.
+      inputs:
+        fw_version:
+          type: string
+          from: normalize.fw_version
+        target_version:
+          type: string
+          from: flow.target_version
+    edges:
+    - id: 01M67T3CFMH2JH0VY2WAQ83F6Y
+      from: {node: 01M67T3CFKMVBF5BVBNRBM9FA2, port: ok_hosts}
+      to: {node: 01M67T3CFKMVBF5BVBNRBM9FA3, port: in}
+    - id: 01M67T3CFMH2JH0VY2WAQ83F6Z
+      from: {node: 01M67T3CFKMVBF5BVBNRBM9FA3, port: ok_hosts}
+      to: {node: 01M67T3CFKMVBF5BVBNRBM9FA4, port: in}
+    - id: 01M67T3CFMH2JH0VY2WAQ83F70
+      from: {node: 01M67T3CFKMVBF5BVBNRBM9FA4, port: 'false'}
+      to: {node: 01M67T3CFKMVBF5BVBNRBM9FA5, port: in}
+    boundary:
+      in: 01M67T3CFKMVBF5BVBNRBM9FA2
+      outputs:
+        ok_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA5
+          port: ok_hosts
+        unchanged:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA4
+          port: 'true'
+        failed_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA2
+          port: failed_hosts
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA3
+          port: failed_hosts
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA5
+          port: failed_hosts
+- id: 01M67T3CFKMVBF5BVBNRBM9F9P
+  key: backup
+  type: subflow
+  title: Backup
+  status: specified
+  intent: Export the running configuration and keep it off the device.
+  outputs:
+    backup_file:
+      type: string
+  subflow:
+    nodes:
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA6
+      key: export
+      type: task
+      title: Export configuration
+      status: specified
+      outputs:
+        config:
+          type: string
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA7
+      key: store
+      type: task
+      title: Store the backup
+      status: specified
+      intent: Save it as <host>_<version>.conf in the backup folder.
+      inputs:
+        config:
+          type: string
+          from: export.config
+        backup_dir:
+          type: string
+          from: flow.backup_dir
+      outputs:
+        backup_file:
+          type: string
+    edges:
+    - id: 01M67T3CFMH2JH0VY2WAQ83F71
+      from: {node: 01M67T3CFKMVBF5BVBNRBM9FA6, port: ok_hosts}
+      to: {node: 01M67T3CFKMVBF5BVBNRBM9FA7, port: in}
+    boundary:
+      in: 01M67T3CFKMVBF5BVBNRBM9FA6
+      outputs:
+        ok_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA7
+          port: ok_hosts
+        failed_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA6
+          port: failed_hosts
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA7
+          port: failed_hosts
+- id: 01M67T3CFKMVBF5BVBNRBM9F9Q
+  key: approve
+  type: approval
+  title: Change approval
+  status: implemented
+  intent: The engineer on duty confirms the pre-check report and the maintenance window.
+- id: 01M67T3CFKMVBF5BVBNRBM9F9R
+  key: upgrade
+  type: subflow
+  title: Upgrade
+  status: specified
+  intent: Install the image, wait until the device answers on the target version.
+  settings:
+    serial: 1
+  subflow:
+    nodes:
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA8
+      key: install
+      type: task
+      title: Install firmware
+      status: specified
+      intent: Upload the image and start the install; the device reboots.
+      inputs:
+        target_version:
+          type: string
+          from: flow.target_version
+    - id: 01M67T3CFKMVBF5BVBNRBM9FA9
+      key: wait-up
+      type: task
+      title: Wait for the target version
+      status: specified
+      intent: Poll the status API until the device answers on the target version.
+      inputs:
+        target_version:
+          type: string
+          from: flow.target_version
+      settings:
+        retries: 40
+        delay: 15
+        until: wait_up_result.status == 200 and wait_up_result.json.version == target_version
+    edges:
+    - id: 01M67T3CFMH2JH0VY2WAQ83F72
+      from: {node: 01M67T3CFKMVBF5BVBNRBM9FA8, port: ok_hosts}
+      to: {node: 01M67T3CFKMVBF5BVBNRBM9FA9, port: in}
+    boundary:
+      in: 01M67T3CFKMVBF5BVBNRBM9FA8
+      outputs:
+        ok_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA9
+          port: ok_hosts
+        failed_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA8
+          port: failed_hosts
+        - node: 01M67T3CFKMVBF5BVBNRBM9FA9
+          port: failed_hosts
+- id: 01M67T3CFKMVBF5BVBNRBM9F9S
+  key: postcheck
+  type: subflow
+  title: Post-checks
+  status: specified
+  intent: Compare the device with what the pre-checks saw.
+  inputs:
+    fw_version:
+      type: string
+      from: precheck.fw_version
+  subflow:
+    nodes:
+    - id: 01M67T3CFKMVBF5BVBNRBM9FAA
+      key: compare
+      type: task
+      title: Compare with the pre-check state
+      status: specified
+      intent: Interfaces up, routes and VPN tunnels not worse than before the upgrade.
+      inputs:
+        before:
+          type: string
+          from: postcheck.fw_version
+    boundary:
+      in: 01M67T3CFKMVBF5BVBNRBM9FAA
+      outputs:
+        ok_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FAA
+          port: ok_hosts
+        failed_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FAA
+          port: failed_hosts
+- id: 01M67T3CFKMVBF5BVBNRBM9F9T
+  key: rollback
+  type: subflow
+  title: Rollback
+  status: specified
+  purpose: rollback
+  intent: Restore the backup taken before the upgrade, for the failed hosts only.
+  inputs:
+    backup_file:
+      type: string
+      from: backup.backup_file
+  subflow:
+    nodes:
+    - id: 01M67T3CFKMVBF5BVBNRBM9FAB
+      key: restore
+      type: task
+      title: Restore the backup
+      status: specified
+      inputs:
+        file:
+          type: string
+          from: rollback.backup_file
+    boundary:
+      in: 01M67T3CFKMVBF5BVBNRBM9FAB
+      outputs:
+        ok_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FAB
+          port: ok_hosts
+        failed_hosts:
+        - node: 01M67T3CFKMVBF5BVBNRBM9FAB
+          port: failed_hosts
+- id: 01M67T3CFKMVBF5BVBNRBM9F9V
+  key: exclude
+  type: task
+  title: Exclude and report
+  status: draft
+  purpose: exclude
+  intent: Take hosts that failed the pre-checks or the backup out of the run and list them in the report.
+- id: 01M67T3CFKMVBF5BVBNRBM9F9W
+  key: notify
+  type: task
+  title: Notify on-call
+  status: draft
+  purpose: notify
+  intent: The rollback failed; open a ticket and page on-call.
+- id: 01M67T3CFKMVBF5BVBNRBM9F9X
+  key: done
+  type: end
+  title: Done
+  outcome: success
+- id: 01M67T3CFKMVBF5BVBNRBM9F9Y
+  key: excluded
+  type: end
+  title: Excluded
+  outcome: failed
+- id: 01M67T3CFKMVBF5BVBNRBM9F9Z
+  key: not-approved
+  type: end
+  title: Not approved
+  outcome: failed
+- id: 01M67T3CFKMVBF5BVBNRBM9FA0
+  key: rolled-back
+  type: end
+  title: Rolled back
+  outcome: failed
+- id: 01M67T3CFKMVBF5BVBNRBM9FA1
+  key: manual-recovery
+  type: end
+  title: Manual recovery
+  outcome: failed
+edges:
+- id: 01M67T3CFKMVBF5BVBNRBM9FAC
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9M, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9N, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAD
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9N, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9P, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAE
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9N, port: unchanged}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9X, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAF
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9N, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9V, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAG
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9P, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9Q, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAH
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9P, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9V, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAJ
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9Q, port: approved}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9R, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAK
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9Q, port: rejected}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9Z, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAM
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9R, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9S, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAN
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9R, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9T, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAP
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9S, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9X, port: in}
+- id: 01M67T3CFKMVBF5BVBNRBM9FAQ
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9S, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9T, port: in}
+- id: 01M67T3CFMH2JH0VY2WAQ83F6R
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9T, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9FA0, port: in}
+- id: 01M67T3CFMH2JH0VY2WAQ83F6S
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9T, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9W, port: in}
+- id: 01M67T3CFMH2JH0VY2WAQ83F6T
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9V, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9Y, port: in}
+- id: 01M67T3CFMH2JH0VY2WAQ83F6V
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9V, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9F9Y, port: in}
+- id: 01M67T3CFMH2JH0VY2WAQ83F6W
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9W, port: ok_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9FA1, port: in}
+- id: 01M67T3CFMH2JH0VY2WAQ83F6X
+  from: {node: 01M67T3CFKMVBF5BVBNRBM9F9W, port: failed_hosts}
+  to: {node: 01M67T3CFKMVBF5BVBNRBM9FA1, port: in}
