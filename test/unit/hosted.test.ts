@@ -25,6 +25,7 @@ import {
   updateProject,
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
+import { emptyWorkspaces } from './helpers/clean';
 
 const PASSWORD = 'correct horse battery staple';
 const A = 'a'.repeat(40);
@@ -52,8 +53,7 @@ for (const [name, config] of databases) {
       await database?.close();
     });
     beforeEach(async () => {
-      for (const table of ['git_push', 'project', 'workspace'] as const)
-        await db().deleteFrom(table).execute();
+      await emptyWorkspaces(db());
       workspace = (await createWorkspace(db(), { key: 'net', name: 'Network' })).id;
     });
 

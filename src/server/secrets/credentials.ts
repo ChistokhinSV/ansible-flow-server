@@ -58,7 +58,7 @@ export interface Credential {
   fields: Record<string, string>;
   /** The names of the secret parts it holds; for `env`, the names of its variables. */
   has: string[];
-  /** How many projects use it for their repository. */
+  /** How many projects (for their repository) and launch configurations use it. */
   usedBy: number;
   createdAt: string;
   updatedAt: string;
@@ -174,7 +174,15 @@ async function uses(db: Db): Promise<Map<string, number>> {
     .where('git_credential_id', 'is not', null)
     .groupBy('git_credential_id')
     .execute();
-  return new Map(rows.map((row) => [row.git_credential_id as string, Number(row.n)]));
+  const used = new Map(rows.map((row) => [row.git_credential_id as string, Number(row.n)]));
+  const launches = await db
+    .selectFrom('launch_config_credential')
+    .select(['credential_id', (eb) => eb.fn.countAll().as('n')])
+    .groupBy('credential_id')
+    .execute();
+  for (const row of launches)
+    used.set(row.credential_id, (used.get(row.credential_id) ?? 0) + Number(row.n));
+  return used;
 }
 
 export async function listCredentials(db: Db, workspaceId: string): Promise<Credential[]> {
@@ -289,6 +297,17 @@ export async function deleteCredential(db: Db, id: string): Promise<void> {
       throw new CredentialError(
         'in_use',
         `The project ${user.key} signs in to its repository with it: give the project another first`,
+      );
+    const launch = await trx
+      .selectFrom('launch_config_credential')
+      .innerJoin('launch_config', 'launch_config.id', 'launch_config_credential.config_id')
+      .select('launch_config.name')
+      .where('launch_config_credential.credential_id', '=', id)
+      .executeTakeFirst();
+    if (launch)
+      throw new CredentialError(
+        'in_use',
+        `The launch configuration "${launch.name}" gives it to its runs: take it out there first`,
       );
     const done = await trx.deleteFrom('credential').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new CredentialError('not_found', 'No such credential');

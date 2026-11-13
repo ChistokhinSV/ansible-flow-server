@@ -16,7 +16,8 @@ own code, with who may run what, who must approve, and a record of every run.
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
 users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
-repositories and is itself the git address of every project (clone, fetch, push), keeps credentials encrypted and signs in to private repositories with them, has web pages to sign
+repositories and is itself the git address of every project (clone, fetch, push), keeps credentials encrypted and signs in to private repositories with them, keeps launch
+configurations and says what a launch would run, has web pages to sign
 in and look at workspaces, projects and their flows on the designer's canvas (read-only), answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
@@ -452,6 +453,75 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 | `secrets rotate` | Makes a new master key and seals everything again (stop the server first)        |
 
 Not there yet: handing credentials to runs, an ssh source with a stored key, the pages.
+
+### Launch configurations
+
+A launch configuration is a flow of a project with what a run of it needs, saved under a name.
+The server does not run flows yet; a configuration can be made, and asked what it would run.
+
+```sh
+curl ... -X POST https://flows.example.net:8443/api/v1/projects/<project id>/launch-configs \
+  -d '{"name":"Upgrade edge firewalls","flowFile":"flows/firewall-upgrade.flow.yaml",
+       "inventory":"inventory/hosts.yaml","mode":"check",
+       "inputs":{"devices":["fw-edge-01","fw-edge-02"]},"credentials":["<credential id>"]}'
+curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check \
+  -d '{"mode":"real","inputs":{"target_version":"7.4.1"}}'
+```
+
+```json
+{
+  "launch": {
+    "config": "0f3d6f0e-6a53-4d4e-8a55-9d2f0c1b7e21",
+    "project": "2a968c91-1ac7-4654-94c8-2eb24a28b10b",
+    "commit": "59b2575163b54f0c8a1e7d9b3f2a6c8e1d0b5741",
+    "ref": "main",
+    "flow": {
+      "file": "flows/firewall-upgrade.flow.yaml",
+      "key": "firewall-upgrade",
+      "name": "Firewall firmware upgrade",
+      "version": 1
+    },
+    "mode": "real",
+    "inventory": "inventory/hosts.yaml",
+    "inputs": {
+      "devices": ["fw-edge-01", "fw-edge-02"],
+      "target_version": "7.4.1",
+      "backup_dir": "/srv/backups"
+    },
+    "targets": ["fw-edge-01", "fw-edge-02"],
+    "credentials": ["7b1f6c0a-3c1e-4c58-9f0e-2f6a1d4b8e90"]
+  }
+}
+```
+
+| Setting       | Means                                                                      |
+| ------------- | -------------------------------------------------------------------------- |
+| `flowFile`    | The flow's file in the repository                                          |
+| `gitRef`      | Another branch than the project's to take the newest commit of             |
+| `commit`      | One commit, always (a pin). Not together with `gitRef`                     |
+| `inventory`   | The inventory's path in the repository; left out: what `ansible.cfg` names |
+| `eeImage`     | The execution environment's image; left out: the server's default          |
+| `mode`        | `check` (a skeleton run, the default) or `real`                            |
+| `limit`       | Ansible's limit, for fewer hosts than the flow targets                     |
+| `inputs`      | Start values of the flow's inputs. Never one that looks like a secret      |
+| `credentials` | Credentials of the workspace a run gets (not a git token)                  |
+
+| Address (under `/api/v1`)        | Does                                                       | Who                                     |
+| -------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
+| `/projects/:id/launch-configs`   | List; add                                                  | read: signed in; change: administrators |
+| `/launch-configs/:id`            | One; change; delete                                        | as above                                |
+| `GET /launch-configs/:id/form`   | The flow's inputs as a form, with the start values         | signed in                               |
+| `POST /launch-configs/:id/check` | What a launch would run, or 422 with everything in its way | signed in                               |
+
+- **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
+  value and each credential are checked; a refusal names the setting (`field`).
+- **Which commit runs:** what the launch names (`ref` or `commit`), else what the configuration
+  names, else the newest commit of the project's branch, after a look at the source.
+- **At launch** a person may give `mode`, `ref` or `commit`, `limit`, and `inputs` as typed
+  text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
+  not repeated in the answer.
+
+Not there yet: starting the run, the pages.
 
 ## Development
 

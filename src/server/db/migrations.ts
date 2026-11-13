@@ -172,6 +172,40 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute();
     },
   },
+  // AFS-18: launch configurations.
+  '0007_launch_configs': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('launch_config')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('project_id', 'text', (c) =>
+          c.notNull().references('project.id').onDelete('cascade'),
+        )
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('description', 'text')
+        .addColumn('flow_file', 'text', (c) => c.notNull())
+        .addColumn('git_ref', 'text')
+        .addColumn('commit_id', 'text')
+        .addColumn('inventory', 'text')
+        .addColumn('ee_image', 'text')
+        .addColumn('mode', 'text', (c) => c.notNull())
+        .addColumn('run_limit', 'text')
+        .addColumn('inputs_json', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addUniqueConstraint('launch_config_project_name', ['project_id', 'name'])
+        .execute();
+      await db.schema
+        .createTable('launch_config_credential')
+        .addColumn('config_id', 'text', (c) =>
+          c.notNull().references('launch_config.id').onDelete('cascade'),
+        )
+        .addColumn('credential_id', 'text', (c) => c.notNull().references('credential.id'))
+        .addColumn('position', 'integer', (c) => c.notNull())
+        .addPrimaryKeyConstraint('launch_config_credential_pk', ['config_id', 'credential_id'])
+        .execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

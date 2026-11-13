@@ -20,6 +20,7 @@ import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { createLogger, HIDDEN } from '../../src/server/log';
+import { emptyPeople } from './helpers/clean';
 
 const PASSWORD = 'correct horse battery staple';
 const DAY = 24 * 60 * 60 * 1000;
@@ -78,8 +79,7 @@ for (const [name, config] of databases) {
       await database?.close();
     });
     beforeEach(async () => {
-      for (const table of ['api_token', 'session', 'group_member', 'user_account'] as const)
-        await db().deleteFrom(table).execute();
+      await emptyPeople(db());
       dana = (await createUser(db(), { login: 'dana', name: 'Dana Whitfield', password: PASSWORD }))
         .id;
     });

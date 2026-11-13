@@ -394,6 +394,30 @@ export class Git {
     }
   }
 
+  /** True when the repository has this commit. */
+  async hasCommit(projectId: string, commit: string): Promise<boolean> {
+    if (!COMMIT.test(commit)) return false;
+    return this.run(['cat-file', '-e', `${commit}^{commit}`], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+    }).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /** True when a commit has a file or a folder at this path. */
+  async exists(projectId: string, commit: string, path: string): Promise<boolean> {
+    if (!COMMIT.test(commit)) throw new GitError('Not a commit');
+    if (!path || path.startsWith('/') || path.includes('\0') || path.split('/').includes('..'))
+      throw new GitError('Not a path inside the repository');
+    const out = await this.run(
+      ['ls-tree', '-z', '--name-only', commit, '--', path.replace(/\/+$/, '')],
+      { cwd: this.mirror(projectId), timeoutMs: READ_TIMEOUT_MS },
+    ).catch(() => Buffer.alloc(0));
+    return out.length > 0;
+  }
+
   /** A commit's author, time and first line. */
   async commitInfo(
     projectId: string,

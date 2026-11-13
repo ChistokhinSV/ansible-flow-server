@@ -30,6 +30,7 @@ import {
   updateWorkspace,
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
+import { emptyWorkspaces } from './helpers/clean';
 import { type TestRepo, testRepo } from './helpers/repo';
 
 const PASSWORD = 'correct horse battery staple';
@@ -56,8 +57,7 @@ for (const [name, config] of databases) {
       await database?.close();
     });
     beforeEach(async () => {
-      await db().deleteFrom('project').execute();
-      await db().deleteFrom('workspace').execute();
+      await emptyWorkspaces(db());
     });
 
     it('a workspace has a key for addresses; an empty one can be deleted', async () => {

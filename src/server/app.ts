@@ -4,6 +4,7 @@
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
+import { registerLaunch } from './launch/routes';
 import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
 import { registerGit } from './projects/gitHttp';
@@ -80,6 +81,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.projects) {
     registerProjects(app, { db: deps.database.db, ...deps.projects });
     registerGit(app, { db: deps.database.db, ...deps.projects });
+    registerLaunch(app, {
+      db: deps.database.db,
+      git: deps.projects.git,
+      sync: deps.projects.sync,
+    });
   }
 
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
