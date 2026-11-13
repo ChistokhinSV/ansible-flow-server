@@ -248,7 +248,8 @@ describe('adding a launch configuration', () => {
     fireEvent.change(screen.getByLabelText(/^Flow/), {
       target: { value: 'flows/upgrade.flow.yaml' },
     });
-    expect(screen.getByRole('option', { name: 'try/idea' })).toBeTruthy();
+    // The branches come in their own request: under load, after the flows.
+    expect(await screen.findByRole('option', { name: 'try/idea' })).toBeTruthy();
     // A git token is for a repository, not a run.
     expect(screen.queryByText('github')).toBeNull();
     fireEvent.click(await screen.findByRole('checkbox', { name: /lab key/ }));

@@ -8,6 +8,8 @@ import { inputText, launchFields, parseInput } from '@ansible-flow/core/run/laun
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { summarizeFlow } from '../flows';
+import { unknownNames } from '../notify/recipients';
+import type { RunNotify } from '../notify/types';
 import { type Git, refProblem } from '../projects/git';
 import { getProject, type Project } from '../projects/store';
 import type { CredentialKind } from '../secrets/credentials';
@@ -37,6 +39,8 @@ export interface LaunchConfig {
   inputs: Record<string, unknown>;
   /** The credentials a run gets (ids). */
   credentials: string[];
+  /** AFS-29: whom its runs tell, and when; absent: nobody. */
+  notify?: RunNotify;
   createdAt: string;
   updatedAt: string;
 }
@@ -65,6 +69,8 @@ export interface LaunchConfigInput {
   limit?: string | null;
   inputs?: Record<string, unknown>;
   credentials?: string[];
+  /** null: nobody is told. */
+  notify?: RunNotify | null;
 }
 
 type Db = Kysely<Schema>;
@@ -145,6 +151,7 @@ export class LaunchConfigs {
       ...(row.run_limit ? { limit: row.run_limit } : {}),
       inputs: JSON.parse(row.inputs_json) as Record<string, unknown>,
       credentials,
+      ...(row.notify_json ? { notify: JSON.parse(row.notify_json) as RunNotify } : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -265,6 +272,19 @@ export class LaunchConfigs {
         seen.add(kind);
       }
     }
+
+    // Whom its runs tell: logins and groups the server has.
+    let notify: RunNotify | undefined;
+    if (input.notify) {
+      const to = [...new Set(input.notify.to.map((n) => n.trim()).filter(Boolean))];
+      if (input.notify.when !== 'failed' && input.notify.when !== 'ended')
+        throw invalid('Runs tell when they fail, or whenever they end', 'notify');
+      if (to.length > 20) throw invalid('At most 20 people or groups are told', 'notify');
+      const unknown = await unknownNames(this.db, to);
+      if (unknown.length)
+        throw invalid(`No user or group ${unknown.slice(0, 3).join(', ')}`, 'notify');
+      if (to.length) notify = { when: input.notify.when, to };
+    }
     return {
       name,
       description: input.description?.trim() || null,
@@ -276,6 +296,7 @@ export class LaunchConfigs {
       mode,
       run_limit: limit ?? null,
       inputs_json: JSON.stringify(inputs),
+      notify_json: notify ? JSON.stringify(notify) : null,
       credentials,
     };
   }
@@ -336,6 +357,7 @@ export class LaunchConfigs {
       limit: change.limit !== undefined ? change.limit : current.limit,
       inputs: change.inputs ?? current.inputs,
       credentials: change.credentials ?? current.credentials,
+      notify: change.notify !== undefined ? change.notify : current.notify,
     };
     const { credentials, ...columns } = await this.checked(project, merged);
     try {

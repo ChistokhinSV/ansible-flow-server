@@ -27,6 +27,7 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       runTimeoutMinutes: 240,
       runsKeepDays: 90,
       auditKeepDays: 365,
+      notificationsKeepDays: 30,
       runsKeepPerFlow: 200,
       maxRuns: 4,
       maxRunsPerProject: 1,

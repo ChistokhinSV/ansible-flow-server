@@ -34,6 +34,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/setup': { action: 'user.setup', id: 'reply' },
   'POST /api/v1/session': { action: 'session.sign-in', id: 'reply' },
   'DELETE /api/v1/session': { action: 'session.sign-out', id: 'actor' },
+  'PATCH /api/v1/session': { action: 'user.profile-change', id: 'actor' },
   'PUT /api/v1/session/password': { action: 'user.password-change', id: 'actor' },
   'POST /api/v1/tokens': { action: 'token.create', id: 'reply' },
   'DELETE /api/v1/tokens/:id': { action: 'token.revoke', id: at() },
@@ -90,6 +91,11 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },
   'POST /git/:workspace/:repo/git-receive-pack': { action: 'git.push', id: 'none', self: true },
+  'POST /api/v1/notifications/:id/retry': { action: 'notification.retry', id: at() },
+  'PUT /api/v1/notifications/smtp': { action: 'notification.smtp-set', id: 'none' },
+  'DELETE /api/v1/notifications/smtp': { action: 'notification.smtp-clear', id: 'none' },
+  'POST /api/v1/notifications/webhook-key': { action: 'notification.webhook-key', id: 'none' },
+  'POST /api/v1/notifications/test': { action: 'notification.test', id: 'none' },
 };
 
 /** Routes that are POSTs but change nothing. */
@@ -310,6 +316,11 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       if (said?.decision === 'approved' || said?.decision === 'rejected')
         detail.decision = said.decision;
       detail.approval = params.node;
+    }
+    // AFS-29: which channel a test went by (not where: a webhook's address can be its secret).
+    if (spec.action === 'notification.test') {
+      const channel = (request.body as { channel?: unknown } | undefined)?.channel;
+      if (channel === 'email' || channel === 'webhook') detail.channel = channel;
     }
     if (spec.self)
       object = {

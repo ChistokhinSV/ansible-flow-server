@@ -41,6 +41,8 @@ export interface Config {
   runsKeepPerFlow: number;
   /** Audit entries older than this many days are removed; 0 keeps them all. */
   auditKeepDays: number;
+  /** Notifications sent or given up on are kept this many days (the delivery log). */
+  notificationsKeepDays: number;
   /** Runs at once on this server, and of one project. */
   maxRuns: number;
   maxRunsPerProject: number;
@@ -158,6 +160,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
   const runsKeepDays = keepOf('AFS_RUNS_KEEP_DAYS', 90, 3650);
   const runsKeepPerFlow = keepOf('AFS_RUNS_KEEP_PER_FLOW', 200, 100_000);
+  const notificationsKeepDays = keepOf('AFS_NOTIFICATIONS_KEEP_DAYS', 30, 3650);
   const auditText = text('AFS_AUDIT_KEEP_DAYS') ?? '365';
   const auditKeepDays = Number(auditText);
   if (!/^\d+$/.test(auditText) || auditKeepDays > 36_500)
@@ -219,6 +222,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     runsKeepDays,
     runsKeepPerFlow,
     auditKeepDays: auditKeepDays > 36_500 || Number.isNaN(auditKeepDays) ? 365 : auditKeepDays,
+    notificationsKeepDays,
     maxRuns,
     maxRunsPerProject,
     gitLocal: localText === 'on',

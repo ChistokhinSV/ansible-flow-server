@@ -7,6 +7,7 @@ import { ApiDocs } from './apidocs';
 import { ApprovalsPage } from './approvals';
 import { AdminPage, AuditPage } from './audit';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
+import { NotificationsPage } from './notifications';
 import {
   Account,
   FlowPage,
@@ -56,6 +57,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
+  if (path === '/admin/notifications') return me.admin ? <NotificationsPage /> : <NotFound />;
   const config = match('/w/:workspace/:project/launch/:id', path);
   if (config?.workspace && config.project && config.id)
     return config.id === 'new' ? (

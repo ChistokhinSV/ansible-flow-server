@@ -224,6 +224,33 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     return me ? getUser(db, me.id) : reply;
   });
 
+  // AFS-29: a person changes their own name and email address; a webhook (the server calls the
+  // address it is given) only an administrator. With a session: a token that leaked must not be
+  // able to send someone's mail elsewhere.
+  type ProfileBody = { name?: string; email?: string | null; webhookUrl?: string | null };
+  app.patch<{ Body: ProfileBody }>(
+    '/api/v1/session',
+    {
+      schema: body([], { name: text(200, 1), email: optional(320), webhookUrl: optional(2000) }),
+    },
+    answering(async (request, reply) => {
+      const me = inSession(request, reply);
+      if (!me) return reply;
+      if (request.body.webhookUrl !== undefined && !me.admin)
+        return reply.code(403).send({
+          error: 'forbidden',
+          message: 'Only an administrator sets a webhook: the server calls the address it is given',
+          field: 'webhookUrl',
+        });
+      const user = await updateUser(db, me.id, request.body);
+      request.log.info(
+        { login: me.login, changed: Object.keys(request.body).join(',') },
+        'Own account changed',
+      );
+      return user;
+    }),
+  );
+
   app.delete('/api/v1/session', async (request, reply) => {
     if (request.sessionToken) await endSession(db, request.sessionToken);
     return reply
@@ -451,7 +478,11 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       const me = administrator(request, reply);
       if (!me) return reply;
       const user = await updateUser(db, request.params.id, request.body);
-      request.log.info({ by: me.login, login: user.login, ...request.body }, 'User changed');
+      // What changed, by name: a webhook's address can be its secret.
+      request.log.info(
+        { by: me.login, login: user.login, changed: Object.keys(request.body).join(',') },
+        'User changed',
+      );
       return user;
     }),
   );

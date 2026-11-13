@@ -181,6 +181,8 @@ export interface LaunchConfigTable {
   run_limit: string | null;
   /** Start values of the flow's inputs, as JSON. */
   inputs_json: string;
+  /** AFS-29: who its runs tell, and when ({when, to}), as JSON; null: nobody. */
+  notify_json: string | null;
   created_at: IsoTime;
   updated_at: IsoTime;
 }
@@ -313,7 +315,39 @@ export interface AccessGrantTable {
   created_by: string;
 }
 
+/**
+ * AFS-29: one message to one place (an email address or a webhook), kept until it is sent or
+ * given up on, and then as the delivery log. One event makes as many as it has recipients.
+ */
+export interface NotificationTable {
+  id: string;
+  /** The event it tells of; deliveries of one event share it. */
+  event_id: string;
+  /** approval.waiting, approval.decided, run.ended, certificate.expiring, test. */
+  event: string;
+  /** email or webhook. */
+  channel: string;
+  /** Who it is for: a login, a group's name, or the address itself. */
+  recipient: string;
+  /** The email address or the webhook's URL. A URL can hold a secret: never shown in full. */
+  target: string;
+  /** What is sent ({subject, text, payload}), as JSON; never a secret value. */
+  message_json: string;
+  run_id: string | null;
+  /** Set for an event that must be told once only (a certificate's warning); unique. */
+  dedupe: string | null;
+  /** pending, sent, failed (given up). */
+  status: string;
+  attempts: number;
+  /** When it is tried next; while one is being tried, until when it is that server's. */
+  next_at: IsoTime;
+  last_error: string | null;
+  created_at: IsoTime;
+  sent_at: IsoTime | null;
+}
+
 export interface Schema {
+  notification: NotificationTable;
   run_gate: RunGateTable;
   access_grant: AccessGrantTable;
   audit_entry: AuditEntryTable;

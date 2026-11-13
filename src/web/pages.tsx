@@ -568,6 +568,85 @@ export function FlowPage({
 
 // --- my account
 
+/** A webhook's address as a page shows it to someone who may not change it: its host only. */
+const hookHost = (url: string) => {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}/…`;
+  } catch {
+    return 'set';
+  }
+};
+
+/**
+ * Name and email address, which anyone changes for themself; the webhook, which only an
+ * administrator sets (the server calls the address it is given). AFS-29.
+ */
+function Profile({ me }: { me: User }) {
+  const [name, setName] = useState(me.name);
+  const [email, setEmail] = useState(me.email ?? '');
+  const [webhook, setWebhook] = useState(me.webhookUrl ?? '');
+  const [saved, setSaved] = useState(false);
+  return (
+    <section className="panel" aria-labelledby="profile">
+      <h2 id="profile">Profile</h2>
+      <p className="muted">
+        Notifications for you (approvals that wait for you, how your runs' approvals were decided)
+        go to your email address{me.admin ? ' and your webhook' : ''}.
+      </p>
+      <Form
+        submit="Save"
+        onSubmit={async () => {
+          setSaved(false);
+          const changed = await api.changeMe({
+            name: name.trim(),
+            email: email.trim() || null,
+            ...(me.admin ? { webhookUrl: webhook.trim() || null } : {}),
+          });
+          setName(changed.name);
+          setEmail(changed.email ?? '');
+          setWebhook(changed.webhookUrl ?? '');
+          setSaved(true);
+        }}
+      >
+        <Field
+          label="Display name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <Field
+          label="Email address"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        {me.admin ? (
+          <Field
+            label="Webhook"
+            type="url"
+            value={webhook}
+            onChange={(e) => setWebhook(e.target.value)}
+            hint="The event as JSON, with a text line chat tools show."
+          />
+        ) : (
+          <p>
+            <span className="muted">Webhook:</span>{' '}
+            {me.webhookUrl ? hookHost(me.webhookUrl) : 'none'}{' '}
+            <span className="muted">(set by an administrator)</span>
+          </p>
+        )}
+        {saved && (
+          <p className="notice ok" role="status">
+            Saved.
+          </p>
+        )}
+      </Form>
+    </section>
+  );
+}
+
 export function Account({ me }: { me: User }) {
   const tokens = useLoad(api.tokens, []);
   const workspaces = useLoad(api.workspaces, []);
@@ -578,6 +657,7 @@ export function Account({ me }: { me: User }) {
   return (
     <>
       <PageHead title="My account" lead={`${me.name} (${me.login})`} />
+      <Profile me={me} />
       <section className="panel" aria-labelledby="tokens">
         <h2 id="tokens">Access tokens</h2>
         <p className="muted">

@@ -497,6 +497,12 @@ export function LaunchConfigPage({
           )}
           <dt>Credentials</dt>
           <dd>{c.credentials.length || 'none'}</dd>
+          <dt>Tells</dt>
+          <dd>
+            {c.notify
+              ? `${c.notify.to.join(', ')}, ${c.notify.when === 'failed' ? 'when a run fails' : 'whenever a run ends'}`
+              : 'nobody'}
+          </dd>
           <dt>Changed</dt>
           <dd>
             <Time at={c.updatedAt} />
@@ -678,6 +684,9 @@ export function LaunchConfigEdit({
     [workspace],
   );
   const [input, setInput] = useState<LaunchConfigInput>({ name: '', flowFile: '', mode: 'check' });
+  // AFS-29: whom its runs tell, and when; typed as names separated by commas.
+  const [tellWhen, setTellWhen] = useState<'' | 'failed' | 'ended'>('');
+  const [tellTo, setTellTo] = useState('');
   const [loaded, setLoaded] = useState(!id);
   useEffect(() => {
     const c = existing.data;
@@ -694,6 +703,8 @@ export function LaunchConfigEdit({
       limit: c.limit ?? '',
       credentials: c.credentials,
     });
+    setTellWhen(c.notify?.when ?? '');
+    setTellTo(c.notify?.to.join(', ') ?? '');
     setLoaded(true);
   }, [existing.data, loaded]);
   const [problem, setProblem] = useState<{ field?: string; message: string }>();
@@ -732,6 +743,13 @@ export function LaunchConfigEdit({
       mode: input.mode ?? 'check',
       limit: blank(input.limit),
       credentials: input.credentials ?? [],
+      notify: (() => {
+        const to = tellTo
+          .split(',')
+          .map((n) => n.trim())
+          .filter(Boolean);
+        return tellWhen && to.length ? { when: tellWhen, to } : null;
+      })(),
     };
     try {
       const saved = id
@@ -759,6 +777,7 @@ export function LaunchConfigEdit({
       'eeImage',
       'limit',
       'credentials',
+      'notify',
     ].includes(problem.field)
       ? problem.message
       : undefined;
@@ -941,6 +960,37 @@ export function LaunchConfigEdit({
             </small>
             {at('credentials') && <small className="bad-text">{at('credentials')}</small>}
           </fieldset>
+          <div className="pair">
+            <Labelled label="Tell">
+              {(props) => (
+                <select
+                  {...props}
+                  value={tellWhen}
+                  onChange={(e) => setTellWhen(e.target.value as '' | 'failed' | 'ended')}
+                >
+                  <option value="">nobody</option>
+                  <option value="failed">when a run fails</option>
+                  <option value="ended">whenever a run ends</option>
+                </select>
+              )}
+            </Labelled>
+            <Labelled
+              label="Whom"
+              hint="Logins and groups, separated by commas."
+              problem={at('notify')}
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  value={tellTo}
+                  onChange={(e) => setTellTo(e.target.value)}
+                  placeholder="network-oncall, dana"
+                  spellCheck={false}
+                  disabled={!tellWhen}
+                />
+              )}
+            </Labelled>
+          </div>
           {(general || fieldless) && (
             <p className="notice error" role="alert">
               {general ?? fieldless}

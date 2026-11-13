@@ -152,6 +152,8 @@ for (const [name, config] of databases) {
     beforeEach(async () => {
       await emptyWorkspaces(db());
       await db().deleteFrom('setting').where('name', '=', 'secrets.check').execute();
+      // Sealed settings of other test files (another key): this file's key is the only one.
+      await db().deleteFrom('setting').where('name', 'like', 'notify.%').execute();
       workspace = (await createWorkspace(db(), { key: 'net', name: 'Network' })).id;
     });
     const refused = (run: () => Promise<unknown>) =>

@@ -119,12 +119,22 @@ const context = (id: string) => `run:${id}`;
 const QUEUE_LOCK = 724_411_019;
 
 export class RunQueue {
+  /**
+   * AFS-29: told of each run that ended (succeeded, failed, cancelled, lost), however it ended,
+   * once what ended it is in the database.
+   */
+  onEnded?: (id: string) => void;
+
   constructor(
     private readonly db: Db,
     private readonly kind: 'sqlite' | 'postgres',
     private readonly key: MasterKey,
     readonly limits: QueueLimits = { maxRuns: 4, perProject: 1 },
   ) {}
+
+  private ended(ids: string[]): void {
+    for (const id of ids) this.onEnded?.(id);
+  }
 
   /** Runs `work` with the queue to itself: numbering and claiming must not interleave. */
   private locked<T>(work: (trx: Db) => Promise<T>): Promise<T> {
@@ -525,7 +535,7 @@ export class RunQueue {
   }
 
   /** How the run ended. False when the worker no longer had it (its word is not taken). */
-  finish(
+  async finish(
     id: string,
     token: string,
     outcome: Outcome,
@@ -534,7 +544,7 @@ export class RunQueue {
     /** How it went, as the designer shows it. */
     view?: unknown,
   ): Promise<boolean> {
-    return this.locked(async (trx) => {
+    const done = await this.locked(async (trx) => {
       const row = await this.leased(trx, id, token, now);
       if (!row) return false;
       await trx
@@ -554,6 +564,8 @@ export class RunQueue {
         .execute();
       return true;
     });
+    if (done) this.ended([id]);
+    return done;
   }
 
   /**
@@ -598,10 +610,12 @@ export class RunQueue {
    * has is asked to stop, and the worker says when it has. Undefined when there is no such run;
    * a run that has ended is left as it is.
    */
-  cancel(id: string, by: string, now = new Date()): Promise<Run | undefined> {
-    return this.locked(async (trx) => {
+  async cancel(id: string, by: string, now = new Date()): Promise<Run | undefined> {
+    let endedNow = false;
+    const run = await this.locked(async (trx) => {
       const row = await trx.selectFrom('run').selectAll().where('id', '=', id).executeTakeFirst();
       if (!row) return undefined;
+      endedNow = row.state === 'queued' || row.state === 'waiting';
       if (row.state === 'queued' || row.state === 'waiting')
         await trx
           .updateTable('run')
@@ -623,14 +637,17 @@ export class RunQueue {
       const after = await trx.selectFrom('run').selectAll().where('id', '=', id).executeTakeFirst();
       return after ? this.of(after) : undefined;
     });
+    if (endedNow) this.ended([id]);
+    return run;
   }
 
   /**
    * Runs whose lease ran out: the worker stopped answering. Not started yet: back in the queue
    * (or cancelled, if that was asked; or lost after MAX_ATTEMPTS). Started: lost.
    */
-  expire(now = new Date()): Promise<{ requeued: number; lost: number; cancelled: number }> {
-    return this.locked(async (trx) => {
+  async expire(now = new Date()): Promise<{ requeued: number; lost: number; cancelled: number }> {
+    const gone: string[] = [];
+    const result = await this.locked(async (trx) => {
       const rows = await trx
         .selectFrom('run')
         .selectAll()
@@ -687,8 +704,12 @@ export class RunQueue {
           counts.lost++;
         else if (row.cancel_requested === 1) counts.cancelled++;
         else counts.requeued++;
+        if (row.started_at || row.cancel_requested === 1 || row.attempts >= MAX_ATTEMPTS)
+          gone.push(row.id);
       }
       return counts;
     });
+    this.ended(gone);
+    return result;
   }
 }

@@ -22,6 +22,8 @@ export interface ApprovalDeps {
   db: Kysely<Schema>;
   queue: RunQueue;
   hub?: RunHub;
+  /** AFS-29: told of each decision. */
+  decided?: (run: string, gate: string) => void;
 }
 
 export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): void {
@@ -134,6 +136,7 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
           .send({ error: 'decided', message: 'Someone decided it a moment ago' });
       await queue.resume(run.id);
       deps.hub?.publish(run.id, { kind: 'state' });
+      deps.decided?.(run.id, gate.id);
       request.log.info(
         { by: me.login, run: run.id, number: run.number, gate: gate.node.key, decision },
         'Approval decided',

@@ -270,6 +270,16 @@ fieldset {
   padding: 1rem;
   margin-bottom: 1rem;
 }
+/* Panels side by side where there is room, one under another on a phone. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.columns > .panel {
+  margin-bottom: 0;
+}
 .cards {
   list-style: none;
   padding: 0;
