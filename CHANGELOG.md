@@ -34,6 +34,12 @@ Nothing is released yet.
   - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
+- Approvals: a flow with approval steps stops at each one until someone allowed decides, then goes on with the hosts that waited. See [Approvals](README.md#approvals).
+  - Whoever has the `approve` grant decides; when the approval names its approvers in the flow, only they. Who launched the run does not, unless the workspace allows it.
+  - Decide with a comment on the **Approvals** page, on the run's page, on the canvas, or over the API. Who decided, when and why is shown with the run and kept in the audit log.
+  - An approval with a timeout that nobody decides in time sends its hosts through its timeout port.
+  - A waiting run holds no container, and still waits after the server restarts.
+  - The `approve` grant lets its holder see the flows and runs they decide.
 - Access levels: administrators give a user or a group `ro`, `operator`, `rw` or `approve` on a whole workspace or on one flow, on the workspace's page or over the API. See [Access levels](README.md#access-levels).
   - `ro` sees the workspace's projects, flows, launch configurations and runs, and clones; `operator` also launches as a configuration says and stops runs; `rw` also launches another branch or commit, manages launch configurations and pushes through the server.
   - A grant on one flow replaces the workspace's for that flow; the highest of a person's own and their groups' grants counts.

@@ -64,3 +64,9 @@ server decides either way. Administrators give and take grants on the workspace'
 - Every request of a non-administrator reads their grants once (and their groups').
 - A new route names its level in the catalog, or it is open to anyone signed in, and the test
   that looks for that fails.
+
+## Amendment (2026-11-13, AFS-28)
+
+`approve` now lets its holder see what it covers, as `ro` (flows, runs, launch configurations,
+credentials' names, clone): an approver must be able to look at what they decide. It never
+lowers another grant: a person with `rw` and `approve` keeps `rw`.

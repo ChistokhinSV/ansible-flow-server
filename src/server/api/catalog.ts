@@ -303,6 +303,21 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('What you may do in a project: your level on it and on each flow'),
+  'GET /api/v1/approvals': S(
+    'Approvals',
+    'signed in',
+    'server',
+  )('Approvals that wait for a decision, that you may see; each says whether you may decide it'),
+  'GET /api/v1/runs/:id/approvals': S(
+    'Approvals',
+    'signed in',
+    R,
+  )("A run's approvals: waiting or decided, by whom, when, why; whether you may decide each"),
+  'POST /api/v1/runs/:id/approvals/:node': S(
+    'Approvals',
+    'signed in',
+    R,
+  )('Decide an approval the run waits at: approved or rejected, with a comment; the run goes on'),
   'GET /api/v1/audit': S(
     'Audit',
     'administrators',
@@ -352,6 +367,10 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/runs/:id/events': 'ro',
   'POST /api/v1/runs/:id/cancel': 'operator',
   'POST /api/v1/runs/:id/relaunch': 'operator',
+  // An approver sees what they decide: approve counts as ro; deciding is checked by the handler
+  // (the approve grant, the approval's approvers, self-approval).
+  'GET /api/v1/runs/:id/approvals': 'ro',
+  'POST /api/v1/runs/:id/approvals/:node': 'ro',
 };
 for (const [route, who] of Object.entries(NEEDS)) {
   const doc = ROUTES[route];

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { ApiDocs } from './apidocs';
+import { ApprovalsPage } from './approvals';
 import { AdminPage, AuditPage } from './audit';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import {
@@ -52,6 +53,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (one?.id) return <RunPage id={one.id} me={me} theme={theme} />;
   if (path === '/account') return <Account me={me} />;
   if (path === '/docs/api') return <ApiDocs />;
+  if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
   const config = match('/w/:workspace/:project/launch/:id', path);
@@ -134,6 +136,9 @@ export function App() {
             </Link>
             <Link to="/runs" aria-current={at('/runs')}>
               Runs
+            </Link>
+            <Link to="/approvals" aria-current={at('/approvals')}>
+              Approvals
             </Link>
             {me.admin && (
               <Link to="/admin" aria-current={at('/admin')}>

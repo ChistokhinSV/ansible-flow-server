@@ -70,6 +70,8 @@ export interface WorkspaceTable {
   key: string;
   name: string;
   description: string | null;
+  /** AFS-28: who launched a run may decide its approvals too. Default no. */
+  self_approve: Flag;
   created_at: IsoTime;
   updated_at: IsoTime;
 }
@@ -238,6 +240,34 @@ export interface RunTable {
   view_json: string | null;
   /** The designer's folder of the run: its events. */
   run_dir: string | null;
+  /** AFS-28: a run of a flow with approvals: the segments it ran ([{name, dir}]), as JSON. */
+  segments_json: string | null;
+}
+
+/**
+ * AFS-28: an approval a run reached. The run waits until someone decides it or its time is up,
+ * then goes on with the segment the decision picks.
+ */
+export interface RunGateTable {
+  id: string;
+  run_id: string;
+  /** The approval node (its id and key) and the segment that waits at it. */
+  node_id: string;
+  node_key: string;
+  title: string;
+  segment: string;
+  /** waiting, approved, rejected, timed out, cancelled. */
+  status: string;
+  /** The host sets the segment carried, as JSON: what the next segment starts with. */
+  carried_json: string;
+  /** When it times out (the node's settings.timeout), or null. */
+  deadline: IsoTime | null;
+  /** The node's approvers, notify and message when the run reached it, as JSON. */
+  approval_json: string | null;
+  decided_by: string | null;
+  decided_at: IsoTime | null;
+  comment: string | null;
+  created_at: IsoTime;
 }
 
 /** One thing someone did (or tried), as the audit log keeps it. Rows are only added. */
@@ -284,6 +314,7 @@ export interface AccessGrantTable {
 }
 
 export interface Schema {
+  run_gate: RunGateTable;
   access_grant: AccessGrantTable;
   audit_entry: AuditEntryTable;
   run: RunTable;

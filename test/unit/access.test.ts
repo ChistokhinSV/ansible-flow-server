@@ -174,7 +174,7 @@ for (const [name, config] of databases) {
       expect(fiona.sees(toys.workspace)).toBe(false);
       const april = await of('april');
       expect(april.approves(core.workspace)).toBe(true);
-      expect(april.onWorkspace(core.workspace)).toBeUndefined();
+      expect(april.onWorkspace(core.workspace)).toBe('ro');
       expect((await of('rita')).approves(core.workspace)).toBe(false);
     });
 
@@ -223,14 +223,14 @@ for (const [name, config] of databases) {
         'flow A',
         () => `/api/v1/projects/${core.id}/flows/view?path=${A}`,
         undefined,
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: OK, nina: 404 },
       ],
       [
         'GET',
         'flow B',
         () => `/api/v1/projects/${core.id}/flows/view?path=${B}`,
         undefined,
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: 403, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: 403, april: OK, nina: 404 },
       ],
       [
         'POST',
@@ -244,21 +244,21 @@ for (const [name, config] of databases) {
         'credentials',
         () => '/api/v1/workspaces/net/credentials',
         undefined,
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: 403, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: 403, april: OK, nina: 404 },
       ],
       [
         'GET',
         'config A',
         () => `/api/v1/launch-configs/${c1}`,
         undefined,
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: OK, nina: 404 },
       ],
       [
         'POST',
         'check A',
         () => `/api/v1/launch-configs/${c1}/check`,
         {},
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: OK, nina: 404 },
       ],
       [
         'POST',
@@ -305,7 +305,7 @@ for (const [name, config] of databases) {
         'run of A',
         () => `/api/v1/runs/${run}`,
         undefined,
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: OK, april: OK, nina: 404 },
       ],
       [
         'POST',
@@ -335,7 +335,7 @@ for (const [name, config] of databases) {
         'git clone',
         () => '/git/net/core.git/info/refs?service=git-upload-pack',
         undefined,
-        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: 403, april: 403, nina: 404 },
+        { dana: OK, rita: OK, otto: OK, wanda: OK, gary: OK, fiona: 403, april: OK, nina: 404 },
       ],
       [
         'GET',
@@ -419,7 +419,7 @@ for (const [name, config] of databases) {
       }[];
       const by = Object.fromEntries(who.map((w) => [w.user.login, w]));
       expect(by.gary).toMatchObject({ workspace: 'rw', flows: [{ file: B, level: 'ro' }] });
-      expect(by.april).toMatchObject({ workspace: null, approve: true });
+      expect(by.april).toMatchObject({ workspace: 'ro', approve: true });
       expect(by.nina).toMatchObject({ workspace: 'ro' });
       const gone = await app.inject({
         method: 'DELETE',

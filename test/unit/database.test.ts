@@ -31,6 +31,7 @@ for (const [name, config] of databases) {
         for (const table of [
           'audit_entry',
           'access_grant',
+          'run_gate',
           'run',
           'launch_config_credential',
           'launch_config',

@@ -596,3 +596,38 @@ textarea {
 .method.get {
   color: var(--ok);
 }
+
+/* --- approvals */
+.gate {
+  display: grid;
+  gap: 0.35rem;
+}
+.gate + .gate {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.gate p {
+  margin: 0;
+}
+.gate .comment {
+  display: block;
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+.form.decide textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+}
+.rows.approvals {
+  display: grid;
+  gap: 0.75rem;
+}
+.rows.approvals > li {
+  list-style: none;
+}

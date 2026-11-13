@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import { api, type Run, type User } from './api';
+import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import { Loading, PageHead, Time, useLoad } from './ui';
@@ -209,6 +210,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           {run.error}
         </p>
       )}
+      <RunApprovals run={run.id} changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`} />
       <section className="panel" aria-labelledby="facts">
         <h2 id="facts">What ran</h2>
         <dl className="facts">

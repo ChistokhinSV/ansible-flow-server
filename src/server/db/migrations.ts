@@ -267,6 +267,39 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-28: approval gates.
+  '0014_approval_gates': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('workspace')
+        .addColumn('self_approve', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+      await db.schema.alterTable('run').addColumn('segments_json', 'text').execute();
+      await db.schema
+        .createTable('run_gate')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('run_id', 'text', (c) => c.notNull())
+        .addColumn('node_id', 'text', (c) => c.notNull())
+        .addColumn('node_key', 'text', (c) => c.notNull())
+        .addColumn('title', 'text', (c) => c.notNull())
+        .addColumn('segment', 'text', (c) => c.notNull())
+        .addColumn('status', 'text', (c) => c.notNull())
+        .addColumn('carried_json', 'text', (c) => c.notNull())
+        .addColumn('deadline', 'text')
+        .addColumn('approval_json', 'text')
+        .addColumn('decided_by', 'text')
+        .addColumn('decided_at', 'text')
+        .addColumn('comment', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema.createIndex('run_gate_run').on('run_gate').columns(['run_id']).execute();
+      await db.schema
+        .createIndex('run_gate_status')
+        .on('run_gate')
+        .columns(['status', 'deadline'])
+        .execute();
+    },
+  },
   // AFS-27: access levels.
   '0013_access_grants': {
     async up(db: Kysely<unknown>) {

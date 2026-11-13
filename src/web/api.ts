@@ -1,6 +1,7 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
 import type { Grant, GrantLevel, Level } from '../server/access/types';
+import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { Group, User } from '../server/auth/users';
@@ -17,6 +18,7 @@ export type {
   Credential,
   FlowList,
   FlowSummary,
+  Gate,
   Grant,
   GrantLevel,
   Group,
@@ -32,6 +34,7 @@ export type {
   Run,
   TokenInfo,
   User,
+  WaitingApproval,
   Workspace,
 };
 
@@ -184,6 +187,19 @@ export const api = {
   launch: (id: string, request: LaunchRequest) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 
+  approvals: () => call<WaitingApproval[]>('GET', '/approvals'),
+  runApprovals: (run: string) =>
+    call<(Gate & { mayDecide: boolean; why?: string })[]>(
+      'GET',
+      `/runs/${encodeURIComponent(run)}/approvals`,
+    ),
+  decide: (run: string, node: string, decision: 'approved' | 'rejected', comment?: string) =>
+    call<Gate>('POST', `/runs/${encodeURIComponent(run)}/approvals/${encodeURIComponent(node)}`, {
+      decision,
+      ...(comment?.trim() ? { comment: comment.trim() } : {}),
+    }),
+  setSelfApprove: (workspace: string, selfApprove: boolean) =>
+    call<Workspace>('PATCH', `/workspaces/${encodeURIComponent(workspace)}`, { selfApprove }),
   projectAccess: (id: string) => call<ProjectAccess>('GET', `/projects/${id}/access`),
   grants: (workspace: string) =>
     call<Grant[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/grants`),

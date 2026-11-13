@@ -96,10 +96,48 @@ async function start(): Promise<void> {
     stream = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
     stream.addEventListener('view', (event) => {
       const view = JSON.parse((event as MessageEvent).data);
-      // Named by the server's run id, as the run list names it, so the canvas knows it there.
-      send({ type: 'run', run: { ...view, id, ...(past ? { past: true } : {}) } });
+      void decidable(id, view).then((approvals) =>
+        // Named by the server's run id, as the run list names it, so the canvas knows it there.
+        send({
+          type: 'run',
+          run: {
+            ...view,
+            id,
+            ...(approvals ? { approvals } : {}),
+            ...(past ? { past: true } : {}),
+          },
+        }),
+      );
     });
     stream.addEventListener('end', () => stream?.close());
+  };
+
+  /**
+   * AFS-28: an approval that waits says whether this person may decide it here; the server
+   * knows (the approve grant, the approval's approvers, who launched the run).
+   */
+  const decidable = async (
+    id: string,
+    view: { approvals?: Record<string, { status: string; mayDecide?: boolean }> },
+  ) => {
+    const approvals = view.approvals;
+    if (!approvals || !Object.values(approvals).some((a) => a.status === 'waiting'))
+      return approvals;
+    const gates = await get(`/api/v1/runs/${encodeURIComponent(id)}/approvals`).catch(
+      () => undefined,
+    );
+    if (!gates?.ok) return approvals;
+    const may = new Set(
+      (gates.data as { node: { id: string }; mayDecide: boolean }[])
+        .filter((g) => g.mayDecide)
+        .map((g) => g.node.id),
+    );
+    return Object.fromEntries(
+      Object.entries(approvals).map(([node, a]) => [
+        node,
+        a.status === 'waiting' && may.has(node) ? { ...a, mayDecide: true } : a,
+      ]),
+    );
   };
 
   const runs = async () => {
@@ -148,6 +186,24 @@ async function start(): Promise<void> {
                   send({ type: 'notify', level: 'error', text: 'You may not stop this run' });
               });
             return;
+          case 'approve': {
+            if (!shown) return;
+            const { node, decision, comment } = message;
+            void fetch(
+              `/api/v1/runs/${encodeURIComponent(shown)}/approvals/${encodeURIComponent(node)}`,
+              {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ decision, ...(comment ? { comment } : {}) }),
+              },
+            ).then(async (reply) => {
+              if (reply.ok) return;
+              const why = (await reply.json().catch(() => undefined))?.message;
+              send({ type: 'notify', level: 'error', text: why ?? 'The decision was not taken' });
+            });
+            return;
+          }
           case 'runOutput': {
             const reqId = message.reqId;
             if (!shown) {

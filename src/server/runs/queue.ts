@@ -226,6 +226,7 @@ export class RunQueue {
         error: null,
         view_json: null,
         run_dir: null,
+        segments_json: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
@@ -417,6 +418,53 @@ export class RunQueue {
     return row?.run_dir ?? undefined;
   }
 
+  /**
+   * AFS-28: the segments a run of a flow with approvals has run, in order, each with the
+   * designer's folder of its events. A run without approvals has none (its folder is run_dir).
+   */
+  async segments(id: string): Promise<{ name: string; dir: string }[]> {
+    const row = await this.db
+      .selectFrom('run')
+      .select('segments_json')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row?.segments_json ? JSON.parse(row.segments_json) : [];
+  }
+
+  /** A segment begins: its folder is the run's current one, after the segments before it. */
+  addSegment(
+    id: string,
+    token: string,
+    segment: { name: string; dir: string },
+    now = new Date(),
+  ): Promise<boolean> {
+    return this.locked(async (trx) => {
+      const row = await this.leased(trx, id, token, now);
+      if (!row) return false;
+      const list = row.segments_json ? JSON.parse(row.segments_json) : [];
+      await trx
+        .updateTable('run')
+        .set({
+          segments_json: JSON.stringify([...list, segment]),
+          run_dir: segment.dir,
+          ...(row.started_at ? {} : { started_at: iso(now) }),
+          updated_at: iso(now),
+        })
+        .where('id', '=', id)
+        .execute();
+      return true;
+    });
+  }
+
+  /** How the run went so far, while it waits: what its page and canvas show. */
+  async saveView(id: string, view: unknown, now = new Date()): Promise<void> {
+    await this.db
+      .updateTable('run')
+      .set({ view_json: JSON.stringify(view), updated_at: iso(now) })
+      .where('id', '=', id)
+      .execute();
+  }
+
   /** When the run's record last changed: watchers compare it to know there is news. */
   async changedAt(id: string): Promise<string | undefined> {
     const row = await this.db
@@ -469,6 +517,7 @@ export class RunQueue {
         error: null,
         view_json: null,
         run_dir: null,
+        segments_json: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
