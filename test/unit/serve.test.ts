@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Config } from '../../src/server/config';
+import { migrationNames } from '../../src/server/db/migrations';
 import { createLogger } from '../../src/server/log';
 import { startServer } from '../../src/server/serve';
 
@@ -45,7 +46,7 @@ describe('startServer', () => {
     await expect(fetch(`${server.url}/healthz`)).rejects.toThrow();
     const text = first.lines.join('\n');
     expect(text).toContain('Database ready kind=sqlite');
-    expect(text).toContain('changes=1');
+    expect(text).toContain(`changes=${migrationNames().length}`);
     expect(text.match(/Shutting down/g)).toHaveLength(1);
     expect(first.lines.at(-1)).toContain('Stopped');
 

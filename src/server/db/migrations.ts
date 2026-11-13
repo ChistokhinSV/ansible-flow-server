@@ -18,6 +18,62 @@ const MIGRATIONS: Record<string, Migration> = {
         .execute();
     },
   },
+  // AFS-12: people, groups and sign-ins.
+  '0002_users': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('user_account')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('login', 'text', (c) => c.notNull().unique())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('email', 'text')
+        .addColumn('webhook_url', 'text')
+        .addColumn('password_hash', 'text')
+        .addColumn('is_admin', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('disabled', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addColumn('last_login_at', 'text')
+        .execute();
+      await db.schema
+        .createTable('user_group')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('name', 'text', (c) => c.notNull().unique())
+        .addColumn('email', 'text')
+        .addColumn('webhook_url', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('group_member')
+        .addColumn('group_id', 'text', (c) =>
+          c.notNull().references('user_group.id').onDelete('cascade'),
+        )
+        .addColumn('user_id', 'text', (c) =>
+          c.notNull().references('user_account.id').onDelete('cascade'),
+        )
+        .addPrimaryKeyConstraint('group_member_pk', ['group_id', 'user_id'])
+        .execute();
+      await db.schema
+        .createIndex('group_member_user')
+        .on('group_member')
+        .column('user_id')
+        .execute();
+      await db.schema
+        .createTable('session')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('user_id', 'text', (c) =>
+          c.notNull().references('user_account.id').onDelete('cascade'),
+        )
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('last_seen_at', 'text', (c) => c.notNull())
+        .addColumn('expires_at', 'text', (c) => c.notNull())
+        .addColumn('ip', 'text')
+        .addColumn('user_agent', 'text')
+        .execute();
+      await db.schema.createIndex('session_user').on('session').column('user_id').execute();
+    },
+  },
 };
 
 const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };

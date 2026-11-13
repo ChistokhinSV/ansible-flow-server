@@ -27,10 +27,17 @@ for (const [name, config] of databases) {
       if (!config) return;
       database = openDatabase(config);
       if (database.kind === 'postgres') {
-        // A database the tests own: start from nothing.
-        await sql`drop table if exists setting`.execute(database.db);
-        await sql`drop table if exists kysely_migration`.execute(database.db);
-        await sql`drop table if exists kysely_migration_lock`.execute(database.db);
+        // A database the tests own: start from nothing. Children before their parents.
+        for (const table of [
+          'session',
+          'group_member',
+          'user_group',
+          'user_account',
+          'setting',
+          'kysely_migration',
+          'kysely_migration_lock',
+        ])
+          await sql`drop table if exists ${sql.table(table)}`.execute(database.db);
       }
     });
     afterAll(async () => {

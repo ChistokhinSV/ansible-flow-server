@@ -45,6 +45,10 @@ check-flows *flows: build
 cert *args: build
     node dist/server.js cert {{ args }}
 
+# The people who sign in: `just user list`, add, password, enable, disable, admin
+user *args: build
+    node dist/server.js user {{ args }}
+
 # Remove build output
 clean:
     node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"

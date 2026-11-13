@@ -14,8 +14,9 @@ own code, with who may run what, who must approve, and a record of every run.
 ## Status
 
 **Early development: there is nothing to deploy yet.** The server starts, keeps a database
-(SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, answers
-health checks and says what it is; it can read and check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
+(SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
+users and groups and signs them in, answers health checks and says what it is; it can read and
+check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
 
 | Planned for 1.0                                                            | State   |
@@ -175,6 +176,59 @@ A running server serves it to new connections from now on.
 Not there yet: the same actions in the web page and over the REST API (they need sign-in first),
 PFX files, and automatic certificates (ACME).
 
+### People, groups and sign-in
+
+A new server has no user. At start it writes a setup code to its log; the first administrator is
+made with it, so by someone who can read the server's log:
+
+```text
+[09:44:38 13.11.2026] WARN  No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
+```
+
+```sh
+curl --cacert data/tls/certificate.pem --cookie-jar cookies.txt \
+  -H 'content-type: application/json' https://flows.example.net:8443/api/v1/setup \
+  -d '{"code":"Jq3vN0c4TzWk","login":"dana","name":"Dana Whitfield","password":"<a long passphrase>"}'
+```
+
+or, on the server's machine, with no code and the password typed unseen:
+
+```sh
+just user add dana --name "Dana Whitfield" --admin
+```
+
+| Address (under `/api/v1`) | Does                                         | Who            |
+| ------------------------- | -------------------------------------------- | -------------- |
+| `POST /session`           | Sign in with `{"login","password"}`          | anyone         |
+| `GET /session`            | Who am I, with my groups                     | signed in      |
+| `DELETE /session`         | Sign out                                     | anyone         |
+| `PUT /session/password`   | Change my password: `{"current","password"}` | signed in      |
+| `/users`, `/users/:id`    | List, add, change, disable, delete people    | administrators |
+| `PUT /users/:id/password` | Set someone's password                       | administrators |
+| `/groups`, `/groups/:id`  | List, add, change, delete groups             | administrators |
+| `PUT /groups/:id/members` | Set a group's members: `{"users":[ids]}`     | administrators |
+
+- A password has at least 12 characters and is kept only as an argon2id hash.
+- A session lasts 8 hours without use and 7 days at most. Its cookie is not readable by scripts
+  and is sent over HTTPS only.
+- After five wrong passwords for a login in fifteen minutes, sign-in for it waits.
+- The last administrator cannot be demoted, disabled or deleted.
+- A person and a group each have an email address and a webhook address: where a notification
+  for them will go.
+
+When nobody can sign in, the way back is the machine the server runs on:
+
+| Command                                         | Does                                                  |
+| ----------------------------------------------- | ----------------------------------------------------- |
+| `user list`                                     | Everyone, with level, state and groups                |
+| `user add <login> [--name] [--email] [--admin]` | Adds a person; the password is typed unseen, or piped |
+| `user password <login>`                         | Sets a password and ends that person's sessions       |
+| `user disable <login>`, `user enable <login>`   | Disabling signs the person out                        |
+| `user admin <login> on\|off`                    | Makes, or unmakes, an administrator                   |
+
+Not there yet: the pages for all this, levels on workspaces and flows, sign-in with OIDC or LDAP,
+and tokens for scripts.
+
 ## Development
 
 | Command                    | Does                                                                                             |
@@ -188,6 +242,7 @@ PFX files, and automatic certificates (ACME).
 | `just start`               | Build, then start the server                                                                     |
 | `just check-flows <files>` | Build, then read the given flow files                                                            |
 | `just cert <command>`      | Build, then run a certificate command                                                            |
+| `just user <command>`      | Build, then run a user command                                                                   |
 
 Layout:
 

@@ -2,6 +2,7 @@
 // (/healthz), whether it can do its work (/readyz: the database answers), and what it is
 // (/api/v1/meta, which clients read before they talk to it).
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
+import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import type { Logger } from './log';
 import { type ServerMeta, serverMeta } from './meta';
@@ -18,6 +19,8 @@ export interface AppDeps {
    * (X-Forwarded-Proto): only for a server behind a proxy that does HTTPS.
    */
   trustedProxies?: string[];
+  /** Mark the session cookie for HTTPS only. Default: when the server speaks HTTPS itself. */
+  secureCookies?: boolean;
 }
 
 export interface MetaReply extends ServerMeta {
@@ -34,6 +37,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     bodyLimit: 1024 * 1024,
     // On shutdown: finish what is in flight, close the connections that are only kept alive.
     forceCloseConnections: 'idle',
+    // A field a request has no business sending is refused, not quietly dropped: the sender
+    // learns that it had no effect.
+    ajv: { customOptions: { removeAdditional: false } },
     ...(deps.https ? { https: deps.https } : {}),
     ...(deps.trustedProxies?.length ? { trustProxy: deps.trustedProxies } : {}),
     // The type of the instance differs with HTTPS; the rest of the server uses neither's own.
@@ -52,6 +58,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
   app.addHook('onResponse', async () => {
     if (closing) setImmediate(() => app.server.closeIdleConnections());
+  });
+
+  registerAuth(app, {
+    db: deps.database.db,
+    // Behind a proxy the server itself speaks plain HTTP, but people reach it over HTTPS.
+    secureCookies: deps.secureCookies ?? !!deps.https,
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
@@ -86,13 +98,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
     if (status >= 500) request.log.error({ err: error }, 'The request failed');
     // What went wrong inside stays inside: a 500 says only that it happened, and which request.
-    return reply
-      .code(status)
-      .send(
-        status >= 500
-          ? { error: 'internal', message: 'The server could not do this', request: request.id }
-          : { error: error.code ?? 'bad_request', message: error.message },
-      );
+    return reply.code(status).send(
+      status >= 500
+        ? { error: 'internal', message: 'The server could not do this', request: request.id }
+        : {
+            error: error.validation ? 'invalid' : (error.code ?? 'bad_request'),
+            message: error.message,
+          },
+    );
   });
 
   return app;
