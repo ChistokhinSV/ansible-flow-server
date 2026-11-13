@@ -28,6 +28,8 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       runsKeepDays: 90,
       auditKeepDays: 365,
       notificationsKeepDays: 30,
+      devBundleMaxMb: 50,
+      devKeepHours: 24,
       runsKeepPerFlow: 200,
       maxRuns: 4,
       maxRunsPerProject: 1,

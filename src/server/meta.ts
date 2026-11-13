@@ -25,6 +25,7 @@ export const FEATURES = [
   'notifications',
   'workspace-tokens',
   'mcp',
+  'dev-runs',
 ] as const;
 
 export interface ServerMeta {

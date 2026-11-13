@@ -17,6 +17,7 @@ import { type Config, publicHost, withoutPassword } from './config';
 import { openDatabase } from './db/database';
 import { migrate } from './db/migrations';
 import { instanceId } from './db/settings';
+import { pruneDevBundles } from './launch/dev';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
 import { emailChannel, webhookChannel } from './notify/channels';
@@ -266,6 +267,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       notifier: notify,
+      dev: { maxBytes: config.devBundleMaxMb * 1024 * 1024, keepHours: config.devKeepHours },
       ...(config.publicUrl ? { publicUrl: config.publicUrl } : {}),
       trustedProxies: config.trustedProxies,
       // Plain HTTP by the server itself is only for behind a proxy that does HTTPS; when the
@@ -330,6 +332,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
             if (n) log.info({ entries: n }, 'Removed audit entries past their keeping');
           },
           (e) => log.error({ err: e }, 'Removing old audit entries failed'),
+        ),
+      );
+      track(
+        pruneDevBundles(database.db, git).then(
+          (n) => {
+            if (n) log.info({ bundles: n }, 'Removed dev bundles past their time');
+          },
+          (e) => log.error({ err: e }, 'Removing old dev bundles failed'),
         ),
       );
       track(

@@ -395,6 +395,7 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
       .where('run_id', 'in', (eb) => eb.selectFrom('run').select('id').where('project_id', '=', id))
       .execute();
     await trx.deleteFrom('run').where('project_id', '=', id).execute();
+    await trx.deleteFrom('dev_bundle').where('project_id', '=', id).execute();
     await trx.deleteFrom('git_push').where('project_id', '=', id).execute();
     await trx
       .deleteFrom('launch_config_credential')

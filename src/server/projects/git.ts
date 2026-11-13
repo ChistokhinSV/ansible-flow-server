@@ -209,6 +209,9 @@ export class Git {
       'core.fsmonitor=false',
       '-c',
       'gc.auto=0',
+      // AFS-26: dev runs' commits live under refs/afs: never shown to a client, never taken from one.
+      '-c',
+      'transfer.hideRefs=refs/afs',
       // On Windows git asks the system's own store unless told to use the file it is given.
       ...(this.caFile ? ['-c', 'http.schannelUseSSLCAInfo=true'] : []),
     ];
@@ -423,6 +426,55 @@ export class Git {
     }).catch(() => undefined);
     await rm(dir, { recursive: true, force: true });
     await this.run(['--git-dir', mirror, 'worktree', 'prune'], {
+      timeoutMs: READ_TIMEOUT_MS,
+    }).catch(() => undefined);
+  }
+
+  /**
+   * AFS-26: takes a git bundle of someone's work (one ref) into the repository under
+   * refs/afs/dev/<id>, without touching any branch or reaching anything outside: the bundle is
+   * checked against what the repository has, its objects are unpacked, the ref points at its one
+   * head. Resolves with that commit.
+   */
+  async devBundle(projectId: string, file: string, id: string): Promise<string> {
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new GitError('Not a bundle id');
+    const cwd = this.mirror(projectId);
+    try {
+      await this.run(['bundle', 'verify', '--quiet', file], { cwd, timeoutMs: FETCH_TIMEOUT_MS });
+    } catch (e) {
+      const said = (e as GitError).message;
+      throw new GitError(
+        /prerequisite|lacks/i.test(said)
+          ? 'The bundle starts from a commit the server does not have: bundle from a commit the server has, or the whole history'
+          : `Not a git bundle the server can read: ${said}`,
+      );
+    }
+    const heads = (
+      await this.run(['bundle', 'list-heads', file], { cwd, timeoutMs: READ_TIMEOUT_MS })
+    )
+      .toString('utf8')
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => line.split(' ')[0] as string);
+    if (heads.length !== 1 || !COMMIT.test(heads[0] ?? ''))
+      throw new GitError('A dev run takes a bundle of one ref (the work to run)');
+    const commit = heads[0] as string;
+    await this.run(['bundle', 'unbundle', file], { cwd, timeoutMs: FETCH_TIMEOUT_MS });
+    if (!(await this.hasCommit(projectId, commit)))
+      throw new GitError('The bundle does not hold the commit it names');
+    await this.run(['update-ref', `refs/afs/dev/${id}`, commit], {
+      cwd,
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return commit;
+  }
+
+  /** AFS-26: lets go of a dev run's commit (its objects stay until the repository is cleaned). */
+  async dropDev(projectId: string, id: string): Promise<void> {
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) return;
+    await this.run(['update-ref', '-d', `refs/afs/dev/${id}`], {
+      cwd: this.mirror(projectId),
       timeoutMs: READ_TIMEOUT_MS,
     }).catch(() => undefined);
   }

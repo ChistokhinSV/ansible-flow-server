@@ -169,6 +169,8 @@ problem is named.
 | `AFS_RUNS_KEEP_PER_FLOW`      | `200`                                                | Of one flow in one project, at most this many ended runs are kept       |
 | `AFS_AUDIT_KEEP_DAYS`         | `365`                                                | Audit entries older than this are removed; `0` keeps them all           |
 | `AFS_NOTIFICATIONS_KEEP_DAYS` | `30`                                                 | Notifications sent or given up on are kept this many days               |
+| `AFS_DEV_BUNDLE_MAX_MB`       | `50`                                                 | The largest bundle of unpushed work a dev run takes                     |
+| `AFS_DEV_KEEP_HOURS`          | `24`                                                 | How long the server keeps a dev run's work                              |
 | `AFS_GIT_LOCAL`               | `off`                                                | `on`: a project's repository may be a folder of this machine            |
 | `AFS_DATA_DIR`                | `data`                                               | Where the server keeps what it owns                                     |
 | `AFS_DATABASE_URL`            | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
@@ -768,6 +770,31 @@ docker run -d --name flow-server \
   -v /srv/flow-server:/srv/flow-server -e AFS_DATA_DIR=/srv/flow-server/data \
   -e AFS_TLS=off -e AFS_HOST=0.0.0.0 -p 8080:8080 \
   <an image with Node.js 24, git and the docker command> node dist/server.js
+```
+
+### Dev runs
+
+Someone with `rw` on a workspace can check work they have not pushed yet: VS Code's **Check My
+Work on Server** (Ansible Flow Designer) sends it, committed or not, and the server runs it in
+**check mode** with the flow's launch configuration. A real run still takes a commit of the
+project's branch.
+
+- The work comes as a git bundle (`POST /api/v1/projects/<id>/dev-bundles`,
+  `content-type: application/x-git-bundle`, one ref), at most `AFS_DEV_BUNDLE_MAX_MB` (50). It
+  starts from a commit the server has, or carries its whole history.
+- The server keeps its commit under a ref of its own (`refs/afs/dev/<id>`) for
+  `AFS_DEV_KEEP_HOURS` (24): never on a branch, never passed on to an external project's source,
+  never shown to anyone who clones, fetches or pushes.
+- A launch that names it (`{"dev": "<id>"}`) runs it in check mode; `rw` on the flow. `"mode":
+  "real"` is refused. An expired bundle says to send the work again.
+- The run is a **dev run** in the run list, on its page and in the API (`"dev": true`); the upload
+  is in the audit log (`dev-bundle.upload`).
+
+```sh
+git update-ref refs/afd-dev/run HEAD
+git bundle create work.bundle refs/afd-dev/run ^<the server's commit>
+curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/x-git-bundle' \
+  --data-binary @work.bundle https://flows.example.net:8443/api/v1/projects/<id>/dev-bundles
 ```
 
 ### Approvals

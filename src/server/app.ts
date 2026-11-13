@@ -53,6 +53,8 @@ export interface AppDeps {
   notifier?: Notifier;
   /** The address people use for the server (AFS_PUBLIC_URL), for links in messages. */
   publicUrl?: string;
+  /** AFS-26: a dev run's bundle at most this many bytes, kept this many hours. */
+  dev?: { maxBytes: number; keepHours: number };
 }
 
 export interface MetaReply extends ServerMeta {
@@ -110,6 +112,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       git: deps.projects.git,
       sync: deps.projects.sync,
       ...(deps.runs ? { queue: deps.runs } : {}),
+      ...(deps.dev ? { dev: deps.dev } : {}),
     });
   }
 

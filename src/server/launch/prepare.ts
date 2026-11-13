@@ -22,6 +22,8 @@ export interface LaunchRequest {
   ref?: string;
   /** One commit. */
   commit?: string;
+  /** AFS-26: a dev bundle's id: its commit runs, in check mode only. */
+  dev?: string;
   /** The inputs as typed: text per input, read as the input's type. */
   inputs?: Record<string, string>;
   limit?: string;
@@ -50,6 +52,8 @@ export interface PreparedLaunch {
   /** The hosts and groups the flow starts on. */
   targets: string[];
   credentials: string[];
+  /** AFS-26: a dev run: the bundle of unpushed work whose commit it runs. */
+  dev?: string;
 }
 
 export interface LaunchForm {
