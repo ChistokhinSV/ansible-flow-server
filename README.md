@@ -297,6 +297,8 @@ setup code from its log); after that, sign-in.
 | `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                        |
 | `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed |
 | `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                        |
+| `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values       |
+| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (administrators); `.../launch/<id>/edit` changes one             |
 | `/runs`                                | Every run, the newest first, filtered by state                                              |
 | `/runs/<id>`                           | One run: what ran, the run on the canvas, its output as it comes; Stop and Run again        |
 | `/account`                             | Your access tokens: make (shown once), list, revoke                                         |
@@ -308,7 +310,8 @@ setup code from its log); after that, sign-in.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
 - A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas.
 - Administrators read the audit log at `/admin/audit` and export it.
-- Not there yet: launching from the pages, the pages for people, groups and the certificate.
+- A project's page lists its launch configurations; administrators add, change and delete them.
+- Not there yet: the pages for people, groups, credentials and the certificate.
 
 ### Workspaces and projects
 
@@ -535,7 +538,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
   text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
   not repeated in the answer.
 
-Not there yet: the pages.
+**On the pages:** a project's page lists its launch configurations. A configuration's page
+shows its settings and the launch form:
+
+- Check or real, and another branch or a commit; the form shows the flow's inputs at that
+  commit, starting with the configuration's values.
+- Secret-looking inputs are typed hidden and never kept.
+- **What would run** shows the commit, the inputs as the flow gets them (secrets as `***`), the
+  hosts it starts on, the inventory, image and credentials; what stands in the way is shown at
+  its field.
+- **Launch** (administrators) queues the run and opens its page.
+- **Keep as start values** (administrators) saves the typed values that are not secret as the
+  configuration's.
 
 ### Runs
 

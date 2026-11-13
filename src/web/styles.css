@@ -515,3 +515,52 @@ td.detail {
   overflow-wrap: anywhere;
   min-width: 12rem;
 }
+
+/* --- launch configurations */
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+.panel-head h2 {
+  margin: 0;
+}
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 0.85rem;
+}
+.choices .inline {
+  font-weight: normal;
+}
+textarea,
+.field select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+}
+textarea {
+  font-family: var(--mono, monospace);
+  resize: vertical;
+}
+.field.invalid input,
+.field.invalid select,
+.field.invalid textarea {
+  border-color: var(--bad);
+}
+.facts .fact {
+  display: contents;
+}
+.ok-panel {
+  border-color: var(--ok, var(--accent));
+}
+.ok-panel h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}

@@ -69,3 +69,20 @@ out. A configuration goes with its project.
   input, and the configuration is fixed by saving it again.
 - A configuration made for one flow and pointed at another must have its start values replaced
   in the same change.
+
+## Amendment: the pages (2026-11-13, AFS-65)
+
+- **One page per configuration, with its launch form on it:** settings above, the form below.
+  The form is read from `GET .../form` for the chosen mode, branch or commit, so its fields are
+  the flow's inputs at the commit that would run; what was typed into a field of the same name
+  stays when the form is read again.
+- **The server judges the form:** the page sends what was typed and shows each problem at its
+  field (`problems[].field`); the browser's own checks do not stop the question first, so a
+  person sees the same words a script gets.
+- **Start values are kept from the launch form** ("Keep as start values"), not from the add or
+  change page: the inputs are known only once the flow is read at a commit, and that is where a
+  person types them anyway. Secret-looking inputs are never kept, as before.
+- **Anyone signed in may ask what would run;** only administrators launch, add, change and
+  delete, until access levels (AFS-27).
+- Not in this amendment: the hosts as found in the inventory (launch facts) and launching from
+  the canvas's own Run dialog.

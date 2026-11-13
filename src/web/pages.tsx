@@ -1,5 +1,6 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
+
 import { useState } from 'react';
 import {
   api,
@@ -9,6 +10,7 @@ import {
   type Project,
   type User,
 } from './api';
+import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
 import type { ThemeChoice } from './theme';
@@ -387,6 +389,8 @@ export function ProjectPage({
         </ul>
         {flows.data?.more && <p className="muted">There are more flows than are listed.</p>}
       </section>
+
+      <LaunchConfigsSection me={me} workspace={workspace} project={project} />
 
       <section className="panel" aria-labelledby="runs">
         <h2 id="runs">Recent runs</h2>

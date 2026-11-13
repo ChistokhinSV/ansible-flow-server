@@ -34,6 +34,10 @@ Nothing is released yet.
   - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
+- Launching from the pages. See [Launch configurations](README.md#launch-configurations).
+  - A project's page lists its launch configurations; administrators add, change and delete them, choosing the flow, branch or pinned commit, inventory, image, mode, limit and credentials.
+  - A configuration's page has the launch form: the flow's inputs (secret ones typed hidden and never kept), check or real, another branch or a commit, and the limit.
+  - **What would run** shows the commit, inputs and hosts before anything runs, with any problem shown at its field. **Launch** starts the run and opens its page. **Keep as start values** saves the typed values as the configuration's.
 - An audit log of who did what and when: sign-ins (refused ones too), tokens, people and groups, workspaces, projects, credentials, launch configurations, runs launched, stopped and run again, pushes (refused ones too), and the server's `user`, `cert` and `secrets` commands. See [The audit log](README.md#the-audit-log).
   - Each entry names who, from where (pages, API, git, server command), what, to what, and how it ended. No secret values are kept.
   - Administrators read it on the **Audit log** page, filtered by person, subject, result, source and dates, and export it as CSV or JSON; `GET /api/v1/audit` for scripts.
