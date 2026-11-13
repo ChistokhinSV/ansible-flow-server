@@ -37,12 +37,12 @@ address is never printed with its password.
 **Database.** Kysely is the query layer; SQLite through Node's own `node:sqlite` (no native
 module to build), PostgreSQL through `pg`. One schema for both (`src/server/db/schema.ts`):
 
-| Kind of value | Stored as                                  | Why                                              |
-| ------------- | ------------------------------------------ | ------------------------------------------------ |
-| A time        | text, ISO 8601 in UTC, to the millisecond  | The same in both; sorts as it reads              |
-| True or false | integer 0 or 1                             | SQLite has no boolean                            |
-| A structure   | text holding JSON                          | No JSON type of one database is relied on        |
-| An id         | text                                       | Ids are made by the server, not by the database  |
+| Kind of value | Stored as                                 | Why                                             |
+| ------------- | ----------------------------------------- | ----------------------------------------------- |
+| A time        | text, ISO 8601 in UTC, to the millisecond | The same in both; sorts as it reads             |
+| True or false | integer 0 or 1                            | SQLite has no boolean                           |
+| A structure   | text holding JSON                         | No JSON type of one database is relied on       |
+| An id         | text                                      | Ids are made by the server, not by the database |
 
 - No feature of one database is used that the other lacks: no arrays, no `jsonb` operators, no
   sequences, no `LISTEN`. A write that must replace a row uses `ON CONFLICT`, which both have.

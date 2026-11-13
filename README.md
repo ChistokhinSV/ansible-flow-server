@@ -68,11 +68,11 @@ just start
 [09:44:37 13.11.2026] INFO  Server listening at http://127.0.0.1:8080
 ```
 
-| Address        | Answers                                                                        |
-| -------------- | ------------------------------------------------------------------------------ |
-| `/healthz`     | `{"status":"ok"}` while the process is up                                      |
+| Address        | Answers                                                                         |
+| -------------- | ------------------------------------------------------------------------------- |
+| `/healthz`     | `{"status":"ok"}` while the process is up                                       |
 | `/readyz`      | `{"status":"ready","database":"sqlite"}`, or 503 when the database is not there |
-| `/api/v1/meta` | The server's version, the designer version it is built on, the installation id |
+| `/api/v1/meta` | The server's version, the designer version it is built on, the installation id  |
 
 ```sh
 curl http://127.0.0.1:8080/api/v1/meta
@@ -110,15 +110,15 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting            | Default            | Meaning                                                                 |
-| ------------------ | ------------------ | ----------------------------------------------------------------------- |
-| `AFS_HOST`         | `127.0.0.1`        | The address to listen on; `0.0.0.0` for every interface                 |
-| `AFS_PORT`         | `8080`             | The port                                                                |
-| `AFS_DATA_DIR`     | `data`             | Where the server keeps what it owns                                     |
-| `AFS_DATABASE_URL` | `sqlite:afs.db`    | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
-| `AFS_LOG_LEVEL`    | `info`             | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
-| `AFS_LOG_FORMAT`   | `text`             | `text`, or `json` for one object a line                                 |
-| `AFS_ENV_FILE`     | `.env`             | Another file to read the settings from                                  |
+| Setting            | Default         | Meaning                                                                |
+| ------------------ | --------------- | ---------------------------------------------------------------------- |
+| `AFS_HOST`         | `127.0.0.1`     | The address to listen on; `0.0.0.0` for every interface                |
+| `AFS_PORT`         | `8080`          | The port                                                               |
+| `AFS_DATA_DIR`     | `data`          | Where the server keeps what it owns                                    |
+| `AFS_DATABASE_URL` | `sqlite:afs.db` | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…` |
+| `AFS_LOG_LEVEL`    | `info`          | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`         |
+| `AFS_LOG_FORMAT`   | `text`          | `text`, or `json` for one object a line                                |
+| `AFS_ENV_FILE`     | `.env`          | Another file to read the settings from                                 |
 
 With PostgreSQL:
 
@@ -131,15 +131,16 @@ certificate management is planned (AFS-11). Do not put it on a network before th
 
 ## Development
 
-| Command              | Does                                                         |
-| -------------------- | ------------------------------------------------------------ |
-| `just afd-packages`  | Pack the designer's packages and install them from `vendor/` |
-| `just install`       | Install exact dependencies from `package-lock.json`          |
-| `just check`         | Type-check (TypeScript) and lint and format check (Biome)    |
-| `just fmt`           | Apply formatting and safe lint fixes                         |
-| `just test [args]`   | Unit tests (Vitest)                                          |
-| `just build`         | Build the server into `dist/`                                |
-| `just start [flows]` | Build, then read the given flow files                        |
+| Command                    | Does                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `just afd-packages`        | Pack the designer's packages and install them from `vendor/`                                     |
+| `just install`             | Install exact dependencies from `package-lock.json`                                              |
+| `just check`               | Type-check (TypeScript) and lint and format check (Biome)                                        |
+| `just fmt`                 | Apply formatting and safe lint fixes                                                             |
+| `just test [args]`         | Unit tests (Vitest); with `AFS_TEST_POSTGRES_URL` set, the database tests also run on PostgreSQL |
+| `just build`               | Build the server into `dist/`                                                                    |
+| `just start`               | Build, then start the server                                                                     |
+| `just check-flows <files>` | Build, then read the given flow files                                                            |
 
 Layout:
 

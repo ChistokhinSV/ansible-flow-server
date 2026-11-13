@@ -28,14 +28,18 @@ check:
 fmt:
     npx --no-install biome check --write .
 
-# Unit tests (Vitest); extra args go to vitest
+# Unit tests (Vitest); extra args go to vitest. The database tests run on SQLite, and on
+# PostgreSQL too when AFS_TEST_POSTGRES_URL names a database they may empty
 test *args:
     npx --no-install vitest run {{ args }}
 
-# Build, then say what this server is and which flows it reads: `just start`, or with flow files
-# `just start path/to/os-upgrade.flow.yaml`
-start *flows: build
-    node dist/server.js {{ flows }}
+# Build, then start the server (settings from the environment and .env; Ctrl+C stops it)
+start: build
+    node dist/server.js
+
+# Build, then read flow files and say what they are: `just check-flows path/to/a.flow.yaml`
+check-flows *flows: build
+    node dist/server.js check {{ flows }}
 
 # Remove build output
 clean:

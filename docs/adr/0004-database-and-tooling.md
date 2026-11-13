@@ -1,6 +1,6 @@
 # ADR-0004: Database choice, repository layout and tooling
 
-- Status: accepted (2026-11-13, AFS-9). The database part is not implemented yet (AFS-10)
+- Status: accepted (2026-11-13, AFS-9). How the database is used is ADR-0005 (AFS-10)
 
 ## Decision
 
