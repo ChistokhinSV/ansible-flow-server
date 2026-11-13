@@ -77,11 +77,11 @@ just start
 
 Open the address in a browser for the pages (see [The web pages](#the-web-pages)).
 
-| Address        | Answers                                                                         |
-| -------------- | ------------------------------------------------------------------------------- |
-| `/healthz`     | `{"status":"ok"}` while the process is up                                       |
-| `/readyz`      | `{"status":"ready","database":"sqlite"}`, or 503 when the database is not there |
-| `/api/v1/meta` | The server's version, the designer version it is built on, the installation id  |
+| Address        | Answers                                                                                                                    |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/healthz`     | `{"status":"ok"}` while the process is up                                                                                  |
+| `/readyz`      | `{"status":"ready","database":"sqlite"}`, or 503 when the database is not there                                            |
+| `/api/v1/meta` | What the server is and what a client may rely on (see [Compatibility with the designer](#compatibility-with-the-designer)) |
 
 ```sh
 curl --insecure https://127.0.0.1:8443/api/v1/meta
@@ -91,11 +91,41 @@ curl --insecure https://127.0.0.1:8443/api/v1/meta
 {
   "name": "Ansible Flow Server",
   "version": "0.1.0",
-  "designer": { "version": "0.85.0", "format": 2 },
+  "designer": { "version": "0.85.0", "format": 2, "formats": [1, 2], "bundle": "0.85.0" },
+  "features": [
+    "git",
+    "launch-configs",
+    "runs",
+    "run-events",
+    "approvals",
+    "notifications",
+    "workspace-tokens",
+    "mcp"
+  ],
   "api": "v1",
   "instance": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 }
 ```
+
+#### Compatibility with the designer
+
+The server is built on the designer's packages (`@ansible-flow/*`) of one version, and a client
+(the VS Code extension, an agent) reads `/api/v1/meta` before it talks to the server:
+
+- `api`: the REST API's version (`v1`). A client made for another does not go on.
+- `designer.version`: the designer the server reads, checks and runs flows with;
+  `designer.bundle`: the designer canvas the pages carry, stamped at build (the same version).
+- `designer.formats`: the flow formats the server reads. A flow in a newer format (written by a
+  newer designer) is listed with "Upgrade the server" and is not run.
+- `features`: what a client may rely on; a name is only ever added.
+
+The designer ships its **contract** with this server in `@ansible-flow/assets` (`contract/`): the
+exchanges the extension relies on (sign-in, projects, flows, launch configurations, check, launch,
+a run, stop, and the refusals). The server's tests replay them against its real routes on both
+databases (`test/unit/contract.test.ts`); the extension's replay them against a mock. A new
+designer release is taken by the **Designer packages** workflow (`.github/workflows/afd-bump.yml`,
+daily, by hand, or on the designer's `afd-release` event): it installs the new version, runs every
+check with the contract, and opens a pull request only when they pass.
 
 Stop it with Ctrl+C: requests in flight are answered first.
 

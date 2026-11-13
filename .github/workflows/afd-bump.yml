@@ -1,0 +1,113 @@
+# Takes a new release of the designer's packages (@ansible-flow/*) when it passes here (AFS-25):
+# every day, when run by hand, or when the designer's release workflow sends `afd-release`.
+#
+# It installs the newest version of all four packages, runs the checks CI runs, among them the
+# designer's contract with this server (test/unit/contract.test.ts, from the new
+# @ansible-flow/assets), and opens a pull request only when they pass. A new designer this server
+# does not keep the contract with fails this job instead: nothing is proposed.
+#
+# A pull request opened with GITHUB_TOKEN starts no other workflow, so the checks run here, before
+# it is opened. Runs only once the packages are on npm (AFD_PACKAGES_ON_NPM, as ci.yml).
+name: Designer packages
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [afd-release]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: afd-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: vars.AFD_PACKAGES_ON_NPM == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: afs
+          POSTGRES_PASSWORD: afs-ci-only
+          POSTGRES_DB: afs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U afs -d afs_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Is there a newer designer?
+        id: version
+        run: |
+          have=$(node -p "require('./package.json').dependencies['@ansible-flow/core']")
+          newest=$(npm view @ansible-flow/core version)
+          echo "have=$have" >> "$GITHUB_OUTPUT"
+          echo "newest=$newest" >> "$GITHUB_OUTPUT"
+          branch="afd-packages-$newest"
+          if [ "$have" = "$newest" ]; then
+            echo "Already on $newest"
+          elif git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "A pull request for $newest is open already"
+          else
+            echo "take=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Take it
+        if: steps.version.outputs.take == 'true'
+        env:
+          V: ${{ steps.version.outputs.newest }}
+        run: |
+          npm install --save-exact --no-fund --no-audit \
+            "@ansible-flow/core@$V" "@ansible-flow/node@$V" "@ansible-flow/assets@$V"
+          npm install --save-exact --save-dev --no-fund --no-audit "@ansible-flow/designer@$V"
+
+      - name: Type check
+        if: steps.version.outputs.take == 'true'
+        run: npx --no-install tsc -p tsconfig.json && npx --no-install tsc -p tsconfig.web.json
+
+      - name: Lint and format
+        if: steps.version.outputs.take == 'true'
+        run: npx --no-install biome ci .
+
+      - name: Tests, with the designer's contract
+        if: steps.version.outputs.take == 'true'
+        env:
+          AFS_TEST_POSTGRES_URL: postgres://afs:afs-ci-only@127.0.0.1:5432/afs_test
+        run: npx --no-install vitest run
+
+      - name: Build
+        if: steps.version.outputs.take == 'true'
+        run: node scripts/build.mjs
+
+      - name: Propose it
+        if: steps.version.outputs.take == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.version.outputs.newest }}
+          HAVE: ${{ steps.version.outputs.have }}
+        run: |
+          branch="afd-packages-$V"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add package.json package-lock.json
+          git commit -m "Designer packages $V"
+          git push origin "$branch"
+          gh pr create --head "$branch" --title "Designer packages $V" --body \
+            "Takes @ansible-flow/* $V (from $HAVE). The type check, Biome, the tests on SQLite and PostgreSQL (the designer's contract with this server among them) and the build passed in this workflow. Read the designer's changelog before merging."
