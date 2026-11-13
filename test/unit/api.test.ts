@@ -98,6 +98,7 @@ for (const [name, config] of databases) {
         'name',
         'expiresInDays',
         'readOnly',
+        'mcpApprovals',
         'workspace',
       ]);
       expect(doc.paths['/api/v1/meta'].get.security).toEqual([]);

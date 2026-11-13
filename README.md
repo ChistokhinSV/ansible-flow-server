@@ -19,7 +19,8 @@ programs (access tokens, service accounts), keeps workspaces and projects in ste
 repositories and is the git address of every project, keeps credentials encrypted, and runs flows
 in execution environment containers from launch configurations, live on the designer's canvas.
 Access levels say who sees, runs and changes what; approvals stop a run until someone allowed
-decides; people are told by email and webhook; every change is in an audit log; the REST API is described as OpenAPI. The plan and its
+decides; people are told by email and webhook; every change is in an audit log; the REST API is described as OpenAPI, and agents use the
+server over MCP. The plan and its
 tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 
 | Planned for 1.0                                                            | State                      |
@@ -31,7 +32,7 @@ tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 | Approval steps: a run waits until a listed approver decides                | done                       |
 | Notifications by email and webhook                                         | done                       |
 | Execution environments built from a list of collections                    | planned                    |
-| Schedules, REST API with tokens, MCP endpoint                              | API done                   |
+| Schedules, REST API with tokens, MCP endpoint                              | API and MCP done           |
 | Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | local users and HTTPS done |
 | Install with docker compose or as a Linux service                          | planned                    |
 
@@ -283,6 +284,8 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
 - A token lasts 90 days unless you say otherwise, a year at most. It stops when it is revoked,
   at its end, and while its owner is disabled. A person has at most 50.
 - A read-only token (`"readOnly": true`) reads and changes nothing.
+- An agent with a token made with `"mcpApprovals": true` may decide approvals over MCP (see
+  [Agents (MCP)](#agents-mcp)); without it approvals stay with people. Not for a read-only token.
 - A token for one workspace (`"workspace": "net"`, its key or id) reaches that workspace only:
   its projects, flows, credentials, launch configurations, runs and git repositories. What spans
   workspaces (the list of workspaces, all runs, people, the audit log) is refused with
@@ -848,6 +851,68 @@ Everyone sets their own email address on **My account** (`/account`, or `PATCH /
 with a session). A webhook is set only by an administrator (the server calls the address it is
 given): their own on **My account**, anyone's with `PATCH /api/v1/users/<id>`, a group's with
 `PATCH /api/v1/groups/<id>` (`email`, `webhookUrl`).
+
+### Agents (MCP)
+
+Agents such as Claude Code, Codex and Cursor reach the server over MCP (Streamable HTTP) at
+`/mcp`, signed in with an [access token](#access-tokens). The agent acts as the token's owner:
+it sees and does only what they may, within the token's workspace, and what it changes is in
+the audit log with the source `mcp`.
+
+| Tool                                                            | Does                                                                                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `flow_list`, `flow_describe`, `flow_validate`, `flow_reference` | The designer's flow tools, read-only, on the projects' flows (`net/edge/flows/upgrade.flow.yaml`) |
+| `project_list`                                                  | Workspaces and projects you may see: branch, commit, sync state                                   |
+| `launch_config_list`                                            | A project's launch configurations                                                                 |
+| `run_check`                                                     | What a launch would run (commit, inputs, hosts) or what is in its way                             |
+| `run_launch`                                                    | Queue a run of a launch configuration (`operator`)                                                |
+| `run_status`, `run_output`, `run_list`                          | How a run stands (state, approvals, hosts per step), its output, the runs                         |
+| `run_stop`                                                      | Stop a run                                                                                        |
+| `approval_list`                                                 | Approvals that wait, and whether you may decide each                                              |
+| `approval_decide`                                               | Only with a token made to allow it (below)                                                        |
+
+- **Flows are read-only here:** they change in git (clone the project from the server, edit it
+  in VS Code, push). Edit tools come with editing on the server.
+- **Approvals stay with people:** `approval_decide` is offered only to a token made with
+  "An agent with this token may decide approvals over MCP" (on My account, or
+  `"mcpApprovals": true` when making a token), and then only where its owner may decide.
+- A launch configuration is named by its id or as `<workspace>/<project>/<name>`.
+
+Make a token on **My account** (for one workspace, if the agent needs no more), keep it in an
+environment variable (`AFS_TOKEN` below), and add the server to the agent:
+
+Claude Code:
+
+```sh
+claude mcp add --transport http ansible-flow-server https://flows.example.net:8443/mcp \
+  --header "Authorization: Bearer $AFS_TOKEN"
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.ansible-flow-server]
+url = "https://flows.example.net:8443/mcp"
+bearer_token_env_var = "AFS_TOKEN"
+```
+
+Cursor (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "ansible-flow-server": {
+      "url": "https://flows.example.net:8443/mcp",
+      "headers": { "Authorization": "Bearer ${env:AFS_TOKEN}" }
+    }
+  }
+}
+```
+
+With the server's self-signed certificate, the agent's machine must trust it (or use a
+certificate from your authority, see [HTTPS and the certificate](#https-and-the-certificate)).
+The endpoint is stateless and answers with JSON: any server behind a load balancer answers any
+request.
 
 ### The audit log
 

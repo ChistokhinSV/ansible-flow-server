@@ -16,6 +16,7 @@
     "@ansible-flow/assets": "file:vendor/ansible-flow-assets-0.85.0.tgz",
     "@ansible-flow/core": "file:vendor/ansible-flow-core-0.85.0.tgz",
     "@ansible-flow/node": "file:vendor/ansible-flow-node-0.85.0.tgz",
+    "@modelcontextprotocol/server": "2.4.0",
     "@peculiar/x509": "3.1.0",
     "fastify": "5.12.8",
     "kysely": "0.29.9",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@ansible-flow/designer": "file:vendor/ansible-flow-designer-0.85.0.tgz",
     "@biomejs/biome": "2.6.7",
+    "@modelcontextprotocol/client": "2.4.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@types/node": "24.19.2",

@@ -267,6 +267,15 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-24: a token may let an agent decide approvals over MCP.
+  '0016_token_mcp_approve': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('api_token')
+        .addColumn('mcp_approve', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+    },
+  },
   // AFS-29: notifications, and who a launch configuration's runs tell.
   '0015_notifications': {
     async up(db: Kysely<unknown>) {

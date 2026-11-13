@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { AuditEntryTable, Schema } from '../db/schema';
 
-export const SOURCES = ['ui', 'api', 'git', 'cli', 'server'] as const;
+export const SOURCES = ['ui', 'api', 'mcp', 'git', 'cli', 'server'] as const;
 export type AuditSource = (typeof SOURCES)[number];
 export const RESULTS = ['ok', 'refused', 'failed'] as const;
 export type AuditResult = (typeof RESULTS)[number];

@@ -34,6 +34,10 @@ Nothing is released yet.
   - On the canvas, a step's host output, the flow's earlier runs and Stop work as in VS Code.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
+- Agents (Claude Code, Codex, Cursor) use the server over MCP at `/mcp`, signed in with an access token. See [Agents (MCP)](README.md#agents-mcp).
+  - They read the projects' flows with the designer's flow tools, and list, check, launch, follow and stop runs, seeing and doing only what the token's owner may.
+  - Approvals stay with people: an agent decides one only with a token made to allow it.
+  - What an agent changes is in the audit log as coming from an agent.
 - Notifications by email and webhook. See [Notifications](README.md#notifications).
   - Approvers are asked when a run waits for them; who launched a run is told when its approval is approved, rejected or times out; the approval's `notify` list is told of both.
   - A launch configuration can tell people and groups when its runs fail, or whenever they end.
