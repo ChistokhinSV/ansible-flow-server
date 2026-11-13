@@ -397,7 +397,10 @@ export function openApi(routes: Seen[], origin?: string): Record<string, unknown
             },
           }
         : {}),
-      responses: { default: { description: 'JSON; an error is `{error, message}`' } },
+      responses: {
+        '4XX': { $ref: '#/components/responses/Refused' },
+        default: { description: 'The answer, as JSON (an output as text, events as a stream)' },
+      },
       ...(doc.who === 'anyone' || doc.who === 'push hook token' ? { security: [] } : {}),
     };
   }
@@ -407,11 +410,41 @@ export function openApi(routes: Seen[], origin?: string): Record<string, unknown
     info: {
       title: 'Ansible Flow Server API',
       version: meta.version,
+      license: { name: 'MIT', identifier: 'MIT' },
       description:
         'Sign in with a personal access token as a bearer token (`Authorization: Bearer afs_...`), or with the session cookie of the pages. A token made for one workspace reaches only that workspace; a read-only token only reads.',
     },
     ...(origin ? { servers: [{ url: origin }] } : {}),
     components: {
+      responses: {
+        Refused: {
+          description: 'Refused: what was wrong, in words fit to show',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['error', 'message'],
+                properties: {
+                  error: {
+                    type: 'string',
+                    description: 'A code: invalid, not_found, forbidden, ...',
+                  },
+                  message: { type: 'string' },
+                  field: { type: 'string', description: 'The field it is about, when one' },
+                  problems: {
+                    type: 'array',
+                    description: 'Everything in the way of a launch (422)',
+                    items: {
+                      type: 'object',
+                      properties: { field: { type: 'string' }, message: { type: 'string' } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       securitySchemes: {
         token: { type: 'http', scheme: 'bearer', description: 'A personal access token' },
         session: { type: 'apiKey', in: 'cookie', name: 'afs_session' },
