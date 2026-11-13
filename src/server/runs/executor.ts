@@ -12,6 +12,7 @@ import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { engineFor } from '@ansible-flow/core/engine/engines';
 import { parseFlow } from '@ansible-flow/core/flow/document';
+import { durationSeconds } from '@ansible-flow/core/flow/duration';
 import { validateFlow } from '@ansible-flow/core/flow/validate';
 import type { RunView } from '@ansible-flow/core/protocol';
 import { stripAnsi } from '@ansible-flow/core/run/ansi';
@@ -21,7 +22,15 @@ import { startProcess } from '@ansible-flow/node/run/exec';
 import { stamp } from '@ansible-flow/node/run/ids';
 import { runsDir } from '@ansible-flow/node/run/pastRuns';
 import { type RunFlowHooks, type RunFlowRequest, runFlow } from '@ansible-flow/node/run/runFlow';
+import {
+  type GateDecision,
+  nextSegment,
+  segmentInputs,
+  segmentOutcome,
+  segmentsSummary,
+} from '@ansible-flow/node/run/segments';
 import type { Kysely } from 'kysely';
+import { approvalsOf, gatesOf, lastGate, openGate } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import { schemaIssues } from '../flows';
 import type { Logger } from '../log';
@@ -368,67 +377,188 @@ export class Executor {
       };
       line(`Environment: ${env.label}`);
       if (controller.signal.aborted) return await finish(...stoppedWhy());
-      let last: RunView | undefined;
       const runner = this.options.runner ?? runFlow;
-      const runId = `${stamp()}-${r.number}`;
       const storage = join(this.options.dataDir, 'runs', project.id);
-      if (
-        !(await queue.start(r.id, token, new Date(), join(runsDir(storage, doc.flow.id), runId)))
-      ) {
-        why ??= 'lost';
-        return;
-      }
-      this.deps.hub?.publish(r.id, { kind: 'state' });
-      const view = await runner(
-        {
-          id: runId,
-          startedAt: new Date().toISOString(),
-          mode: r.mode,
-          doc,
-          code,
-          env,
-          environment: env.label,
-          root: workdir.dir,
-          probeDir: this.probeDir,
-          playbook,
-          ...(r.inventory ? { inventory: r.inventory } : {}),
-          storage,
-          keepRuns: 1000,
-          inputs,
-          ...(creds.vaultPassword !== undefined ? { vaultPassword: creds.vaultPassword } : {}),
-          signal: controller.signal,
-        },
-        {
-          report: (v) => {
-            last = v;
-            this.deps.hub?.publish(r.id, { kind: 'view', view: v });
+      const folder = (runId: string) => join(runsDir(storage, doc.flow.id), runId);
+      const root = workdir.dir;
+      /** Runs one playbook of the flow: the whole flow, or one of its segments (AFS-28). */
+      const runOnce = (
+        runId: string,
+        playbookPath: string,
+        runInputs: Record<string, unknown>,
+        shown: (v: RunView) => RunView,
+      ) =>
+        runner(
+          {
+            id: runId,
+            startedAt: new Date().toISOString(),
+            mode: r.mode,
+            doc,
+            code,
+            env,
+            environment: env.label,
+            root,
+            probeDir: this.probeDir,
+            playbook: playbookPath,
+            ...(r.inventory ? { inventory: r.inventory } : {}),
+            storage,
+            keepRuns: 1000,
+            inputs: runInputs,
+            ...(creds.vaultPassword !== undefined ? { vaultPassword: creds.vaultPassword } : {}),
+            signal: controller.signal,
           },
-          log: line,
-          // The engine gets the container's variables in its own environment, not as arguments.
-          execute: async (spec, processEnv) => {
-            // Ansible in the image writes its events into the run's folder: as its own user,
-            // which is not the server's when the server runs as root (found on the lab VM).
-            if (owner)
-              await chown(join(runsDir(storage, doc.flow.id), runId), owner.uid, owner.gid);
-            return startProcess(spec, { ...processEnv, ...creds.processEnv }, line);
+          {
+            report: (v) => this.deps.hub?.publish(r.id, { kind: 'view', view: shown(v) }),
+            log: line,
+            // The engine gets the container's variables in its own environment, not as arguments.
+            execute: async (spec, processEnv) => {
+              // Ansible in the image writes its events into the run's folder: as its own user,
+              // which is not the server's when the server runs as root (found on the lab VM).
+              if (owner) await chown(folder(runId), owner.uid, owner.gid);
+              return startProcess(spec, { ...processEnv, ...creds.processEnv }, line);
+            },
           },
-        },
-      );
-      last = view;
-      if (why) return await finish(...stoppedWhy(), view);
-      // Without events nothing says what the flow did: that is not a success, whatever the code.
-      if (view.state === 'done' && view.rc === 0 && !view.error)
-        return await finish('succeeded', undefined, view);
-      if (view.state === 'done' && view.error) return await finish('failed', view.error, view);
-      if (view.state === 'done') {
-        const failedHosts = Object.keys(view.summary?.outcome ?? {}).length;
+        );
+      /** How a run that has ended is recorded, from the view of how it went. */
+      const ended = async (view: RunView) => {
+        if (why) return await finish(...stoppedWhy(), view);
+        // Without events nothing says what the flow did: that is not a success, whatever the code.
+        if (view.state === 'done' && view.rc === 0 && !view.error)
+          return await finish('succeeded', undefined, view);
+        if (view.state === 'done' && view.error) return await finish('failed', view.error, view);
+        if (view.state === 'done') {
+          const failedHosts = Object.keys(view.summary?.outcome ?? {}).length;
+          return await finish(
+            'failed',
+            `ansible-playbook ended with ${view.rc}${failedHosts ? `; ${failedHosts} host(s) failed` : ''}`,
+            view,
+          );
+        }
+        return await finish('failed', view.error ?? 'The run could not be started', view);
+      };
+
+      const segments = code.segments ?? [];
+      // A flow with approvals that cannot be split would run with every approval passed by
+      // itself, as a local run does: here a person must decide, so it does not run.
+      if (segments.length === 0 && hasApproval(doc.nodes)) {
+        const why = code.findings.find((f) => f.code === 'codegen-segments');
         return await finish(
           'failed',
-          `ansible-playbook ended with ${view.rc}${failedHosts ? `; ${failedHosts} host(s) failed` : ''}`,
-          view,
+          `The flow's approvals cannot wait for a person: ${why?.message ?? 'they are not on the top level, one at a time'}`,
         );
       }
-      return await finish('failed', view.error ?? 'The run could not be started', last);
+      if (segments.length === 0) {
+        const runId = `${stamp()}-${r.number}`;
+        if (!(await queue.start(r.id, token, new Date(), folder(runId)))) {
+          why ??= 'lost';
+          return;
+        }
+        this.deps.hub?.publish(r.id, { kind: 'state' });
+        return await ended(await runOnce(runId, playbook, inputs, (v) => v));
+      }
+
+      // AFS-28: a flow with approvals runs segment by segment. Where this run is: at the start,
+      // or after the gate decided last (a resumed run).
+      const gate = await lastGate(this.deps.db, r.id);
+      if (gate?.status === 'waiting') {
+        // Taken while it still waits (it should not be): it goes back to waiting.
+        await queue.wait(r.id, token);
+        return;
+      }
+      const decision: GateDecision | undefined = !gate
+        ? undefined
+        : gate.status === 'approved'
+          ? 'approved'
+          : gate.status === 'timed out'
+            ? 'timeout'
+            : 'rejected';
+      let segment = gate
+        ? nextSegment(segments, gate.segment, decision as GateDecision)
+        : segments.find((g) => g.name === 'start');
+      let segInputs = gate ? segmentInputs(inputs, gate.carried, decision) : inputs;
+      if (gate) {
+        const by = gate.decidedBy ? ` by ${gate.decidedBy}` : '';
+        const said = gate.comment ? `: ${gate.comment}` : '';
+        line(`Approval ${gate.node.title}: ${gate.status}${by}${said}`);
+      }
+      const generated = posix.dirname(playbook);
+      const eventsOf = async (dirs: string[]) =>
+        Promise.all(dirs.map((d) => readFile(join(d, 'events.jsonl'), 'utf8').catch(() => '')));
+      const before = await queue.segments(r.id);
+      while (segment) {
+        const current = segment;
+        const runId = `${stamp()}-${r.number}-${current.name}`;
+        if (!(await queue.addSegment(r.id, token, { name: current.name, dir: folder(runId) }))) {
+          why ??= 'lost';
+          return;
+        }
+        this.deps.hub?.publish(r.id, { kind: 'state' });
+        line(`Segment ${current.name}`);
+        const earlier = segmentsSummary(await eventsOf(before.map((b) => b.dir)), code.routes);
+        const approvals = approvalsOf(await gatesOf(this.deps.db, r.id));
+        const withApprovals = Object.keys(approvals).length ? { approvals } : {};
+        // What the canvas shows while a segment runs: the segments before it, and this one.
+        const view = await runOnce(runId, `${generated}/${current.file}`, segInputs, (v) => ({
+          ...v,
+          ...(v.summary ? { summary: mergeSummaries(earlier, v.summary) } : {}),
+          ...withApprovals,
+        }));
+        before.push({ name: current.name, dir: folder(runId) });
+        const text = (await eventsOf([folder(runId)]))[0] ?? '';
+        const outcome = segmentOutcome(current, text);
+        const whole: RunView = {
+          ...view,
+          summary: segmentsSummary(await eventsOf(before.map((b) => b.dir)), code.routes),
+          ...withApprovals,
+        };
+        if (why) return await finish(...stoppedWhy(), whole);
+        if (current.gate && outcome.empty) {
+          line('No host reached the approval: it is skipped');
+          segment = nextSegment(segments, current.name, 'empty');
+          segInputs = segmentInputs(inputs, outcome.carried);
+          continue;
+        }
+        if (current.gate && outcome.waiting) {
+          const node = doc.nodes.find((n) => n.id === current.gate);
+          const seconds = durationSeconds(node?.settings?.timeout);
+          const opened = await openGate(this.deps.db, {
+            run: r.id,
+            node: {
+              id: current.gate,
+              key: node?.key ?? current.gate,
+              title: node?.title ?? 'Approval',
+            },
+            segment: current.name,
+            carried: outcome.carried,
+            ...(seconds ? { deadline: new Date(Date.now() + seconds * 1000) } : {}),
+            ...(node?.approval ? { approval: node.approval } : {}),
+          });
+          const waiting: RunView = {
+            ...whole,
+            state: 'running',
+            approvals: approvalsOf(await gatesOf(this.deps.db, r.id)),
+          };
+          await queue.saveView(r.id, waiting);
+          if (!(await queue.wait(r.id, token))) {
+            why ??= 'lost';
+            return;
+          }
+          const until = opened.deadline ? ` (until ${opened.deadline})` : '';
+          line(`Waiting for approval: ${opened.node.title}${until}`);
+          this.deps.hub?.publish(r.id, { kind: 'view', view: waiting });
+          this.deps.hub?.publish(r.id, { kind: 'state' });
+          say.info({ gate: opened.node.key }, 'Run waits for approval');
+          return;
+        }
+        if (current.gate)
+          return await finish(
+            'failed',
+            view.error ?? `The segment ${current.name} ended before its hosts reached the approval`,
+            whole,
+          );
+        return await ended(whole);
+      }
+      return await finish('failed', 'The flow has no segment to run next');
     } catch (e) {
       const message =
         e instanceof CredentialProblem || e instanceof Error
@@ -447,4 +577,35 @@ export class Executor {
       await new Promise<void>((resolve) => (output ? output.end(resolve) : resolve()));
     }
   }
+}
+
+/** A live segment's summary added to what the segments before it did. */
+function mergeSummaries(
+  earlier: NonNullable<RunView['summary']>,
+  live: NonNullable<RunView['summary']>,
+): NonNullable<RunView['summary']> {
+  const nodes: typeof earlier.nodes = structuredClone(earlier.nodes);
+  for (const [node, ports] of Object.entries(live.nodes))
+    for (const [port, hosts] of Object.entries(ports)) {
+      nodes[node] ??= {};
+      const into = nodes[node] as Record<string, string[]>;
+      into[port] = [...new Set([...(into[port] ?? []), ...hosts])];
+    }
+  return {
+    ...live,
+    nodes,
+    hosts: [...new Set([...earlier.hosts, ...live.hosts])],
+    failures: [...earlier.failures, ...live.failures],
+    outcome: { ...earlier.outcome, ...live.outcome },
+    unreachable: [...new Set([...earlier.unreachable, ...live.unreachable])],
+  };
+}
+
+/** True when the flow has an approval anywhere, inner levels included. */
+function hasApproval(nodes: readonly { type: string; subflow?: { nodes?: unknown[] } }[]): boolean {
+  return nodes.some(
+    (n) =>
+      n.type === 'approval' ||
+      hasApproval((n.subflow?.nodes ?? []) as { type: string; subflow?: { nodes?: unknown[] } }[]),
+  );
 }

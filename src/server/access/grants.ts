@@ -86,8 +86,13 @@ export class Access {
     for (const row of rows) {
       const onFlow = row.project_id && row.flow_file;
       if (row.level === 'approve') {
-        if (onFlow) approveFlows.add(flowKey(row.project_id as string, row.flow_file as string));
-        else approveWorkspaces.add(row.workspace_id);
+        if (onFlow) {
+          approveFlows.add(flowKey(row.project_id as string, row.flow_file as string));
+          // An approver sees the project of the flow they approve (AFS-28).
+          const set = flowProjects.get(row.workspace_id) ?? new Set();
+          set.add(row.project_id as string);
+          flowProjects.set(row.workspace_id, set);
+        } else approveWorkspaces.add(row.workspace_id);
         continue;
       }
       const rank = RANK[row.level as Level] ?? 0;
@@ -115,14 +120,22 @@ export class Access {
 
   /** The level on a workspace as a whole (its git repositories, its lists). */
   onWorkspace(workspace: string): Level | undefined {
-    return this.admin ? 'rw' : levelOf(this.workspaces.get(workspace) ?? 0);
+    if (this.admin) return 'rw';
+    // An approver sees what they approve (AFS-28): approve counts as ro, never lowers a level.
+    return (
+      levelOf(this.workspaces.get(workspace) ?? 0) ??
+      (this.approveWorkspaces.has(workspace) ? 'ro' : undefined)
+    );
   }
 
-  /** The level on one flow: its own grant, else the workspace's. */
+  /** The level on one flow: its own grant, else the workspace's; approve counts as ro. */
   onFlow(workspace: string, project: string, file: string): Level | undefined {
     if (this.admin) return 'rw';
     const own = this.flows.get(flowKey(project, file));
-    return levelOf(own ?? this.workspaces.get(workspace) ?? 0);
+    return (
+      levelOf(own ?? this.workspaces.get(workspace) ?? 0) ??
+      (this.approves(workspace, project, file) ? 'ro' : undefined)
+    );
   }
 
   /** May decide approval gates of this flow (or of the workspace). */

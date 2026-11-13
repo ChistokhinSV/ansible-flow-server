@@ -6,6 +6,7 @@ import type { Schema } from '../../../src/server/db/schema';
 
 /** Workspaces and everything that hangs off them, children first. */
 const WORKSPACES = [
+  'run_gate',
   'access_grant',
   'run',
   'launch_config_credential',

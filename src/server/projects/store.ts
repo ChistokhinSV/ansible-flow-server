@@ -11,6 +11,8 @@ export interface Workspace {
   description?: string;
   /** How many projects it has. */
   projects: number;
+  /** AFS-28: who launched a run may decide its approvals too. */
+  selfApprove: boolean;
 }
 
 export interface Project {
@@ -80,6 +82,7 @@ export async function listWorkspaces(db: Db): Promise<Workspace[]> {
     name: row.name,
     ...(row.description ? { description: row.description } : {}),
     projects: byId.get(row.id) ?? 0,
+    selfApprove: row.self_approve === 1,
   }));
 }
 
@@ -100,6 +103,7 @@ export async function createWorkspace(
     key,
     name: input.name.trim(),
     description: input.description?.trim() || null,
+    self_approve: 0,
     created_at: at,
     updated_at: at,
   };
@@ -116,13 +120,14 @@ export async function createWorkspace(
     name: row.name,
     projects: 0,
     ...(row.description ? { description: row.description } : {}),
+    selfApprove: false,
   };
 }
 
 export async function updateWorkspace(
   db: Db,
   id: string,
-  change: { name?: string; description?: string | null },
+  change: { name?: string; description?: string | null; selfApprove?: boolean },
 ): Promise<Workspace> {
   const problem = change.name !== undefined ? nameProblem(change.name) : undefined;
   if (problem) throw new ProjectError('invalid', problem);
@@ -133,6 +138,7 @@ export async function updateWorkspace(
       ...(change.description !== undefined
         ? { description: change.description?.trim() || null }
         : {}),
+      ...(change.selfApprove !== undefined ? { self_approve: change.selfApprove ? 1 : 0 } : {}),
       updated_at: now(),
     })
     .where('id', '=', id)
@@ -384,6 +390,10 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
         'not_empty',
         `Run ${going.number} of the project is still going: cancel it first`,
       );
+    await trx
+      .deleteFrom('run_gate')
+      .where('run_id', 'in', (eb) => eb.selectFrom('run').select('id').where('project_id', '=', id))
+      .execute();
     await trx.deleteFrom('run').where('project_id', '=', id).execute();
     await trx.deleteFrom('git_push').where('project_id', '=', id).execute();
     await trx

@@ -1,0 +1,79 @@
+# Test flow for AFS-28 (fictional sample ULIDs): two approvals that can wait at once (one for the
+# hosts that pass the check, one for those that fail it): it cannot be split, so it does not run.
+schema_version: 1
+flow:
+  id: 01JCRBF0000000000000000009
+  key: two-gates
+  name: Engine test · approval segments
+  version: 1
+  owner: netops
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+nodes:
+  - id: 01JCRBN0000000000000000001
+    key: start
+    type: start
+    title: Start
+  - id: 01JCRBN0000000000000000002
+    key: check
+    type: task
+    title: Check the change window
+    status: draft
+  - id: 01JCRBN0000000000000000003
+    key: gate
+    type: approval
+    title: Approve the change
+    ports:
+      - timeout
+    settings:
+      timeout: 30m
+    approval:
+      approvers: [change-board]
+      message: Check the change ticket first
+  - id: 01JCRBN0000000000000000009
+    key: second-gate
+    type: approval
+    title: Approve the exception
+  - id: 01JCRBN0000000000000000004
+    key: change
+    type: task
+    title: Apply the change
+    status: draft
+  - id: 01JCRBN0000000000000000005
+    key: rollback
+    type: task
+    title: Rollback
+    handler: rollback
+    status: draft
+  - id: 01JCRBN0000000000000000006
+    key: notify
+    type: task
+    title: Notify on-call
+    handler: notify
+    status: draft
+  - id: 01JCRBN0000000000000000007
+    key: done
+    type: end
+    title: Done
+    outcome: success
+  - id: 01JCRBN0000000000000000008
+    key: failed
+    type: end
+    title: Failed
+    outcome: failed
+edges:
+  - { id: 01JCRBE0000000000000000001, from: { node: 01JCRBN0000000000000000001, port: ok_hosts }, to: { node: 01JCRBN0000000000000000002, port: in } }
+  - { id: 01JCRBE0000000000000000002, from: { node: 01JCRBN0000000000000000002, port: ok_hosts }, to: { node: 01JCRBN0000000000000000003, port: in } }
+  - { id: 01JCRBE0000000000000000003, from: { node: 01JCRBN0000000000000000002, port: failed_hosts }, to: { node: 01JCRBN0000000000000000009, port: in } }
+  - { id: 01JCRBE0000000000000000004, from: { node: 01JCRBN0000000000000000003, port: approved }, to: { node: 01JCRBN0000000000000000004, port: in } }
+  - { id: 01JCRBE0000000000000000005, from: { node: 01JCRBN0000000000000000003, port: rejected }, to: { node: 01JCRBN0000000000000000006, port: in } }
+  - { id: 01JCRBE0000000000000000006, from: { node: 01JCRBN0000000000000000003, port: timeout }, to: { node: 01JCRBN0000000000000000006, port: in } }
+  - { id: 01JCRBE0000000000000000007, from: { node: 01JCRBN0000000000000000004, port: ok_hosts }, to: { node: 01JCRBN0000000000000000007, port: in } }
+  - { id: 01JCRBE0000000000000000008, from: { node: 01JCRBN0000000000000000004, port: failed_hosts }, to: { node: 01JCRBN0000000000000000005, port: in } }
+  - { id: 01JCRBE0000000000000000009, from: { node: 01JCRBN0000000000000000005, port: ok_hosts }, to: { node: 01JCRBN0000000000000000008, port: in } }
+  - { id: 01JCRBE000000000000000000A, from: { node: 01JCRBN0000000000000000006, port: ok_hosts }, to: { node: 01JCRBN0000000000000000008, port: in } }
+  - { id: 01JCRBE000000000000000000B, from: { node: 01JCRBN0000000000000000009, port: approved }, to: { node: 01JCRBN0000000000000000006, port: in } }
+  - { id: 01JCRBE000000000000000000C, from: { node: 01JCRBN0000000000000000009, port: rejected }, to: { node: 01JCRBN0000000000000000006, port: in } }

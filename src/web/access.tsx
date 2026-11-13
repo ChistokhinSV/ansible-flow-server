@@ -31,8 +31,15 @@ const LEVEL_WORDS: Record<GrantLevel, string> = {
 };
 
 /** A workspace's grants and who can do what: for administrators. */
-export function WorkspaceAccess({ workspace }: { workspace: string }) {
+export function WorkspaceAccess({
+  workspace,
+  selfApprove = false,
+}: {
+  workspace: string;
+  selfApprove?: boolean;
+}) {
   const grants = useLoad(() => api.grants(workspace), [workspace]);
+  const [self, setSelf] = useState(selfApprove);
   const who = useLoad(() => api.whoCan(workspace), [workspace]);
   const users = useLoad(() => api.users(), []);
   const groups = useLoad(() => api.groups(), []);
@@ -142,6 +149,22 @@ export function WorkspaceAccess({ workspace }: { workspace: string }) {
           </table>
         </div>
       )}
+
+      <label className="choice">
+        <input
+          type="checkbox"
+          checked={self}
+          onChange={async (e) => {
+            const on = e.target.checked;
+            setSelf(on);
+            await api.setSelfApprove(workspace, on).catch((err) => {
+              setSelf(!on);
+              setError(messageOf(err));
+            });
+          }}
+        />
+        Who launched a run may decide its approvals (off: someone else decides)
+      </label>
 
       <h3>Give access</h3>
       <form className="form" onSubmit={give}>

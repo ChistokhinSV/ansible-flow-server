@@ -4,6 +4,7 @@
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { registerAccess } from './access/routes';
 import { registerCatalog } from './api/catalog';
+import { registerApprovals } from './approvals/routes';
 import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
@@ -107,7 +108,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   if (deps.projects) registerAccess(app, { db: deps.database.db });
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
-  if (deps.runs) registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);
+  if (deps.runs) {
+    registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);
+    registerApprovals(app, {
+      db: deps.database.db,
+      queue: deps.runs,
+      ...(deps.hub ? { hub: deps.hub } : {}),
+    });
+  }
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 

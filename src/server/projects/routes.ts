@@ -107,7 +107,9 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     return (await getWorkspace(db, request.params.id)) ?? reply.code(404).send(NO_WORKSPACE);
   });
 
-  app.patch<WithId & { Body: { name?: string; description?: string | null } }>(
+  app.patch<
+    WithId & { Body: { name?: string; description?: string | null; selfApprove?: boolean } }
+  >(
     '/api/v1/workspaces/:id',
     {
       schema: {
@@ -115,6 +117,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         ...body([], {
           name: text(200, 1),
           description: { type: ['string', 'null'], maxLength: 2000 },
+          // AFS-28: who launched a run may decide its approvals too.
+          selfApprove: { type: 'boolean' },
         }),
       },
     },

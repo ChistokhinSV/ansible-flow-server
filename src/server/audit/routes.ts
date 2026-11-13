@@ -86,6 +86,7 @@ export const ACTIONS: Record<string, Action> = {
     parent: 'workspace',
   },
   'DELETE /api/v1/grants/:id': { action: 'grant.delete', id: at() },
+  'POST /api/v1/runs/:id/approvals/:node': { action: 'approval.decide', id: at() },
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },
   'POST /git/:workspace/:repo/git-receive-pack': { action: 'git.push', id: 'none', self: true },
@@ -143,6 +144,8 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
       return one(
         db.selectFrom('launch_config').select('name as n').where('id', '=', id).executeTakeFirst(),
       );
+    case 'approval':
+      return nameOf(db, 'run', id);
     case 'grant': {
       const grant = await db
         .selectFrom('access_grant')
@@ -301,6 +304,13 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       }
     }
     if (spec.action === 'run.relaunch' && typeof answer.id === 'string') detail.run = answer.id;
+    // AFS-28: the decision is one of two words, and the approval is named by its node.
+    if (spec.action === 'approval.decide') {
+      const said = request.body as { decision?: unknown } | undefined;
+      if (said?.decision === 'approved' || said?.decision === 'rejected')
+        detail.decision = said.decision;
+      detail.approval = params.node;
+    }
     if (spec.self)
       object = {
         type: 'project',

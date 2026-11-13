@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { buildApp } from './app';
+import { timeOutDue } from './approvals/gates';
 import { pruneAudit } from './audit/store';
 import { sweepSessions } from './auth/sessions';
 import { setupCode } from './auth/setup';
@@ -201,6 +202,13 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     });
     // A worker that stops answering lets its runs go: back to the queue, or lost (runs/queue.ts).
     leases = setInterval(() => {
+      // AFS-28: approvals whose time ran out time out, and their runs go on.
+      void timeOutDue(database.db, (id) => runs.resume(id)).then(
+        (went) => {
+          if (went.length) log.info({ runs: went.length }, 'Approvals timed out: runs go on');
+        },
+        (e) => log.error({ err: e }, 'Timing out approvals failed'),
+      );
       void runs.expire().then(
         (n) => {
           if (n.requeued || n.lost || n.cancelled)

@@ -13,27 +13,27 @@ own code, with who may run what, who must approve, and a record of every run.
 
 ## Status
 
-**Early development: there is nothing to deploy yet.** The server starts, keeps a database
-(SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
-users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
-repositories and is itself the git address of every project (clone, fetch, push), keeps credentials encrypted and signs in to private repositories with them, keeps launch
-configurations, and runs flows in execution environment containers, has web pages to sign
-in and look at workspaces, projects and their flows on the designer's canvas (read-only), answers health checks and says what it is; it can read and
-check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
-decisions are in [docs/adr](docs/adr).
+**Early development: not released yet.** The server keeps a database (SQLite or PostgreSQL),
+speaks HTTPS with a certificate you can request and replace, signs in people (password) and
+programs (access tokens, service accounts), keeps workspaces and projects in step with their git
+repositories and is the git address of every project, keeps credentials encrypted, and runs flows
+in execution environment containers from launch configurations, live on the designer's canvas.
+Access levels say who sees, runs and changes what; approvals stop a run until someone allowed
+decides; every change is in an audit log; the REST API is described as OpenAPI. The plan and its
+tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 
-| Planned for 1.0                                                            | State   |
-| -------------------------------------------------------------------------- | ------- |
-| Projects from a git repository, or hosted by the server                    | planned |
-| Flows shown on the designer's canvas, read-only, with live run status      | planned |
-| Runs in execution environment containers, with credentials kept encrypted  | planned |
-| Access levels: read, operate, edit, approve, per workspace or per flow     | planned |
-| Approval steps: a run waits until a listed approver decides                | planned |
-| Notifications by email and webhook                                         | planned |
-| Execution environments built from a list of collections                    | planned |
-| Schedules, REST API with tokens, MCP endpoint                              | planned |
-| Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | planned |
-| Install with docker compose or as a Linux service                          | planned |
+| Planned for 1.0                                                            | State                      |
+| -------------------------------------------------------------------------- | -------------------------- |
+| Projects from a git repository, or hosted by the server                    | done                       |
+| Flows shown on the designer's canvas, read-only, with live run status      | done                       |
+| Runs in execution environment containers, with credentials kept encrypted  | done                       |
+| Access levels: read, operate, edit, approve, per workspace or per flow     | done                       |
+| Approval steps: a run waits until a listed approver decides                | done                       |
+| Notifications by email and webhook                                         | planned                    |
+| Execution environments built from a list of collections                    | planned                    |
+| Schedules, REST API with tokens, MCP endpoint                              | API done                   |
+| Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | local users and HTTPS done |
+| Install with docker compose or as a Linux service                          | planned                    |
 
 ## Requirements
 
@@ -300,7 +300,7 @@ Administrators may do everything. Everyone else sees and does only what they are
 | `ro`       | See the workspace, its projects, flows, launch configurations, credentials (names) and runs; clone and fetch; ask what a launch would run |
 | `operator` | And launch a flow as its launch configuration says; stop a run, run it again                                                              |
 | `rw`       | And launch another branch or commit; add, change and delete launch configurations; push through the server; look at the source now        |
-| `approve`  | Decide approval gates: a grant of its own, neither above nor below the others                                                             |
+| `approve`  | Decide approval gates, and see what they decide (as `ro`); a grant of its own, which never lowers another                                 |
 
 - **A grant on one flow replaces the workspace's for that flow:** it may give more (operator on
   one flow of a workspace that is ro) or less (ro on one flow of a workspace that is rw).
@@ -380,7 +380,8 @@ setup code from its log); after that, sign-in.
 | `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values       |
 | `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one           |
 | `/runs`                                | Every run, the newest first, filtered by state                                              |
-| `/runs/<id>`                           | One run: what ran, the run on the canvas, its output as it comes; Stop and Run again        |
+| `/runs/<id>`                           | One run: what ran, its approvals, the run on the canvas, its output; Stop and Run again     |
+| `/approvals`                           | What waits for a decision: yours to decide (with a comment), and others' with why not       |
 | `/docs/api`                            | The API reference, from the server's OpenAPI document                                       |
 | `/account`                             | Your access tokens: make (shown once; for all workspaces or one), list, revoke              |
 | `/admin`                               | Administration: the audit log; people, groups and the certificate are not built yet         |
@@ -389,7 +390,7 @@ setup code from its log); after that, sign-in.
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
-- A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas.
+- A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas, and an approval is decided in its Run tab.
 - Administrators read the audit log at `/admin/audit` and export it.
 - A project's page lists its launch configurations; `rw` on a flow adds, changes and deletes
   them.
@@ -731,6 +732,44 @@ docker run -d --name flow-server \
   -e AFS_TLS=off -e AFS_HOST=0.0.0.0 -p 8080:8080 \
   <an image with Node.js 24, git and the docker command> node dist/server.js
 ```
+
+### Approvals
+
+A flow with **approval** steps on its top level runs in segments: the server runs it until hosts
+wait at an approval, records what waits and lets the run go (it takes no place among the runs
+going and holds no container). Someone allowed decides; the run then goes back to the queue and
+continues with the hosts that waited, through the approval's `approved` or `rejected` port. A
+server that stops and starts again keeps the run waiting.
+
+- **Who decides:** whoever has the `approve` grant on the flow or its workspace (see
+  [Access levels](#access-levels)); when the approval names `approvers` (users or groups, in the
+  flow), only they. Administrators may always decide.
+- **Not who launched the run**, unless the workspace allows it (Access, on the workspace's page,
+  or `PATCH /api/v1/workspaces/<id>` with `{"selfApprove": true}`).
+- **A comment** goes with every decision; the run, its page, its canvas and the audit log keep
+  who decided, when and why.
+- **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
+  hosts take the approval's `timeout` port (or `rejected` when it has none).
+- **A stopped run** asks nobody any more.
+- The approval's `message` is shown to whoever decides; `notify` names who is told (notifications
+  come in a later version).
+- Approvals inside subflows, or two that can wait at once, cannot be split: such a flow does not
+  launch (the designer says why, `awx-segments`).
+
+Decide on the **Approvals** page (what waits for you, and for others), on the run's page, or on
+the canvas (the approval's Run tab), or:
+
+```sh
+curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
+  https://flows.example.net:8443/api/v1/runs/<id>/approvals/change-approval \
+  -d '{"decision":"approved","comment":"Window confirmed with the NOC"}'
+```
+
+| Address (under `/api/v1`)        | Does                                                                          | Who                          |
+| -------------------------------- | ----------------------------------------------------------------------------- | ---------------------------- |
+| `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide  | signed in                    |
+| `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom, when, why; `mayDecide`, `why` | `ro`                         |
+| `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key       | `approve`, and the approvers |
 
 ### The audit log
 

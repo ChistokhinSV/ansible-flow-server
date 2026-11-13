@@ -16,6 +16,7 @@ import { hostOutput } from '@ansible-flow/core/run/events';
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf } from '../access/grants';
+import { closeGates } from '../approvals/gates';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import type { RunHub, RunNews } from './hub';
@@ -114,8 +115,15 @@ export function registerRuns(
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
       if (!(await queue.get(request.params.id))) return reply.code(404).send(NONE);
-      const dir = await queue.runDir(request.params.id);
-      const events = dir ? await readFile(join(dir, 'events.jsonl'), 'utf8').catch(() => '') : '';
+      // A run of a flow with approvals ran in segments, each with its folder (AFS-28).
+      const segments = await queue.segments(request.params.id);
+      const last = await queue.runDir(request.params.id);
+      const dirs = segments.length ? segments.map((s) => s.dir) : last ? [last] : [];
+      const events = (
+        await Promise.all(
+          dirs.map((d) => readFile(join(d, 'events.jsonl'), 'utf8').catch(() => '')),
+        )
+      ).join('\n');
       return { entries: hostOutput(events, request.params.node, request.params.host) };
     },
   );
@@ -297,6 +305,8 @@ export function registerRuns(
       if (!me) return reply;
       const run = await queue.cancel(request.params.id, me.login);
       if (!run) return reply.code(404).send(NONE);
+      // AFS-28: a run stopped while it waits for approval asks nobody any more.
+      if (run.state === 'cancelled' && db) await closeGates(db, run.id);
       hub?.publish(run.id, { kind: 'state' });
       request.log.info(
         { by: me.login, run: run.id, number: run.number, state: run.state },

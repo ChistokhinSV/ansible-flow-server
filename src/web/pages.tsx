@@ -265,7 +265,9 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
           </li>
         ))}
       </ul>
-      {me.admin && space.data && <WorkspaceAccess workspace={space.data.key} />}
+      {me.admin && space.data && (
+        <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />
+      )}
     </>
   );
 }
