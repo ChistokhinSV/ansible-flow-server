@@ -23,6 +23,7 @@
     "reflect-metadata": "0.2.2"
   },
   "devDependencies": {
+    "@ansible-flow/designer": "file:vendor/ansible-flow-designer-0.85.0.tgz",
     "@biomejs/biome": "2.6.7",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",

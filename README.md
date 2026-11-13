@@ -17,7 +17,7 @@ own code, with who may run what, who must approve, and a record of every run.
 (SQLite or PostgreSQL), speaks HTTPS with a certificate you can request and replace, knows its
 users and groups and signs them in (with a password, or a program with an access token), keeps workspaces and projects in step with their git
 repositories and is itself the git address of every project (clone, fetch, push), has web pages to sign
-in and look at workspaces and projects, answers health checks and says what it is; it can read and
+in and look at workspaces, projects and their flows on the designer's canvas (read-only), answers health checks and says what it is; it can read and
 check flow files. It does not run flows yet. The plan and its tickets are in YouTrack project AFS; the
 decisions are in [docs/adr](docs/adr).
 
@@ -280,18 +280,19 @@ Not there yet: the pages for all this, levels on workspaces and flows, sign-in w
 The server serves its own pages at its address. A new server shows the first-run setup (the
 setup code from its log); after that, sign-in.
 
-| Page                       | Shows                                                                |
-| -------------------------- | -------------------------------------------------------------------- |
-| `/`                        | The workspaces; administrators add one                               |
-| `/w/<workspace>`           | Its projects; administrators add one, kept by the server or external |
-| `/w/<workspace>/<project>` | State, commit, branches, the `git clone` command, who pushed         |
-| `/account`                 | Your access tokens: make (shown once), list, revoke                  |
-| `/runs`, `/admin`          | Placeholders: not built yet                                          |
+| Page                                   | Shows                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `/`                                    | The workspaces; administrators add one                                                      |
+| `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                        |
+| `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed |
+| `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                        |
+| `/account`                             | Your access tokens: make (shown once), list, revoke                                         |
+| `/runs`, `/admin`                      | Placeholders: not built yet                                                                 |
 
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
-- Not there yet: the flows of a project on the designer's canvas, runs, the pages for people,
-  groups and the certificate.
+- A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
+- Not there yet: runs, the pages for people, groups and the certificate.
 
 ### Workspaces and projects
 
@@ -323,16 +324,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 }
 ```
 
-| Address (under `/api/v1`)           | Does                                                              | Who                                     |
-| ----------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
-| `/workspaces`, `/workspaces/:id`    | List, add, change, delete (by id or key)                          | read: signed in; change: administrators |
-| `/workspaces/:id/projects`          | A workspace's projects; add one (its source is looked at at once) | as above                                |
-| `/projects/:id`                     | A project; change its name, source, branch, timer; delete         | as above                                |
-| `POST /projects/:id/sync`           | Look at the source now                                            | administrators                          |
-| `GET /projects/:id/branches`        | The branches the source has                                       | signed in                               |
-| `GET /projects/:id/pushes`          | Who pushed what through the server, newest first                  | signed in                               |
-| `POST /projects/:id/hook`, `DELETE` | Make a push hook (its token is shown once); remove it             | administrators                          |
-| `POST /hooks/projects/:id/push`     | Called by the git host with the hook's token                      | the token                               |
+| Address (under `/api/v1`)            | Does                                                                                                                             | Who                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `/workspaces`, `/workspaces/:id`     | List, add, change, delete (by id or key)                                                                                         | read: signed in; change: administrators |
+| `/workspaces/:id/projects`           | A workspace's projects; add one (its source is looked at at once)                                                                | as above                                |
+| `/projects/:id`                      | A project; change its name, source, branch, timer; delete                                                                        | as above                                |
+| `POST /projects/:id/sync`            | Look at the source now                                                                                                           | administrators                          |
+| `GET /projects/:id/branches`         | The branches the source has                                                                                                      | signed in                               |
+| `GET /projects/:id/pushes`           | Who pushed what through the server, newest first                                                                                 | signed in                               |
+| `GET /projects/:id/flows`            | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read | signed in                               |
+| `GET /projects/:id/flows/view?path=` | One flow as the designer shows it (the flow, findings, positions, generated plays)                                               | signed in                               |
+| `POST /projects/:id/hook`, `DELETE`  | Make a push hook (its token is shown once); remove it                                                                            | administrators                          |
+| `POST /hooks/projects/:id/push`      | Called by the git host with the hook's token                                                                                     | the token                               |
 
 - **The source** is `https://…`, `ssh://…` or `git@host:path`. An address with a password in it
   is refused. A folder of this machine is allowed only with `AFS_GIT_LOCAL=on`.
@@ -383,8 +386,8 @@ While the server uses its own first certificate, tell git to trust it:
 ]
 ```
 
-Not there yet: credentials for private repositories, GitHub's signed hooks, starting a hosted
-project from a sample, and the list of flows in a project.
+Not there yet: credentials for private repositories, GitHub's signed hooks, and starting a hosted
+project from a sample.
 
 ## Development
 

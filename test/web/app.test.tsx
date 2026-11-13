@@ -60,6 +60,33 @@ const signedInAs = (user: typeof dana) => ({
     ],
   }),
   'GET /projects/p2/pushes?limit=20': () => ({ body: [] }),
+  'GET /projects/p1/flows': () => ({
+    body: {
+      commit: edge.commit,
+      flows: [
+        {
+          file: 'flows/os-upgrade.flow.yaml',
+          ok: true,
+          key: 'os-upgrade',
+          name: 'OS upgrade',
+          version: 7,
+          format: 2,
+          steps: 12,
+          errors: 0,
+          warnings: 2,
+        },
+        {
+          file: 'old/broken.flow.yaml',
+          ok: false,
+          problem:
+            'The flow is in format 99; this server reads up to format 2. Upgrade the server.',
+          errors: 0,
+          warnings: 0,
+        },
+      ],
+    },
+  }),
+  'GET /projects/p2/flows': () => ({ body: { flows: [] } }),
   'GET /tokens': () => ({ body: [] }),
 });
 
@@ -246,6 +273,41 @@ describe('signed in', () => {
     // The breadcrumb leads back.
     fireEvent.click(screen.getByRole('link', { name: 'network' }));
     await screen.findByRole('heading', { name: 'Network team' });
+  });
+
+  it("lists a project's flows with their findings, and shows one on the designer's page", async () => {
+    routes = signedInAs(dana);
+    window.history.replaceState(null, '', '/w/network/edge');
+    render(<App />);
+    const link = await screen.findByRole('link', { name: /OS upgrade/ });
+    expect(link.textContent).toContain('version 7');
+    expect(link.textContent).toContain('12 steps');
+    expect(link.textContent).toContain('2 warnings');
+    // A flow the server cannot read is listed with the reason, and is not a link.
+    expect(screen.getByText(/Upgrade the server/)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /broken/ })).toBeNull();
+
+    fireEvent.click(link);
+    await screen.findByRole('heading', { name: 'OS upgrade' });
+    expect(window.location.pathname).toBe('/w/network/edge/flow/flows/os-upgrade.flow.yaml');
+    const frame = (await screen.findByTitle(/OS upgrade on the designer/)) as HTMLIFrameElement;
+    const src = new URL(frame.src);
+    expect(src.pathname).toBe('/viewer.html');
+    expect(Object.fromEntries(src.searchParams)).toEqual({
+      project: 'p1',
+      path: 'flows/os-upgrade.flow.yaml',
+      theme: 'auto',
+    });
+    expect(screen.getByText(/main at 9f2c1e7ab3d4 · shown, not changed/)).toBeTruthy();
+    // The designer follows the theme the person chose.
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: as the device' }));
+    await waitFor(() =>
+      expect(
+        new URL(
+          (screen.getByTitle(/OS upgrade on the designer/) as HTMLIFrameElement).src,
+        ).searchParams.get('theme'),
+      ).toBe('light'),
+    );
   });
 
   it('a hosted project that is empty says to push; a project that is not there says so', async () => {

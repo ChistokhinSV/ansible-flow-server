@@ -4,6 +4,7 @@ import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import {
   Account,
+  FlowPage,
   NotBuilt,
   NotFound,
   ProjectPage,
@@ -29,7 +30,18 @@ const THEME_LABEL: Record<ThemeChoice, string> = {
 };
 
 /** The page an address is. */
-function Page({ path, me }: { path: string; me: User }) {
+function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice }) {
+  // A flow's address ends with its file's path, which has slashes of its own.
+  const flow = /^\/w\/([^/]+)\/([^/]+)\/flow\/(.+)$/.exec(path);
+  if (flow) {
+    try {
+      const [workspace, project, file] = flow.slice(1).map(decodeURIComponent);
+      if (workspace && project && file)
+        return <FlowPage workspace={workspace} project={project} file={file} theme={theme} />;
+    } catch {
+      return <NotFound />;
+    }
+  }
   if (path === '/') return <Workspaces me={me} />;
   if (path === '/runs')
     return <NotBuilt title="Runs" what="Runs of flows, live and past, will be listed here." />;
@@ -153,8 +165,8 @@ export function App() {
       {session.state === 'setup' && <Setup onDone={signedIn} />}
       {session.state === 'signed-out' && <SignIn onDone={signedIn} />}
       {me && (
-        <main id="main" className="page">
-          <Page path={path} me={me} />
+        <main id="main" className={/\/flow\//.test(path) ? 'page wide' : 'page'}>
+          <Page path={path} me={me} theme={theme} />
         </main>
       )}
     </>

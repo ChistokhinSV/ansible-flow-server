@@ -2,9 +2,10 @@
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
 import type { TokenInfo } from '../server/auth/tokens';
 import type { User } from '../server/auth/users';
+import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 
-export type { Project, Push, TokenInfo, User, Workspace };
+export type { FlowList, FlowSummary, Project, Push, TokenInfo, User, Workspace };
 
 export class ApiError extends Error {
   constructor(
@@ -76,6 +77,7 @@ export const api = {
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
   branches: (id: string) => call<{ branches: string[] }>('GET', `/projects/${id}/branches`),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
+  flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: { name: string; expiresInDays?: number; readOnly?: boolean }) =>

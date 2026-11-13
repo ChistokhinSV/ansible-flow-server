@@ -3,12 +3,14 @@
 //   /api/v1/workspaces, /workspaces/:id            :id is the workspace's id or its key
 //   /api/v1/workspaces/:id/projects
 //   /api/v1/projects/:id, /sync, /branches, /pushes, /hook
+//   /api/v1/projects/:id/flows, /flows/view?path=   the flows at the project's commit
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
+import { FlowError, ProjectFlows } from './flows';
 import { type Git, GitError } from './git';
 import {
   createProject,
@@ -57,6 +59,7 @@ const NO_WORKSPACE = { error: 'not_found', message: 'No such workspace' };
 export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void {
   const { db } = deps;
   const hookFailures = new FailureLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
+  const flows = new ProjectFlows(deps.git);
 
   const answering =
     <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
@@ -264,6 +267,55 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
       return listPushes(db, project.id, request.query.limit);
+    },
+  );
+
+  // --- flows
+
+  app.get<WithId>('/api/v1/projects/:id/flows', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const project = await getProject(db, request.params.id);
+    if (!project) return reply.code(404).send(NO_PROJECT);
+    try {
+      return await flows.list(project.id, project.commit);
+    } catch (e) {
+      // A repository that cannot be read just now has no list; the project's page says why.
+      if (e instanceof GitError) return { commit: project.commit, flows: [] };
+      throw e;
+    }
+  });
+
+  app.get<WithId & { Querystring: { path: string } }>(
+    '/api/v1/projects/:id/flows/view',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          required: ['path'],
+          properties: { path: text(1000, 1) },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      if (!project.commit)
+        return reply
+          .code(404)
+          .send({ error: 'not_found', message: 'The project has no commit yet' });
+      try {
+        return await flows.view(project.id, project.commit, request.query.path);
+      } catch (e) {
+        if (e instanceof FlowError)
+          return reply
+            .code(e.code === 'not_found' ? 404 : 422)
+            .send({ error: e.code, message: e.message });
+        if (e instanceof GitError)
+          return reply.code(404).send({ error: 'not_found', message: 'No such flow' });
+        throw e;
+      }
     },
   );
 

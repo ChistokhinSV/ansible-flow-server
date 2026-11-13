@@ -1,8 +1,16 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 import { useState } from 'react';
-import { api, type NewToken, type Project, type User } from './api';
+import {
+  api,
+  type FlowList,
+  type FlowSummary,
+  type NewToken,
+  type Project,
+  type User,
+} from './api';
 import { Link, navigate } from './router';
+import type { ThemeChoice } from './theme';
 import { Copyable, Field, Form, Loading, PageHead, Time, useLoad } from './ui';
 
 // --- before anyone is signed in
@@ -275,6 +283,10 @@ export function ProjectPage({
   const id = project?.id;
   const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
   const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
+  const flows = useLoad(
+    async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),
+    [id, project?.commit],
+  );
   const [looking, setLooking] = useState(false);
   const look = async () => {
     if (!id) return;
@@ -356,10 +368,22 @@ export function ProjectPage({
 
       <section className="panel" aria-labelledby="flows">
         <h2 id="flows">Flows</h2>
-        <p className="muted">
-          The flows of this project will be listed and shown here. This part of the server is not
-          built yet.
-        </p>
+        <Loading state={flows} />
+        {flows.data?.flows.length === 0 && (
+          <p className="muted">
+            {project.commit
+              ? 'No flow in this project: a flow is a file named *.flow.yaml.'
+              : 'Nothing yet: the project has no commit.'}
+          </p>
+        )}
+        <ul className="rows">
+          {flows.data?.flows.map((flow) => (
+            <li key={flow.file}>
+              <FlowRow flow={flow} to={flowAddress(workspace, key, flow.file)} />
+            </li>
+          ))}
+        </ul>
+        {flows.data?.more && <p className="muted">There are more flows than are listed.</p>}
       </section>
 
       <section className="panel" aria-labelledby="pushes">
@@ -399,6 +423,124 @@ export function ProjectPage({
         )}
       </section>
     </>
+  );
+}
+
+/** The address of a flow's page: its file's path, part by part. */
+export const flowAddress = (workspace: string, project: string, file: string) =>
+  `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}/flow/${file
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')}`;
+
+function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
+  if (!flow.ok)
+    return (
+      <div className="row">
+        <span>
+          <strong>{flow.name ?? flow.file}</strong>
+          <span className="muted"> · {flow.file}</span>
+        </span>
+        <span className="bad-text">{flow.problem}</span>
+      </div>
+    );
+  return (
+    <Link to={to} className="row">
+      <span>
+        <strong>{flow.name ?? flow.key ?? flow.file}</strong>
+        <span className="muted">
+          {' '}
+          · {flow.file}
+          {flow.version !== undefined && ` · version ${flow.version}`} · {flow.steps ?? 0}{' '}
+          {flow.steps === 1 ? 'step' : 'steps'}
+        </span>
+      </span>
+      <span className="badges">
+        {flow.errors > 0 && (
+          <span className="badge bad">
+            {flow.errors} {flow.errors === 1 ? 'error' : 'errors'}
+          </span>
+        )}
+        {flow.warnings > 0 && (
+          <span className="badge">
+            {flow.warnings} {flow.warnings === 1 ? 'warning' : 'warnings'}
+          </span>
+        )}
+        {flow.errors === 0 && flow.warnings === 0 && <span className="badge ok">no findings</span>}
+      </span>
+    </Link>
+  );
+}
+
+// --- a flow
+
+/**
+ * One flow on the designer's canvas, read-only. The designer is a page of its own
+ * (viewer.html), shown here in a frame under the application's bar.
+ */
+export function FlowPage({
+  workspace,
+  project: key,
+  file,
+  theme,
+}: {
+  workspace: string;
+  project: string;
+  file: string;
+  theme: ThemeChoice;
+}) {
+  const found = useLoad(
+    async () => (await api.projects(workspace)).find((p) => p.key === key),
+    [workspace, key],
+  );
+  const project = found.data;
+  const flows = useLoad(
+    async () => (project ? api.flows(project.id) : ({ flows: [] } as FlowList)),
+    [project?.id, project?.commit],
+  );
+  const flow = flows.data?.flows.find((f) => f.file === file);
+  const title = flow?.name ?? file.split('/').at(-1) ?? file;
+  const viewer =
+    project &&
+    `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}&theme=${
+      theme === 'system' ? 'auto' : theme
+    }`;
+  return (
+    <div className="flow-page">
+      <div className="flow-head">
+        <nav aria-label="Breadcrumb" className="crumbs">
+          <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
+          <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">{file}</span>
+        </nav>
+        <PageHead
+          title={title}
+          lead={
+            project?.commit
+              ? `${project.gitRef} at ${project.commit.slice(0, 12)} · shown, not changed`
+              : undefined
+          }
+        >
+          {viewer && (
+            <a href={viewer} target="_blank" rel="noreferrer">
+              Open on its own page
+            </a>
+          )}
+        </PageHead>
+        <Loading state={found} />
+        {!found.loading && !found.error && !project && (
+          <p className="empty">There is no such project.</p>
+        )}
+      </div>
+      {viewer && project?.commit && (
+        <iframe
+          // A new commit or theme is a new page for the designer.
+          key={`${project.commit}:${theme}`}
+          className="flow-frame"
+          src={viewer}
+          title={`The flow ${title} on the designer's canvas`}
+        />
+      )}
+    </div>
   );
 }
 

@@ -13,6 +13,8 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     target: 'es2023',
+    // Two pages: the application, and the designer on a page of its own (viewer.ts).
+    rollupOptions: { input: ['src/web/index.html', 'src/web/viewer.html'] },
   },
   server: {
     port: 5180,
