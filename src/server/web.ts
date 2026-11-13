@@ -17,6 +17,8 @@ const TYPES: Record<string, string> = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
 };
 
@@ -33,6 +35,22 @@ const POLICY = [
   "frame-ancestors 'none'",
   "base-uri 'none'",
   "form-action 'self'",
+].join('; ');
+
+/**
+ * The page that is only the designer (viewer.html): shown in a frame of the application, so
+ * this server's own pages may frame it; its icons are a font, its exported picture a blob.
+ */
+const VIEWER_POLICY = [
+  "default-src 'self'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "style-src 'self'",
+  "script-src 'self'",
+  "connect-src 'self'",
+  "frame-ancestors 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
 ].join('; ');
 
 /** Addresses that are the server's own, never a page: an unknown one is a JSON 404. */
@@ -80,8 +98,10 @@ export function webHandler(dir: string): WebHandler | undefined {
     // Only what was read at start is served: an address cannot name a file outside the folder.
     let file = files.get(path);
     if (!file) {
-      // Something that looks like a file and is not there is missing, not a page.
-      if (/\.[A-Za-z0-9]{1,12}$/.test(path)) return undefined;
+      // Something that looks like one of the application's files and is not there is missing,
+      // not a page. A page's address may end like a file too (a flow's is its file's path), so
+      // only where the application's files are: at the top and in /assets.
+      if (/^\/(assets\/.*|[^/]+\.[A-Za-z0-9]{1,12})$/.test(path)) return undefined;
       file = index;
     }
     reply
@@ -90,7 +110,11 @@ export function webHandler(dir: string): WebHandler | undefined {
       .header('x-content-type-options', 'nosniff')
       .header('referrer-policy', 'same-origin')
       .header('cache-control', file.immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
-    if (file === index || file.type.startsWith('text/html'))
+    if (path === '/viewer.html')
+      reply
+        .header('content-security-policy', VIEWER_POLICY)
+        .header('x-frame-options', 'SAMEORIGIN');
+    else if (file === index || file.type.startsWith('text/html'))
       reply.header('content-security-policy', POLICY).header('x-frame-options', 'DENY');
     if (request.headers['if-none-match'] === file.etag) return reply.code(304).send();
     return reply.send(file.body);

@@ -22,6 +22,7 @@ beforeAll(async () => {
   writeFileSync(join(web, 'index.html'), '<!doctype html><title>Ansible Flow Server</title>');
   writeFileSync(join(web, 'assets', 'index-AbC123.js'), 'console.log("app")');
   writeFileSync(join(web, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  writeFileSync(join(web, 'viewer.html'), '<!doctype html><title>Flow</title>');
   // A file beside the folder: nothing may reach it.
   writeFileSync(join(root, 'secret.txt'), 'not for anyone');
   database = openDatabase({ kind: 'sqlite', file: ':memory:' });
@@ -48,6 +49,8 @@ describe('the web application', () => {
       '/w/network/edge?tab=runs',
       '/account',
       '/no/such/page',
+      // A flow's page is named by its file: it ends like a file and is a page all the same.
+      '/w/network/edge/flow/flows/os-upgrade.flow.yaml',
     ]) {
       const reply = await get(url);
       expect(reply.statusCode, url).toBe(200);
@@ -72,6 +75,19 @@ describe('the web application', () => {
     expect(policy).not.toContain('unsafe');
     expect(reply.headers['x-frame-options']).toBe('DENY');
     expect(reply.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it("the designer's page may be framed by this server's pages, and by nobody else", async () => {
+    const reply = await get('/viewer.html?project=p1&path=hello.flow.yaml');
+    expect(reply.statusCode).toBe(200);
+    expect(reply.body).toContain('<title>Flow</title>');
+    const policy = String(reply.headers['content-security-policy']);
+    expect(policy).toContain("frame-ancestors 'self'");
+    expect(policy).toContain("font-src 'self' data:");
+    expect(policy).toContain("script-src 'self'");
+    expect(policy).not.toContain('unsafe');
+    expect(reply.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(reply.headers['cache-control']).toBe('no-cache');
   });
 
   it('serves its files with their types; those named by their content are kept for good', async () => {

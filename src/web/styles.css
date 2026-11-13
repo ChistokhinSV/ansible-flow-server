@@ -387,3 +387,49 @@ th {
     display: none;
   }
 }
+
+/* --- lists of things with a state, and a flow on the canvas */
+.rows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.25rem 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+a.row:hover strong {
+  color: var(--accent);
+}
+.badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.page.wide {
+  max-width: none;
+  padding-bottom: 0;
+}
+.flow-page {
+  display: flex;
+  flex-direction: column;
+  /* The canvas takes what the bar and the heading leave of the window. */
+  height: calc(100dvh - 4.5rem);
+  min-height: 420px;
+}
+.flow-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}

@@ -32,7 +32,10 @@ const tarballs = new Map(
 );
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 mkdirSync('vendor', { recursive: true });
-for (const name of Object.keys(manifest.dependencies)) {
+// The designer itself is a build-time dependency: Vite bundles it into the pages.
+for (const [name, group] of ['dependencies', 'devDependencies'].flatMap((g) =>
+  Object.keys(manifest[g] ?? {}).map((n) => [n, g]),
+)) {
   if (!name.startsWith('@ansible-flow/')) continue;
   const file = tarballs.get(name);
   if (!file) {
@@ -40,7 +43,7 @@ for (const name of Object.keys(manifest.dependencies)) {
     process.exit(1);
   }
   copyFileSync(join(packed, file), join('vendor', file));
-  manifest.dependencies[name] = `file:vendor/${file}`;
+  manifest[group][name] = `file:vendor/${file}`;
   console.log(`${name}: vendor/${file}`);
 }
 writeFileSync('package.json', `${JSON.stringify(manifest, null, 2)}\n`);
