@@ -252,6 +252,7 @@ export const api = {
     expiresInDays?: number;
     readOnly?: boolean;
     workspace?: string;
+    mcpApprovals?: boolean;
   }) => call<NewToken>('POST', '/tokens', input),
   revokeToken: (id: string) => call<void>('DELETE', `/tokens/${id}`),
 };

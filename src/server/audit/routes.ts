@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { administrator } from '../auth/guards';
 import type { Schema } from '../db/schema';
+import { viaMcp } from '../mcp/mark';
 import {
   type AuditEntry,
   type AuditFilter,
@@ -210,6 +211,8 @@ function detailOfBody(method: string, body: unknown): Record<string, unknown> {
 /** Where a request came from: the pages, a script or tool with a token, or git. */
 function sourceOf(request: FastifyRequest): AuditSource {
   if (request.url.startsWith('/git/')) return 'git';
+  // AFS-24: a call an MCP tool made for an agent.
+  if (viaMcp(request)) return 'mcp';
   if (request.user?.token) return 'api';
   if (request.user) return 'ui';
   // Nobody signed in yet (a sign-in): browsers say where a request comes from; scripts do not

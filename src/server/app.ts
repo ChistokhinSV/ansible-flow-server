@@ -10,6 +10,7 @@ import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import { registerLaunch } from './launch/routes';
 import type { Logger } from './log';
+import { registerMcp } from './mcp/routes';
 import { type ServerMeta, serverMeta } from './meta';
 import type { Notifier } from './notify/notifier';
 import { registerNotifications } from './notify/routes';
@@ -113,6 +114,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }
 
   if (deps.projects) registerAccess(app, { db: deps.database.db });
+  // AFS-24: agents, over MCP.
+  if (deps.projects) registerMcp(app, { db: deps.database.db, git: deps.projects.git });
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
   if (deps.runs) {
     registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);

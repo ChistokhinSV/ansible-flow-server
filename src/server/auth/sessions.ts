@@ -26,7 +26,13 @@ export interface SessionUser {
   name: string;
   admin: boolean;
   /** Set when the request is signed in with a personal access token, not a session. */
-  token?: { id: string; readOnly: boolean; workspace?: string };
+  token?: {
+    id: string;
+    readOnly: boolean;
+    workspace?: string;
+    /** AFS-24: an agent with this token may decide approvals over MCP. */
+    mcpApprovals?: boolean;
+  };
 }
 
 /** Starts a session; resolves with the token for the cookie. */

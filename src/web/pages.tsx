@@ -650,7 +650,13 @@ function Profile({ me }: { me: User }) {
 export function Account({ me }: { me: User }) {
   const tokens = useLoad(api.tokens, []);
   const workspaces = useLoad(api.workspaces, []);
-  const [input, setInput] = useState({ name: '', days: 90, readOnly: false, workspace: '' });
+  const [input, setInput] = useState({
+    name: '',
+    days: 90,
+    readOnly: false,
+    workspace: '',
+    mcpApprovals: false,
+  });
   const workspaceName = (id?: string) =>
     id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
@@ -703,7 +709,10 @@ export function Account({ me }: { me: User }) {
                     <td>
                       <code>…{t.hint}</code>
                     </td>
-                    <td>{t.readOnly ? 'read' : 'read and change'}</td>
+                    <td>
+                      {t.readOnly ? 'read' : 'read and change'}
+                      {t.mcpApprovals ? ', decide approvals (agents)' : ''}
+                    </td>
                     <td>{t.workspace ? workspaceName(t.workspace) : 'all workspaces'}</td>
                     <td>
                       <Time at={t.lastUsedAt} />
@@ -741,6 +750,7 @@ export function Account({ me }: { me: User }) {
                 name: input.name,
                 expiresInDays: input.days,
                 readOnly: input.readOnly,
+                ...(input.mcpApprovals && !input.readOnly ? { mcpApprovals: true } : {}),
                 ...(input.workspace ? { workspace: input.workspace } : {}),
               }),
             );
@@ -773,6 +783,15 @@ export function Account({ me }: { me: User }) {
               onChange={(e) => setInput({ ...input, readOnly: e.target.checked })}
             />
             Read only (can clone and read, cannot push or change anything)
+          </label>
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={input.mcpApprovals && !input.readOnly}
+              disabled={input.readOnly}
+              onChange={(e) => setInput({ ...input, mcpApprovals: e.target.checked })}
+            />
+            An agent with this token may decide approvals over MCP (off: approvals stay with people)
           </label>
           <WorkspaceChoice
             value={input.workspace}

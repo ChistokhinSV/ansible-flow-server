@@ -57,6 +57,7 @@ const OBJECTS = [
 const SOURCE_LABEL: Record<string, string> = {
   ui: 'pages',
   api: 'API',
+  mcp: 'agent (MCP)',
   git: 'git',
   cli: 'server command',
   server: 'server',

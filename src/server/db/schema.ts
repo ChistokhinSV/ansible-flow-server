@@ -122,6 +122,8 @@ export interface ApiTokenTable {
   read_only: Flag;
   /** The one workspace the token may reach; null: all its owner may. */
   workspace_id: string | null;
+  /** AFS-24: an agent with this token may decide approvals over MCP (off unless asked for). */
+  mcp_approve: Flag;
   created_at: IsoTime;
   last_used_at: IsoTime | null;
   expires_at: IsoTime | null;

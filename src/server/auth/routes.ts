@@ -300,11 +300,14 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     expiresInDays?: number;
     readOnly?: boolean;
     workspace?: string;
+    mcpApprovals?: boolean;
   };
   const TOKEN_BODY = body(['name'], {
     name: text(100, 1),
     expiresInDays: { type: 'integer', minimum: 1, maximum: TOKEN_MAX_DAYS },
     readOnly: { type: 'boolean' },
+    // AFS-24: an agent with the token may decide approvals over MCP.
+    mcpApprovals: { type: 'boolean' },
     // A workspace's id or key: the token reaches that workspace only.
     workspace: text(64, 1),
   });
@@ -317,6 +320,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       name: input.name,
       days: input.expiresInDays,
       readOnly: input.readOnly,
+      mcpApprovals: input.mcpApprovals,
       ...(workspace ? { workspace: workspace.id } : {}),
     };
   };
