@@ -6,9 +6,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import type { Logger } from '../log';
 import { getWorkspace } from '../projects/store';
+import type { MasterKey } from '../secrets/masterKey';
 import { administrator, inSession, signedIn } from './guards';
 import { FailureLimiter } from './limiter';
+import { localSignIn, registerOidc } from './oidc/routes';
 import { PASSWORD_MAX, passwordProblem, verifyPassword } from './passwords';
 import {
   endSession,
@@ -58,6 +61,8 @@ export interface AuthDeps {
   db: Kysely<Schema>;
   /** The session cookie is marked for HTTPS only (always, unless the server speaks plain HTTP). */
   secureCookies: boolean;
+  /** AFS-30: with the master key, people may also sign in with OIDC providers. */
+  oidc?: { key: MasterKey; log: Logger; publicUrl?: string };
 }
 
 /** Five wrong passwords for a login, or thirty from an address, in fifteen minutes. */
@@ -157,6 +162,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     });
     reply.header('set-cookie', sessionCookie(token, deps.secureCookies));
   };
+  if (deps.oidc) registerOidc(app, { db, ...deps.oidc, signIn });
   // --- the first administrator
 
   app.get('/api/v1/setup', async () => ({ needed: await setupNeeded(db) }));
@@ -213,6 +219,14 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
           .send({ error: 'invalid_credentials', message: 'The login or the password is wrong' });
       }
       byLogin.clear(keys[0]);
+      // AFS-30: when people sign in with a provider, passwords may be kept for administrators.
+      if (account.is_admin !== 1 && (await localSignIn(db)) === 'admins') {
+        request.log.warn({ login }, 'Sign-in with a password refused: providers only');
+        return reply.code(403).send({
+          error: 'provider_only',
+          message: 'Sign in with your organisation’s sign-in on this page, not with a password',
+        });
+      }
       await signIn(request, reply, account.id);
       request.log.info({ login }, 'Signed in');
       return getUser(db, account.id);

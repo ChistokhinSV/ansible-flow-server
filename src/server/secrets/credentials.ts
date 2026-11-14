@@ -4,6 +4,7 @@
 // server's own use (handing it to git, later to a run).
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
+import { resealProviders } from '../auth/oidc/providers';
 import type { Schema } from '../db/schema';
 import { SEALED_SETTINGS, settingContext } from '../notify/settings';
 import { open, seal } from './crypto';
@@ -366,11 +367,13 @@ export async function rotate(db: Db, from: MasterKey, to: MasterKey): Promise<nu
         .set({ value: again(s.value, settingContext(s.name)) })
         .where('name', '=', s.name)
         .execute();
+    // AFS-30: the OIDC providers' client secrets.
+    const providers = await resealProviders(trx, again);
     await trx.deleteFrom('setting').where('name', '=', CHECK).execute();
     await trx
       .insertInto('setting')
       .values({ name: CHECK, value: seal(to, CHECK_TEXT, CHECK), updated_at: now() })
       .execute();
-    return rows.length + runs.length + settings.length;
+    return rows.length + runs.length + settings.length + providers;
   });
 }

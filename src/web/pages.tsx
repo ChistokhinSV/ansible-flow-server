@@ -9,6 +9,7 @@ import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
+import { ProviderButtons } from './signin';
 import type { ThemeChoice } from './theme';
 import { TokensPanel } from './tokens';
 import { Copyable, Field, Form, Loading, PageHead, Time, useLoad } from './ui';
@@ -63,6 +64,8 @@ export function SignIn({ onDone }: { onDone: (user: User) => void }) {
   return (
     <main className="narrow" id="main">
       <h1>Sign in</h1>
+      {/* AFS-30: the organisation's sign-in first, when there is one. */}
+      <ProviderButtons />
       <Form submit="Sign in" onSubmit={async () => onDone(await api.signIn(login, password))}>
         <Field
           label="Login"

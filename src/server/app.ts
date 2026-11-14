@@ -128,6 +128,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     db: deps.database.db,
     // Behind a proxy the server itself speaks plain HTTP, but people reach it over HTTPS.
     secureCookies: deps.secureCookies ?? !!deps.https,
+    ...(deps.masterKey
+      ? {
+          oidc: {
+            key: deps.masterKey,
+            log: deps.log,
+            ...(deps.publicUrl ? { publicUrl: deps.publicUrl } : {}),
+          },
+        }
+      : {}),
   });
 
   if (deps.projects) {

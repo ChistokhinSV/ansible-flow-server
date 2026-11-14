@@ -132,12 +132,18 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/admin/certificate/install': { action: 'certificate.install', id: 'none' },
   'POST /api/v1/admin/certificate/self-signed': { action: 'certificate.self-signed', id: 'none' },
   'POST /api/v1/admin/certificate/rollback': { action: 'certificate.rollback', id: 'none' },
+  // AFS-30: sign-in providers, and who may sign in with a password.
+  'POST /api/v1/admin/oidc-providers': { action: 'oidc-provider.create', id: 'reply' },
+  'PATCH /api/v1/admin/oidc-providers/:id': { action: 'oidc-provider.change', id: at() },
+  'DELETE /api/v1/admin/oidc-providers/:id': { action: 'oidc-provider.delete', id: at() },
+  'PUT /api/v1/admin/sign-in': { action: 'sign-in.change', id: 'none' },
 };
 
 /** Routes that are POSTs but change nothing. */
 export const READS = new Set([
   'POST /api/v1/launch-configs/:id/check',
   'POST /api/v1/launch-configs/:id/facts',
+  'POST /api/v1/admin/oidc-providers/:id/test',
   'POST /git/:workspace/:repo/git-upload-pack',
 ]);
 

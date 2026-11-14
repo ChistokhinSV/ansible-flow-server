@@ -484,6 +484,62 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     'self',
   )('The next times a cron expression fires in a time zone, or why it cannot be read'),
+  // AFS-30: sign-in with OIDC providers.
+  'GET /api/v1/auth/methods': S(
+    'Session',
+    'anyone',
+    'anyone',
+  )(
+    'How people may sign in: with a password (everyone, or administrators only) and which providers',
+  ),
+  'GET /api/v1/auth/oidc/:key/start': S(
+    'Session',
+    'anyone',
+    'anyone',
+  )('Sign in with a provider: to its sign-in page (`return`: the page to come back to)'),
+  'GET /api/v1/auth/oidc/:key/callback': S(
+    'Session',
+    'anyone',
+    'anyone',
+  )('Back from the provider: a session, then the page asked for (the provider calls this)'),
+  'GET /api/v1/admin/oidc-providers': S(
+    'Sign-in',
+    'administrators',
+    'server',
+  )('The sign-in providers, each with the address to register at the provider (`redirectUri`)'),
+  'POST /api/v1/admin/oidc-providers': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )(
+    'Add a provider: issuer, client id and secret, scopes, the groups claim and what its values are here',
+  ),
+  'GET /api/v1/admin/oidc-providers/:id': S('Sign-in', 'administrators', 'server')('One provider'),
+  'PATCH /api/v1/admin/oidc-providers/:id': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )('Change a provider; a secret left out is kept, null removes it'),
+  'DELETE /api/v1/admin/oidc-providers/:id': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )('Remove a provider; its people stay, the groups and administrator rights it gave go'),
+  'POST /api/v1/admin/oidc-providers/:id/test': S(
+    'Sign-in',
+    'administrators',
+    'server',
+  )('Whether the provider answers its discovery, and what it offers'),
+  'GET /api/v1/admin/sign-in': S(
+    'Sign-in',
+    'administrators',
+    'server',
+  )('Who may sign in with a password here'),
+  'PUT /api/v1/admin/sign-in': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )('Passwords for everyone (`all`) or administrators only (`admins`)'),
   'GET /api/v1/admin/certificate': S(
     'Certificate',
     'administrators',

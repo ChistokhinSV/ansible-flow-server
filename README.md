@@ -23,18 +23,18 @@ decides; people are told by email and webhook; every change is in an audit log; 
 server over MCP. The plan and its
 tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 
-| Planned for 1.0                                                            | State                      |
-| -------------------------------------------------------------------------- | -------------------------- |
-| Projects from a git repository, or hosted by the server                    | done                       |
-| Flows shown on the designer's canvas, read-only, with live run status      | done                       |
-| Runs in execution environment containers, with credentials kept encrypted  | done                       |
-| Access levels: read, operate, edit, approve, per workspace or per flow     | done                       |
-| Approval steps: a run waits until a listed approver decides                | done                       |
-| Notifications by email and webhook                                         | done                       |
-| Execution environments built from a list of collections                    | planned                    |
-| Schedules, REST API with tokens, MCP endpoint                              | API and MCP done           |
-| Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | local users and HTTPS done |
-| Install with docker compose or as a Linux service                          | done                       |
+| Planned for 1.0                                                            | State            |
+| -------------------------------------------------------------------------- | ---------------- |
+| Projects from a git repository, or hosted by the server                    | done             |
+| Flows shown on the designer's canvas, read-only, with live run status      | done             |
+| Runs in execution environment containers, with credentials kept encrypted  | done             |
+| Access levels: read, operate, edit, approve, per workspace or per flow     | done             |
+| Approval steps: a run waits until a listed approver decides                | done             |
+| Notifications by email and webhook                                         | done             |
+| Execution environments built from a list of collections                    | planned          |
+| Schedules, REST API with tokens, MCP endpoint                              | API and MCP done |
+| Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | all but LDAP     |
+| Install with docker compose or as a Linux service                          | done             |
 
 ## Requirements
 
@@ -446,10 +446,39 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
   its projects, flows, credentials, launch configurations, runs and git repositories. What spans
   workspaces (the list of workspaces, all runs, people, the audit log) is refused with
   `403 out_of_scope`; list runs with `?project=<id>`.
-- A token cannot make or revoke tokens, or set a password: those take a password sign-in.
+- A token cannot make or revoke tokens, or set a password: those take a signed-in session.
 - Keep it in an environment variable or a credential store, never in a repository or an address.
 
-Not there yet: sign-in with OIDC or LDAP.
+**Sign in with your organisation (OIDC):** Keycloak, Microsoft Entra ID, Google, Okta, Authentik
+and any other OpenID Connect provider. On the Sign-in page (Administration, `/admin/sign-in`) an
+administrator adds a provider:
+
+| Setting       | What                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Name, key     | The button's words; the key is in the sign-in address (`keycloak`)                        |
+| Issuer        | `https://login.example.net/realms/net`; `https://login.microsoftonline.com/<tenant>/v2.0` |
+| Client id     | The client registered at the provider for this server                                     |
+| Client secret | Kept sealed with the master key, never shown again; empty for a public client             |
+| Scopes        | `openid profile email` by default; add what the groups claim needs                        |
+| Groups claim  | The claim with the person's groups (`groups`)                                             |
+| Login claim   | A new person's login (`preferred_username`; else the email, else the subject)             |
+| Mappings      | A value of the groups claim and what it is here: a server group, or administrator         |
+
+Register the address the page shows (`https://flows.example.net/api/v1/auth/oidc/<key>/callback`)
+as the client's redirect URI at the provider, and Test the provider. Then:
+
+- The sign-in page has a button per provider. The sign-in is the authorization code flow with
+  PKCE, state and nonce; the ID token's signature, issuer and audience are checked.
+- A person is made at their first sign-in (no password: they sign in at the provider) and found
+  again by their subject there. Their name and email follow the provider.
+- At each sign-in their groups and the administrator right follow the mapped claim values: what the
+  provider no longer says is taken back. Groups and rights given here by hand are kept.
+- **Passwords for administrators only:** the page's Passwords setting lets everyone else sign in
+  only with a provider (a way in stays if the provider is down).
+- Removing a provider keeps its people; the groups and administrator rights it gave go.
+- A provider's certificate authority: `AFS_CA_FILE`. Every change is in the audit log.
+
+Not there yet: LDAP and Active Directory (AFS-31); GitHub sign-in (OAuth 2, not OIDC).
 
 #### Access levels
 

@@ -8,6 +8,67 @@ import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-30: sign-in with OIDC providers. A person is an identity at a provider (its subject);
+  // group memberships and administrator rights a provider gave are marked, so a sign-in can
+  // take them back without touching what was set here by hand.
+  '0020_oidc': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('oidc_provider')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('key', 'text', (c) => c.notNull().unique())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('issuer', 'text', (c) => c.notNull())
+        .addColumn('client_id', 'text', (c) => c.notNull())
+        .addColumn('secret_enc', 'text')
+        .addColumn('scopes', 'text', (c) => c.notNull())
+        .addColumn('groups_claim', 'text', (c) => c.notNull())
+        .addColumn('login_claim', 'text', (c) => c.notNull())
+        .addColumn('enabled', 'integer', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('oidc_mapping')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('provider_id', 'text', (c) =>
+          c.notNull().references('oidc_provider.id').onDelete('cascade'),
+        )
+        .addColumn('claim_value', 'text', (c) => c.notNull())
+        // A server group, or (group_id null) administrator.
+        .addColumn('group_id', 'text', (c) => c.references('user_group.id').onDelete('cascade'))
+        .addColumn('admin', 'integer', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('user_identity')
+        .addColumn('provider_id', 'text', (c) =>
+          c.notNull().references('oidc_provider.id').onDelete('cascade'),
+        )
+        .addColumn('subject', 'text', (c) => c.notNull())
+        .addColumn('user_id', 'text', (c) =>
+          c.notNull().references('user_account.id').onDelete('cascade'),
+        )
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('last_at', 'text', (c) => c.notNull())
+        .addPrimaryKeyConstraint('user_identity_pk', ['provider_id', 'subject'])
+        .execute();
+      // A sign-in under way: what its return must match (state), and what it proves (PKCE, nonce).
+      await db.schema
+        .createTable('oidc_login')
+        .addColumn('state', 'text', (c) => c.primaryKey())
+        .addColumn('provider_id', 'text', (c) =>
+          c.notNull().references('oidc_provider.id').onDelete('cascade'),
+        )
+        .addColumn('verifier', 'text', (c) => c.notNull())
+        .addColumn('nonce', 'text', (c) => c.notNull())
+        .addColumn('return_to', 'text', (c) => c.notNull())
+        .addColumn('expires_at', 'text', (c) => c.notNull())
+        .execute();
+      // Null: by hand; else the provider whose claim put it there.
+      await db.schema.alterTable('group_member').addColumn('source', 'text').execute();
+      await db.schema.alterTable('user_account').addColumn('admin_source', 'text').execute();
+    },
+  },
   '0001_setting': {
     async up(db: Kysely<unknown>) {
       await db.schema

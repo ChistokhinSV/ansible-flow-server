@@ -736,3 +736,39 @@ ul.tight {
     min-width: 0;
   }
 }
+
+/* AFS-30: sign-in with a provider. */
+a.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  justify-content: center;
+}
+.providers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0 1.5rem;
+}
+.provider + .provider {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+.mappings {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+.mapping {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
+  margin-bottom: 0.5rem;
+}
+@media (max-width: 600px) {
+  .mapping {
+    grid-template-columns: 1fr;
+  }
+}

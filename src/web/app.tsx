@@ -24,6 +24,7 @@ import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
 import { SearchBox } from './search';
+import { SignInPage } from './signin';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
 
 type Session =
@@ -63,6 +64,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
   if (path === '/admin/notifications') return me.admin ? <NotificationsPage /> : <NotFound />;
   if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <NotFound />;
+  if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <NotFound />;
   if (path === '/admin/people') return me.admin ? <PeoplePage /> : <NotFound />;
   const person = match('/admin/people/:id', path);
   if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <NotFound />;

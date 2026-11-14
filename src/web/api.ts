@@ -3,6 +3,12 @@
 import type { Grant, GrantLevel, Level } from '../server/access/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
+import type {
+  Provider,
+  ProviderInput,
+  ProviderTest,
+  SignInMethods,
+} from '../server/auth/oidc/types';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { Group, User } from '../server/auth/users';
 import type {
@@ -343,6 +349,20 @@ export const api = {
     call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
   users: () => call<User[]>('GET', '/users'),
   groups: () => call<Group[]>('GET', '/groups'),
+
+  // Sign-in with OIDC providers (AFS-30).
+  signInMethods: () => call<SignInMethods>('GET', '/auth/methods'),
+  oidcProviders: () => call<Provider[]>('GET', '/admin/oidc-providers'),
+  addOidcProvider: (input: ProviderInput) => call<Provider>('POST', '/admin/oidc-providers', input),
+  changeOidcProvider: (id: string, input: Partial<ProviderInput>) =>
+    call<Provider>('PATCH', `/admin/oidc-providers/${encodeURIComponent(id)}`, input),
+  deleteOidcProvider: (id: string) =>
+    call<void>('DELETE', `/admin/oidc-providers/${encodeURIComponent(id)}`),
+  testOidcProvider: (id: string) =>
+    call<ProviderTest>('POST', `/admin/oidc-providers/${encodeURIComponent(id)}/test`),
+  localSignIn: () => call<{ local: 'all' | 'admins' }>('GET', '/admin/sign-in'),
+  setLocalSignIn: (local: 'all' | 'admins') =>
+    call<{ local: 'all' | 'admins' }>('PUT', '/admin/sign-in', { local }),
 
   // People and groups (administrators, AFS-56).
   user: (id: string) => call<User>('GET', `/users/${encodeURIComponent(id)}`),
