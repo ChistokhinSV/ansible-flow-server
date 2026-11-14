@@ -30,6 +30,12 @@ const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
     to: '/admin/certificate',
     admin: true,
   },
+  {
+    title: 'Sign-in',
+    words: 'sign-in oidc sso keycloak entra google provider login password',
+    to: '/admin/sign-in',
+    admin: true,
+  },
   { title: 'Audit log', words: 'audit log history who did what', to: '/admin/audit', admin: true },
   {
     title: 'Notifications',

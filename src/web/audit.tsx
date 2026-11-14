@@ -29,6 +29,15 @@ export function AdminPage() {
           </Link>
         </li>
         <li>
+          <Link to="/admin/sign-in" className="card">
+            <strong>Sign-in</strong>
+            <span className="muted">
+              Your organisation&apos;s sign-in (OIDC), what its groups are here, and who may still
+              use a password.
+            </span>
+          </Link>
+        </li>
+        <li>
           <Link to="/admin/audit" className="card">
             <strong>Audit log</strong>
             <span className="muted">

@@ -33,6 +33,8 @@ export interface UserAccountTable {
   created_at: IsoTime;
   updated_at: IsoTime;
   last_login_at: IsoTime | null;
+  /** AFS-30: the OIDC provider that made them an administrator; null: by hand (or not one). */
+  admin_source: string | null;
 }
 
 /** People who are given access together, and notified together. */
@@ -48,6 +50,56 @@ export interface UserGroupTable {
 export interface GroupMemberTable {
   group_id: string;
   user_id: string;
+  /** AFS-30: the OIDC provider whose claim made it; null: by hand. */
+  source: string | null;
+}
+
+/** AFS-30: an OIDC provider people sign in with. */
+export interface OidcProviderTable {
+  id: string;
+  /** In the sign-in address: /api/v1/auth/oidc/<key>/start. */
+  key: string;
+  name: string;
+  issuer: string;
+  client_id: string;
+  /** The client secret, sealed; null for a public client (PKCE only). */
+  secret_enc: string | null;
+  scopes: string;
+  /** The claim that lists a person's groups (`groups`). */
+  groups_claim: string;
+  /** The claim a new person's login comes from (`preferred_username`). */
+  login_claim: string;
+  enabled: Flag;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
+/** AFS-30: a value of a provider's groups claim, and the server group (or administrator) it is. */
+export interface OidcMappingTable {
+  id: string;
+  provider_id: string;
+  claim_value: string;
+  group_id: string | null;
+  admin: Flag;
+}
+
+/** AFS-30: a person as a provider knows them. */
+export interface UserIdentityTable {
+  provider_id: string;
+  subject: string;
+  user_id: string;
+  created_at: IsoTime;
+  last_at: IsoTime;
+}
+
+/** AFS-30: a sign-in under way, until the provider sends the person back. */
+export interface OidcLoginTable {
+  state: string;
+  provider_id: string;
+  verifier: string;
+  nonce: string;
+  return_to: string;
+  expires_at: IsoTime;
 }
 
 /** A sign-in that is still good. The cookie holds a token; this holds its hash. */
@@ -462,4 +514,8 @@ export interface Schema {
   user_group: UserGroupTable;
   group_member: GroupMemberTable;
   session: SessionTable;
+  oidc_provider: OidcProviderTable;
+  oidc_mapping: OidcMappingTable;
+  user_identity: UserIdentityTable;
+  oidc_login: OidcLoginTable;
 }

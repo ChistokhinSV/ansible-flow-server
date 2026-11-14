@@ -45,6 +45,6 @@ export function inSession(
   if (!user.token) return user;
   reply
     .code(403)
-    .send({ error: 'session_needed', message: 'Sign in with your password to do this' });
+    .send({ error: 'session_needed', message: 'Sign in on the pages to do this: a token may not' });
   return undefined;
 }

@@ -165,6 +165,7 @@ export async function createUser(db: Db, input: NewUser): Promise<User> {
     created_at: at,
     updated_at: at,
     last_login_at: null,
+    admin_source: null,
   };
   // The unique login decides: of two people adding the same login at once, one is told.
   const done = await db

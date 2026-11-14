@@ -23,6 +23,7 @@
     "fastify": "5.12.8",
     "kysely": "0.29.9",
     "nodemailer": "10.5.0",
+    "openid-client": "6.9.0",
     "pg": "8.23.1",
     "reflect-metadata": "0.2.2",
     "tar": "7.5.23"
