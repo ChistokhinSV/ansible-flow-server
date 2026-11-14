@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useProjectAccess, WorkspaceAccess } from './access';
 import { api, type FlowList, type FlowSummary, type Project, type User } from './api';
+import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
@@ -167,7 +168,13 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
   const projects = useLoad(() => api.projects(workspace), [workspace]);
   const [adding, setAdding] = useState(false);
-  const [input, setInput] = useState({ key: '', name: '', gitUrl: '', hosted: true });
+  const [input, setInput] = useState({
+    key: '',
+    name: '',
+    gitUrl: '',
+    hosted: true,
+    gitCredential: '',
+  });
   return (
     <>
       <nav aria-label="Breadcrumb" className="crumbs">
@@ -191,6 +198,9 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                 key: input.key,
                 name: input.name,
                 ...(input.hosted ? {} : { gitUrl: input.gitUrl }),
+                ...(!input.hosted && https(input.gitUrl) && input.gitCredential
+                  ? { gitCredential: input.gitCredential }
+                  : {}),
               });
               navigate(`/w/${workspace}/${made.key}`);
             }}
@@ -241,6 +251,13 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                 hint="https://, ssh:// or git@host:path. No password in the address."
               />
             )}
+            {!input.hosted && https(input.gitUrl) && (
+              <GitCredentialChoice
+                workspace={workspace}
+                value={input.gitCredential}
+                onChange={(gitCredential) => setInput({ ...input, gitCredential })}
+              />
+            )}
           </Form>
         </section>
       )}
@@ -258,6 +275,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
           </li>
         ))}
       </ul>
+      {space.data && <WorkspaceCredentials workspace={space.data.key} admin={me.admin} />}
       {me.admin && space.data && (
         <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />
       )}
@@ -266,6 +284,47 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
 }
 
 // --- a project
+
+const https = (url?: string) => /^https:\/\//i.test(url?.trim() ?? '');
+
+/** What an external project signs in to its https source with; saving looks at the source again. */
+function SourceSignIn({
+  project,
+  workspace,
+  onSaved,
+}: {
+  project: Project;
+  workspace: string;
+  onSaved(): void;
+}) {
+  const [value, setValue] = useState(project.gitCredential ?? '');
+  const [saved, setSaved] = useState(false);
+  return (
+    <Form
+      submit="Save and look at the source"
+      onSubmit={async () => {
+        setSaved(false);
+        await api.changeProject(project.id, { gitCredential: value || null });
+        setSaved(true);
+        onSaved();
+      }}
+    >
+      <GitCredentialChoice
+        workspace={workspace}
+        value={value}
+        onChange={(v) => {
+          setValue(v);
+          setSaved(false);
+        }}
+      />
+      {saved && (
+        <p className="notice ok" role="status">
+          Saved.
+        </p>
+      )}
+    </Form>
+  );
+}
 
 export function ProjectPage({
   me,
@@ -336,6 +395,12 @@ export function ProjectPage({
           <dd>
             <SyncBadge project={project} />{' '}
             {project.sync.error && <span className="bad-text">{project.sync.error}</span>}
+            {needsSignIn(project.sync.error) && (
+              <div className="muted">
+                The repository asks for a sign-in
+                {me.admin ? ': choose what the project signs in with below.' : '.'}
+              </div>
+            )}
           </dd>
           <dt>Branch that runs</dt>
           <dd>
@@ -354,6 +419,9 @@ export function ProjectPage({
           <dt>Branches</dt>
           <dd>{branches.data?.length ? branches.data.join(', ') : 'none yet'}</dd>
         </dl>
+        {me.admin && !project.hosted && https(project.gitUrl) && (
+          <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
+        )}
       </section>
 
       {/* The repository holds every flow: it is for who has a level on the workspace. */}

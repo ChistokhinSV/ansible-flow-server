@@ -159,8 +159,11 @@ export const api = {
     call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`),
   addProject: (
     workspace: string,
-    input: { key: string; name: string; gitUrl?: string; gitRef?: string },
+    input: { key: string; name: string; gitUrl?: string; gitRef?: string; gitCredential?: string },
   ) => call<Project>('POST', `/workspaces/${encodeURIComponent(workspace)}/projects`, input),
+  /** `gitCredential: null`: the source is read without signing in. */
+  changeProject: (id: string, input: { gitCredential?: string | null }) =>
+    call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
   branches: (id: string) => call<{ branches: string[] }>('GET', `/projects/${id}/branches`),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
@@ -182,6 +185,27 @@ export const api = {
 
   credentials: (workspace: string) =>
     call<Credential[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/credentials`),
+  addCredential: (
+    workspace: string,
+    input: {
+      name: string;
+      kind: string;
+      description?: string;
+      fields?: Record<string, string>;
+      secret: Record<string, string>;
+    },
+  ) => call<Credential>('POST', `/workspaces/${encodeURIComponent(workspace)}/credentials`, input),
+  /** `secret`, when given, replaces the whole secret part; left out, it stays. */
+  changeCredential: (
+    id: string,
+    input: {
+      name?: string;
+      description?: string | null;
+      fields?: Record<string, string>;
+      secret?: Record<string, string>;
+    },
+  ) => call<Credential>('PATCH', `/credentials/${encodeURIComponent(id)}`, input),
+  deleteCredential: (id: string) => call<void>('DELETE', `/credentials/${encodeURIComponent(id)}`),
 
   launchConfigs: (project: string) =>
     call<LaunchConfig[]>('GET', `/projects/${project}/launch-configs`),
