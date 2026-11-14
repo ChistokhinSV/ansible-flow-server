@@ -677,3 +677,62 @@ ul.tight {
   padding-left: 1.2rem;
   line-height: 1.6;
 }
+
+/* Search as you type (AFS-69): the field in the top bar and its list. */
+.search {
+  position: relative;
+  flex: 1 1 14rem;
+  max-width: 26rem;
+  min-width: 10rem;
+}
+.top .search input {
+  width: 100%;
+}
+.search-results {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 70vh;
+  overflow: auto;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--panel, var(--bg, #fff));
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.35));
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.search-hit {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+.search-hit.active,
+.search-hit:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.15));
+}
+.search-kind {
+  grid-row: span 2;
+  font-size: 0.75em;
+  opacity: 0.75;
+  min-width: 6.5rem;
+}
+.search-detail {
+  grid-column: 2;
+  font-size: 0.8em;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .search {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .search-kind {
+    min-width: 0;
+  }
+}

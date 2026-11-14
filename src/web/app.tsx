@@ -23,6 +23,7 @@ import {
 import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
+import { SearchBox } from './search';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
 
 type Session =
@@ -161,6 +162,7 @@ export function App() {
             )}
           </nav>
         )}
+        {me && <SearchBox me={me} />}
         <div className="top-end">
           <button type="button" onClick={() => setTheme(nextTheme(theme))}>
             {THEME_LABEL[theme]}
