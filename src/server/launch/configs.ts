@@ -384,6 +384,8 @@ export class LaunchConfigs {
   async delete(id: string): Promise<void> {
     await this.db.transaction().execute(async (trx) => {
       await trx.deleteFrom('launch_config_credential').where('config_id', '=', id).execute();
+      // AFS-34: its schedules go with it.
+      await trx.deleteFrom('schedule').where('config_id', '=', id).execute();
       const done = await trx.deleteFrom('launch_config').where('id', '=', id).executeTakeFirst();
       if (!done.numDeletedRows) throw new LaunchError('not_found', 'No such launch configuration');
     });

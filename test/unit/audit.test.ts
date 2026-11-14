@@ -25,6 +25,7 @@ import { Notifier } from '../../src/server/notify/notifier';
 import { Git } from '../../src/server/projects/git';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { RunQueue } from '../../src/server/runs/queue';
+import { Schedules } from '../../src/server/schedules/schedules';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { CertificateStore } from '../../src/server/tls/store';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
@@ -66,6 +67,13 @@ for (const [name, config] of databases) {
         runs: new RunQueue(db(), database.kind, key),
         notifier: new Notifier(db(), [], log, { keepDays: 30 }),
         projects: { git, sync: new ProjectSync(db(), git, log), allowLocal: true },
+        schedules: new Schedules({
+          db: db(),
+          git,
+          sync: new ProjectSync(db(), git, log),
+          queue: new RunQueue(db(), database.kind, key),
+          log,
+        }),
         certificate: {
           store: new CertificateStore(join(root, `tls-${name}`)),
           tls: 'on',

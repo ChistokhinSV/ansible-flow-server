@@ -71,6 +71,14 @@ export function RunTable({ runs, showProject = true }: { runs: Run[]; showProjec
                     </span>
                   </>
                 )}
+                {run.schedule && (
+                  <>
+                    {' '}
+                    <span className="badge" title="Launched by a schedule">
+                      scheduled
+                    </span>
+                  </>
+                )}
               </td>
               <td>
                 <code>{run.commit.slice(0, 8)}</code>
@@ -200,6 +208,17 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 {' '}
                 <span className="badge" title="Unpushed work sent from VS Code, run in check mode">
                   dev run
+                </span>
+              </>
+            )}
+            {run.schedule && (
+              <>
+                {' '}
+                <span
+                  className="badge"
+                  title="Launched by a schedule of its launch configuration, as its owner"
+                >
+                  scheduled
                 </span>
               </>
             )}

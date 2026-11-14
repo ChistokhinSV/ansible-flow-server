@@ -37,6 +37,8 @@ export interface Problem {
 
 /** Everything a run needs, settled. */
 export interface PreparedLaunch {
+  /** AFS-34: launched by this schedule. */
+  schedule?: string;
   config: string;
   project: string;
   /** The commit that runs, and the branch it was the newest of when that is how it was found. */

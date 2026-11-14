@@ -248,6 +248,8 @@ export interface RunTable {
   segments_json: string | null;
   /** AFS-26: a dev run: the bundle of someone's work it ran (a check run of unpushed work). */
   dev_bundle: string | null;
+  /** AFS-34: the schedule that launched it. */
+  schedule_id: string | null;
 }
 
 /**
@@ -354,6 +356,41 @@ export interface NotificationTable {
  * AFS-26: someone's unpushed work, taken in as a git bundle: its commit is kept under
  * refs/afs/dev/<id> of the project's repository until it expires. Only check runs take it.
  */
+/** AFS-34: a launch configuration run on a cron, or once at a set time. */
+export interface ScheduleTable {
+  id: string;
+  config_id: string;
+  name: string;
+  /** `cron` or `once`. */
+  kind: string;
+  cron: string | null;
+  timezone: string;
+  /** For `once`: when, as an ISO time. */
+  once_at: string | null;
+  enabled: number;
+  /** check or real; null: the configuration's. */
+  mode: string | null;
+  /** Non-secret input values over the configuration's start values. */
+  inputs_json: string;
+  /** A pinned commit; null: the newest on the configuration's branch at fire time. */
+  commit_id: string | null;
+  /** After downtime: `once` (one catch-up run) or `skip`. */
+  missed: string;
+  /** While its last run has not ended: `skip` or `queue`. */
+  overlap: string;
+  owner_id: string;
+  owner_login: string;
+  next_at: string | null;
+  last_at: string | null;
+  /** ok, skipped, refused, failed. */
+  last_result: string | null;
+  last_detail: string | null;
+  last_run_id: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DevBundleTable {
   id: string;
   project_id: string;
@@ -368,6 +405,7 @@ export interface DevBundleTable {
 
 export interface Schema {
   dev_bundle: DevBundleTable;
+  schedule: ScheduleTable;
   notification: NotificationTable;
   run_gate: RunGateTable;
   access_grant: AccessGrantTable;

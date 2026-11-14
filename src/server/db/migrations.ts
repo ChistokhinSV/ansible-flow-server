@@ -267,6 +267,48 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-34: schedules: a launch configuration run on a cron or once.
+  '0018_schedules': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('schedule')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('config_id', 'text', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('kind', 'text', (c) => c.notNull())
+        .addColumn('cron', 'text')
+        .addColumn('timezone', 'text', (c) => c.notNull())
+        .addColumn('once_at', 'text')
+        .addColumn('enabled', 'integer', (c) => c.notNull())
+        .addColumn('mode', 'text')
+        .addColumn('inputs_json', 'text', (c) => c.notNull())
+        .addColumn('commit_id', 'text')
+        .addColumn('missed', 'text', (c) => c.notNull())
+        .addColumn('overlap', 'text', (c) => c.notNull())
+        .addColumn('owner_id', 'text', (c) => c.notNull())
+        .addColumn('owner_login', 'text', (c) => c.notNull())
+        .addColumn('next_at', 'text')
+        .addColumn('last_at', 'text')
+        .addColumn('last_result', 'text')
+        .addColumn('last_detail', 'text')
+        .addColumn('last_run_id', 'text')
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createIndex('schedule_due')
+        .on('schedule')
+        .columns(['enabled', 'next_at'])
+        .execute();
+      await db.schema
+        .createIndex('schedule_config')
+        .on('schedule')
+        .columns(['config_id'])
+        .execute();
+      await db.schema.alterTable('run').addColumn('schedule_id', 'text').execute();
+    },
+  },
   // AFS-26: dev runs: someone's unpushed work, taken in as a git bundle, run in check mode.
   '0017_dev_runs': {
     async up(db: Kysely<unknown>) {
