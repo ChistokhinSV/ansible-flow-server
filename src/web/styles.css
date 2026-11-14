@@ -650,3 +650,13 @@ textarea.mono {
 code.wrap {
   overflow-wrap: anywhere;
 }
+
+/* A launch configuration's schedules (AFS-34). */
+.schedule {
+  border-top: 1px solid var(--line, rgba(127, 127, 127, 0.3));
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+}
+.schedule h3 {
+  margin: 0 0 0.5rem;
+}

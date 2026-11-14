@@ -18,6 +18,7 @@ import {
   type User,
 } from './api';
 import { Link, navigate } from './router';
+import { SchedulesSection } from './schedules';
 import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 type LaunchField = LaunchForm['fields'][number];
@@ -660,6 +661,7 @@ export function LaunchConfigPage({
         </form>
       </section>
       {result && <WouldRun launch={result.launch} form={result.form} />}
+      <SchedulesSection config={c.id} form={form.data} mayManage={mayManage} me={me} />
     </>
   );
 }

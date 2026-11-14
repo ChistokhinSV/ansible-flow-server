@@ -102,6 +102,19 @@ export const ACTIONS: Record<string, Action> = {
   'DELETE /api/v1/notifications/smtp': { action: 'notification.smtp-clear', id: 'none' },
   'POST /api/v1/notifications/webhook-key': { action: 'notification.webhook-key', id: 'none' },
   'POST /api/v1/notifications/test': { action: 'notification.test', id: 'none' },
+  'POST /api/v1/launch-configs/:id/schedules': {
+    action: 'schedule.create',
+    id: 'reply',
+    parent: 'launch-config',
+  },
+  'PATCH /api/v1/launch-configs/:id/schedules/:schedule': {
+    action: 'schedule.change',
+    id: at('schedule'),
+  },
+  'DELETE /api/v1/launch-configs/:id/schedules/:schedule': {
+    action: 'schedule.delete',
+    id: at('schedule'),
+  },
   'POST /api/v1/admin/certificate/request': { action: 'certificate.request', id: 'none' },
   'POST /api/v1/admin/certificate/install': { action: 'certificate.install', id: 'none' },
   'POST /api/v1/admin/certificate/self-signed': { action: 'certificate.self-signed', id: 'none' },

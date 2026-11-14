@@ -30,6 +30,7 @@ for (const [name, config] of databases) {
         // A database the tests own: start from nothing. Children before their parents.
         for (const table of [
           'dev_bundle',
+          'schedule',
           'notification',
           'audit_entry',
           'access_grant',

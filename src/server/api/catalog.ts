@@ -375,6 +375,33 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('Send a test message now, by email or webhook, and say how it went'),
+  'GET /api/v1/launch-configs/:id/schedules': S(
+    'Schedules',
+    'signed in',
+    C,
+  )("A launch configuration's schedules: their rule, next times and last fire"),
+  'POST /api/v1/launch-configs/:id/schedules': S(
+    'Schedules',
+    'signed in',
+    C,
+  )(
+    'Run the launch configuration on a cron (`cron`, `timezone`) or once (`onceAt`); the caller owns the schedule and its runs are checked against the owner’s grants when they fire',
+  ),
+  'PATCH /api/v1/launch-configs/:id/schedules/:schedule': S(
+    'Schedules',
+    'signed in',
+    C,
+  )('Change a schedule; `owner` (a service account) only by an administrator'),
+  'DELETE /api/v1/launch-configs/:id/schedules/:schedule': S(
+    'Schedules',
+    'signed in',
+    C,
+  )('Delete a schedule'),
+  'GET /api/v1/schedule-times': S(
+    'Schedules',
+    'signed in',
+    'self',
+  )('The next times a cron expression fires in a time zone, or why it cannot be read'),
   'GET /api/v1/admin/certificate': S(
     'Certificate',
     'administrators',
@@ -448,6 +475,11 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/launch-configs/:id/check': 'ro',
   // Another branch or commit than the configuration's: the handler asks for rw.
   'POST /api/v1/launch-configs/:id/launch': 'operator',
+  // AFS-34: schedules are set up by who manages the configuration.
+  'GET /api/v1/launch-configs/:id/schedules': 'ro',
+  'POST /api/v1/launch-configs/:id/schedules': 'rw',
+  'PATCH /api/v1/launch-configs/:id/schedules/:schedule': 'rw',
+  'DELETE /api/v1/launch-configs/:id/schedules/:schedule': 'rw',
   // AFS-26: unpushed work comes from someone who may push.
   'POST /api/v1/projects/:id/dev-bundles': 'rw on the workspace',
   'GET /api/v1/runs/:id': 'ro',

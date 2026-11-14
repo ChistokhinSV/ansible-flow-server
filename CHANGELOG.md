@@ -38,6 +38,7 @@ Nothing is released yet.
   - Scripts can follow a run with `GET /api/v1/runs/<id>/events` (server-sent events).
   - Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW` (200) of one flow.
 - `/api/v1/meta` says which flow formats the server reads, what a client may rely on (`features`) and which designer canvas the pages carry. See [Compatibility with the designer](README.md#compatibility-with-the-designer).
+- Schedules: a launch configuration runs by itself on a cron in a time zone, or once at a set time, as the schedule's owner, whose access is checked each time. A schedule has its own mode, input values and optionally a pinned commit; after downtime it runs once or skips; while its last run goes it skips or queues. Its page shows the next times and how the last fire went; administrators can hand a schedule to a service account. See [Schedules](README.md#schedules).
 - Dev runs: someone who may push sends work they have not pushed yet, committed or not, and the server checks it with the flow's launch configuration, in check mode only. The work is kept a day under a ref nobody else sees and never reaches a branch or an external source; the run is marked a dev run. See [Dev runs](README.md#dev-runs).
 - Agents (Claude Code, Codex, Cursor) use the server over MCP at `/mcp`, signed in with an access token. See [Agents (MCP)](README.md#agents-mcp).
   - They read the projects' flows with the designer's flow tools, and list, check, launch, follow and stop runs, seeing and doing only what the token's owner may.

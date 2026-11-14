@@ -17,6 +17,7 @@ import type {
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
+import type { Schedule, ScheduleInput } from '../server/schedules/types';
 import type { Credential } from '../server/secrets/credentials';
 import type { CertificateInfo, CertificateState } from '../server/tls/types';
 
@@ -45,6 +46,8 @@ export type {
   Push,
   Run,
   RunNotify,
+  Schedule,
+  ScheduleInput,
   SmtpSecurity,
   SmtpSettings,
   TokenInfo,
@@ -225,6 +228,28 @@ export const api = {
       `/launch-configs/${encodeURIComponent(id)}/check`,
       request,
     ),
+  // Schedules of a launch configuration (AFS-34).
+  schedules: (config: string) =>
+    call<Schedule[]>('GET', `/launch-configs/${encodeURIComponent(config)}/schedules`),
+  addSchedule: (config: string, input: ScheduleInput) =>
+    call<Schedule>('POST', `/launch-configs/${encodeURIComponent(config)}/schedules`, input),
+  changeSchedule: (
+    config: string,
+    id: string,
+    input: Partial<ScheduleInput> & { owner?: string },
+  ) =>
+    call<Schedule>(
+      'PATCH',
+      `/launch-configs/${encodeURIComponent(config)}/schedules/${encodeURIComponent(id)}`,
+      input,
+    ),
+  deleteSchedule: (config: string, id: string) =>
+    call<void>(
+      'DELETE',
+      `/launch-configs/${encodeURIComponent(config)}/schedules/${encodeURIComponent(id)}`,
+    ),
+  scheduleTimes: (cron: string, timezone: string) =>
+    call<{ times: string[] }>('GET', `/schedule-times?${queryOf({ cron, timezone })}`),
   launch: (id: string, request: LaunchRequest) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 

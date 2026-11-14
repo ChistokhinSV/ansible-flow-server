@@ -8,6 +8,7 @@ import { registerApprovals } from './approvals/routes';
 import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
+import { LaunchConfigs } from './launch/configs';
 import { registerLaunch } from './launch/routes';
 import type { Logger } from './log';
 import { registerMcp } from './mcp/routes';
@@ -19,6 +20,8 @@ import { type ProjectDeps, registerProjects } from './projects/routes';
 import type { RunHub } from './runs/hub';
 import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
+import { registerSchedules } from './schedules/routes';
+import type { Schedules } from './schedules/schedules';
 import type { MasterKey } from './secrets/masterKey';
 import { registerCredentials } from './secrets/routes';
 import { type CertificateDeps, registerCertificate } from './tls/routes';
@@ -53,6 +56,8 @@ export interface AppDeps {
   /** AFS-29: what tells people of what happens; without it nobody is told. */
   notifier?: Notifier;
   /** The address people use for the server (AFS_PUBLIC_URL), for links in messages. */
+  /** AFS-34: schedules of launch configurations. */
+  schedules?: Schedules;
   /** The server certificate's store, for the certificate page and API (AFS-54). */
   certificate?: CertificateDeps;
   publicUrl?: string;
@@ -134,6 +139,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   }
   if (deps.certificate) registerCertificate(app, deps.certificate);
+  if (deps.schedules && deps.projects)
+    registerSchedules(app, {
+      schedules: deps.schedules,
+      configs: new LaunchConfigs(deps.database.db, deps.projects.git),
+    });
   if (deps.notifier && deps.masterKey)
     registerNotifications(app, {
       db: deps.database.db,

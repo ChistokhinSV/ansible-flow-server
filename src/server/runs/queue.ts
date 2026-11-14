@@ -77,6 +77,8 @@ export interface Run {
   error?: string;
   /** AFS-26: a dev run: a check run of someone's unpushed work. */
   dev?: true;
+  /** AFS-34: the schedule that launched it. */
+  schedule?: string;
 }
 
 /** A run as a worker gets it: with its lease, and its inputs in full. */
@@ -180,6 +182,7 @@ export class RunQueue {
       ...(row.lease_owner ? { worker: row.lease_owner } : {}),
       ...(row.error ? { error: row.error } : {}),
       ...(row.dev_bundle ? { dev: true } : {}),
+      ...(row.schedule_id ? { schedule: row.schedule_id } : {}),
     };
   }
 
@@ -241,6 +244,7 @@ export class RunQueue {
         run_dir: null,
         segments_json: null,
         dev_bundle: launch.dev ?? null,
+        schedule_id: launch.schedule ?? null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);

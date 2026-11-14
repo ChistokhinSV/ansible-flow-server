@@ -29,6 +29,7 @@ import { Executor } from './runs/executor';
 import { RunHub } from './runs/hub';
 import { RunQueue } from './runs/queue';
 import { pruneRuns } from './runs/retention';
+import { Schedules } from './schedules/schedules';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
 import { loadMasterKey } from './secrets/masterKey';
@@ -162,6 +163,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let sweep: NodeJS.Timeout | undefined;
   let leases: NodeJS.Timeout | undefined;
   let executor: Executor | undefined;
+  let schedules: Schedules | undefined;
   let retention: NodeJS.Timeout | undefined;
   let stopPruning: () => Promise<unknown> = async () => undefined;
   const hub = new RunHub();
@@ -254,6 +256,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       if (!revealed) throw new Error('The credential is gone');
       return gitAuthOf(revealed);
     });
+    schedules = new Schedules({ db, git, sync: projects, queue: runs, log });
     app = buildApp({
       log,
       database,
@@ -267,6 +270,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       notifier: notify,
+      schedules,
       certificate: {
         store,
         tls: config.tls,
@@ -322,6 +326,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
     );
     await executor.start();
+    // AFS-34: schedules fire from here: due ones are looked for every half minute.
+    schedules.start();
     // Ended runs and audit entries past their keeping go, now and every hour.
     // What is being removed now: a server that stops waits for it before it closes the database
     // (closing SQLite under a query in flight can bring the process down).
@@ -453,6 +459,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           redirect?.close();
           redirect?.closeAllConnections();
           // A fetch that is going is waited for: a mirror is not left half written.
+          await schedules?.stop();
           await executor?.stop();
           await projects?.stop();
           await running.close();
@@ -472,6 +479,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     clearInterval(leases);
     clearInterval(retention);
     redirect?.close();
+    await schedules?.stop().catch(() => undefined);
     await executor?.stop().catch(() => undefined);
     await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);

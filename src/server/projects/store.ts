@@ -403,6 +403,12 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
         eb.selectFrom('launch_config').select('id').where('project_id', '=', id),
       )
       .execute();
+    await trx
+      .deleteFrom('schedule')
+      .where('config_id', 'in', (eb) =>
+        eb.selectFrom('launch_config').select('id').where('project_id', '=', id),
+      )
+      .execute();
     await trx.deleteFrom('launch_config').where('project_id', '=', id).execute();
     await trx.deleteFrom('access_grant').where('project_id', '=', id).execute();
     const done = await trx.deleteFrom('project').where('id', '=', id).executeTakeFirst();
