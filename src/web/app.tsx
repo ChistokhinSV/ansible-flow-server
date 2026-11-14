@@ -21,7 +21,7 @@ import {
   Workspaces,
 } from './pages';
 import { GroupPage, PeoplePage, UserPage } from './people';
-import { Link, match, usePath } from './router';
+import { Link, match, navigate, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
 import { SearchBox } from './search';
 import { SignInPage } from './signin';
@@ -126,7 +126,11 @@ export function App() {
     applyTheme(theme);
   }, [theme]);
 
-  const signedIn = (user: User) => setSession({ state: 'signed-in', user });
+  const signedIn = (user: User) => {
+    // /signin is only the page a refused provider sign-in comes back to: nothing is there once in.
+    if (window.location.pathname === '/signin') navigate('/', { replace: true });
+    setSession({ state: 'signed-in', user });
+  };
   const me = session.state === 'signed-in' ? session.user : undefined;
   const at = (to: string) =>
     path === to ||

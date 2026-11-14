@@ -32,8 +32,8 @@ export function AdminPage() {
           <Link to="/admin/sign-in" className="card">
             <strong>Sign-in</strong>
             <span className="muted">
-              Your organisation&apos;s sign-in (OIDC), what its groups are here, and who may still
-              use a password.
+              Your organisation&apos;s sign-in (OIDC, LDAP, Active Directory), what its groups are
+              here, and who may still use a password.
             </span>
           </Link>
         </li>

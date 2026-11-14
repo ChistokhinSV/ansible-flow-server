@@ -530,6 +530,48 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('Whether the provider answers its discovery, and what it offers'),
+  // AFS-31: LDAP and Active Directory directories.
+  'GET /api/v1/admin/ldap-directories': S(
+    'Sign-in',
+    'administrators',
+    'server',
+  )('The LDAP and Active Directory directories people sign in with, in the order they are tried'),
+  'POST /api/v1/admin/ldap-directories': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )(
+    'Add a directory: address, service account, where people and groups are, what the groups are here',
+  ),
+  'GET /api/v1/admin/ldap-directories/:id': S(
+    'Sign-in',
+    'administrators',
+    'server',
+  )('One directory'),
+  'PATCH /api/v1/admin/ldap-directories/:id': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )('Change a directory; a bind password left out is kept, null removes it'),
+  'DELETE /api/v1/admin/ldap-directories/:id': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )('Remove a directory; its people stay, the groups, rights and disabling it gave go'),
+  'POST /api/v1/admin/ldap-directories/:id/test': S(
+    'Sign-in',
+    'administrators',
+    'server',
+  )(
+    'Whether the service account binds; with `login`, the entry found and its groups (no password)',
+  ),
+  'POST /api/v1/admin/ldap-directories/:id/sync': S(
+    'Sign-in',
+    'administrator session',
+    'server',
+  )(
+    "Bring the directory's people in step now: names, groups, administrator; those it no longer has are disabled",
+  ),
   'GET /api/v1/admin/sign-in': S(
     'Sign-in',
     'administrators',

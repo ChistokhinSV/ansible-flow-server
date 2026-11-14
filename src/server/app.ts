@@ -6,6 +6,8 @@ import { registerAccess } from './access/routes';
 import { registerCatalog } from './api/catalog';
 import { registerApprovals } from './approvals/routes';
 import { registerAudit } from './audit/routes';
+import type { Connect } from './auth/ldap/client';
+import { LdapSignIn } from './auth/ldap/ldap';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import { registerFlowChecks } from './environments/checkRoutes';
@@ -73,6 +75,8 @@ export interface AppDeps {
   dev?: { maxBytes: number; keepHours: number };
   /** AFS-67: reads a launch's inventory in its image (the executor's probes). */
   inventory?: InventoryReader;
+  /** AFS-31: tests: the directory a test plays, instead of real LDAP connections. */
+  ldapConnect?: Connect;
   /** AFS-37: what /readyz checks beyond the database. */
   readiness?: Omit<ReadinessDeps, 'database' | 'log'>;
   /** AFS-37: /metrics, for whoever has the token (AFS_METRICS_TOKEN). */
@@ -135,6 +139,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
             log: deps.log,
             ...(deps.publicUrl ? { publicUrl: deps.publicUrl } : {}),
           },
+          // AFS-31: directories, with the server's own connections unless a test plays one.
+          ldap: new LdapSignIn({
+            db: deps.database.db,
+            key: deps.masterKey,
+            log: deps.log,
+            ...(deps.ldapConnect ? { connect: deps.ldapConnect } : {}),
+          }),
         }
       : {}),
   });

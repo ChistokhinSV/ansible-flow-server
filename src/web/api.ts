@@ -3,6 +3,7 @@
 import type { Grant, GrantLevel, Level } from '../server/access/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
+import type { Directory, DirectoryInput, DirectoryTest } from '../server/auth/ldap/types';
 import type {
   Provider,
   ProviderInput,
@@ -363,6 +364,24 @@ export const api = {
   localSignIn: () => call<{ local: 'all' | 'admins' }>('GET', '/admin/sign-in'),
   setLocalSignIn: (local: 'all' | 'admins') =>
     call<{ local: 'all' | 'admins' }>('PUT', '/admin/sign-in', { local }),
+
+  // LDAP and Active Directory directories (AFS-31).
+  directories: () => call<Directory[]>('GET', '/admin/ldap-directories'),
+  addDirectory: (input: DirectoryInput) =>
+    call<Directory>('POST', '/admin/ldap-directories', input),
+  changeDirectory: (id: string, input: Partial<DirectoryInput>) =>
+    call<Directory>('PATCH', `/admin/ldap-directories/${encodeURIComponent(id)}`, input),
+  deleteDirectory: (id: string) =>
+    call<void>('DELETE', `/admin/ldap-directories/${encodeURIComponent(id)}`),
+  testDirectory: (id: string, login?: string) =>
+    call<DirectoryTest>('POST', `/admin/ldap-directories/${encodeURIComponent(id)}/test`, {
+      ...(login ? { login } : {}),
+    }),
+  syncDirectory: (id: string) =>
+    call<{ checked: number; disabled: number; message: string }>(
+      'POST',
+      `/admin/ldap-directories/${encodeURIComponent(id)}/sync`,
+    ),
 
   // People and groups (administrators, AFS-56).
   user: (id: string) => call<User>('GET', `/users/${encodeURIComponent(id)}`),

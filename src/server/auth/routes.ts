@@ -9,7 +9,10 @@ import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { getWorkspace } from '../projects/store';
 import type { MasterKey } from '../secrets/masterKey';
+import { ExternalError } from './external';
 import { administrator, inSession, signedIn } from './guards';
+import { DirectoryRefused, type LdapSignIn } from './ldap/ldap';
+import { registerLdap } from './ldap/routes';
 import { FailureLimiter } from './limiter';
 import { localSignIn, registerOidc } from './oidc/routes';
 import { PASSWORD_MAX, passwordProblem, verifyPassword } from './passwords';
@@ -63,6 +66,8 @@ export interface AuthDeps {
   secureCookies: boolean;
   /** AFS-30: with the master key, people may also sign in with OIDC providers. */
   oidc?: { key: MasterKey; log: Logger; publicUrl?: string };
+  /** AFS-31: and with LDAP or Active Directory directories, through the password form. */
+  ldap?: LdapSignIn;
 }
 
 /** Five wrong passwords for a login, or thirty from an address, in fifteen minutes. */
@@ -163,6 +168,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     reply.header('set-cookie', sessionCookie(token, deps.secureCookies));
   };
   if (deps.oidc) registerOidc(app, { db, ...deps.oidc, signIn });
+  if (deps.oidc && deps.ldap) registerLdap(app, { db, key: deps.oidc.key, ldap: deps.ldap });
   // --- the first administrator
 
   app.get('/api/v1/setup', async () => ({ needed: await setupNeeded(db) }));
@@ -208,6 +214,22 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       const keys = [`login:${login}`, `ip:${request.ip}`] as const;
       if (tooMany(reply, byLogin.retryAfter(keys[0]), byAddress.retryAfter(keys[1]))) return reply;
       const account = await accountByLogin(db, login);
+      // AFS-31: a login with no password here is a directory's to check (local accounts first).
+      if (deps.ldap && !account?.password_hash) {
+        let found: { userId: string; login: string } | undefined;
+        try {
+          found = await deps.ldap.authenticate(request.body.login, request.body.password);
+        } catch (e) {
+          if (!(e instanceof DirectoryRefused) && !(e instanceof ExternalError)) throw e;
+          request.log.warn({ login, why: (e as Error).message }, 'Sign-in refused by a directory');
+        }
+        if (found) {
+          byLogin.clear(keys[0]);
+          await signIn(request, reply, found.userId);
+          request.log.info({ login: found.login }, 'Signed in with a directory');
+          return getUser(db, found.userId);
+        }
+      }
       const right = await verifyPassword(request.body.password, account?.password_hash ?? null);
       if (!account || !right || account.disabled === 1) {
         byLogin.fail(keys[0]);

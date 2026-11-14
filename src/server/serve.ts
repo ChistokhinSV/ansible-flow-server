@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { buildApp } from './app';
 import { timeOutDue } from './approvals/gates';
 import { pruneAudit } from './audit/store';
+import { DirectorySync, LdapSignIn } from './auth/ldap/ldap';
 import { sweepSessions } from './auth/sessions';
 import { setupCode } from './auth/setup';
 import { sweepTokens } from './auth/tokens';
@@ -167,6 +168,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let leases: NodeJS.Timeout | undefined;
   let executor: Executor | undefined;
   let schedules: Schedules | undefined;
+  let directories: DirectorySync | undefined;
   let environments: Environments | undefined;
   let metrics: Metrics | undefined;
   let retention: NodeJS.Timeout | undefined;
@@ -365,6 +367,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     await executor.start();
     // AFS-34: schedules fire from here: due ones are looked for every half minute.
     schedules.start();
+    // AFS-31: directories bring their people in step on their own schedule (and disable those
+    // they no longer have, signed in or not).
+    directories = new DirectorySync(
+      new LdapSignIn({ db: database.db, key: masterKey, log }),
+      database.db,
+      log,
+    );
+    directories.start();
     await environments.start();
     // Ended runs and audit entries past their keeping go, now and every hour.
     // What is being removed now: a server that stops waits for it before it closes the database
@@ -497,6 +507,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           redirect?.close();
           redirect?.closeAllConnections();
           // A fetch that is going is waited for: a mirror is not left half written.
+          directories?.stop();
           await schedules?.stop();
           await environments?.stop();
           await executor?.stop();
@@ -518,6 +529,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     clearInterval(leases);
     clearInterval(retention);
     redirect?.close();
+    directories?.stop();
     await schedules?.stop().catch(() => undefined);
     await environments?.stop().catch(() => undefined);
     await executor?.stop().catch(() => undefined);

@@ -29,6 +29,9 @@ for (const [name, config] of databases) {
       if (database.kind === 'postgres') {
         // A database the tests own: start from nothing. Children before their parents.
         for (const table of [
+          'ldap_identity',
+          'ldap_mapping',
+          'ldap_directory',
           'oidc_login',
           'user_identity',
           'oidc_mapping',
