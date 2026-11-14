@@ -25,7 +25,7 @@ import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { registrySignIn, runCredentials } from '../../src/server/runs/credentials';
-import { Executor } from '../../src/server/runs/executor';
+import { Executor, usernsOptions } from '../../src/server/runs/executor';
 import { RunQueue } from '../../src/server/runs/queue';
 import { registryOf } from '../../src/server/runs/registry';
 import { rootFromGenerated, writeGenerated } from '../../src/server/runs/workdir';
@@ -456,6 +456,19 @@ describe('a run', () => {
       processEnv: { NETBOX_TOKEN: 'env-S3CR3T-value' },
     });
     expect(env.secrets).toEqual(['env-S3CR3T-value']);
+  });
+
+  it("with rootless podman, the image's user is the server's (AFS-36)", () => {
+    const ansible = { uid: 1000, gid: 1000 };
+    expect(usernsOptions('podman', 999, ansible)).toEqual([
+      '--userns',
+      'keep-id:uid=1000,gid=1000',
+    ]);
+    // docker, a server that is root, an image that runs as root, an image not asked: nothing.
+    expect(usernsOptions('docker', 999, ansible)).toEqual([]);
+    expect(usernsOptions('podman', 0, ansible)).toEqual([]);
+    expect(usernsOptions('podman', 999, { uid: 0, gid: 0 })).toEqual([]);
+    expect(usernsOptions('podman', 999, undefined)).toEqual([]);
   });
 
   it('knows which registry an image comes from', () => {

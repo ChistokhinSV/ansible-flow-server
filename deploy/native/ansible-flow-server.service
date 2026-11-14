@@ -1,0 +1,29 @@
+# Ansible Flow Server (AFS-36). Written by install.sh: @USER@, @UID@ and @PREFIX@ are filled in
+# there. Settings are in /etc/ansible-flow-server/afs.env.
+[Unit]
+Description=Ansible Flow Server
+Documentation=https://github.com/ChistokhinSV/ansible-flow-server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+EnvironmentFile=/etc/ansible-flow-server/afs.env
+# Rootless podman finds its runtime folder here (the user lingers, so it exists).
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+WorkingDirectory=@DATA@
+ExecStart=@PREFIX@/current/node/bin/node @PREFIX@/current/app/dist/server.js
+Restart=on-failure
+RestartSec=5
+# Runs are stopped and recorded as stopped when the server stops (it waits for them).
+TimeoutStopSec=90
+KillMode=mixed
+# Rootless podman starts newuidmap (setuid) and sets sysctls of each container's own /proc/sys:
+# NoNewPrivileges and ProtectKernelTunables would stop it (found on Ubuntu 24.04), so neither is set.
+ProtectSystem=full
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
