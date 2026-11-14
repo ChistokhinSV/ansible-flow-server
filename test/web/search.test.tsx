@@ -58,8 +58,12 @@ describe('the search field', () => {
   it('opens with / and Ctrl+K, finds as you type, opens a result with the keyboard', async () => {
     open(dana);
     const field = (await screen.findByRole('combobox', { name: 'Search' })) as HTMLInputElement;
-    fireEvent.keyDown(window, { key: '/' });
-    expect(document.activeElement).toBe(field);
+    // The page listens for keys once its effect has run, a moment after the field is drawn (a
+    // slow CI machine pressed the key before that).
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: '/' });
+      expect(document.activeElement).toBe(field);
+    });
     field.blur();
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(document.activeElement).toBe(field);
