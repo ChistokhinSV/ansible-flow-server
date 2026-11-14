@@ -855,6 +855,20 @@ launch configuration's own image, else `AFS_EE_IMAGE`, is used as before.
 }
 ```
 
+**What a flow needs.** A launch configuration's page compares what its flow needs with what its
+environment's image holds: the collections its steps run (a module or role named by its full name;
+a step chosen from the designer's module catalog asks for at least the version it was made against)
+and the project's `collections/requirements.yml`, which wins. Each collection is in the image at a
+fitting version, at another, or missing. **Make an environment for this flow** adds one whose spec
+is exactly those needs and builds it. In a spec, **Find a collection** searches `AFS_GALAXY_URL`;
+when it cannot be reached, names and versions are typed.
+
+| Address (under `/api/v1`)                   | Does                                                                   | Who                                |
+| ------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
+| `GET /launch-configs/:id/environment-check` | The flow's needs against its environment, or another (`?environment=`) | `ro` on the flow                   |
+| `POST /launch-configs/:id/environment`      | `{"name"}`: an environment from the flow's needs, built                | `rw` on the flow and the workspace |
+| `GET /galaxy/search?q=`                     | Collections on the collection server: newest version, description      | signed in                          |
+
 Not there yet: pushing images to a registry, and rebuilding on a schedule.
 
 ### Schedules

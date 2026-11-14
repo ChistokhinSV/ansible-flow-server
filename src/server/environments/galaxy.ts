@@ -14,9 +14,21 @@ export class GalaxyError extends Error {
   }
 }
 
+/** A collection as a search finds it (AFS-33). */
+export interface FoundCollection {
+  name: string;
+  /** Its newest version. */
+  version: string;
+  description?: string;
+  /** The ansible-core it says it needs. */
+  requiresAnsible?: string;
+}
+
 export interface Galaxy {
   /** Every published version, newest first. */
   versions(name: string): Promise<string[]>;
+  /** Collections whose name or description has the words, newest versions, not deprecated. */
+  search?(words: string, limit?: number): Promise<FoundCollection[]>;
 }
 
 /** A collection's name as Ansible writes it: `namespace.collection`, lower case. */
@@ -58,6 +70,37 @@ export function galaxyClient(base = DEFAULT_GALAXY, timeoutMs = 20_000): Galaxy 
         path = body.links?.next ?? null;
       }
       return out;
+    },
+    async search(words, limit = 20) {
+      const q = new URLSearchParams({
+        keywords: words.trim().slice(0, 100),
+        is_highest: 'true',
+        is_deprecated: 'false',
+        limit: String(Math.min(Math.max(limit, 1), 50)),
+      });
+      const body = (await get(`/api/v3/plugin/ansible/search/collection-versions/?${q}`)) as {
+        data?: {
+          collection_version?: {
+            namespace?: string;
+            name?: string;
+            version?: string;
+            description?: string;
+            requires_ansible?: string;
+          };
+        }[];
+      };
+      return (body.data ?? []).flatMap((d) => {
+        const c = d.collection_version;
+        if (!c?.namespace || !c.name || !c.version) return [];
+        return [
+          {
+            name: `${c.namespace}.${c.name}`,
+            version: c.version,
+            ...(c.description ? { description: c.description.slice(0, 300) } : {}),
+            ...(c.requires_ansible ? { requiresAnsible: c.requires_ansible } : {}),
+          },
+        ];
+      });
     },
   };
 }

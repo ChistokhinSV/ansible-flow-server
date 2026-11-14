@@ -53,3 +53,17 @@ ansible-runner, the newest build's collection versions, Python packages and cert
 - Builds use the server's engine and its network: Galaxy, PyPI and Debian mirrors must be reachable
   from it (or a private Galaxy with `AFS_GALAXY_URL` and certificates in the spec).
 - Images live on the engine of this server; remote execution agents (AFS-50) will need the push.
+
+## Amended 2026-11-14 (AFS-33): what a flow needs
+
+- A flow's needs are read from its steps with `flowCollections` and `mergeRequirements` of
+  `@ansible-flow/core/flow/collections` (designer AFD-274): full module and role names on every
+  level, step and undo bindings; a catalog-bound step asks for at least the version it was made
+  against. The project's `collections/requirements.yml` at the commit the configuration runs wins.
+- They are compared with the catalog of the environment's newest good build (`satisfies`), never
+  with the spec: what the image really holds counts. The check is shown, not enforced: a run is not
+  refused for it (a role may bring a collection along at run time, or a step may not run).
+- An environment made for a flow has exactly those needs as its spec (`*` as `latest`, ranges kept)
+  and is built at once; the configuration is pointed at it by a person, after it is built.
+- Collection search goes to the same `AFS_GALAXY_URL`, server side; out of reach, it says so and
+  names are typed.
