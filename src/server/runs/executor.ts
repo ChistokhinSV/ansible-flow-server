@@ -38,9 +38,10 @@ import type { Git } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
 import type { MasterKey } from '../secrets/masterKey';
-import { CredentialProblem, runCredentials } from './credentials';
+import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import type { RunHub } from './hub';
 import type { Job, Outcome, RunQueue } from './queue';
+import { pullWithSignIn } from './registry';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
 /** How often the worker says it still has a run. */
@@ -348,6 +349,23 @@ export class Executor {
 
       // Credentials: variables, the vault password, a key file, the container's environment.
       const image = r.eeImage ?? this.options.image;
+      // AFS-66: a registry credential signs in and pulls the image first; reading the image's
+      // user (below) already needs the image.
+      const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials);
+      if (signIn && this.engine && !this.options.runner) {
+        try {
+          line(
+            `Credential: ${await pullWithSignIn(
+              this.engine,
+              image,
+              signIn,
+              join(this.options.dataDir, 'secrets-tmp', `${r.id}-registry`),
+            )}`,
+          );
+        } catch (e) {
+          return await finish('failed', (e as Error).message);
+        }
+      }
       const owner = await this.ownerOf(image);
       const creds = await runCredentials(
         this.deps.db,
@@ -383,6 +401,7 @@ export class Executor {
       const storage = join(this.options.dataDir, 'runs', project.id);
       const folder = (runId: string) => join(runsDir(storage, doc.flow.id), runId);
       const root = workdir.dir;
+      let agentFailure: string | undefined;
       /** Runs one playbook of the flow: the whole flow, or one of its segments (AFS-28). */
       const runOnce = (
         runId: string,
@@ -417,13 +436,20 @@ export class Executor {
               // Ansible in the image writes its events into the run's folder: as its own user,
               // which is not the server's when the server runs as root (found on the lab VM).
               if (owner) await chown(folder(runId), owner.uid, owner.gid);
-              return startProcess(spec, { ...processEnv, ...creds.processEnv }, line);
+              // The key's agent script says why it stopped before Ansible: that is the run's error.
+              const said = (text: string) => {
+                const failure = AGENT_FAILURES.find((f) => text.includes(f));
+                if (failure) agentFailure = failure;
+                line(text);
+              };
+              return startProcess(spec, { ...processEnv, ...creds.processEnv }, said);
             },
           },
         );
       /** How a run that has ended is recorded, from the view of how it went. */
       const ended = async (view: RunView) => {
         if (why) return await finish(...stoppedWhy(), view);
+        if (agentFailure) return await finish('failed', agentFailure, view);
         // Without events nothing says what the flow did: that is not a success, whatever the code.
         if (view.state === 'done' && view.rc === 0 && !view.error)
           return await finish('succeeded', undefined, view);

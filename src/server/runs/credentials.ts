@@ -8,6 +8,7 @@ import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { type Revealed, reveal } from '../secrets/credentials';
 import type { MasterKey } from '../secrets/masterKey';
+import type { RegistrySignIn } from './registry';
 
 /** Where the run's container finds its key. */
 export const CREDENTIAL_DIR = '/afd-cred';
@@ -34,6 +35,72 @@ export class CredentialProblem extends Error {
     super(message);
     this.name = 'CredentialProblem';
   }
+}
+
+/** The variable the container's agent script reads the key's passphrase from. */
+const PASSPHRASE_VAR = 'AFS_SSH_PASSPHRASE';
+
+/** What the agent script says when it cannot start the run; the executor makes it the run's error. */
+export const AGENT_FAILURES = [
+  'This image has no ssh-agent: a key with a passphrase needs openssh-client in the image',
+  'The SSH key could not be unlocked: is its passphrase right?',
+] as const;
+
+/**
+ * The entrypoint of a run whose key has a passphrase: an ssh-agent, the key added to it (ssh-add
+ * asks the askpass script, which prints the variable), the variable dropped, then the run's own
+ * command. Ansible's ssh finds the key through SSH_AUTH_SOCK.
+ */
+const AGENT_SCRIPT = [
+  '#!/bin/sh',
+  "# Ansible Flow Server: unlocks the run's SSH key into an ssh-agent, then runs the run's command.",
+  'if ! command -v ssh-agent >/dev/null 2>&1 || ! command -v ssh-add >/dev/null 2>&1; then',
+  `  echo "${AGENT_FAILURES[0]}" >&2`,
+  '  exit 70',
+  'fi',
+  'eval "$(ssh-agent -s)" >/dev/null || exit 70',
+  // ssh-add asks again after a wrong passphrase until it gets an empty one: askpass answers once.
+  'AFS_ASKPASS_ANSWERED="${TMPDIR:-/tmp}/.afs-askpass-$$"',
+  'export AFS_ASKPASS_ANSWERED',
+  'rm -f "$AFS_ASKPASS_ANSWERED"',
+  `SSH_ASKPASS=${CREDENTIAL_DIR}/askpass SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh-add ${CREDENTIAL_DIR}/ssh_key </dev/null >/dev/null 2>&1`,
+  'added=$?',
+  'rm -f "$AFS_ASKPASS_ANSWERED"',
+  `unset ${PASSPHRASE_VAR} AFS_ASKPASS_ANSWERED`,
+  'if [ "$added" -ne 0 ]; then',
+  `  echo "${AGENT_FAILURES[1]}" >&2`,
+  '  ssh-agent -k >/dev/null 2>&1',
+  '  exit 70',
+  'fi',
+  'exec "$@"',
+  '',
+].join('\n');
+// A second question means the passphrase was wrong: no answer, so ssh-add gives up.
+const ASKPASS_SCRIPT = [
+  '#!/bin/sh',
+  '[ -e "$AFS_ASKPASS_ANSWERED" ] && exit 1',
+  ': > "$AFS_ASKPASS_ANSWERED" || exit 1',
+  `printf '%s\\n' "$${PASSPHRASE_VAR}"`,
+  '',
+].join('\n');
+
+/** The registry sign-in among a run's credentials, if it has one (AFS-66). */
+export async function registrySignIn(
+  db: Kysely<Schema>,
+  key: MasterKey,
+  ids: string[],
+): Promise<RegistrySignIn | undefined> {
+  for (const id of ids) {
+    const c = await reveal(db, key, id);
+    if (c?.kind === 'registry' && c.fields.host && c.fields.username && c.secret.password)
+      return {
+        name: c.name,
+        host: c.fields.host,
+        username: c.fields.username,
+        password: c.secret.password,
+      };
+  }
+  return undefined;
 }
 
 /** Reads a run's credentials and makes them what its container needs. */
@@ -71,26 +138,40 @@ export async function runCredentials(
     const { fields, secret: s } = c;
     switch (c.kind) {
       case 'ssh_key': {
-        if (s.passphrase)
-          throw new CredentialProblem(
-            `${c.name}: a key with a passphrase cannot be used by a run yet; use a key without one`,
-          );
         await mkdir(secretsDir, { recursive: true, mode: 0o700 });
         await chmod(secretsDir, 0o700);
         const file = join(secretsDir, 'ssh_key');
         // A key file must end with a line end, or ssh refuses it.
         await writeFile(file, `${(s.privateKey ?? '').trimEnd()}\n`, { mode: 0o600 });
         await chmod(file, 0o600);
+        // AFS-66: a key with a passphrase goes into an ssh-agent in the run's container, unlocked by
+        // a script that reads the passphrase from the container's environment (the engine gives it
+        // from its own environment: in no argument and no file), then runs the run's command.
+        const scripts: [string, string][] = s.passphrase
+          ? [
+              ['agent', AGENT_SCRIPT],
+              ['askpass', ASKPASS_SCRIPT],
+            ]
+          : [];
+        for (const [name, text] of scripts)
+          await writeFile(join(secretsDir, name), text, { mode: 0o700 });
         if (owner) {
           await chown(secretsDir, owner.uid, owner.gid);
           await chown(file, owner.uid, owner.gid);
+          for (const [name] of scripts) await chown(join(secretsDir, name), owner.uid, owner.gid);
         }
         secret(s.privateKey);
         result.mounts.push({ src: secretsDir, dest: CREDENTIAL_DIR, options: 'ro' });
-        result.options.push('-e', `ANSIBLE_PRIVATE_KEY_FILE=${CREDENTIAL_DIR}/ssh_key`);
+        if (s.passphrase) {
+          result.options.push('--entrypoint', `${CREDENTIAL_DIR}/agent`, '-e', PASSPHRASE_VAR);
+          result.processEnv[PASSPHRASE_VAR] = s.passphrase;
+          secret(s.passphrase);
+        } else result.options.push('-e', `ANSIBLE_PRIVATE_KEY_FILE=${CREDENTIAL_DIR}/ssh_key`);
         if (fields.username) result.vars.ansible_user = fields.username;
         result.cleanup = () => rm(secretsDir, { recursive: true, force: true });
-        result.notes.push(`SSH key "${c.name}"${fields.username ? ` as ${fields.username}` : ''}`);
+        result.notes.push(
+          `SSH key "${c.name}"${fields.username ? ` as ${fields.username}` : ''}${s.passphrase ? ', with its passphrase, through an ssh-agent' : ''}`,
+        );
         break;
       }
       case 'login':
@@ -120,7 +201,7 @@ export async function runCredentials(
         result.notes.push(`variables "${c.name}": ${Object.keys(s).join(', ')}`);
         break;
       case 'registry':
-        result.notes.push(`registry "${c.name}" is not used by runs yet: the image must be there`);
+        // Used before the run, to pull the image (registrySignIn, runs/registry.ts).
         break;
       default:
         throw new CredentialProblem(`${c.name}: a ${c.kind} credential is not for a run`);

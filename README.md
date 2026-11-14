@@ -778,9 +778,12 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   commit (a hand-edited `generated/` file has no effect).
 - In the launch's image, else `AFS_EE_IMAGE`. Without a container engine (or with
   `AFS_CONTAINER_ENGINE=off`) runs wait in the queue.
-- Credentials: SSH key (mounted read-only for the run, a key without a passphrase), login and
-  become passwords, the vault password, and environment variables. Secret values are hidden in
-  the output.
+- Credentials: SSH key (mounted read-only for the run; a key with a passphrase is unlocked into
+  an ssh-agent inside the run, so the image needs `openssh-client`), login and become
+  passwords, the vault password, environment variables, and a registry sign-in: before the run
+  the server signs in to the image's registry with it and pulls the image, with sign-in data of
+  the run's own that is removed right after. Secret values are hidden in the output. A wrong
+  passphrase fails the run with "The SSH key could not be unlocked".
 - Ended: `succeeded` when Ansible ended well and wrote its events; `failed` otherwise, with
   the reason; `cancelled` when stopped on request. A run longer than
   `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
