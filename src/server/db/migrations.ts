@@ -8,6 +8,68 @@ import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-31: sign-in with LDAP and Active Directory. A person is an entry of a directory, found
+  // again by its own id (entryUUID, objectGUID). An account the directory sync disabled is marked,
+  // so only those are enabled again when the entry is back.
+  '0021_ldap': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('ldap_directory')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('key', 'text', (c) => c.notNull().unique())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('position', 'integer', (c) => c.notNull())
+        .addColumn('url', 'text', (c) => c.notNull())
+        .addColumn('start_tls', 'integer', (c) => c.notNull())
+        .addColumn('bind_dn', 'text')
+        .addColumn('bind_password_enc', 'text')
+        .addColumn('user_base', 'text', (c) => c.notNull())
+        .addColumn('user_filter', 'text', (c) => c.notNull())
+        .addColumn('id_attr', 'text', (c) => c.notNull())
+        .addColumn('login_attr', 'text', (c) => c.notNull())
+        .addColumn('name_attr', 'text', (c) => c.notNull())
+        .addColumn('email_attr', 'text', (c) => c.notNull())
+        // memberof: the user's attribute; search: a search of the group base.
+        .addColumn('group_mode', 'text', (c) => c.notNull())
+        .addColumn('group_base', 'text')
+        .addColumn('group_filter', 'text')
+        // Active Directory: userAccountControl's "account disabled" bit counts as gone.
+        .addColumn('ad_disabled', 'integer', (c) => c.notNull())
+        .addColumn('sync_minutes', 'integer', (c) => c.notNull())
+        .addColumn('enabled', 'integer', (c) => c.notNull())
+        .addColumn('last_sync_at', 'text')
+        .addColumn('last_sync_result', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('ldap_mapping')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('directory_id', 'text', (c) =>
+          c.notNull().references('ldap_directory.id').onDelete('cascade'),
+        )
+        // A group's DN or its name (the RDN's value), compared without case.
+        .addColumn('group_value', 'text', (c) => c.notNull())
+        .addColumn('group_id', 'text', (c) => c.references('user_group.id').onDelete('cascade'))
+        .addColumn('admin', 'integer', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('ldap_identity')
+        .addColumn('directory_id', 'text', (c) =>
+          c.notNull().references('ldap_directory.id').onDelete('cascade'),
+        )
+        .addColumn('object_id', 'text', (c) => c.notNull())
+        .addColumn('dn', 'text', (c) => c.notNull())
+        .addColumn('user_id', 'text', (c) =>
+          c.notNull().references('user_account.id').onDelete('cascade'),
+        )
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('last_at', 'text', (c) => c.notNull())
+        .addPrimaryKeyConstraint('ldap_identity_pk', ['directory_id', 'object_id'])
+        .execute();
+      await db.schema.alterTable('user_account').addColumn('disabled_source', 'text').execute();
+    },
+  },
   // AFS-30: sign-in with OIDC providers. A person is an identity at a provider (its subject);
   // group memberships and administrator rights a provider gave are marked, so a sign-in can
   // take them back without touching what was set here by hand.

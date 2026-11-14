@@ -6,6 +6,7 @@ import type { Kysely } from 'kysely';
 import type { Schema } from '../../db/schema';
 import { open, seal } from '../../secrets/crypto';
 import type { MasterKey } from '../../secrets/masterKey';
+import { forgetSource } from '../external';
 import type { Mapping, Provider, ProviderInput } from './types';
 
 type Db = Kysely<Schema>;
@@ -239,12 +240,7 @@ export async function deleteProvider(db: Db, id: string): Promise<void> {
   const before = await getProvider(db, id);
   if (!before) throw new ProviderError('not_found', 'No such provider');
   await db.transaction().execute(async (trx) => {
-    await trx.deleteFrom('group_member').where('source', '=', before.id).execute();
-    await trx
-      .updateTable('user_account')
-      .set({ is_admin: 0, admin_source: null })
-      .where('admin_source', '=', before.id)
-      .execute();
+    await forgetSource(trx, before.id);
     await trx.deleteFrom('oidc_provider').where('id', '=', before.id).execute();
   });
 }

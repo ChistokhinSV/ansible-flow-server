@@ -137,6 +137,11 @@ export const ACTIONS: Record<string, Action> = {
   'PATCH /api/v1/admin/oidc-providers/:id': { action: 'oidc-provider.change', id: at() },
   'DELETE /api/v1/admin/oidc-providers/:id': { action: 'oidc-provider.delete', id: at() },
   'PUT /api/v1/admin/sign-in': { action: 'sign-in.change', id: 'none' },
+  // AFS-31: directories.
+  'POST /api/v1/admin/ldap-directories': { action: 'ldap-directory.create', id: 'reply' },
+  'PATCH /api/v1/admin/ldap-directories/:id': { action: 'ldap-directory.change', id: at() },
+  'DELETE /api/v1/admin/ldap-directories/:id': { action: 'ldap-directory.delete', id: at() },
+  'POST /api/v1/admin/ldap-directories/:id/sync': { action: 'ldap-directory.sync', id: at() },
 };
 
 /** Routes that are POSTs but change nothing. */
@@ -144,6 +149,7 @@ export const READS = new Set([
   'POST /api/v1/launch-configs/:id/check',
   'POST /api/v1/launch-configs/:id/facts',
   'POST /api/v1/admin/oidc-providers/:id/test',
+  'POST /api/v1/admin/ldap-directories/:id/test',
   'POST /git/:workspace/:repo/git-upload-pack',
 ]);
 

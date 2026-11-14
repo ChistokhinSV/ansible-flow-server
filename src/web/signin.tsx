@@ -1,10 +1,11 @@
 // Sign-in with OIDC providers in the pages (AFS-30): the providers' buttons on the sign-in page,
 // and the administrators' page that sets them up, with what their groups claim means here and
 // who may still sign in with a password.
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import type { Mapping, Provider, ProviderInput } from '../server/auth/oidc/types';
 import type { Group } from '../server/auth/users';
 import { api } from './api';
+import { DirectoriesSection } from './directories';
 import { Link } from './router';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
@@ -72,30 +73,40 @@ const draftOf = (p: Provider): Draft => ({
   replaceSecret: !p.hasSecret,
 });
 
-function MappingRows({
+export function MappingRows({
   mappings,
   groups,
   onChange,
+  legend = 'What the groups claim means here',
+  help,
+  valueLabel = 'Claim value',
 }: {
   mappings: Mapping[];
   groups: Group[];
   onChange: (m: Mapping[]) => void;
+  legend?: string;
+  help?: ReactNode;
+  valueLabel?: string;
 }) {
   const set = (i: number, m: Mapping) => onChange(mappings.map((x, j) => (j === i ? m : x)));
   return (
     <fieldset className="mappings">
-      <legend>What the groups claim means here</legend>
+      <legend>{legend}</legend>
       <p className="muted">
-        A value of the claim (as the provider sends it, e.g. <code>/netops</code>) and the server
-        group it puts the person in, or administrator. Other values are ignored; a sign-in takes
-        back what the provider no longer says.
+        {help ?? (
+          <>
+            A value of the claim (as the provider sends it, e.g. <code>/netops</code>) and the
+            server group it puts the person in, or administrator. Other values are ignored; a
+            sign-in takes back what the provider no longer says.
+          </>
+        )}
       </p>
       {mappings.map((m, i) => (
         // The value is the row's name; two rows may be typed with the same one while editing.
         // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity of their own
         <div className="mapping" key={i}>
           <Field
-            label="Claim value"
+            label={valueLabel}
             value={m.value}
             onChange={(e) => set(i, { ...m, value: e.target.value })}
             required
@@ -278,8 +289,9 @@ export function SignInPage() {
         title="Sign-in"
         lead={
           <>
-            People sign in with a password here, or with your organisation&apos;s sign-in (OIDC:
-            Keycloak, Entra ID, Google, and others). Their groups there can be groups here.{' '}
+            People sign in with a password here, with your organisation&apos;s sign-in (OIDC:
+            Keycloak, Entra ID, Google, and others), or with their directory login (LDAP, Active
+            Directory). Their groups there can be groups here.{' '}
             <Link to="/admin">Administration</Link>
           </>
         }
@@ -390,6 +402,7 @@ export function SignInPage() {
           </article>
         ))}
       </section>
+      <DirectoriesSection groups={groups.data ?? []} />
       <section className="panel" aria-labelledby="passwords">
         <h2 id="passwords">Passwords</h2>
         <Loading state={local} />

@@ -2,13 +2,12 @@
 // nonce (openid-client). The person is found by their identity at the provider (its subject), or
 // made at their first sign-in; then the provider's groups claim sets the server groups and the
 // administrator right it maps to. What was given here by hand is not touched.
-import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import * as client from 'openid-client';
 import type { Schema } from '../../db/schema';
 import type { Logger } from '../../log';
 import type { MasterKey } from '../../secrets/masterKey';
-import { loginProblem, normalLogin } from '../users';
+import { applySource, ExternalError, makeAccount } from '../external';
 import { getProvider, type Provider, providerSecret } from './providers';
 
 type Db = Kysely<Schema>;
@@ -32,15 +31,7 @@ export function claimValues(value: unknown): string[] {
   return typeof value === 'string' && value ? [value] : [];
 }
 
-/** A login made from a claim: lower case, the characters a login may have. */
-export function loginFrom(wanted: string): string {
-  const cleaned = normalLogin(wanted)
-    .replace(/@.*$/, '')
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[^a-z0-9]+|-+$/g, '')
-    .slice(0, 48);
-  return cleaned || 'user';
-}
+export { loginFrom } from '../external';
 
 export class OidcSignIn {
   private readonly configs = new Map<
@@ -207,33 +198,15 @@ export class OidcSignIn {
           .execute();
       } else {
         // A new person: a login from the claim, made unique; no password (they sign in there).
-        const wanted = loginFrom(str(provider.loginClaim) ?? str('email') ?? subject);
-        userId = randomUUID();
-        login = wanted;
-        for (let n = 2; ; n++) {
-          if (loginProblem(login)) login = `user-${userId.slice(0, 8)}`;
-          const done = await trx
-            .insertInto('user_account')
-            .values({
-              id: userId,
-              login,
-              name: name || login,
-              email: email ?? null,
-              webhook_url: null,
-              password_hash: null,
-              is_admin: 0,
-              disabled: 0,
-              service: 0,
-              created_at: at,
-              updated_at: at,
-              last_login_at: at,
-              admin_source: null,
-            })
-            .onConflict((c) => c.column('login').doNothing())
-            .executeTakeFirst();
-          if (done.numInsertedOrUpdatedRows) break;
-          if (n > 99) throw new SignInError('No free login for this person: ask an administrator');
-          login = `${wanted.slice(0, 44)}-${n}`;
+        try {
+          ({ userId, login } = await makeAccount(trx, {
+            login: str(provider.loginClaim) ?? str('email') ?? subject,
+            ...(name ? { name } : {}),
+            ...(email ? { email } : {}),
+          }));
+        } catch (e) {
+          if (e instanceof ExternalError) throw new SignInError(e.message);
+          throw e;
         }
         await trx
           .insertInto('user_identity')
@@ -259,43 +232,7 @@ export class OidcSignIn {
           .map((m) => m.group as string),
       );
       const admin = provider.mappings.some((m) => m.admin && values.has(m.value));
-      const mine = await trx
-        .selectFrom('group_member')
-        .select(['group_id', 'source'])
-        .where('user_id', '=', userId)
-        .execute();
-      for (const m of mine)
-        if (m.source === provider.id && !wantGroups.has(m.group_id))
-          await trx
-            .deleteFrom('group_member')
-            .where('user_id', '=', userId)
-            .where('group_id', '=', m.group_id)
-            .execute();
-      const have = new Set(mine.map((m) => m.group_id));
-      for (const g of wantGroups)
-        if (!have.has(g))
-          await trx
-            .insertInto('group_member')
-            .values({ group_id: g, user_id: userId, source: provider.id })
-            .execute();
-      const account = await trx
-        .selectFrom('user_account')
-        .select(['is_admin', 'admin_source'])
-        .where('id', '=', userId)
-        .executeTakeFirstOrThrow();
-      if (admin && !account.is_admin)
-        await trx
-          .updateTable('user_account')
-          .set({ is_admin: 1, admin_source: provider.id })
-          .where('id', '=', userId)
-          .execute();
-      // Only a right this provider gave is taken back; one given here by hand stays.
-      else if (!admin && account.is_admin && account.admin_source === provider.id)
-        await trx
-          .updateTable('user_account')
-          .set({ is_admin: 0, admin_source: null })
-          .where('id', '=', userId)
-          .execute();
+      await applySource(trx, userId, provider.id, wantGroups, admin);
       return { userId, login };
     });
   }

@@ -32,7 +32,8 @@ const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
   },
   {
     title: 'Sign-in',
-    words: 'sign-in oidc sso keycloak entra google provider login password',
+    words:
+      'sign-in oidc sso keycloak entra google provider login password ldap active directory ad',
     to: '/admin/sign-in',
     admin: true,
   },

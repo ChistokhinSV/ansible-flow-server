@@ -77,6 +77,7 @@ describe('sign-in with a provider', () => {
       'GET /session': () => ({ body: dana }),
       'GET /approvals': () => ({ body: [] }),
       'GET /admin/oidc-providers': () => ({ body: providers }),
+      'GET /admin/ldap-directories': () => ({ body: [] }),
       'GET /groups': () => ({ body: [netops] }),
       'GET /admin/sign-in': () => ({ body: { local: 'all' } }),
       'POST /admin/oidc-providers': () => {
@@ -125,5 +126,102 @@ describe('sign-in with a provider', () => {
     await waitFor(() =>
       expect(asked.find((a) => a.key === 'PUT /admin/sign-in')?.body).toEqual({ local: 'admins' }),
     );
+  });
+
+  it('an administrator adds an Active Directory from its preset, tests a login and syncs', async () => {
+    const ad = {
+      id: 'd1',
+      key: 'corp-ad',
+      name: 'Corp AD',
+      position: 0,
+      url: 'ldaps://dc1.corp.example.net',
+      startTls: false,
+      bindDn: 'CN=svc-flows,OU=Services,DC=corp,DC=example,DC=net',
+      hasBindPassword: true,
+      userBase: 'OU=Staff,DC=corp,DC=example,DC=net',
+      userFilter: '(&(objectCategory=person)(objectClass=user)(sAMAccountName={login}))',
+      idAttr: 'objectGUID',
+      loginAttr: 'sAMAccountName',
+      nameAttr: 'displayName',
+      emailAttr: 'mail',
+      groupMode: 'search',
+      groupBase: 'DC=corp,DC=example,DC=net',
+      groupFilter: '(&(objectClass=group)(member:1.2.840.113556.1.4.1941:={dn}))',
+      adDisabled: true,
+      syncMinutes: 60,
+      enabled: true,
+      mappings: [{ value: 'netops', group: 'g1' }],
+      createdAt: '2026-11-14T09:00:00.000Z',
+      updatedAt: '2026-11-14T09:00:00.000Z',
+    };
+    let directories: unknown[] = [];
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /approvals': () => ({ body: [] }),
+      'GET /admin/oidc-providers': () => ({ body: [] }),
+      'GET /admin/ldap-directories': () => ({ body: directories }),
+      'GET /groups': () => ({ body: [netops] }),
+      'GET /admin/sign-in': () => ({ body: { local: 'all' } }),
+      'POST /admin/ldap-directories': () => {
+        directories = [ad];
+        return { status: 201, body: ad };
+      },
+      'POST /admin/ldap-directories/d1/test': () => ({
+        body: {
+          ok: true,
+          message: 'It answers; the service account searches',
+          person: {
+            dn: 'CN=Mia Ortega,OU=Staff,DC=corp,DC=example,DC=net',
+            name: 'Mia Ortega',
+            disabled: false,
+            groups: ['CN=netops,OU=Groups,DC=corp,DC=example,DC=net'],
+            mapped: ['netops'],
+          },
+        },
+      }),
+      'POST /admin/ldap-directories/d1/sync': () => ({
+        body: { checked: 4, disabled: 1, message: '4 people checked; 1 disabled' },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/sign-in');
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a directory' }));
+    const form = screen.getByRole('region', { name: 'Add a directory' });
+    const type = (label: RegExp, value: string) =>
+      fireEvent.change(within(form).getByLabelText(label), { target: { value } });
+    // The Active Directory preset fills the filters.
+    expect((within(form).getByLabelText(/^Person filter/) as HTMLInputElement).value).toContain(
+      'sAMAccountName={login}',
+    );
+    type(/^Name(?! attribute)/, 'Corp AD');
+    type(/^Key/, 'corp-ad');
+    type(/^Address/, ad.url);
+    type(/^Service account DN/, ad.bindDn);
+    type(/^Service account password/, 'svc-s3cret');
+    type(/^Where people are/, ad.userBase);
+    type(/^Where groups are/, ad.groupBase);
+    fireEvent.click(within(form).getByRole('button', { name: 'Add a value' }));
+    type(/^Directory group/, 'netops');
+    fireEvent.change(within(form).getByLabelText('Here'), { target: { value: 'g1' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add' }));
+
+    const card = await screen.findByRole('article', { name: 'Corp AD' });
+    expect(asked.find((a) => a.key === 'POST /admin/ldap-directories')?.body).toMatchObject({
+      key: 'corp-ad',
+      bindPassword: 'svc-s3cret',
+      idAttr: 'objectGUID',
+      adDisabled: true,
+      mappings: [{ value: 'netops', group: 'g1' }],
+    });
+    fireEvent.change(within(card).getByLabelText(/^Test with a login/), {
+      target: { value: 'mia' },
+    });
+    fireEvent.click(within(card).getByRole('button', { name: 'Test' }));
+    expect(await within(card).findByText(/OU=Staff/)).toBeTruthy();
+    expect(asked.find((a) => a.key === 'POST /admin/ldap-directories/d1/test')?.body).toEqual({
+      login: 'mia',
+    });
+    fireEvent.click(within(card).getByRole('button', { name: 'Sync now' }));
+    expect(await within(card).findByText('4 people checked; 1 disabled')).toBeTruthy();
   });
 });

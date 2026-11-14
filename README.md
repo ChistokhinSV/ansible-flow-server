@@ -33,7 +33,7 @@ tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 | Notifications by email and webhook                                         | done             |
 | Execution environments built from a list of collections                    | planned          |
 | Schedules, REST API with tokens, MCP endpoint                              | API and MCP done |
-| Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | all but LDAP     |
+| Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | done             |
 | Install with docker compose or as a Linux service                          | done             |
 
 ## Requirements
@@ -478,7 +478,40 @@ as the client's redirect URI at the provider, and Test the provider. Then:
 - Removing a provider keeps its people; the groups and administrator rights it gave go.
 - A provider's certificate authority: `AFS_CA_FILE`. Every change is in the audit log.
 
-Not there yet: LDAP and Active Directory (AFS-31); GitHub sign-in (OAuth 2, not OIDC).
+**Sign in with a directory (LDAP, Active Directory):** people type their directory login and
+password in the usual sign-in form. On the same Sign-in page an administrator adds a directory,
+starting from the Active Directory or the OpenLDAP preset:
+
+| Setting                | What                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Address                | `ldaps://dc1.corp.example.net:636`; `ldap://` only with StartTLS (or on this machine)                                    |
+| Service account        | The DN that searches (`CN=svc-flows,OU=Services,DC=corp,DC=example,DC=net`) and its password, sealed with the master key |
+| Where people are       | The search base (`OU=Staff,DC=corp,DC=example,DC=net`)                                                                   |
+| Person filter          | `(&(objectCategory=person)(objectClass=user)(sAMAccountName={login}))`                                                   |
+| Id, login, name, email | Attributes; the id stays the same when a person is renamed (`objectGUID`, `entryUUID`)                                   |
+| Groups from            | A search (`(&(objectClass=group)(member:1.2.840.113556.1.4.1941:={dn}))`: nested AD groups too) or `memberOf`            |
+| Disabled in AD         | People disabled in Active Directory cannot sign in                                                                       |
+| Sync every             | Minutes (60 by default; 0: only at sign-in)                                                                              |
+| Mappings               | A group's name (`netops`) or DN and what it is here: a server group, or administrator                                    |
+
+Test it, with a login if you like: the page shows the entry found, its groups and what they are
+here. Then:
+
+- A login with a password here signs in here; any other login is tried with the directories, in
+  order. A wrong password is refused there and then; a directory that does not answer is skipped.
+  Every refusal says the same thing.
+- A person is made at their first sign-in and found again by their id in the directory. Their
+  name, email, groups and administrator right follow the directory, as with a provider: what was
+  given here by hand stays.
+- **The sync** looks everyone up again on the timer (and with Sync now): who left the directory, or
+  was disabled in Active Directory, is disabled here, and their open sessions and tokens stop at
+  once. Who comes back is enabled again. A directory that does not answer disables nobody; an
+  account disabled here by hand stays disabled.
+- Directory sign-ins also work when passwords are for administrators only.
+- Removing a directory keeps its people; the groups, rights and disabling it gave go.
+- The directory's certificate authority: `AFS_CA_FILE`. Every change and sync is in the audit log.
+
+Not there yet: GitHub sign-in (OAuth 2, not OIDC); Kerberos (sign-in without typing a password).
 
 #### Access levels
 

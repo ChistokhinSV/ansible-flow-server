@@ -35,6 +35,61 @@ export interface UserAccountTable {
   last_login_at: IsoTime | null;
   /** AFS-30: the OIDC provider that made them an administrator; null: by hand (or not one). */
   admin_source: string | null;
+  /** AFS-31: the directory whose sync disabled them (they left it); null: by hand (or not). */
+  disabled_source: string | null;
+}
+
+/** AFS-31: an LDAP or Active Directory directory people sign in with. */
+export interface LdapDirectoryTable {
+  id: string;
+  key: string;
+  name: string;
+  /** Directories are tried in this order. */
+  position: number;
+  /** ldaps://host:636, or ldap://host:389 with StartTLS. */
+  url: string;
+  start_tls: Flag;
+  /** The service account that searches; null: an anonymous search. */
+  bind_dn: string | null;
+  bind_password_enc: string | null;
+  user_base: string;
+  /** With {login} where the typed login goes (escaped). */
+  user_filter: string;
+  /** What stays the same when a person is renamed: entryUUID, objectGUID. */
+  id_attr: string;
+  login_attr: string;
+  name_attr: string;
+  email_attr: string;
+  group_mode: 'memberof' | 'search';
+  group_base: string | null;
+  /** With {dn} where the person's DN goes. */
+  group_filter: string | null;
+  ad_disabled: Flag;
+  sync_minutes: number;
+  enabled: Flag;
+  last_sync_at: IsoTime | null;
+  last_sync_result: string | null;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
+/** AFS-31: a directory group (DN or name) and the server group (or administrator) it is. */
+export interface LdapMappingTable {
+  id: string;
+  directory_id: string;
+  group_value: string;
+  group_id: string | null;
+  admin: Flag;
+}
+
+/** AFS-31: a person as a directory knows them. */
+export interface LdapIdentityTable {
+  directory_id: string;
+  object_id: string;
+  dn: string;
+  user_id: string;
+  created_at: IsoTime;
+  last_at: IsoTime;
 }
 
 /** People who are given access together, and notified together. */
@@ -518,4 +573,7 @@ export interface Schema {
   oidc_mapping: OidcMappingTable;
   user_identity: UserIdentityTable;
   oidc_login: OidcLoginTable;
+  ldap_directory: LdapDirectoryTable;
+  ldap_mapping: LdapMappingTable;
+  ldap_identity: LdapIdentityTable;
 }
