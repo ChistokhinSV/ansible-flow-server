@@ -89,6 +89,7 @@ for (const [name, config] of databases) {
           tls: 'on',
           defaultNames: ['localhost'],
         },
+        inventory: async () => ({ environment: 'test' }),
       });
       await createUser(db(), { login: 'dana', name: 'Dana', password: PASSWORD, admin: true });
       const reply = await call('POST', '/api/v1/session', undefined, {

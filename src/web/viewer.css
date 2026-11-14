@@ -6,3 +6,14 @@
   padding: 2rem 16px;
   margin: 0;
 }
+
+/* AFS-67: which launch configuration, when the flow has several. */
+.afs-choose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.afs-choose button {
+  text-align: start;
+}

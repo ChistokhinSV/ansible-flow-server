@@ -2,8 +2,9 @@
 // the form that adds or changes one. A launch is asked about first ("what would run": the
 // commit, the inputs as the flow reads them, the hosts), then started; what stands in the way is
 // shown at the field it is about.
-import { readFields } from '@ansible-flow/core/run/launch';
+import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
+import type { FactsReply } from '../server/launch/facts';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
   ApiError,
@@ -250,8 +251,43 @@ function InputField({
   );
 }
 
+/** AFS-67: the hosts as the inventory has them, read in the launch's image. */
+function InventoryHosts({ hosts }: { hosts: HostsState }) {
+  return (
+    <>
+      <h3>Hosts in the inventory</h3>
+      {hosts === 'reading' ? (
+        <p className="muted">Reading the inventory in the launch's image…</p>
+      ) : 'error' in hosts ? (
+        <p className="error-text">{hosts.error}</p>
+      ) : hosts.facts ? (
+        <ul className="plain" data-facts>
+          {/* The first line says "not check mode": the mode is said above. */}
+          {realRunLines(hosts.facts)
+            .slice(1)
+            .map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+        </ul>
+      ) : (
+        <p className="error-text">{hosts.factsError}</p>
+      )}
+    </>
+  );
+}
+
+type HostsState = 'reading' | FactsReply | { error: string };
+
 /** What a check said would run. */
-function WouldRun({ launch, form }: { launch: PreparedLaunch; form: LaunchForm }) {
+function WouldRun({
+  launch,
+  form,
+  hosts,
+}: {
+  launch: PreparedLaunch;
+  form: LaunchForm;
+  hosts?: HostsState;
+}) {
   const shown = Object.entries(launch.inputs);
   return (
     <section className="panel ok-panel" aria-labelledby="would-run" aria-live="polite">
@@ -290,6 +326,7 @@ function WouldRun({ launch, form }: { launch: PreparedLaunch; form: LaunchForm }
         <dt>Credentials</dt>
         <dd>{launch.credentials.length}</dd>
       </dl>
+      {hosts && <InventoryHosts hosts={hosts} />}
       {shown.length > 0 && (
         <>
           <h3>Inputs, as the flow gets them</h3>
@@ -354,6 +391,7 @@ export function LaunchConfigPage({
   const [problems, setProblems] = useState<Problem[]>([]);
   const [error, setError] = useState<string>();
   const [result, setResult] = useState<{ launch: PreparedLaunch; form: LaunchForm }>();
+  const [hosts, setHosts] = useState<HostsState>();
   const [busy, setBusy] = useState<'check' | 'launch' | 'save' | 'delete'>();
   const [saved, setSaved] = useState<string>();
 
@@ -400,8 +438,15 @@ export function LaunchConfigPage({
 
   const check = async () => {
     start('check');
+    setHosts(undefined);
     try {
-      setResult(await api.checkLaunch(c.id, request()));
+      const asked = request();
+      setResult(await api.checkLaunch(c.id, asked));
+      // Who may launch also sees the hosts: reading them starts a container in the image.
+      if (mayLaunch) {
+        setHosts('reading');
+        api.launchFacts(c.id, asked).then(setHosts, (e) => setHosts({ error: messageOf(e) }));
+      }
     } catch (e) {
       refused(e);
     } finally {
@@ -669,7 +714,7 @@ export function LaunchConfigPage({
           )}
         </form>
       </section>
-      {result && <WouldRun launch={result.launch} form={result.form} />}
+      {result && <WouldRun launch={result.launch} form={result.form} hosts={hosts} />}
       <EnvironmentCheck config={c.id} workspace={workspace} mayManage={mayManage} />
       <SchedulesSection config={c.id} form={form.data} mayManage={mayManage} me={me} />
     </>

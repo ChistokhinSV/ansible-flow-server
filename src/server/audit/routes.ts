@@ -137,6 +137,7 @@ export const ACTIONS: Record<string, Action> = {
 /** Routes that are POSTs but change nothing. */
 export const READS = new Set([
   'POST /api/v1/launch-configs/:id/check',
+  'POST /api/v1/launch-configs/:id/facts',
   'POST /git/:workspace/:repo/git-upload-pack',
 ]);
 

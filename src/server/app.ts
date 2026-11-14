@@ -12,7 +12,7 @@ import { registerFlowChecks } from './environments/checkRoutes';
 import type { Environments } from './environments/environments';
 import { registerEnvironments } from './environments/routes';
 import { LaunchConfigs } from './launch/configs';
-import { registerLaunch } from './launch/routes';
+import { type InventoryReader, registerLaunch } from './launch/routes';
 import type { Logger } from './log';
 import { registerMcp } from './mcp/routes';
 import { type ServerMeta, serverMeta } from './meta';
@@ -69,6 +69,8 @@ export interface AppDeps {
   publicUrl?: string;
   /** AFS-26: a dev run's bundle at most this many bytes, kept this many hours. */
   dev?: { maxBytes: number; keepHours: number };
+  /** AFS-67: reads a launch's inventory in its image (the executor's probes). */
+  inventory?: InventoryReader;
 }
 
 export interface MetaReply extends ServerMeta {
@@ -127,6 +129,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       sync: deps.projects.sync,
       ...(deps.runs ? { queue: deps.runs } : {}),
       ...(deps.dev ? { dev: deps.dev } : {}),
+      ...(deps.inventory ? { inventory: deps.inventory } : {}),
     });
   }
 

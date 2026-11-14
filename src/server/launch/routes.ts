@@ -6,15 +6,24 @@
 //   /api/v1/launch-configs/:id
 //   /api/v1/launch-configs/:id/form     the flow's inputs as a form, with the start values
 //   /api/v1/launch-configs/:id/check    what a launch would run, or what stands in its way
+//   /api/v1/launch-configs/:id/facts    AFS-67: the hosts it would touch, from the inventory
 //   /api/v1/launch-configs/:id/launch   the same, and the run goes in the queue
 //   /api/v1/projects/:id/dev-bundles    AFS-26: unpushed work as a git bundle, for a dev run
+import { checkInputs } from '@ansible-flow/core/run/launch';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { accessOf, atLeast } from '../access/grants';
 import { signedIn } from '../auth/guards';
 import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { RunQueue } from '../runs/queue';
-import { type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
+import { flowAt, type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
+import type { FactsReply, InventoryAnswer, InventoryQuestion } from './facts';
+
+/** Reads a launch's inventory; the image is this server's when the launch names none. */
+export type InventoryReader = (
+  q: Omit<InventoryQuestion, 'image'> & { image?: string },
+) => Promise<InventoryAnswer>;
+
 import { addDevBundle, getDevBundle } from './dev';
 import { type LaunchRequest, type PrepareDeps, prepareLaunch, withoutSecrets } from './prepare';
 
@@ -79,6 +88,8 @@ export function registerLaunch(
     queue?: RunQueue;
     /** AFS-26: a dev bundle's largest size and how long it is kept. */
     dev?: { maxBytes: number; keepHours: number };
+    /** AFS-67: reads a launch's inventory (the executor's probes); without it, no facts route. */
+    inventory?: InventoryReader;
   },
 ): void {
   const dev = deps.dev ?? { maxBytes: 50 * 1024 * 1024, keepHours: 24 };
@@ -347,6 +358,70 @@ export function registerLaunch(
       };
     },
   );
+
+  /**
+   * AFS-67: the hosts a launch would touch, read from the inventory in the launch's image (the
+   * launch dialog asks while someone types). Inputs that do not read yet are left out, as the
+   * designer's dialog does: only an unreadable host list holds the count back.
+   */
+  const inventory = deps.inventory;
+  if (inventory)
+    app.post<WithId & { Body: LaunchRequest & { groups?: boolean } }>(
+      '/api/v1/launch-configs/:id/facts',
+      {
+        schema: {
+          ...ID,
+          body: {
+            ...REQUEST,
+            properties: { ...REQUEST.properties, groups: { type: 'boolean' } },
+          },
+        },
+      },
+      async (request, reply) => {
+        if (!signedIn(request, reply)) return reply;
+        const config = await configs.get(request.params.id);
+        if (!config) return reply.code(404).send(NONE);
+        const { groups, ...body } = request.body ?? {};
+        const asked = await devRequest(config.project, body);
+        if ('status' in asked) {
+          const { status, ...refusal } = asked;
+          return reply.code(status).send(refusal);
+        }
+        // Not a look at the source: the dialog asks often, and the run looks before it starts.
+        const prepared = await prepareLaunch(deps, config, asked, false);
+        const form = prepared.form;
+        const flow = form && (await flowAt(deps.git, config.project, form.commit, config.flowFile));
+        if (!form || !flow || 'problem' in flow) {
+          const problems = prepared.ok ? [] : prepared.problems;
+          return reply.code(422).send({
+            error: 'not_ready',
+            message: problems[0]?.message ?? 'The launch is not ready',
+            problems,
+          });
+        }
+        const texts = Object.fromEntries(
+          form.fields.map((f) => [f.name, asked.inputs?.[f.name] ?? f.text]),
+        );
+        const read = checkInputs(form.fields, texts);
+        const answer = await inventory({
+          project: config.project,
+          commit: form.commit,
+          doc: flow.doc,
+          inputs: 'inputs' in read ? read.inputs : {},
+          ...(form.inventory ? { inventory: form.inventory } : {}),
+          ...(form.eeImage ? { image: form.eeImage } : {}),
+          credentials: config.credentials,
+          ...(groups ? { groups: true } : {}),
+        });
+        const { facts: _facts, factsError: _why, ...rest } = answer;
+        const replied: FactsReply = {
+          ...('error' in read ? { ...rest, factsError: read.error, field: read.field } : answer),
+          ...(form.inventory ? { inventory: form.inventory } : {}),
+          commit: form.commit,
+        };
+        return replied;
+      },
+    );
 
   const queue = deps.queue;
   if (!queue) return;

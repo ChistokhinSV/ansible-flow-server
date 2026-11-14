@@ -276,6 +276,11 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       masterKey,
       runs,
       runOutput: (id) => executor?.outputFile(id) ?? '',
+      // AFS-67: the executor reads inventories with the engine it found.
+      inventory: (q) =>
+        executor
+          ? executor.inventory(q)
+          : Promise.resolve({ factsError: 'This server is still starting', environment: '' }),
       hub,
       // The pages are built beside the server (dist/server.js, dist/web).
       webDir: fileURLToPath(new URL('./web', import.meta.url)),

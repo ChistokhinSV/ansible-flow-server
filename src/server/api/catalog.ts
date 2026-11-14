@@ -252,6 +252,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     C,
   )('What a launch would run, or what stands in its way (422)'),
+  'POST /api/v1/launch-configs/:id/facts': S(
+    'Launch configurations',
+    'signed in',
+    C,
+  )(
+    "The hosts a launch would touch, read from the inventory in the launch's image; with groups: true, the inventory's groups too",
+  ),
   'POST /api/v1/launch-configs/:id/launch': S(
     'Launch configurations',
     'administrators',
@@ -548,6 +555,8 @@ const NEEDS: Record<string, Who> = {
   'DELETE /api/v1/launch-configs/:id': 'rw',
   'GET /api/v1/launch-configs/:id/form': 'ro',
   'POST /api/v1/launch-configs/:id/check': 'ro',
+  // AFS-67: it starts a container, so it is for who may launch.
+  'POST /api/v1/launch-configs/:id/facts': 'operator',
   // Another branch or commit than the configuration's: the handler asks for rw.
   'POST /api/v1/launch-configs/:id/launch': 'operator',
   // AFS-32: environments are read by who sees the workspace, set up by who may push to it.

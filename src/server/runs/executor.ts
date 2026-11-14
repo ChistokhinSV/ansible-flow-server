@@ -40,6 +40,7 @@ import type { ProjectSync } from '../projects/sync';
 import type { MasterKey } from '../secrets/masterKey';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import type { RunHub } from './hub';
+import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
 import type { Job, Outcome, RunQueue } from './queue';
 import { pullWithSignIn } from './registry';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
@@ -134,6 +135,7 @@ export class Executor {
   private readonly workdirs: Workdirs;
   private readonly probeDir: string;
   private readonly outputDir: string;
+  private readonly probes: InventoryProbes;
   /** The user each image runs as, found once. */
   private readonly owners = new Map<string, Promise<{ uid: number; gid: number } | undefined>>();
 
@@ -144,6 +146,24 @@ export class Executor {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
     this.probeDir = join(options.dataDir, 'probe');
     this.outputDir = join(options.dataDir, 'output');
+    this.probes = new InventoryProbes({
+      engine: () => (this.options.runner ? undefined : this.engine),
+      probeDir: this.probeDir,
+      workdirs: this.workdirs,
+      db: deps.db,
+      key: deps.key,
+      labels: [this.label],
+      secretsDir: join(options.dataDir, 'secrets-tmp'),
+      log: deps.log,
+    });
+  }
+
+  /**
+   * AFS-67: what a launch would touch, as the inventory has it: read by the designer's probe in
+   * the launch's image (else this server's), over the repository at the launch's commit.
+   */
+  inventory(q: Omit<InventoryQuestion, 'image'> & { image?: string }): Promise<InventoryAnswer> {
+    return this.probes.ask({ ...q, image: q.image ?? this.options.image });
   }
 
   /**
@@ -248,6 +268,7 @@ export class Executor {
     clearInterval(this.timer);
     for (const going of this.active.values()) going.abort('shutdown');
     await Promise.allSettled([...this.active.values()].map((g) => g.done));
+    await this.probes.stop();
   }
 
   private async handle(job: Job, stopped: Promise<Stop>): Promise<void> {

@@ -86,3 +86,28 @@ out. A configuration goes with its project.
   delete, until access levels (AFS-27).
 - Not in this amendment: the hosts as found in the inventory (launch facts) and launching from
   the canvas's own Run dialog.
+
+## Amendment: the hosts, and Run on the canvas (2026-11-14, AFS-67)
+
+- **The inventory is read where the run reads it:** the designer's probe runs in the launch's
+  image (else the server's), over the repository at the launch's commit, with the
+  configuration's `env` credentials only (a dynamic source's token; no keys, no passwords). Its
+  answers are the designer's own (`launchFacts`, `inventoryGroups`), so VS Code and the server
+  say the same hosts. A registry credential pulls a private image first (AFS-66).
+- **A probe is kept for a while:** the dialog asks again while someone types; starting a
+  container each time would take seconds. One probe per project, commit, image, inventory and
+  credentials; closed two minutes after its last answer, at most four, all closed when the
+  server stops. Their containers carry the worker label, so a stopped server's are removed at
+  start, and their checkouts are `run-probe-*` folders, swept the same way.
+- **`operator` asks for the hosts** (`POST .../facts`): it starts a container, which `ro` must
+  not be able to do at will. `check` stays `ro` and says the targets only.
+- **Inputs that do not read yet are left out**, as the designer's dialog does (`checkInputs`):
+  only a host list that does not read holds the count back, and then it says which input.
+- **Run on the canvas opens the designer's dialog** (LaunchPlan) over a launch configuration of
+  the flow: none: the canvas says to add one; several: the person picks. The plan's fields come
+  from the form, its groups and facts from `facts`; Run launches the configuration with the
+  dialog's values as typed text. The vault password comes from the configuration's
+  credentials, so the dialog never asks for it; the flow at an older commit (a run's) is not
+  launched from its canvas.
+- **Not in this amendment:** a credential's passphrase-protected key or vault password for an
+  inventory that needs them (only `env` credentials reach the probe).

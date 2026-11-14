@@ -13,6 +13,7 @@ import type {
   FlowCheck,
 } from '../server/environments/types';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
+import type { FactsReply } from '../server/launch/facts';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
 import type {
   Delivery,
@@ -247,6 +248,9 @@ export const api = {
       `/launch-configs/${encodeURIComponent(id)}/check`,
       request,
     ),
+  // AFS-67: the hosts a launch would touch, read from the inventory in its image.
+  launchFacts: (id: string, request: LaunchRequest) =>
+    call<FactsReply>('POST', `/launch-configs/${encodeURIComponent(id)}/facts`, request),
   // Execution environments (AFS-32).
   environments: (workspace: string) =>
     call<Environment[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/environments`),
