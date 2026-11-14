@@ -16,7 +16,7 @@ named volume could not be used, and a wrong path silently gave runs empty folder
 - **One image, published for each release** (tags `v1.2.3`): `ghcr.io/chistokhinsv/ansible-flow-server`
   and Docker Hub's `chistokhinsv/ansible-flow-server`, amd64 and arm64, tagged `1.2.3`, `1.2`,
   `1` and `latest`, with provenance and an SBOM. Built by `.github/workflows/image.yml`, which
-  waits, like CI, until the designer's packages are on npm (vendor/ is not in git).
+  runs, like CI, while AFD_PACKAGES_ON_NPM is "true" (the designer's packages from npm).
 - **The image:** Node 24 on Debian 13 (slim), git, openssh-client, the docker CLI and buildx from
   Docker's own repository. The server listens on all interfaces at 8443, keeps its data in the
   volume `/var/lib/afs`, runs as root (the engine's socket is root's; run folders are given to

@@ -34,3 +34,10 @@
 - A mistake in how the server calls a package shows up as a wrong reading of a correct flow. The
   first one did (the schema validator given the parsed file instead of its data): the tests now
   check that the designer's own samples have no errors.
+
+## Amendment: on npm (2026-11-14)
+
+The packages are on npm from 0.85.0 (published by the designer's release, Trusted Publishing).
+`package.json` pins the four at one exact version; the "Designer packages" workflow proposes a
+newer one when the server passes its checks with it. `vendor/` and `just afd-packages` stay for
+trying an unreleased designer, and are never committed.

@@ -4,8 +4,8 @@
 #
 #   docker build -t ansible-flow-server .
 #
-# The designer's packages come from npm, or from vendor/*.tgz until they are published there
-# (ADR-0002): the build takes whatever package.json names.
+# The designer's packages come from npm (ADR-0002); the build takes whatever package.json names,
+# so vendor/*.tgz of an unreleased designer works too.
 
 ARG NODE_IMAGE=node:24-trixie-slim
 

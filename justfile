@@ -10,8 +10,9 @@ default:
 install:
     npm ci --no-fund --no-audit
 
-# Until the Ansible Flow Designer packages are on npm: pack them in a checkout of the designer and
-# install the tarballs from vendor/ (default checkout: ../123.Ansible_Studio_VSCODE, or AFD_REPO)
+# Try an unreleased designer: pack its packages in a checkout of it and install the tarballs from
+# vendor/ (default checkout: ../123.Ansible_Studio_VSCODE, or AFD_REPO). Do not commit the change
+# this makes to package.json: releases are taken from npm.
 afd-packages:
     node scripts/afd-packages.mjs
 

@@ -2,8 +2,7 @@
 # Docker Hub, for amd64 and arm64, tagged 1.2.3, 1.2, 1 and latest.
 #
 # Needs, in the repository's settings:
-#   - variable AFD_PACKAGES_ON_NPM = "true": the designer's packages come from npm (vendor/ is not
-#     in git, see ci.yml); until then nothing is built here;
+#   - variable AFD_PACKAGES_ON_NPM = "true", as for CI: the designer's packages come from npm;
 #   - variable DOCKERHUB_NAMESPACE (the Docker Hub user or organisation), and secrets
 #     DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (an access token with write access).
 name: Image
