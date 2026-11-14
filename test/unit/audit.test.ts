@@ -88,6 +88,7 @@ for (const [name, config] of databases) {
           tls: 'on',
           defaultNames: ['localhost'],
         },
+        inventory: async () => ({ environment: 'test' }),
       });
       const signIn = async (login: string, isAdmin: boolean) => {
         await createUser(db(), { login, name: login, password: PASSWORD, admin: isAdmin });

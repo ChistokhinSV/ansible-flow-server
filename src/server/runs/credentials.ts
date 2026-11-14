@@ -60,6 +60,7 @@ const AGENT_SCRIPT = [
   'fi',
   'eval "$(ssh-agent -s)" >/dev/null || exit 70',
   // ssh-add asks again after a wrong passphrase until it gets an empty one: askpass answers once.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's ${TMPDIR:-/tmp}, not a template.
   'AFS_ASKPASS_ANSWERED="${TMPDIR:-/tmp}/.afs-askpass-$$"',
   'export AFS_ASKPASS_ANSWERED',
   'rm -f "$AFS_ASKPASS_ANSWERED"',
@@ -101,6 +102,27 @@ export async function registrySignIn(
       };
   }
   return undefined;
+}
+
+/**
+ * AFS-67: the variables of a run's `env` credentials, for reading its inventory (a dynamic source
+ * may need a token): `-e NAME` options, the values in the engine's own environment.
+ */
+export async function inventoryEnv(
+  db: Kysely<Schema>,
+  key: MasterKey,
+  ids: string[],
+): Promise<{ options: string[]; processEnv: Record<string, string> }> {
+  const out = { options: [] as string[], processEnv: {} as Record<string, string> };
+  for (const id of ids) {
+    const c = await reveal(db, key, id);
+    if (c?.kind !== 'env') continue;
+    for (const [name, value] of Object.entries(c.secret)) {
+      out.options.push('-e', name);
+      out.processEnv[name] = value;
+    }
+  }
+  return out;
 }
 
 /** Reads a run's credentials and makes them what its container needs. */

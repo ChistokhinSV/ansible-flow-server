@@ -171,6 +171,58 @@ describe('the launch form', () => {
     expect(sent?.body).toEqual({
       inputs: { devices: 'fw-edge-01', api_password: 's3cret-value', retries: '3' },
     });
+    // AFS-67: reading the hosts starts a container: ro does not ask.
+    expect(screen.queryByRole('heading', { name: 'Hosts in the inventory' })).toBeNull();
+    expect(asked.some((a) => a.key === 'POST /launch-configs/c1/facts')).toBe(false);
+  });
+
+  it('who may launch sees the hosts the inventory resolves the targets to (AFS-67)', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/check': () => ({
+        body: {
+          launch: {
+            config: 'c1',
+            project: 'p1',
+            commit: COMMIT,
+            flow,
+            mode: 'check',
+            inputs: { devices: ['edge', 'fw-lab-09'] },
+            targets: ['edge', 'fw-lab-09'],
+            credentials: [],
+          },
+          form,
+        },
+      }),
+      'POST /launch-configs/c1/facts': () => ({
+        body: {
+          facts: {
+            sources: ['inventory/prod/hosts.yaml'],
+            count: 2,
+            hosts: ['fw-edge-01', 'fw-edge-02'],
+            unknown: ['fw-lab-09'],
+            uses: [],
+            prod: ['prod'],
+            vault: false,
+            environment: 'ee:1 (docker)',
+          },
+          environment: 'ee:1 (docker)',
+          commit: COMMIT,
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/api_password/), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'What would run' }));
+    await screen.findByRole('heading', { name: 'Hosts in the inventory' });
+    expect(await screen.findByText('Hosts: 2 (fw-edge-01, fw-edge-02)')).toBeTruthy();
+    expect(screen.getByText('Not in the inventory: fw-lab-09')).toBeTruthy();
+    expect(screen.getByText('Production-looking: prod')).toBeTruthy();
+    // The same request as the check.
+    const check = asked.find((a) => a.key === 'POST /launch-configs/c1/check');
+    const facts = asked.find((a) => a.key === 'POST /launch-configs/c1/facts');
+    expect(facts?.body).toEqual(check?.body);
   });
 
   it('an administrator launches (and goes to the run), and keeps start values without secrets', async () => {

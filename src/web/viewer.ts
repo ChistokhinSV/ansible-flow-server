@@ -6,10 +6,12 @@
 //                [&run=<run id>]      that run on the canvas, live while it goes
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
+// Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
+import { chooseConfig, launcher } from './viewerLaunch';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? '';
@@ -147,6 +149,17 @@ async function start(): Promise<void> {
     if (list?.ok) send({ type: 'runs', runs: (list.data as RunRecord[]).map(pastRunOf) });
   };
 
+  const launch = launcher({
+    project,
+    path,
+    send,
+    choose: chooseConfig,
+    launched: (id) => {
+      showRun(id, false);
+      void runs();
+    },
+  });
+
   const stateKey = `afs.viewer.${project}.${path}`;
   mount(root, {
     theme,
@@ -163,12 +176,25 @@ async function start(): Promise<void> {
             if (runId) showRun(runId, false);
             return;
           case 'run':
-            // Runs start from a launch configuration: its page asks what the run needs.
-            send({
-              type: 'notify',
-              level: 'info',
-              text: 'Launch runs from a launch configuration of the project.',
-            });
+            // AFS-67: the designer's launch dialog, backed by a launch configuration of the flow.
+            if (commit) {
+              send({
+                type: 'notify',
+                level: 'info',
+                text: 'This is the flow at an older commit: open the flow itself to launch it.',
+              });
+              return;
+            }
+            void launch.run(message.mode);
+            return;
+          case 'launchCheck':
+            void launch.check(message.token, message.inputs);
+            return;
+          case 'launchRun':
+            void launch.launch(message.token, message.inputs);
+            return;
+          case 'launchCancel':
+            launch.cancel(message.token);
             return;
           case 'showRun':
             showRun(message.id, true);

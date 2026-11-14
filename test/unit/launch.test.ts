@@ -14,6 +14,7 @@ import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { LaunchConfigs, LaunchError } from '../../src/server/launch/configs';
 import { prepareLaunch } from '../../src/server/launch/prepare';
+import type { InventoryReader } from '../../src/server/launch/routes';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
 import {
@@ -70,6 +71,7 @@ for (const [name, config] of databases) {
     let readOnly: string;
     const db = () => database.db;
     const deps = () => ({ db: db(), git, sync });
+    const asked: Parameters<InventoryReader>[0][] = [];
 
     beforeAll(async () => {
       if (!config) return;
@@ -93,6 +95,32 @@ for (const [name, config] of databases) {
         instance: 'test',
         masterKey: key,
         projects: { git, sync, allowLocal: true },
+        // AFS-67: the inventory as a probe in the image would read it, played by the test.
+        inventory: async (q) => {
+          asked.push(q);
+          const targets = (q.inputs.devices as string[] | undefined) ?? [];
+          const known: string[] = targets.filter((t) => t === 'fw-edge-01');
+          return {
+            ...(targets.length === 0
+              ? { factsError: 'No target hosts: the targets input is empty' }
+              : {
+                  facts: {
+                    sources: [q.inventory ?? 'ansible.cfg'],
+                    count: known.length,
+                    hosts: known,
+                    unknown: targets.filter((t) => !known.includes(t)),
+                    uses: [],
+                    prod: [],
+                    vault: false,
+                    environment: `${q.image ?? 'default'} (docker)`,
+                  },
+                }),
+            ...(q.groups
+              ? { groups: ['edge'], groupHosts: { edge: { count: 1, hosts: known } } }
+              : {}),
+            environment: `${q.image ?? 'default'} (docker)`,
+          };
+        },
       });
       configs = new LaunchConfigs(db(), git);
       workspace = (await createWorkspace(db(), { key: 'net', name: 'Network' })).id;
@@ -493,6 +521,59 @@ for (const [name, config] of databases) {
       expect(
         (await call('GET', `/api/v1/launch-configs/${id}/form`, { cookie: admin })).statusCode,
       ).toBe(404);
+    });
+
+    it('the hosts as the inventory has them: for who may launch, inputs that read only', async () => {
+      const made = await configs.create(project.id, {
+        name: 'Facts',
+        flowFile: 'ping.flow.yaml',
+        inventory: 'inventory/prod/hosts.yaml',
+        eeImage: 'registry.example.net/ee/net:1',
+        credentials: [vault],
+      });
+      const facts = `/api/v1/launch-configs/${made.id}/facts`;
+      const post = (body: unknown, headers: Record<string, string>) =>
+        app.inject({
+          method: 'POST',
+          url: facts,
+          headers: { ...headers, 'content-type': 'application/json' },
+          payload: JSON.stringify(body),
+        });
+      // It starts a container: ro on the flow (omar, a read-only token) may not.
+      expect((await post({}, { cookie: member })).statusCode).toBe(403);
+      expect((await post({}, { authorization: `Bearer ${readOnly}` })).statusCode).toBe(403);
+
+      asked.length = 0;
+      const opening = await post(
+        { groups: true, inputs: { devices: 'fw-edge-01, fw-edge-99', retries: 'many' } },
+        { cookie: admin },
+      );
+      expect(opening.statusCode).toBe(200);
+      expect(opening.json()).toMatchObject({
+        facts: { count: 1, hosts: ['fw-edge-01'], unknown: ['fw-edge-99'] },
+        groups: ['edge'],
+        inventory: 'inventory/prod/hosts.yaml',
+        commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+        environment: 'registry.example.net/ee/net:1 (docker)',
+      });
+      // What the reader was asked: the commit, the image, the credentials; `retries` does not
+      // read yet, so it is left out rather than holding the hosts back.
+      expect(asked[0]).toMatchObject({
+        project: project.id,
+        commit: opening.json().commit,
+        image: 'registry.example.net/ee/net:1',
+        inventory: 'inventory/prod/hosts.yaml',
+        credentials: [vault],
+        groups: true,
+        inputs: { devices: ['fw-edge-01', 'fw-edge-99'] },
+      });
+      expect(asked[0]?.doc.flow.key).toBe('hello');
+
+      // No hosts typed: no facts, and which input says why (as the designer words it).
+      const empty = await post({ inputs: { devices: '' } }, { cookie: admin });
+      expect(empty.json()).toMatchObject({ factsError: 'devices is required', field: 'devices' });
+      expect(empty.json().facts).toBeUndefined();
+      await configs.delete(made.id);
     });
 
     it('goes with its project, and frees the credentials it named', async () => {

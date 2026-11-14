@@ -457,6 +457,7 @@ setup code from its log); after that, sign-in.
 - Works at phone width and with a keyboard and a screen reader.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
 - A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas, and an approval is decided in its Run tab.
+- Run on the canvas opens the designer's launch dialog over a launch configuration of the flow (pick one when there are several): its start values, the inventory's groups, and the hosts the targets match, counted again as you type. Run launches it (`operator` on the flow) and the run shows on the canvas.
 - Administrators read the audit log at `/admin/audit` and export it.
 - A project's page lists its launch configurations; `rw` on a flow adds, changes and deletes
   them.
@@ -689,6 +690,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 | `/launch-configs/:id`             | One; change; delete                                        | as above                             |
 | `GET /launch-configs/:id/form`    | The flow's inputs as a form, with the start values         | `ro`                                 |
 | `POST /launch-configs/:id/check`  | What a launch would run, or 422 with everything in its way | `ro`                                 |
+| `POST /launch-configs/:id/facts`  | The hosts it would touch, as the inventory has them        | `operator`                           |
 | `POST /launch-configs/:id/launch` | The same, and the run goes in the queue (201 with the run) | `operator`                           |
 
 - **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
@@ -712,6 +714,38 @@ shows its settings and the launch form:
   commit than the configuration's needs `rw`.
 - **Keep as start values** (`rw` on the flow) saves the typed values that are not secret as the
   configuration's.
+- **Hosts in the inventory** (`operator`): under What would run, the hosts the targets match,
+  the names the inventory does not have, and production-looking groups and hosts.
+
+**The hosts, as the inventory has them** (`facts`): the server reads the inventory in the
+launch's image, at the launch's commit, with the configuration's environment-variable
+credentials (a dynamic source may need a token), the way the run will. It takes the same body as
+`check`, and `"groups": true` adds the inventory's groups. Inputs that do not read yet are left
+out; only a host list that does not read holds the hosts back.
+
+```json
+{
+  "facts": {
+    "sources": ["inventory/hosts.yaml"],
+    "count": 2,
+    "hosts": ["fw-edge-01", "fw-edge-02"],
+    "unknown": ["fw-lab-09"],
+    "uses": [],
+    "prod": ["prod"],
+    "vault": false,
+    "environment": "registry.example.net/ee/network:2 (docker)"
+  },
+  "groups": ["edge", "lab", "prod"],
+  "groupHosts": { "edge": { "count": 2, "hosts": ["fw-edge-01", "fw-edge-02"] } },
+  "environment": "registry.example.net/ee/network:2 (docker)",
+  "inventory": "inventory/hosts.yaml",
+  "commit": "59b2575163b54f0c8a1e7d9b3f2a6c8e1d0b5741"
+}
+```
+
+Without facts, `factsError` says why (no host typed, nothing matches, the image did not answer).
+The image's container stays up two minutes after its last answer, so the next question is
+quick; at most four are kept, and a stopping server removes them.
 
 ### Runs
 
