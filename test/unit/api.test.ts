@@ -13,6 +13,7 @@ import { createUser } from '../../src/server/auth/users';
 import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
+import { Environments } from '../../src/server/environments/environments';
 import { createLogger } from '../../src/server/log';
 import { Notifier } from '../../src/server/notify/notifier';
 import { Git } from '../../src/server/projects/git';
@@ -68,6 +69,14 @@ for (const [name, config] of databases) {
         runs: new RunQueue(db(), database.kind, key),
         notifier: new Notifier(db(), [], log, { keepDays: 30 }),
         projects: { git, sync: new ProjectSync(db(), git, log), allowLocal: true },
+        environments: new Environments({
+          db: db(),
+          log,
+          galaxy: { versions: async () => [] },
+          dir: join(root, `env-${name}`),
+          engine: 'off',
+          timeoutMs: 1000,
+        }),
         schedules: new Schedules({
           db: db(),
           git,

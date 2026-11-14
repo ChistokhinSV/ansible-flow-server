@@ -17,6 +17,7 @@ import {
   type Project,
   type User,
 } from './api';
+import { environmentAddress } from './environments';
 import { Link, navigate } from './router';
 import { SchedulesSection } from './schedules';
 import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -486,6 +487,14 @@ export function LaunchConfigPage({
           <dd>{c.mode}</dd>
           <dt>Inventory</dt>
           <dd>{c.inventory ? <code>{c.inventory}</code> : 'what ansible.cfg names'}</dd>
+          {c.environment && (
+            <>
+              <dt>Environment</dt>
+              <dd>
+                <Link to={environmentAddress(workspace, c.environment)}>its newest good build</Link>
+              </dd>
+            </>
+          )}
           <dt>Image</dt>
           <dd>{c.eeImage ? <code>{c.eeImage}</code> : "the server's default"}</dd>
           {c.limit && (
@@ -685,6 +694,7 @@ export function LaunchConfigEdit({
     async () => (await api.credentials(workspace)).filter((k) => RUN_KINDS.includes(k.kind)),
     [workspace],
   );
+  const environments = useLoad(() => api.environments(workspace), [workspace]);
   const [input, setInput] = useState<LaunchConfigInput>({ name: '', flowFile: '', mode: 'check' });
   // AFS-29: whom its runs tell, and when; typed as names separated by commas.
   const [tellWhen, setTellWhen] = useState<'' | 'failed' | 'ended'>('');
@@ -701,6 +711,7 @@ export function LaunchConfigEdit({
       commit: c.commit ?? '',
       inventory: c.inventory ?? '',
       eeImage: c.eeImage ?? '',
+      environment: c.environment ?? '',
       mode: c.mode,
       limit: c.limit ?? '',
       credentials: c.credentials,
@@ -742,6 +753,7 @@ export function LaunchConfigEdit({
       commit: blank(input.commit),
       inventory: blank(input.inventory),
       eeImage: blank(input.eeImage),
+      environment: blank(input.environment),
       mode: input.mode ?? 'check',
       limit: blank(input.limit),
       credentials: input.credentials ?? [],
@@ -777,6 +789,7 @@ export function LaunchConfigEdit({
       'commit',
       'inventory',
       'eeImage',
+      'environment',
       'limit',
       'credentials',
       'notify',
@@ -912,8 +925,29 @@ export function LaunchConfigEdit({
             )}
           </Labelled>
           <Labelled
+            label="Execution environment"
+            hint="Each launch gets its newest good build's image."
+            problem={at('environment')}
+          >
+            {(props) => (
+              <select
+                {...props}
+                value={input.environment ?? ''}
+                onChange={(e) => set('environment', e.target.value)}
+              >
+                <option value="">none: the image below, else the server's default</option>
+                {environments.data?.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                    {e.current ? '' : ' (not built yet)'}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Labelled>
+          <Labelled
             label="Execution environment image"
-            hint="Empty: the server's default."
+            hint="Used when no environment is chosen. Empty: the server's default."
             problem={at('eeImage')}
           >
             {(props) => (

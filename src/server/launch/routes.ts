@@ -32,6 +32,8 @@ const CONFIG = {
   commit: orNull(40),
   inventory: orNull(500),
   eeImage: orNull(300),
+  // AFS-32: an environment of the workspace, by id; null: none.
+  environment: orNull(64),
   mode: { type: 'string', enum: ['check', 'real'] },
   limit: orNull(500),
   // Values of any kind the flow's inputs take; the store checks each against its input.

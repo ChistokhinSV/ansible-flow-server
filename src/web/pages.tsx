@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useProjectAccess, WorkspaceAccess } from './access';
 import { api, type FlowList, type FlowSummary, type Project, type User } from './api';
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
+import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
@@ -275,6 +276,12 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
           </li>
         ))}
       </ul>
+      {space.data && (
+        <WorkspaceEnvironments
+          workspace={space.data.key}
+          mayManage={space.data.level === 'admin' || space.data.level === 'rw'}
+        />
+      )}
       {space.data && <WorkspaceCredentials workspace={space.data.key} admin={me.admin} />}
       {me.admin && space.data && (
         <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />

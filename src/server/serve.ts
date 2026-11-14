@@ -17,6 +17,8 @@ import { type Config, publicHost, withoutPassword } from './config';
 import { openDatabase } from './db/database';
 import { migrate } from './db/migrations';
 import { instanceId } from './db/settings';
+import { Environments } from './environments/environments';
+import { galaxyClient } from './environments/galaxy';
 import { pruneDevBundles } from './launch/dev';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
@@ -164,6 +166,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let leases: NodeJS.Timeout | undefined;
   let executor: Executor | undefined;
   let schedules: Schedules | undefined;
+  let environments: Environments | undefined;
   let retention: NodeJS.Timeout | undefined;
   let stopPruning: () => Promise<unknown> = async () => undefined;
   const hub = new RunHub();
@@ -257,6 +260,15 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       return gitAuthOf(revealed);
     });
     schedules = new Schedules({ db, git, sync: projects, queue: runs, log });
+    // AFS-32: execution environments are built on the same engine as runs, one at a time.
+    environments = new Environments({
+      db,
+      log,
+      galaxy: galaxyClient(config.galaxyUrl),
+      dir: join(config.dataDir, 'environments'),
+      engine: config.containerEngine,
+      timeoutMs: config.buildTimeoutMinutes * 60_000,
+    });
     app = buildApp({
       log,
       database,
@@ -271,6 +283,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       notifier: notify,
       schedules,
+      environments,
       certificate: {
         store,
         tls: config.tls,
@@ -328,6 +341,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     await executor.start();
     // AFS-34: schedules fire from here: due ones are looked for every half minute.
     schedules.start();
+    await environments.start();
     // Ended runs and audit entries past their keeping go, now and every hour.
     // What is being removed now: a server that stops waits for it before it closes the database
     // (closing SQLite under a query in flight can bring the process down).
@@ -460,6 +474,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           redirect?.closeAllConnections();
           // A fetch that is going is waited for: a mirror is not left half written.
           await schedules?.stop();
+          await environments?.stop();
           await executor?.stop();
           await projects?.stop();
           await running.close();
@@ -480,6 +495,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     clearInterval(retention);
     redirect?.close();
     await schedules?.stop().catch(() => undefined);
+    await environments?.stop().catch(() => undefined);
     await executor?.stop().catch(() => undefined);
     await projects?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);

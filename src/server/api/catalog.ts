@@ -40,6 +40,7 @@ export type Reach =
   | { config: string }
   | { run: string }
   | { credential: string }
+  | { environment: string }
   | { grant: string }
   | { gitWorkspace: string }
   | { projectQuery: string };
@@ -62,6 +63,7 @@ const P = { project: 'id' } as const;
 const C = { config: 'id' } as const;
 const R = { run: 'id' } as const;
 const K = { credential: 'id' } as const;
+const E = { environment: 'id' } as const;
 
 export const ROUTES: Record<string, RouteDoc> = {
   'GET /api/v1/meta': S('Server', 'anyone', 'anyone')('What the server is: name, version, API'),
@@ -375,6 +377,51 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('Send a test message now, by email or webhook, and say how it went'),
+  'GET /api/v1/workspaces/:id/environments': S(
+    'Environments',
+    'signed in',
+    W,
+  )("A workspace's execution environments, with the image a launch gets now and the newest build"),
+  'POST /api/v1/workspaces/:id/environments': S(
+    'Environments',
+    'signed in',
+    W,
+  )(
+    'Add an execution environment: a spec the server builds (`kind: spec`), or a registered image (`kind: image`)',
+  ),
+  'GET /api/v1/environments/:id': S('Environments', 'signed in', E)('One execution environment'),
+  'PATCH /api/v1/environments/:id': S(
+    'Environments',
+    'signed in',
+    E,
+  )('Change an execution environment; a new spec takes effect at its next build'),
+  'DELETE /api/v1/environments/:id': S(
+    'Environments',
+    'signed in',
+    E,
+  )('Delete an execution environment no launch configuration uses, with its builds and images'),
+  'GET /api/v1/environments/:id/builds': S(
+    'Environments',
+    'signed in',
+    E,
+  )(
+    'Its builds, newest first: state, image, the versions settled (lock), what the image holds (catalog)',
+  ),
+  'POST /api/v1/environments/:id/builds': S(
+    'Environments',
+    'signed in',
+    E,
+  )('Build it now (a registered image: pull it and read what it holds); builds go one at a time'),
+  'GET /api/v1/environments/:id/builds/:build/log': S(
+    'Environments',
+    'signed in',
+    E,
+  )("A build's log, as text"),
+  'GET /api/v1/environments/:id/execution-environment.yml': S(
+    'Environments',
+    'signed in',
+    E,
+  )('The environment as ansible-builder v3 reads it, for AWX or AAP'),
   'GET /api/v1/launch-configs/:id/schedules': S(
     'Schedules',
     'signed in',
@@ -475,6 +522,16 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/launch-configs/:id/check': 'ro',
   // Another branch or commit than the configuration's: the handler asks for rw.
   'POST /api/v1/launch-configs/:id/launch': 'operator',
+  // AFS-32: environments are read by who sees the workspace, set up by who may push to it.
+  'GET /api/v1/workspaces/:id/environments': 'ro on the workspace',
+  'POST /api/v1/workspaces/:id/environments': 'rw on the workspace',
+  'GET /api/v1/environments/:id': 'ro on the workspace',
+  'PATCH /api/v1/environments/:id': 'rw on the workspace',
+  'DELETE /api/v1/environments/:id': 'rw on the workspace',
+  'GET /api/v1/environments/:id/builds': 'ro on the workspace',
+  'POST /api/v1/environments/:id/builds': 'rw on the workspace',
+  'GET /api/v1/environments/:id/builds/:build/log': 'ro on the workspace',
+  'GET /api/v1/environments/:id/execution-environment.yml': 'ro on the workspace',
   // AFS-34: schedules are set up by who manages the configuration.
   'GET /api/v1/launch-configs/:id/schedules': 'ro',
   'POST /api/v1/launch-configs/:id/schedules': 'rw',
@@ -556,6 +613,17 @@ async function targetOf(
     const row = id
       ? await db
           .selectFrom('access_grant')
+          .select('workspace_id')
+          .where('id', '=', id)
+          .executeTakeFirst()
+      : undefined;
+    return row ? { workspace: row.workspace_id } : undefined;
+  }
+  if ('environment' in reach) {
+    const id = params[reach.environment];
+    const row = id
+      ? await db
+          .selectFrom('environment')
           .select('workspace_id')
           .where('id', '=', id)
           .executeTakeFirst()

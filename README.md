@@ -149,34 +149,36 @@ Settings are read from the environment, and from a `.env` file beside the server
 wins). Copy [.env.example](.env.example) to `.env`. A wrong setting stops the start and every
 problem is named.
 
-| Setting                       | Default                                              | Meaning                                                                 |
-| ----------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
-| `AFS_HOST`                    | `127.0.0.1`                                          | The address to listen on; `0.0.0.0` for every interface                 |
-| `AFS_PORT`                    | `8443`                                               | The port (`8080` with `AFS_TLS=off`)                                    |
-| `AFS_PUBLIC_URL`              | none                                                 | The address people open, like `https://flows.example.net`               |
-| `AFS_HTTP_PORT`               | none                                                 | A port that redirects plain HTTP to HTTPS                               |
-| `AFS_TLS`                     | `on`                                                 | `off` behind a proxy that does HTTPS                                    |
-| `AFS_TRUSTED_PROXIES`         | none                                                 | With `AFS_TLS=off`: proxies whose word is taken for who asked           |
-| `AFS_CA_FILE`                 | none                                                 | Certificate authorities of your network, for outgoing connections       |
-| `AFS_MASTER_KEY_FILE`         | `<data>/master.key`, made at first start             | The file with the master key that stored credentials are encrypted with |
-| `AFS_MASTER_KEY`              | none                                                 | The master key itself (base64 of 32 bytes), instead of a file           |
-| `AFS_MAX_RUNS`                | `4`                                                  | Runs at once on this server                                             |
-| `AFS_MAX_RUNS_PER_PROJECT`    | `1`                                                  | Runs at once of one project                                             |
-| `AFS_CONTAINER_ENGINE`        | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`     |
-| `AFS_EE_IMAGE`                | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                        |
-| `AFS_RUN_TIMEOUT_MINUTES`     | `240`                                                | A run that takes longer is stopped                                      |
-| `AFS_RUNS_KEEP_DAYS`          | `90`                                                 | Ended runs older than this are removed, with their output               |
-| `AFS_RUNS_KEEP_PER_FLOW`      | `200`                                                | Of one flow in one project, at most this many ended runs are kept       |
-| `AFS_AUDIT_KEEP_DAYS`         | `365`                                                | Audit entries older than this are removed; `0` keeps them all           |
-| `AFS_NOTIFICATIONS_KEEP_DAYS` | `30`                                                 | Notifications sent or given up on are kept this many days               |
-| `AFS_DEV_BUNDLE_MAX_MB`       | `50`                                                 | The largest bundle of unpushed work a dev run takes                     |
-| `AFS_DEV_KEEP_HOURS`          | `24`                                                 | How long the server keeps a dev run's work                              |
-| `AFS_GIT_LOCAL`               | `off`                                                | `on`: a project's repository may be a folder of this machine            |
-| `AFS_DATA_DIR`                | `data`                                               | Where the server keeps what it owns                                     |
-| `AFS_DATABASE_URL`            | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`  |
-| `AFS_LOG_LEVEL`               | `info`                                               | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`          |
-| `AFS_LOG_FORMAT`              | `text`                                               | `text`, or `json` for one object a line                                 |
-| `AFS_ENV_FILE`                | `.env`                                               | Another file to read the settings from                                  |
+| Setting                       | Default                                              | Meaning                                                                                            |
+| ----------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `AFS_HOST`                    | `127.0.0.1`                                          | The address to listen on; `0.0.0.0` for every interface                                            |
+| `AFS_PORT`                    | `8443`                                               | The port (`8080` with `AFS_TLS=off`)                                                               |
+| `AFS_PUBLIC_URL`              | none                                                 | The address people open, like `https://flows.example.net`                                          |
+| `AFS_HTTP_PORT`               | none                                                 | A port that redirects plain HTTP to HTTPS                                                          |
+| `AFS_TLS`                     | `on`                                                 | `off` behind a proxy that does HTTPS                                                               |
+| `AFS_TRUSTED_PROXIES`         | none                                                 | With `AFS_TLS=off`: proxies whose word is taken for who asked                                      |
+| `AFS_CA_FILE`                 | none                                                 | Certificate authorities of your network, for outgoing connections                                  |
+| `AFS_MASTER_KEY_FILE`         | `<data>/master.key`, made at first start             | The file with the master key that stored credentials are encrypted with                            |
+| `AFS_MASTER_KEY`              | none                                                 | The master key itself (base64 of 32 bytes), instead of a file                                      |
+| `AFS_MAX_RUNS`                | `4`                                                  | Runs at once on this server                                                                        |
+| `AFS_MAX_RUNS_PER_PROJECT`    | `1`                                                  | Runs at once of one project                                                                        |
+| `AFS_CONTAINER_ENGINE`        | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`                                |
+| `AFS_EE_IMAGE`                | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                                                   |
+| `AFS_RUN_TIMEOUT_MINUTES`     | `240`                                                | A run that takes longer is stopped                                                                 |
+| `AFS_RUNS_KEEP_DAYS`          | `90`                                                 | Ended runs older than this are removed, with their output                                          |
+| `AFS_RUNS_KEEP_PER_FLOW`      | `200`                                                | Of one flow in one project, at most this many ended runs are kept                                  |
+| `AFS_AUDIT_KEEP_DAYS`         | `365`                                                | Audit entries older than this are removed; `0` keeps them all                                      |
+| `AFS_NOTIFICATIONS_KEEP_DAYS` | `30`                                                 | Notifications sent or given up on are kept this many days                                          |
+| `AFS_DEV_BUNDLE_MAX_MB`       | `50`                                                 | The largest bundle of unpushed work a dev run takes                                                |
+| `AFS_DEV_KEEP_HOURS`          | `24`                                                 | How long the server keeps a dev run's work                                                         |
+| `AFS_GALAXY_URL`              | `https://galaxy.ansible.com`                         | Where environment builds look up collection versions (Galaxy, an Automation Hub, a private Galaxy) |
+| `AFS_BUILD_TIMEOUT_MINUTES`   | `60`                                                 | How long an environment build may take                                                             |
+| `AFS_GIT_LOCAL`               | `off`                                                | `on`: a project's repository may be a folder of this machine                                       |
+| `AFS_DATA_DIR`                | `data`                                               | Where the server keeps what it owns                                                                |
+| `AFS_DATABASE_URL`            | `sqlite:afs.db`                                      | `sqlite:<file>` (in the data folder unless absolute) or `postgres://…`                             |
+| `AFS_LOG_LEVEL`               | `info`                                               | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`                                     |
+| `AFS_LOG_FORMAT`              | `text`                                               | `text`, or `json` for one object a line                                                            |
+| `AFS_ENV_FILE`                | `.env`                                               | Another file to read the settings from                                                             |
 
 With PostgreSQL:
 
@@ -801,6 +803,59 @@ docker run -d --name flow-server \
   -e AFS_TLS=off -e AFS_HOST=0.0.0.0 -p 8080:8080 \
   <an image with Node.js 24, git and the docker command> node dist/server.js
 ```
+
+### Execution environments
+
+The image a run happens in. A workspace keeps its own **execution environments**: built by the
+server from a spec, or an image that exists already. A launch configuration chooses one, and each
+launch gets that environment's newest good build (the run records the exact image). Without one, a
+launch configuration's own image, else `AFS_EE_IMAGE`, is used as before.
+
+- **A spec**: ansible-core (`2.19` is the newest 2.19.x), collections each with a version, a range
+  as `requirements.yml` writes it (`>=8.0.0,<9`) or `latest`, Python packages (pip requirements),
+  Debian packages and extra certificate authorities. The base is a Python image, by default the
+  one the designer's `afd-ee` image uses, and the image is made the same way: collections in
+  `/usr/share/ansible/collections`, user `ansible` (uid 1000), SSH host keys checked.
+- **A build**: `latest` and ranges are settled against `AFS_GALAXY_URL` into a lock (exact
+  versions, kept with the build); the image is built on the server's container engine, tagged
+  `afs-ee/<workspace>-<environment>:<hash of what went in>`, then asked what it holds (ansible-core
+  and its collections). Builds go one at a time; each has a log. Collection server out of reach:
+  pin exact versions, or point `AFS_GALAXY_URL` at one that can be reached.
+- **An existing image** is pulled (or, when it has no registry, the engine's copy is used) and
+  read the same way.
+- Images of builds beyond an environment's newest few (`keep`, 3) are removed from the engine.
+- The **ansible-builder file** (`execution-environment.yml`, version 3) describes the same
+  environment for AWX or AAP: ansible-core, ansible-runner, the collections at the versions the
+  newest build settled, Python packages, certificates. It builds on `quay.io/centos/centos:stream9`
+  (ansible-builder installs with dnf); Debian package names are listed for a person to translate.
+- `ro` on the workspace reads environments, builds and logs; `rw` adds, changes, builds and deletes
+  them. An environment a launch configuration uses cannot be deleted.
+
+| Address (under `/api/v1`)                         | Does                                                                      | Who                         |
+| ------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------- |
+| `GET`, `POST /workspaces/:id/environments`        | A workspace's environments; add one (`kind`: `spec` or `image`)           | `ro`, `rw` on the workspace |
+| `GET`, `PATCH`, `DELETE /environments/:id`        | One environment: what runs get now (`current`), what it holds (`catalog`) | `ro`, `rw`                  |
+| `GET`, `POST /environments/:id/builds`            | Its builds (state, image, lock, catalog); build now                       | `ro`, `rw`                  |
+| `GET /environments/:id/builds/:build/log`         | A build's log                                                             | `ro`                        |
+| `GET /environments/:id/execution-environment.yml` | The ansible-builder file                                                  | `ro`                        |
+
+```json
+{
+  "name": "net-tools",
+  "kind": "spec",
+  "spec": {
+    "ansibleCore": "2.19",
+    "collections": [
+      { "name": "cisco.ios", "version": "latest" },
+      { "name": "ansible.netcommon", "version": ">=8.0.0,<9" }
+    ],
+    "python": ["netaddr>=1.3"],
+    "system": ["iputils-ping"]
+  }
+}
+```
+
+Not there yet: pushing images to a registry, and rebuilding on a schedule.
 
 ### Schedules
 

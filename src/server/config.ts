@@ -46,6 +46,9 @@ export interface Config {
   /** AFS-26: a dev run's bundle at most this many megabytes, kept this many hours. */
   devBundleMaxMb: number;
   devKeepHours: number;
+  /** AFS-32: where collection versions are looked up; how long a build may take. */
+  galaxyUrl: string;
+  buildTimeoutMinutes: number;
   /** Runs at once on this server, and of one project. */
   maxRuns: number;
   maxRunsPerProject: number;
@@ -166,6 +169,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const notificationsKeepDays = keepOf('AFS_NOTIFICATIONS_KEEP_DAYS', 30, 3650);
   const devBundleMaxMb = keepOf('AFS_DEV_BUNDLE_MAX_MB', 50, 1024);
   const devKeepHours = keepOf('AFS_DEV_KEEP_HOURS', 24, 24 * 90);
+  const buildTimeoutMinutes = keepOf('AFS_BUILD_TIMEOUT_MINUTES', 60, 24 * 60);
+  const galaxyUrl = (text('AFS_GALAXY_URL') ?? 'https://galaxy.ansible.com').replace(/\/+$/, '');
+  if (!/^https?:\/\/[^\s/]+/.test(galaxyUrl))
+    problems.push(`AFS_GALAXY_URL is "${galaxyUrl}": an http(s) address is needed`);
   const auditText = text('AFS_AUDIT_KEEP_DAYS') ?? '365';
   const auditKeepDays = Number(auditText);
   if (!/^\d+$/.test(auditText) || auditKeepDays > 36_500)
@@ -230,6 +237,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     notificationsKeepDays,
     devBundleMaxMb,
     devKeepHours,
+    galaxyUrl,
+    buildTimeoutMinutes,
     maxRuns,
     maxRunsPerProject,
     gitLocal: localText === 'on',

@@ -178,6 +178,8 @@ export interface LaunchConfigTable {
   commit_id: string | null;
   inventory: string | null;
   ee_image: string | null;
+  /** AFS-32: runs in this environment's newest good build. */
+  environment_id: string | null;
   /** check or real. */
   mode: string;
   run_limit: string | null;
@@ -356,6 +358,41 @@ export interface NotificationTable {
  * AFS-26: someone's unpushed work, taken in as a git bundle: its commit is kept under
  * refs/afs/dev/<id> of the project's repository until it expires. Only check runs take it.
  */
+/** AFS-32: an execution environment of a workspace: a spec to build, or a registered image. */
+export interface EnvironmentTable {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  /** spec or image. */
+  kind: string;
+  image: string | null;
+  spec_json: string | null;
+  keep: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** AFS-32: one build of an environment (or, for a registered image, one look at it). */
+export interface EnvironmentBuildTable {
+  id: string;
+  environment_id: string;
+  number: number;
+  /** queued, building, done, failed. */
+  state: string;
+  image: string | null;
+  lock_json: string | null;
+  catalog_json: string | null;
+  error: string | null;
+  pruned: number;
+  by_id: string;
+  by_login: string;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
 /** AFS-34: a launch configuration run on a cron, or once at a set time. */
 export interface ScheduleTable {
   id: string;
@@ -406,6 +443,8 @@ export interface DevBundleTable {
 export interface Schema {
   dev_bundle: DevBundleTable;
   schedule: ScheduleTable;
+  environment: EnvironmentTable;
+  environment_build: EnvironmentBuildTable;
   notification: NotificationTable;
   run_gate: RunGateTable;
   access_grant: AccessGrantTable;
