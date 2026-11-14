@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
+import type { MetricsSink } from '../ops/metrics';
 import { getWorkspace } from '../projects/store';
 import { type Engine, findEngine } from '../runs/executor';
 import {
@@ -147,6 +148,8 @@ export interface EnvironmentDeps {
   engine: Engine | 'auto' | 'off';
   timeoutMs: number;
   runner?: Runner;
+  /** AFS-37: told how long each build took. */
+  metrics?: MetricsSink;
 }
 
 export class Environments {
@@ -522,7 +525,10 @@ export class Environments {
     mkdirSync(dir, { recursive: true });
     const out = createWriteStream(join(dir, 'build.log'));
     const log = (text: string) => out.write(text);
+    const began = Date.now();
     const end = async (state: 'done' | 'failed', set: Partial<BuildRow>) => {
+      // AFS-37: how long it took, for /metrics.
+      this.deps.metrics?.buildEnded(state, (Date.now() - began) / 1000);
       await this.db
         .updateTable('environment_build')
         .set({ state, ended_at: now(), ...set })

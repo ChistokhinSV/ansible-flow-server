@@ -13,6 +13,7 @@ import { migrate } from './db/migrations';
 import { summarizeFlow } from './flows';
 import { createLogger } from './log';
 import { serverMeta } from './meta';
+import { opsCommand } from './ops/cli';
 import { secretsCommand } from './secrets/cli';
 import { type RunningServer, startServer } from './serve';
 import { certCommand } from './tls/cli';
@@ -138,7 +139,9 @@ else if (
   command === undefined ||
   command === 'cert' ||
   command === 'user' ||
-  command === 'secrets'
+  command === 'secrets' ||
+  command === 'backup' ||
+  command === 'restore'
 ) {
   const config = settings();
   if (config) {
@@ -146,12 +149,14 @@ else if (
     if (command === 'cert') process.exitCode = await certCommand(config, rest);
     else if (command === 'user') process.exitCode = await users(config, rest);
     else if (command === 'secrets') process.exitCode = await secrets(config, rest);
+    else if (command === 'backup' || command === 'restore')
+      process.exitCode = await opsCommand(config, command, rest);
     else await serve(config);
     if (command && changes(command, args)) await audited(config, command, args);
   }
 } else {
   console.error(
-    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>, user <command>, secrets <command>`,
+    `Unknown command "${command}". Use no command to start the server, or: check <flow files>, cert <command>, user <command>, secrets <command>, backup <file>, restore <file>`,
   );
   process.exitCode = 2;
 }

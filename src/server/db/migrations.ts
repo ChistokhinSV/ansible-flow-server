@@ -528,6 +528,22 @@ const provider: MigrationProvider = { getMigrations: async () => MIGRATIONS };
 /** The names of the changes this server knows, in order. */
 export const migrationNames = (): string[] => Object.keys(MIGRATIONS).sort();
 
+/** AFS-37: the changes a database has, in order (a backup says which schema its rows are of). */
+export async function appliedMigrations(db: Kysely<unknown>): Promise<string[]> {
+  const known = await new Migrator({ db, provider }).getMigrations();
+  return known.filter((m) => m.executedAt).map((m) => m.name);
+}
+
+/** AFS-37: brings a new database up to one change (a restore loads rows of that schema). */
+export async function migrateTo(db: Kysely<unknown>, name: string): Promise<void> {
+  const { error, results } = await new Migrator({ db, provider }).migrateTo(name);
+  const failed = results?.find((r) => r.status === 'Error');
+  if (error || failed)
+    throw new Error(
+      `The database could not be made at ${name}: ${error instanceof Error ? error.message : String(error ?? failed?.migrationName)}`,
+    );
+}
+
 /**
  * Brings the database up to this server's schema. Resolves with the changes it made now; throws
  * when one fails (the database then has the ones before it) or when the database has a change

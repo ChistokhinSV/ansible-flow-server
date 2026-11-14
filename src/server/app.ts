@@ -18,6 +18,8 @@ import { registerMcp } from './mcp/routes';
 import { type ServerMeta, serverMeta } from './meta';
 import type { Notifier } from './notify/notifier';
 import { registerNotifications } from './notify/routes';
+import { type ReadinessDeps, readiness } from './ops/health';
+import type { Metrics } from './ops/metrics';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import type { RunHub } from './runs/hub';
@@ -71,6 +73,11 @@ export interface AppDeps {
   dev?: { maxBytes: number; keepHours: number };
   /** AFS-67: reads a launch's inventory in its image (the executor's probes). */
   inventory?: InventoryReader;
+  /** AFS-37: what /readyz checks beyond the database. */
+  readiness?: Omit<ReadinessDeps, 'database' | 'log'>;
+  /** AFS-37: /metrics, for whoever has the token (AFS_METRICS_TOKEN). */
+  metrics?: Metrics;
+  metricsToken?: string;
 }
 
 export interface MetaReply extends ServerMeta {
@@ -99,6 +106,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // connection would then be kept alive, and the close would wait for it until it timed out
   // (found by a test): once closing, each answer says the connection ends with it, and
   // connections with nothing on them are closed as answers go out.
+  // AFS-37: every request is timed (before any route, so every route is).
+  deps.metrics?.instrument(app);
+
   let closing = false;
   app.addHook('preClose', async () => {
     closing = true;
@@ -173,16 +183,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
+  // AFS-37: check by check; why goes to the log, not to whoever asks (it can name hosts, files).
   app.get('/readyz', async (_request, reply) => {
-    try {
-      await deps.database.ping();
-      return { status: 'ready', database: deps.database.kind };
-    } catch (e) {
-      // Why goes to the log, not to whoever asks: it can name hosts and files.
-      app.log.error({ err: e }, 'The database does not answer');
-      return reply.code(503).send({ status: 'unavailable', database: deps.database.kind });
-    }
+    const ready = await readiness({
+      database: deps.database,
+      ...(deps.readiness ?? {}),
+      log: app.log,
+    });
+    return reply.code(ready.status === 'unavailable' ? 503 : 200).send(ready);
   });
+  deps.metrics?.register(app, deps.metricsToken);
 
   app.get(
     '/api/v1/meta',

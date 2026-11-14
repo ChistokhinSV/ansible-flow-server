@@ -134,12 +134,18 @@ describe('the server over HTTPS', () => {
       // The answer itself, through whatever stands in between.
       const reply = await fetchInsecure(`${running.url}/readyz`);
       expect(reply.status).toBe(200);
-      expect(JSON.parse(reply.body)).toEqual({ status: 'ready', database: 'sqlite' });
+      expect(JSON.parse(reply.body)).toMatchObject({
+        database: 'sqlite',
+        checks: { database: { state: 'ok' } },
+      });
     } else {
       const own = certificateStore(config).current()?.certificate ?? '';
       const reply = await get(`${running.url}/readyz`, own);
       expect(reply.status).toBe(200);
-      expect(JSON.parse(reply.body)).toEqual({ status: 'ready', database: 'sqlite' });
+      expect(JSON.parse(reply.body)).toMatchObject({
+        database: 'sqlite',
+        checks: { database: { state: 'ok' } },
+      });
     }
 
     const text = lines.join('\n');
