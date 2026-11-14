@@ -24,9 +24,10 @@ import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
-import { runCredentials } from '../../src/server/runs/credentials';
+import { registrySignIn, runCredentials } from '../../src/server/runs/credentials';
 import { Executor } from '../../src/server/runs/executor';
 import { RunQueue } from '../../src/server/runs/queue';
+import { registryOf } from '../../src/server/runs/registry';
 import { rootFromGenerated, writeGenerated } from '../../src/server/runs/workdir';
 import { createCredential } from '../../src/server/secrets/credentials';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
@@ -402,22 +403,67 @@ describe('a run', () => {
     await sync.sync(project.id);
   });
 
-  it('a key with a passphrase is refused, with the reason', async () => {
+  it('a key with a passphrase goes into an ssh-agent, the passphrase in no argument or file (AFS-66)', async () => {
     const db = database.db;
     const locked = await createCredential(db, key, project.workspace, {
       name: 'locked key',
       kind: 'ssh_key',
+      fields: { username: 'netops' },
       secret: { privateKey: PRIVATE_KEY, passphrase: 'open sesame' },
     });
-    await expect(runCredentials(db, key, [locked.id], join(root, 'x'))).rejects.toThrow(
-      /passphrase/,
-    );
+    const dir = join(root, 'x');
+    const unlocked = await runCredentials(db, key, [locked.id], dir);
+    // The container starts with the agent script, and gets the passphrase from the engine's
+    // environment; Ansible is not pointed at the key file (the agent holds it).
+    expect(unlocked.options).toEqual([
+      '--entrypoint',
+      '/afd-cred/agent',
+      '-e',
+      'AFS_SSH_PASSPHRASE',
+    ]);
+    expect(unlocked.processEnv).toEqual({ AFS_SSH_PASSPHRASE: 'open sesame' });
+    expect(unlocked.secrets).toContain('open sesame');
+    expect(unlocked.notes[0]).toMatch(/with its passphrase, through an ssh-agent/);
+    const agent = readFileSync(join(dir, 'agent'), 'utf8');
+    expect(agent).toContain('ssh-add /afd-cred/ssh_key');
+    expect(agent).toContain('unset AFS_SSH_PASSPHRASE');
+    expect(agent.trimEnd().endsWith('exec "$@"')).toBe(true);
+    // Answers once: after a wrong passphrase ssh-add would ask forever.
+    const askpass = readFileSync(join(dir, 'askpass'), 'utf8');
+    expect(askpass).toContain('[ -e "$AFS_ASKPASS_ANSWERED" ] && exit 1');
+    expect(askpass.trimEnd().endsWith('printf \'%s\\n\' "$AFS_SSH_PASSPHRASE"')).toBe(true);
+    for (const name of ['agent', 'askpass', 'ssh_key'])
+      expect(readFileSync(join(dir, name), 'utf8')).not.toContain('open sesame');
+    await unlocked.cleanup();
+
+    // A registry credential is found for the pull before the run.
+    const registry = await createCredential(db, key, project.workspace, {
+      name: 'private registry',
+      kind: 'registry',
+      fields: { host: 'registry.example.net', username: 'puller' },
+      secret: { password: 'pull-S3CR3T' },
+    });
+    expect(await registrySignIn(db, key, [locked.id, registry.id])).toEqual({
+      name: 'private registry',
+      host: 'registry.example.net',
+      username: 'puller',
+      password: 'pull-S3CR3T',
+    });
+    expect(await registrySignIn(db, key, [locked.id])).toBeUndefined();
     const env = await runCredentials(db, key, [creds[3] as string], join(root, 'y'));
     expect(env).toMatchObject({
       options: ['-e', 'NETBOX_TOKEN'],
       processEnv: { NETBOX_TOKEN: 'env-S3CR3T-value' },
     });
     expect(env.secrets).toEqual(['env-S3CR3T-value']);
+  });
+
+  it('knows which registry an image comes from', () => {
+    expect(registryOf('registry.example.net/ee/network:2.19')).toBe('registry.example.net');
+    expect(registryOf('localhost:5000/ee:1')).toBe('localhost:5000');
+    expect(registryOf('quay.io/ansible/awx-ee:24.6.1')).toBe('quay.io');
+    expect(registryOf('ansible/ee:1')).toBe('docker.io');
+    expect(registryOf('afd-ee:2.19')).toBe('docker.io');
   });
 
   it('takes nothing without a container engine, and clears what a stopped server left', async () => {

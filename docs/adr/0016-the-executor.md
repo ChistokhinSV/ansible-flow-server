@@ -34,11 +34,19 @@ never followed. A flow with errors at the run's commit fails the run with the fi
   inputs: in the engine's environment, then a file only the run can read, never `vars.json`;
 - the vault password, the designer's way;
 - an SSH key in a folder of its own, mounted read-only at `/afd-cred`, named by
-  `ANSIBLE_PRIVATE_KEY_FILE`, removed when the run ends. A key with a passphrase is refused for
-  now;
+  `ANSIBLE_PRIVATE_KEY_FILE`, removed when the run ends. A key with a passphrase (AFS-66): the
+  container's entrypoint becomes a script in that folder that starts an ssh-agent, adds the key
+  (ssh-add asks an askpass script, which answers once from `AFS_SSH_PASSPHRASE` in the engine's
+  environment), drops the variable and runs the run's command; Ansible's ssh finds the key
+  through `SSH_AUTH_SOCK`. The passphrase is never in a file or an argument. A wrong passphrase
+  or an image without ssh-agent ends the run at once with the script's reason as its error;
 - environment variables as `-e NAME`, the value in the engine command's own environment: never
   in an argument list;
-- a registry credential is not used yet (the image must be there).
+- a registry credential (AFS-66), when its host is the image's registry: the server signs in
+  with the password on the engine's input (`--password-stdin`) into a configuration folder of
+  the run's own (docker `--config`, podman `--authfile`), pulls the image, and removes the
+  folder. The engine's own stored sign-ins are not touched; a failed sign-in or pull fails the
+  run with the reason, the password scrubbed.
 
 Every secret value is replaced by `********` in the run's output.
 
@@ -72,8 +80,8 @@ containers and run folders a stopped server of its own left.
 
 - Live status and output while a run goes, pages for runs, retention (AFS-21).
 - Hosts a launch would touch as the inventory has them (needs the probe; AFS-21 or AFS-65).
-- Keys with a passphrase, registry sign-in for pulling images, and which images may be used
-  (AFS-32).
+- Which images may be used (AFS-32). Keys with a passphrase and registry sign-in came with
+  AFS-66.
 - Remote workers (AFS-50).
 
 ## Alternatives considered
