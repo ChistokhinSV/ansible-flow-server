@@ -39,6 +39,7 @@ import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
 import type { MasterKey } from '../secrets/masterKey';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
+import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
 import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
 import type { Job, Outcome, RunQueue } from './queue';
@@ -62,6 +63,8 @@ export interface ExecutorOptions {
   engine: Engine | 'auto' | 'off';
   /** The image a run uses unless it names its own. */
   image: string;
+  /** AFS-35: the data folder as the engine's machine sees it (AFS_ENGINE_DATA_DIR). */
+  engineDataDir?: string;
   /** This worker's name in the queue (a server's instance id). */
   worker: string;
   /** Runs at once on this worker. */
@@ -136,6 +139,8 @@ export class Executor {
   private readonly probeDir: string;
   private readonly outputDir: string;
   private readonly probes: InventoryProbes;
+  /** AFS-35: a path of the data folder as the engine's machine has it (found at start). */
+  private toHost: ToHost = sameAs;
   /** The user each image runs as, found once. */
   private readonly owners = new Map<string, Promise<{ uid: number; gid: number } | undefined>>();
 
@@ -148,6 +153,7 @@ export class Executor {
     this.outputDir = join(options.dataDir, 'output');
     this.probes = new InventoryProbes({
       engine: () => (this.options.runner ? undefined : this.engine),
+      toHost: () => this.toHost,
       probeDir: this.probeDir,
       workdirs: this.workdirs,
       db: deps.db,
@@ -214,8 +220,26 @@ export class Executor {
       );
       return undefined;
     }
-    // Containers mount files from the data folder only: when the server itself runs in a
-    // container, that folder is the one shared with the engine at the same path.
+    // Containers mount files from the data folder only. AFS-35: when the server itself runs in a
+    // container, the engine knows that folder by another path: found once, used for every mount.
+    if (!this.options.runner) {
+      const engine = this.engine;
+      const found = await hostPaths({
+        dataDir: this.options.dataDir,
+        ...(this.options.engineDataDir ? { engineDataDir: this.options.engineDataDir } : {}),
+        inspect: (id) => run(engine, ['inspect', '--format', '{{json .Mounts}}', id]),
+      });
+      this.toHost = found.toHost;
+      if (found.how !== 'none')
+        this.deps.log.info(
+          {
+            how: found.how,
+            data: this.options.dataDir,
+            engine: found.toHost(this.options.dataDir),
+          },
+          "The data folder as the engine's machine has it",
+        );
+    }
     await rm(this.probeDir, { recursive: true, force: true });
     await cp(assetsProbe(), this.probeDir, { recursive: true });
     await mkdir(this.outputDir, { recursive: true });
@@ -463,7 +487,11 @@ export class Executor {
                 if (failure) agentFailure = failure;
                 line(text);
               };
-              return startProcess(spec, { ...processEnv, ...creds.processEnv }, said);
+              return startProcess(
+                { ...spec, args: rewriteMounts(spec.args, this.toHost) },
+                { ...processEnv, ...creds.processEnv },
+                said,
+              );
             },
           },
         );

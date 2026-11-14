@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+node_modules
+dist
+data
+coverage
+design
+docs
+test
+*.log
+.env
+.env.*
+!.env.example
+deploy/compose

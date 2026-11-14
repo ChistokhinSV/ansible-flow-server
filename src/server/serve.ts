@@ -338,6 +338,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         dataDir: config.dataDir,
         engine: config.containerEngine,
         image: config.eeImage,
+        ...(config.engineDataDir ? { engineDataDir: config.engineDataDir } : {}),
         worker: `server:${await instanceId(database.db)}`,
         slots: config.maxRuns,
         timeoutMs: config.runTimeoutMinutes * 60_000,

@@ -71,8 +71,9 @@ it, runs "produced no events".
 designer's view of how it went in the run's record, and the designer's run folder with the
 events (`data/runs/<project>/`).
 
-**When the server runs in a container**, run containers are its siblings: the data folder must
-be mounted at the same path as on the host, since the engine mounts paths of the host. Every
+**When the server runs in a container**, run containers are its siblings: the engine mounts paths
+of its own machine. Since ADR-0028 (AFS-35) the server finds where its data folder is there and
+rewrites the mounts it asks for; before, the folder had to be at the same path inside. Every
 run container has the labels `afs.worker` and `afs.run`; at start the server removes the
 containers and run folders a stopped server of its own left.
 
