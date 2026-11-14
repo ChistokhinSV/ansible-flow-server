@@ -17,7 +17,7 @@ import {
   type Project,
   type User,
 } from './api';
-import { environmentAddress } from './environments';
+import { EnvironmentCheck, environmentAddress } from './environments';
 import { Link, navigate } from './router';
 import { SchedulesSection } from './schedules';
 import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -670,6 +670,7 @@ export function LaunchConfigPage({
         </form>
       </section>
       {result && <WouldRun launch={result.launch} form={result.form} />}
+      <EnvironmentCheck config={c.id} workspace={workspace} mayManage={mayManage} />
       <SchedulesSection config={c.id} form={form.data} mayManage={mayManage} me={me} />
     </>
   );

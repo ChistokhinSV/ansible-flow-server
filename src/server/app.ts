@@ -8,6 +8,7 @@ import { registerApprovals } from './approvals/routes';
 import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
+import { registerFlowChecks } from './environments/checkRoutes';
 import type { Environments } from './environments/environments';
 import { registerEnvironments } from './environments/routes';
 import { LaunchConfigs } from './launch/configs';
@@ -145,6 +146,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.certificate) registerCertificate(app, deps.certificate);
   if (deps.environments)
     registerEnvironments(app, { db: deps.database.db, environments: deps.environments });
+  if (deps.environments && deps.projects)
+    registerFlowChecks(app, {
+      db: deps.database.db,
+      git: deps.projects.git,
+      environments: deps.environments,
+      galaxy: deps.environments.galaxy,
+    });
   if (deps.schedules && deps.projects)
     registerSchedules(app, {
       schedules: deps.schedules,

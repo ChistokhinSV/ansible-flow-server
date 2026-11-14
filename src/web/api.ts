@@ -10,6 +10,7 @@ import type {
   EnvironmentBuild,
   EnvironmentInput,
   EnvironmentSpec,
+  FlowCheck,
 } from '../server/environments/types';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
@@ -38,6 +39,7 @@ export type {
   EnvironmentBuild,
   EnvironmentInput,
   EnvironmentSpec,
+  FlowCheck,
   FlowList,
   FlowSummary,
   Gate,
@@ -265,6 +267,22 @@ export const api = {
     );
     return reply.ok ? reply.text() : '';
   },
+
+  // What a flow needs from its environment (AFS-33).
+  galaxySearch: (q: string) =>
+    call<{ name: string; version: string; description?: string; requiresAnsible?: string }[]>(
+      'GET',
+      `/galaxy/search?${queryOf({ q })}`,
+    ),
+  environmentCheck: (config: string, environment?: string) =>
+    call<FlowCheck>(
+      'GET',
+      `/launch-configs/${encodeURIComponent(config)}/environment-check${environment ? `?${queryOf({ environment })}` : ''}`,
+    ),
+  environmentForFlow: (config: string, name: string) =>
+    call<Environment>('POST', `/launch-configs/${encodeURIComponent(config)}/environment`, {
+      name,
+    }),
 
   // Schedules of a launch configuration (AFS-34).
   schedules: (config: string) =>

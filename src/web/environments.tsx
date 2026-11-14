@@ -232,6 +232,15 @@ function SpecForm({ env, onSaved }: { env: Environment; onSaved(e: Environment):
         >
           Add a collection
         </button>
+        <CollectionSearch
+          onAdd={(name) =>
+            setCollections((now) =>
+              now.some((c) => c.name === name)
+                ? now
+                : [...now.filter((c) => c.name.trim()), { name, version: 'latest' }],
+            )
+          }
+        />
         <p className="muted">
           A version (11.6.0), a range as requirements.yml writes it (&gt;=11.0.0,&lt;12), or latest:
           settled at each build.
@@ -547,5 +556,209 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
         {builds.data && <Builds env={env} builds={builds.data} reload={reload} />}
       </section>
     </>
+  );
+}
+
+/**
+ * Collections on the collection server (AFS-33), to add to a spec. When it cannot be reached, it
+ * says so: a name and version can still be typed.
+ */
+function CollectionSearch({ onAdd }: { onAdd(name: string): void }) {
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<{ name: string; version: string; description?: string }[]>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const id = useId();
+  const search = async () => {
+    if (q.trim().length < 2 || busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      setFound(await api.galaxySearch(q.trim()));
+    } catch (e) {
+      setFound(undefined);
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="field">
+      <label htmlFor={id}>Find a collection</label>
+      <div className="row">
+        <input
+          id={id}
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void search();
+            }
+          }}
+          placeholder="ios, netcommon, aws"
+        />
+        <button type="button" onClick={() => void search()} disabled={busy}>
+          {busy ? 'Looking…' : 'Search'}
+        </button>
+      </div>
+      {error && (
+        <p className="bad-text" role="status">
+          {error}
+        </p>
+      )}
+      {found && found.length === 0 && <p className="muted">Nothing found.</p>}
+      {found && found.length > 0 && (
+        <ul className="tight" aria-label="Collections found">
+          {found.map((c) => (
+            <li key={c.name}>
+              <button type="button" onClick={() => onAdd(c.name)} aria-label={`Add ${c.name}`}>
+                Add
+              </button>{' '}
+              <code>{c.name}</code> {c.version}
+              {c.description && <span className="muted"> · {c.description}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What a launch configuration's flow needs, against its environment (AFS-33): each collection with
+ * where the need comes from, what the image has, and why not; and an environment made for the flow.
+ */
+export function EnvironmentCheck({
+  config,
+  workspace,
+  mayManage,
+}: {
+  config: string;
+  workspace: string;
+  mayManage: boolean;
+}) {
+  const check = useLoad(() => api.environmentCheck(config), [config]);
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const c = check.data;
+  return (
+    <section className="panel" aria-labelledby="needs">
+      <h2 id="needs">What the flow needs</h2>
+      <Loading state={check} />
+      {c && (
+        <>
+          <p className="muted">
+            From its steps
+            {c.requirementsFile ? " and the project's collections/requirements.yml" : ''}, at{' '}
+            <code>{c.commit.slice(0, 12)}</code>
+            {c.environment ? (
+              <>
+                , against{' '}
+                <Link to={environmentAddress(workspace, c.environment.id)}>
+                  {c.environment.name}
+                </Link>
+                {c.environment.ansibleCore ? ` (ansible-core ${c.environment.ansibleCore})` : ''}.
+              </>
+            ) : (
+              '. The configuration has no environment to check against.'
+            )}
+          </p>
+          {c.lines.length === 0 ? (
+            <p className="muted">Only what comes with ansible-core.</p>
+          ) : (
+            <div className="scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Collection</th>
+                    <th scope="col">Needs</th>
+                    <th scope="col">Used by</th>
+                    {c.environment && <th scope="col">In the image</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {c.lines.map((l) => (
+                    <tr key={l.name}>
+                      <td>
+                        <code>{l.name}</code>
+                      </td>
+                      <td>
+                        {l.wants}
+                        <div className="muted">
+                          {l.from === 'flow'
+                            ? 'the steps'
+                            : l.from === 'requirements'
+                              ? 'requirements.yml'
+                              : 'both'}
+                        </div>
+                        {l.conflict && <div className="bad-text">{l.conflict}</div>}
+                      </td>
+                      <td>
+                        {l.nodes.join(', ') || <span className="muted">requirements.yml</span>}
+                      </td>
+                      {c.environment && (
+                        <td>
+                          <span className={`badge ${l.ok ? 'ok' : 'bad'}`}>
+                            {l.ok ? l.has : (l.has ?? 'missing')}
+                          </span>
+                          {l.why && <div className="muted">{l.why}</div>}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {c.environment && c.lines.length > 0 && (
+            <p className={`notice ${c.ok ? 'ok' : 'error'}`} role="status">
+              {c.ok
+                ? 'The environment holds everything the flow needs.'
+                : `${c.lines.filter((l) => !l.ok).length} of ${c.lines.length} not as needed: the run may fail where they are used.`}
+            </p>
+          )}
+          {mayManage && c.lines.length > 0 && !c.ok && (
+            <form
+              className="form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (busy) return;
+                setBusy(true);
+                setError(undefined);
+                try {
+                  const made = await api.environmentForFlow(config, name.trim());
+                  navigate(environmentAddress(workspace, made.id));
+                } catch (err) {
+                  setError(messageOf(err));
+                  setBusy(false);
+                }
+              }}
+            >
+              <Field
+                label="Make an environment for this flow"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                placeholder="hello-ee"
+                hint="Its spec is what the flow needs; it is built right away. Then choose it in the configuration."
+              />
+              {error && (
+                <p className="notice error" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="actions">
+                <button type="submit" disabled={busy}>
+                  {busy ? 'Making…' : 'Make and build it'}
+                </button>
+              </div>
+            </form>
+          )}
+        </>
+      )}
+    </section>
   );
 }

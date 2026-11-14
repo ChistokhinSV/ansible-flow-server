@@ -82,3 +82,32 @@ export interface EnvironmentInput {
   spec?: EnvironmentSpec;
   keep?: number;
 }
+
+/** AFS-33: one collection a flow needs, against what an image holds. */
+export interface CheckLine {
+  name: string;
+  /** What is needed: a version spec. */
+  wants: string;
+  from: 'flow' | 'requirements' | 'both';
+  /** The steps that use it. */
+  nodes: string[];
+  /** The version the image has; absent: not in it. */
+  has?: string;
+  ok: boolean;
+  /** Why not, in words. */
+  why?: string;
+  /** A step was made against a version the requirements file does not allow. */
+  conflict?: string;
+}
+
+/** AFS-33: a flow's needs against an environment. */
+export interface FlowCheck {
+  flow: { file: string; name: string };
+  commit: string;
+  /** The project has collections/requirements.yml at that commit. */
+  requirementsFile: boolean;
+  environment?: { id: string; name: string; image?: string; ansibleCore?: string };
+  lines: CheckLine[];
+  /** Every need is in the image at a fitting version. */
+  ok: boolean;
+}

@@ -163,6 +163,11 @@ export class Environments {
     return this.deps.db;
   }
 
+  /** The collection server builds settle versions against (AFS-33 searches it too). */
+  get galaxy(): Galaxy {
+    return this.deps.galaxy;
+  }
+
   // --- the environments
 
   private async rows(where: { workspace?: string; id?: string }): Promise<Row[]> {

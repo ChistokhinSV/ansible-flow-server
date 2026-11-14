@@ -422,6 +422,27 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     E,
   )('The environment as ansible-builder v3 reads it, for AWX or AAP'),
+  'GET /api/v1/galaxy/search': S(
+    'Environments',
+    'signed in',
+    'self',
+  )(
+    'Collections on the collection server (AFS_GALAXY_URL) whose name or description has the words: newest version, description',
+  ),
+  'GET /api/v1/launch-configs/:id/environment-check': S(
+    'Environments',
+    'signed in',
+    C,
+  )(
+    "What the configuration's flow needs (its steps and collections/requirements.yml) against what its environment's image holds, or another environment's (`environment`)",
+  ),
+  'POST /api/v1/launch-configs/:id/environment': S(
+    'Environments',
+    'signed in',
+    C,
+  )(
+    "Make an environment for the configuration's flow (`name`), its spec from what the flow needs, and build it; rw on the workspace",
+  ),
   'GET /api/v1/launch-configs/:id/schedules': S(
     'Schedules',
     'signed in',
@@ -532,6 +553,9 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/environments/:id/builds': 'rw on the workspace',
   'GET /api/v1/environments/:id/builds/:build/log': 'ro on the workspace',
   'GET /api/v1/environments/:id/execution-environment.yml': 'ro on the workspace',
+  // AFS-33: the check reads like the configuration; making an environment asks rw on the workspace too.
+  'GET /api/v1/launch-configs/:id/environment-check': 'ro',
+  'POST /api/v1/launch-configs/:id/environment': 'rw',
   // AFS-34: schedules are set up by who manages the configuration.
   'GET /api/v1/launch-configs/:id/schedules': 'ro',
   'POST /api/v1/launch-configs/:id/schedules': 'rw',
