@@ -102,6 +102,14 @@ export const ACTIONS: Record<string, Action> = {
   'DELETE /api/v1/notifications/smtp': { action: 'notification.smtp-clear', id: 'none' },
   'POST /api/v1/notifications/webhook-key': { action: 'notification.webhook-key', id: 'none' },
   'POST /api/v1/notifications/test': { action: 'notification.test', id: 'none' },
+  'POST /api/v1/workspaces/:id/environments': {
+    action: 'environment.create',
+    id: 'reply',
+    parent: 'workspace',
+  },
+  'PATCH /api/v1/environments/:id': { action: 'environment.change', id: at() },
+  'DELETE /api/v1/environments/:id': { action: 'environment.delete', id: at() },
+  'POST /api/v1/environments/:id/builds': { action: 'environment.build', id: at() },
   'POST /api/v1/launch-configs/:id/schedules': {
     action: 'schedule.create',
     id: 'reply',

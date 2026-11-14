@@ -31,6 +31,8 @@ for (const [name, config] of databases) {
         for (const table of [
           'dev_bundle',
           'schedule',
+          'environment_build',
+          'environment',
           'notification',
           'audit_entry',
           'access_grant',

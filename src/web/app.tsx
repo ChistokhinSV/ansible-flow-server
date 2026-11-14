@@ -7,6 +7,7 @@ import { ApiDocs } from './apidocs';
 import { ApprovalsPage } from './approvals';
 import { AdminPage, AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
+import { EnvironmentPage } from './environments';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { NotificationsPage } from './notifications';
 import {
@@ -66,6 +67,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <NotFound />;
   const group = match('/admin/groups/:id', path);
   if (group?.id) return me.admin ? <GroupPage id={group.id} /> : <NotFound />;
+  const environment = match('/w/:workspace/environments/:id', path);
+  if (environment?.workspace && environment.id)
+    return <EnvironmentPage workspace={environment.workspace} id={environment.id} />;
   const config = match('/w/:workspace/:project/launch/:id', path);
   if (config?.workspace && config.project && config.id)
     return config.id === 'new' ? (

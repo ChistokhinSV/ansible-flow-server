@@ -267,6 +267,49 @@ const MIGRATIONS: Record<string, Migration> = {
       await db.schema.alterTable('run').addColumn('run_dir', 'text').execute();
     },
   },
+  // AFS-32: execution environments: specs the server builds, or registered images, and builds.
+  '0019_environments': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('environment')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('workspace_id', 'text', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('description', 'text')
+        .addColumn('kind', 'text', (c) => c.notNull())
+        .addColumn('image', 'text')
+        .addColumn('spec_json', 'text')
+        .addColumn('keep', 'integer', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addUniqueConstraint('environment_name', ['workspace_id', 'name'])
+        .execute();
+      await db.schema
+        .createTable('environment_build')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('environment_id', 'text', (c) => c.notNull())
+        .addColumn('number', 'integer', (c) => c.notNull())
+        .addColumn('state', 'text', (c) => c.notNull())
+        .addColumn('image', 'text')
+        .addColumn('lock_json', 'text')
+        .addColumn('catalog_json', 'text')
+        .addColumn('error', 'text')
+        .addColumn('pruned', 'integer', (c) => c.notNull())
+        .addColumn('by_id', 'text', (c) => c.notNull())
+        .addColumn('by_login', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('started_at', 'text')
+        .addColumn('ended_at', 'text')
+        .execute();
+      await db.schema
+        .createIndex('environment_build_of')
+        .on('environment_build')
+        .columns(['environment_id', 'number'])
+        .execute();
+      await db.schema.alterTable('launch_config').addColumn('environment_id', 'text').execute();
+    },
+  },
   // AFS-34: schedules: a launch configuration run on a cron or once.
   '0018_schedules': {
     async up(db: Kysely<unknown>) {

@@ -44,6 +44,8 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       notificationsKeepDays: 30,
       devBundleMaxMb: 50,
       devKeepHours: 24,
+      galaxyUrl: 'https://galaxy.ansible.com',
+      buildTimeoutMinutes: 60,
       runsKeepPerFlow: 200,
       maxRuns: 4,
       maxRunsPerProject: 1,

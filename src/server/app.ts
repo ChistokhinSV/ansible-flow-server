@@ -8,6 +8,8 @@ import { registerApprovals } from './approvals/routes';
 import { registerAudit } from './audit/routes';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
+import type { Environments } from './environments/environments';
+import { registerEnvironments } from './environments/routes';
 import { LaunchConfigs } from './launch/configs';
 import { registerLaunch } from './launch/routes';
 import type { Logger } from './log';
@@ -56,6 +58,8 @@ export interface AppDeps {
   /** AFS-29: what tells people of what happens; without it nobody is told. */
   notifier?: Notifier;
   /** The address people use for the server (AFS_PUBLIC_URL), for links in messages. */
+  /** AFS-32: execution environments and their builds. */
+  environments?: Environments;
   /** AFS-34: schedules of launch configurations. */
   schedules?: Schedules;
   /** The server certificate's store, for the certificate page and API (AFS-54). */
@@ -139,6 +143,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   }
   if (deps.certificate) registerCertificate(app, deps.certificate);
+  if (deps.environments)
+    registerEnvironments(app, { db: deps.database.db, environments: deps.environments });
   if (deps.schedules && deps.projects)
     registerSchedules(app, {
       schedules: deps.schedules,

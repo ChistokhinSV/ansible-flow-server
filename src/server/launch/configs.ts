@@ -31,6 +31,8 @@ export interface LaunchConfig {
   inventory?: string;
   /** The execution environment's image; absent: the server's default. */
   eeImage?: string;
+  /** AFS-32: an environment of the workspace: its newest good build's image (before `eeImage`). */
+  environment?: string;
   /** What a launch is unless it says otherwise: a skeleton run (`check`) or a real one. */
   mode: RunMode;
   /** Ansible's --limit, when the run is for fewer hosts than the flow targets. */
@@ -65,6 +67,7 @@ export interface LaunchConfigInput {
   commit?: string | null;
   inventory?: string | null;
   eeImage?: string | null;
+  environment?: string | null;
   mode?: RunMode;
   limit?: string | null;
   inputs?: Record<string, unknown>;
@@ -147,6 +150,7 @@ export class LaunchConfigs {
       ...(row.commit_id ? { commit: row.commit_id } : {}),
       ...(row.inventory ? { inventory: row.inventory } : {}),
       ...(row.ee_image ? { eeImage: row.ee_image } : {}),
+      ...(row.environment_id ? { environment: row.environment_id } : {}),
       mode: row.mode as RunMode,
       ...(row.run_limit ? { limit: row.run_limit } : {}),
       inputs: JSON.parse(row.inputs_json) as Record<string, unknown>,
@@ -229,6 +233,16 @@ export class LaunchConfigs {
     const eeImage = input.eeImage?.trim() || undefined;
     if (eeImage && !/^[A-Za-z0-9][\w.\-/:@]{0,299}$/.test(eeImage))
       throw invalid('Not the name of a container image', 'eeImage');
+    const environment = input.environment || undefined;
+    if (environment) {
+      const env = await this.db
+        .selectFrom('environment')
+        .select('workspace_id')
+        .where('id', '=', environment)
+        .executeTakeFirst();
+      if (!env || env.workspace_id !== project.workspace)
+        throw invalid('The workspace has no such environment', 'environment');
+    }
     const mode = input.mode ?? 'check';
     if (mode !== 'check' && mode !== 'real') throw invalid('A run is check or real', 'mode');
     const limit = input.limit?.trim() || undefined;
@@ -293,6 +307,7 @@ export class LaunchConfigs {
       commit_id: commit ?? null,
       inventory: inventory ?? null,
       ee_image: eeImage ?? null,
+      environment_id: environment ?? null,
       mode,
       run_limit: limit ?? null,
       inputs_json: JSON.stringify(inputs),
@@ -353,6 +368,7 @@ export class LaunchConfigs {
       commit: change.commit !== undefined ? change.commit : current.commit,
       inventory: change.inventory !== undefined ? change.inventory : current.inventory,
       eeImage: change.eeImage !== undefined ? change.eeImage : current.eeImage,
+      environment: change.environment !== undefined ? change.environment : current.environment,
       mode: change.mode ?? current.mode,
       limit: change.limit !== undefined ? change.limit : current.limit,
       inputs: change.inputs ?? current.inputs,

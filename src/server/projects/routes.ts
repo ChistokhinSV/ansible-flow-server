@@ -103,8 +103,13 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   );
 
   app.get<WithId>('/api/v1/workspaces/:id', { schema: ID }, async (request, reply) => {
-    if (!signedIn(request, reply)) return reply;
-    return (await getWorkspace(db, request.params.id)) ?? reply.code(404).send(NO_WORKSPACE);
+    const me = signedIn(request, reply);
+    if (!me) return reply;
+    const ws = await getWorkspace(db, request.params.id);
+    if (!ws) return reply.code(404).send(NO_WORKSPACE);
+    // AFS-32: the caller's own level on it, so the pages show only what it allows.
+    const access = await accessOf(db, request);
+    return { ...ws, level: me.admin ? 'admin' : (access?.onWorkspace(ws.id) ?? null) };
   });
 
   app.patch<

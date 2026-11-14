@@ -8,6 +8,8 @@ import type { Schema } from '../../../src/server/db/schema';
 const WORKSPACES = [
   'dev_bundle',
   'schedule',
+  'environment_build',
+  'environment',
   'notification',
   'run_gate',
   'access_grant',

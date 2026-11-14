@@ -159,6 +159,18 @@ export async function deleteWorkspace(db: Db, id: string): Promise<void> {
       .execute();
     if (projects.length)
       throw new ProjectError('not_empty', 'The workspace still has projects: delete them first');
+    // AFS-32: their images are on the engine; deleting an environment removes them.
+    const environments = await trx
+      .selectFrom('environment')
+      .select('id')
+      .where('workspace_id', '=', id)
+      .limit(1)
+      .execute();
+    if (environments.length)
+      throw new ProjectError(
+        'not_empty',
+        'The workspace still has execution environments: delete them first',
+      );
     await trx.deleteFrom('access_grant').where('workspace_id', '=', id).execute();
     const done = await trx.deleteFrom('workspace').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new ProjectError('not_found', 'No such workspace');

@@ -1,6 +1,7 @@
 // From a launch configuration and what a person adds at launch, to exactly what would run: the
 // commit, the flow, the inputs read as the flow's types, the hosts it targets. Nothing runs
 // here; the answer is what a run is made from, or everything that stands in its way.
+
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import {
   type LaunchField,
@@ -10,6 +11,7 @@ import {
 } from '@ansible-flow/core/run/launch';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { environmentImage } from '../environments/image';
 import { type Git, GitError, refProblem } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
@@ -141,6 +143,13 @@ export async function prepareLaunch(
   if (limit && (limit.length > 500 || /[\n\r\0]/.test(limit)))
     return fail('A limit is one line of at most 500 characters', 'limit');
 
+  // AFS-32: the environment's image now; the configuration's own image when it names none.
+  let eeImage = config.eeImage;
+  if (config.environment) {
+    const env = await environmentImage(deps.db, config.environment);
+    if (!env.image) return fail(env.why ?? 'The environment has no image', 'environment');
+    eeImage = env.image;
+  }
   const fields = launchFields(flow.doc, config.inputs, mode === 'check', false);
   const form: LaunchForm = {
     commit,
@@ -149,7 +158,7 @@ export async function prepareLaunch(
     mode,
     fields,
     ...(config.inventory ? { inventory: config.inventory } : {}),
-    ...(config.eeImage ? { eeImage: config.eeImage } : {}),
+    ...(eeImage ? { eeImage } : {}),
     ...(limit ? { limit } : {}),
   };
 
@@ -197,7 +206,7 @@ export async function prepareLaunch(
       flow: form.flow,
       mode,
       ...(config.inventory ? { inventory: config.inventory } : {}),
-      ...(config.eeImage ? { eeImage: config.eeImage } : {}),
+      ...(eeImage ? { eeImage } : {}),
       ...(limit ? { limit } : {}),
       inputs: read.inputs,
       targets: targetsOf(flow.doc, read.inputs),

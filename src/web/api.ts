@@ -5,6 +5,12 @@ import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { Group, User } from '../server/auth/users';
+import type {
+  Environment,
+  EnvironmentBuild,
+  EnvironmentInput,
+  EnvironmentSpec,
+} from '../server/environments/types';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
 import type {
@@ -28,6 +34,10 @@ export type {
   CertificateState,
   Credential,
   Delivery,
+  Environment,
+  EnvironmentBuild,
+  EnvironmentInput,
+  EnvironmentSpec,
   FlowList,
   FlowSummary,
   Gate,
@@ -155,7 +165,12 @@ export const api = {
     call<User>('PATCH', '/session', input),
 
   workspaces: () => call<Workspace[]>('GET', '/workspaces'),
-  workspace: (key: string) => call<Workspace>('GET', `/workspaces/${encodeURIComponent(key)}`),
+  /** AFS-32: with the caller's own level on it. */
+  workspace: (key: string) =>
+    call<Workspace & { level?: Level | 'admin' | null }>(
+      'GET',
+      `/workspaces/${encodeURIComponent(key)}`,
+    ),
   addWorkspace: (input: { key: string; name: string; description?: string }) =>
     call<Workspace>('POST', '/workspaces', input),
   projects: (workspace: string) =>
@@ -228,6 +243,29 @@ export const api = {
       `/launch-configs/${encodeURIComponent(id)}/check`,
       request,
     ),
+  // Execution environments (AFS-32).
+  environments: (workspace: string) =>
+    call<Environment[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/environments`),
+  environment: (id: string) => call<Environment>('GET', `/environments/${encodeURIComponent(id)}`),
+  addEnvironment: (workspace: string, input: EnvironmentInput) =>
+    call<Environment>('POST', `/workspaces/${encodeURIComponent(workspace)}/environments`, input),
+  changeEnvironment: (id: string, input: Partial<EnvironmentInput>) =>
+    call<Environment>('PATCH', `/environments/${encodeURIComponent(id)}`, input),
+  deleteEnvironment: (id: string) =>
+    call<void>('DELETE', `/environments/${encodeURIComponent(id)}`),
+  environmentBuilds: (id: string) =>
+    call<EnvironmentBuild[]>('GET', `/environments/${encodeURIComponent(id)}/builds`),
+  buildEnvironment: (id: string) =>
+    call<EnvironmentBuild>('POST', `/environments/${encodeURIComponent(id)}/builds`),
+  /** A build's log, as text. */
+  buildLog: async (id: string, build: string) => {
+    const reply = await fetch(
+      `/api/v1/environments/${encodeURIComponent(id)}/builds/${encodeURIComponent(build)}/log`,
+      { credentials: 'same-origin' },
+    );
+    return reply.ok ? reply.text() : '';
+  },
+
   // Schedules of a launch configuration (AFS-34).
   schedules: (config: string) =>
     call<Schedule[]>('GET', `/launch-configs/${encodeURIComponent(config)}/schedules`),
