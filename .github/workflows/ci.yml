@@ -1,10 +1,9 @@
 # Checks every push to main and every pull request: the type check, Biome and the unit tests, as
 # `just check` and `just test` run them.
 #
-# The designer's packages (@ansible-flow/*) are installed from npm here. Until they are published,
-# package.json names tarballs in vendor/ (ADR-0002), which is not in git, so the install cannot
-# work: the job runs only once the repository variable AFD_PACKAGES_ON_NPM is "true", set with the
-# change that names the published version.
+# The designer's packages (@ansible-flow/*) are installed from npm (ADR-0002). The job runs while
+# the repository variable AFD_PACKAGES_ON_NPM is "true": set it to "false" for a time when
+# package.json names tarballs in vendor/ (an unreleased designer), which is not in git.
 name: CI
 
 on:

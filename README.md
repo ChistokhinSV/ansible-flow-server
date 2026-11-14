@@ -41,7 +41,6 @@ tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 - Node.js 24 or later
 - git
 - [just](https://github.com/casey/just) for the development commands
-- For now, a checkout of Ansible Flow Designer beside this one (see below)
 
 ## Run with docker compose
 
@@ -85,27 +84,28 @@ server-1  | [09:44:37 13.11.2026] WARN  No user yet. Make the first administrato
   it"), set `AFS_ENGINE_DATA_DIR`.
 - **Upgrade:** set `AFS_VERSION` to the new release, then `docker compose pull && docker compose
   up -d`. The database is changed at start.
-- **Build the image yourself:** `docker compose build` from `deploy/compose` in a checkout (with
-  the designer's packages in `vendor/` until they are on npm).
+- **Build the image yourself:** `docker compose build` from `deploy/compose` in a checkout.
 
 Every `AFS_*` setting ([Configuration](#configuration)) can go in `.env`.
 
 ## Install for development
 
 The server is built on the designer's npm packages (`@ansible-flow/core`, `@ansible-flow/node`,
-`@ansible-flow/assets`). They are not on npm yet, so they are packed from a checkout of the
-designer and installed from `vendor/`:
+`@ansible-flow/assets`, and `@ansible-flow/designer` for the pages), pinned to one version:
 
 ```sh
-git clone https://github.com/ChistokhinSV/ansible-flow-designer.git
 git clone https://github.com/ChistokhinSV/ansible-flow-server.git
-cd ansible-flow-designer && npm ci && cd ../ansible-flow-server
-AFD_REPO=../ansible-flow-designer just afd-packages
+cd ansible-flow-server
+just install
 ```
 
-`just afd-packages` builds and checks the packages in the designer's checkout, copies the tarballs
-to `vendor/` and installs everything. Run it again after pulling the designer. Once the packages
-are on npm, this step goes away and `just install` is enough.
+A new designer release is taken by the "Designer packages" workflow, which opens a pull request
+when the server passes its checks with it.
+
+**An unreleased designer:** `AFD_REPO=../ansible-flow-designer just afd-packages` packs the
+packages in a checkout of the designer, copies the tarballs to `vendor/` (not in git) and installs
+them; `package.json` then names those tarballs. Do not commit that change: put the npm version
+back (`git checkout package.json package-lock.json && just install`).
 
 ## Use
 
@@ -1237,8 +1237,8 @@ at,actor,token,source,action,object_type,object_id,object_name,result,status,ip,
 
 | Command                    | Does                                                                                                                 |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `just afd-packages`        | Pack the designer's packages and install them from `vendor/`                                                         |
 | `just install`             | Install exact dependencies from `package-lock.json`                                                                  |
+| `just afd-packages`        | Try an unreleased designer: pack its packages and install them from `vendor/`                                        |
 | `just check`               | Type-check (TypeScript) and lint and format check (Biome)                                                            |
 | `just fmt`                 | Apply formatting and safe lint fixes                                                                                 |
 | `just test [args]`         | Unit tests (Vitest; the pages in jsdom); with `AFS_TEST_POSTGRES_URL` set, the database tests also run on PostgreSQL |
@@ -1262,7 +1262,7 @@ Layout:
 | `CHANGELOG.md` | What changed, for people who use the server                     |
 | `docs/adr/`    | Architecture decisions, one file each                           |
 | `media/icons/` | The icon set                                                    |
-| `vendor/`      | The designer's packages as tarballs (not in git)                |
+| `vendor/`      | An unreleased designer's packages as tarballs (not in git)      |
 
 ## License
 
