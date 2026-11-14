@@ -21,6 +21,7 @@ import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
 import type { MasterKey } from './secrets/masterKey';
 import { registerCredentials } from './secrets/routes';
+import { type CertificateDeps, registerCertificate } from './tls/routes';
 import { webHandler } from './web';
 
 export interface AppDeps {
@@ -52,6 +53,8 @@ export interface AppDeps {
   /** AFS-29: what tells people of what happens; without it nobody is told. */
   notifier?: Notifier;
   /** The address people use for the server (AFS_PUBLIC_URL), for links in messages. */
+  /** The server certificate's store, for the certificate page and API (AFS-54). */
+  certificate?: CertificateDeps;
   publicUrl?: string;
   /** AFS-26: a dev run's bundle at most this many bytes, kept this many hours. */
   dev?: { maxBytes: number; keepHours: number };
@@ -130,6 +133,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ...(notifier ? { decided: (run, gate) => notifier.approvalDecided(run, gate) } : {}),
     });
   }
+  if (deps.certificate) registerCertificate(app, deps.certificate);
   if (deps.notifier && deps.masterKey)
     registerNotifications(app, {
       db: deps.database.db,

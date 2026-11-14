@@ -102,6 +102,10 @@ export const ACTIONS: Record<string, Action> = {
   'DELETE /api/v1/notifications/smtp': { action: 'notification.smtp-clear', id: 'none' },
   'POST /api/v1/notifications/webhook-key': { action: 'notification.webhook-key', id: 'none' },
   'POST /api/v1/notifications/test': { action: 'notification.test', id: 'none' },
+  'POST /api/v1/admin/certificate/request': { action: 'certificate.request', id: 'none' },
+  'POST /api/v1/admin/certificate/install': { action: 'certificate.install', id: 'none' },
+  'POST /api/v1/admin/certificate/self-signed': { action: 'certificate.self-signed', id: 'none' },
+  'POST /api/v1/admin/certificate/rollback': { action: 'certificate.rollback', id: 'none' },
 };
 
 /** Routes that are POSTs but change nothing. */

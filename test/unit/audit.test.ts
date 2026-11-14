@@ -26,6 +26,7 @@ import { Git } from '../../src/server/projects/git';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { RunQueue } from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
+import { CertificateStore } from '../../src/server/tls/store';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
 
 const PASSWORD = 'correct horse battery staple';
@@ -65,6 +66,11 @@ for (const [name, config] of databases) {
         runs: new RunQueue(db(), database.kind, key),
         notifier: new Notifier(db(), [], log, { keepDays: 30 }),
         projects: { git, sync: new ProjectSync(db(), git, log), allowLocal: true },
+        certificate: {
+          store: new CertificateStore(join(root, `tls-${name}`)),
+          tls: 'on',
+          defaultNames: ['localhost'],
+        },
       });
       const signIn = async (login: string, isAdmin: boolean) => {
         await createUser(db(), { login, name: login, password: PASSWORD, admin: isAdmin });

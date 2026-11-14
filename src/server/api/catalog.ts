@@ -375,6 +375,47 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('Send a test message now, by email or webhook, and say how it went'),
+  'GET /api/v1/admin/certificate': S(
+    'Certificate',
+    'administrators',
+    'server',
+  )('The server certificate in use, the one before it, a waiting request, and whether TLS is on'),
+  'GET /api/v1/admin/certificate/history': S(
+    'Certificate',
+    'administrators',
+    'server',
+  )('Every change made to the server certificate, newest first'),
+  'GET /api/v1/admin/certificate/request.pem': S(
+    'Certificate',
+    'administrators',
+    'server',
+  )('The waiting certificate request, as a file for a certificate authority'),
+  'POST /api/v1/admin/certificate/request': S(
+    'Certificate',
+    'administrator session',
+    'server',
+  )(
+    'Make a new key and a request for a certificate authority (`names`, `organization`); the key stays with the server',
+  ),
+  'POST /api/v1/admin/certificate/install': S(
+    'Certificate',
+    'administrator session',
+    'server',
+  )(
+    'Install a signed certificate (its chain may follow it), with its key or for the waiting request or the key in use; 422 with every reason it is refused',
+  ),
+  'POST /api/v1/admin/certificate/self-signed': S(
+    'Certificate',
+    'administrator session',
+    'server',
+  )(
+    'Replace the certificate with a new self-signed one (`names`, else the names the server is reached by)',
+  ),
+  'POST /api/v1/admin/certificate/rollback': S(
+    'Certificate',
+    'administrator session',
+    'server',
+  )('Go back to the certificate that was in use before'),
 };
 
 /**

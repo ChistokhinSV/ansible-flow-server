@@ -6,6 +6,7 @@ import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { ApiDocs } from './apidocs';
 import { ApprovalsPage } from './approvals';
 import { AdminPage, AuditPage } from './audit';
+import { CertificateBanner, CertificatePage } from './certificate';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { NotificationsPage } from './notifications';
 import {
@@ -59,6 +60,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
   if (path === '/admin/notifications') return me.admin ? <NotificationsPage /> : <NotFound />;
+  if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <NotFound />;
   if (path === '/admin/people') return me.admin ? <PeoplePage /> : <NotFound />;
   const person = match('/admin/people/:id', path);
   if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <NotFound />;
@@ -198,6 +200,7 @@ export function App() {
       {session.state === 'signed-out' && <SignIn onDone={signedIn} />}
       {me && (
         <main id="main" className={/\/flow\//.test(path) ? 'page wide' : 'page'}>
+          {me.admin && <CertificateBanner path={path} />}
           <Page path={path} me={me} theme={theme} />
         </main>
       )}

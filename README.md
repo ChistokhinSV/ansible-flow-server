@@ -224,8 +224,23 @@ A running server serves it to new connections from now on.
 - Keys and certificates are in `<data folder>/tls`. Back that folder up with the rest.
 - Behind a proxy that does HTTPS: `AFS_TLS=off` and `AFS_TRUSTED_PROXIES`.
 
-Not there yet: the same actions in the web page and over the REST API (they need sign-in first),
-PFX files, and automatic certificates (ACME).
+The same actions are on the **Server certificate** page (Administration) and over the API, for
+administrators. A change needs a sign-in with a password, not a token: a leaked token must not be
+able to put its own certificate in front of everyone. The history names the administrator, and the
+audit log has every change (`certificate.*`). While the certificate has 30 days or fewer left,
+every page shows administrators a banner.
+
+| Address (under `/api/v1/admin/certificate`) | Does                                                                                |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET` (the address itself)                  | In use, the one before it, a waiting request, whether TLS is on                     |
+| `POST /request`                             | `{"names":[…],"organization"}`: a new key and a request; the key stays here         |
+| `GET /request.pem`                          | The waiting request, as a file for the certificate authority                        |
+| `POST /install`                             | `{"certificate","key"?}`: install; refused with `422` and every reason (`problems`) |
+| `POST /self-signed`                         | `{"names"?}`: a new self-signed certificate                                         |
+| `POST /rollback`                            | Back to the certificate before                                                      |
+| `GET /history`                              | Every change, newest first                                                          |
+
+Not there yet: PFX files, and automatic certificates (ACME).
 
 ### People, groups and sign-in
 
@@ -410,25 +425,26 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
 The server serves its own pages at its address. A new server shows the first-run setup (the
 setup code from its log); after that, sign-in.
 
-| Page                                   | Shows                                                                                                                      |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`                                    | The workspaces; administrators add one                                                                                     |
-| `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                                                       |
-| `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed                                |
-| `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                                                       |
-| `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values                                      |
-| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one                                          |
-| `/runs`                                | Every run, the newest first, filtered by state                                                                             |
-| `/runs/<id>`                           | One run: what ran, its approvals, the run on the canvas, its output; Stop and Run again                                    |
-| `/approvals`                           | What waits for a decision: yours to decide (with a comment), and others' with why not                                      |
-| `/docs/api`                            | The API reference, from the server's OpenAPI document                                                                      |
-| `/account`                             | Your profile (name, email address; webhook for administrators) and access tokens                                           |
-| `/admin`                               | Administration: people and groups, the audit log, notifications; the certificate is not built yet                          |
-| `/admin/people`                        | Everyone, with kind, state, groups and last sign-in; the groups; add a person, service account or group                    |
-| `/admin/people/<id>`                   | One account: profile, administrator, disable or enable, password, groups, tokens (made here for a service account), delete |
-| `/admin/groups/<id>`                   | One group: name, email address and webhook, members, delete                                                                |
-| `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON                                             |
-| `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                                                 |
+| Page                                   | Shows                                                                                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                                    | The workspaces; administrators add one                                                                                                |
+| `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                                                                  |
+| `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed                                           |
+| `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                                                                  |
+| `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values                                                 |
+| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one                                                     |
+| `/runs`                                | Every run, the newest first, filtered by state                                                                                        |
+| `/runs/<id>`                           | One run: what ran, its approvals, the run on the canvas, its output; Stop and Run again                                               |
+| `/approvals`                           | What waits for a decision: yours to decide (with a comment), and others' with why not                                                 |
+| `/docs/api`                            | The API reference, from the server's OpenAPI document                                                                                 |
+| `/account`                             | Your profile (name, email address; webhook for administrators) and access tokens                                                      |
+| `/admin`                               | Administration: the certificate, people and groups, the audit log, notifications                                                      |
+| `/admin/certificate`                   | The server certificate: in use and its days left, the one before (roll back), request and download, install, new self-signed, history |
+| `/admin/people`                        | Everyone, with kind, state, groups and last sign-in; the groups; add a person, service account or group                               |
+| `/admin/people/<id>`                   | One account: profile, administrator, disable or enable, password, groups, tokens (made here for a service account), delete            |
+| `/admin/groups/<id>`                   | One group: name, email address and webhook, members, delete                                                                           |
+| `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON                                                        |
+| `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                                                            |
 
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
@@ -442,7 +458,7 @@ setup code from its log); after that, sign-in.
 - Administrators manage people and groups at `/admin/people`. The server's rules stand there too
   (the last administrator stays one; nobody disables or deletes themself), and a refusal is shown
   as the server words it.
-- Not there yet: the pages for credentials and the certificate.
+- Not there yet: the pages for credentials.
 
 ### Workspaces and projects
 

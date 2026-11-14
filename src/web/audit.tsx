@@ -20,6 +20,15 @@ export function AdminPage() {
           </Link>
         </li>
         <li>
+          <Link to="/admin/certificate" className="card">
+            <strong>Server certificate</strong>
+            <span className="muted">
+              The certificate in use and its days left; request one from your certificate authority,
+              install it, make a self-signed one, roll back.
+            </span>
+          </Link>
+        </li>
+        <li>
           <Link to="/admin/audit" className="card">
             <strong>Audit log</strong>
             <span className="muted">
@@ -38,10 +47,6 @@ export function AdminPage() {
           </Link>
         </li>
       </ul>
-      <p className="empty">
-        The server's certificate will be managed here too; until then it is managed with the
-        server's commands. This part of the server is not built yet.
-      </p>
     </>
   );
 }
