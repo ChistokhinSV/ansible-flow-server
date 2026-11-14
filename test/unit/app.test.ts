@@ -35,13 +35,21 @@ describe('the HTTP server', () => {
   it('/readyz says the database answers, and 503 when it does not', async () => {
     const ready = await app.inject({ method: 'GET', url: '/readyz' });
     expect(ready.statusCode).toBe(200);
-    expect(ready.json()).toEqual({ status: 'ready', database: 'sqlite' });
+    expect(ready.json()).toEqual({
+      status: 'ready',
+      database: 'sqlite',
+      checks: { database: { state: 'ok' } },
+    });
 
     await database.close();
     const down = await app.inject({ method: 'GET', url: '/readyz' });
     expect(down.statusCode).toBe(503);
     // The reason is in the log, not in the answer.
-    expect(down.json()).toEqual({ status: 'unavailable', database: 'sqlite' });
+    expect(down.json()).toEqual({
+      status: 'unavailable',
+      database: 'sqlite',
+      checks: { database: { state: 'fail' } },
+    });
     expect(lines.some((line) => line.includes('The database does not answer'))).toBe(true);
   });
 

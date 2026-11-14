@@ -54,6 +54,10 @@ export interface Config {
   maxRunsPerProject: number;
   /** A project's repository may be a folder of this machine. Default: no. */
   gitLocal: boolean;
+  /** AFS-37: the bearer token /metrics asks for (unset: no metrics). */
+  metricsToken?: string;
+  /** AFS-37: below this many megabytes free in the data folder, /readyz says degraded. */
+  minFreeMb?: number;
   /** Where the server keeps what it owns: the SQLite database, its certificate, the mirrors. */
   dataDir: string;
   /**
@@ -184,6 +188,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     problems.push(`AFS_AUDIT_KEEP_DAYS is "${auditText}": days, from 0 (keep all) to 36500`);
   const maxRuns = countOf('AFS_MAX_RUNS', 4);
   const maxRunsPerProject = countOf('AFS_MAX_RUNS_PER_PROJECT', 1);
+  // AFS-37: /metrics for whoever sends this as a bearer token; below this much free space the
+  // server says it is degraded.
+  const metricsToken = text('AFS_METRICS_TOKEN');
+  if (metricsToken && metricsToken.length < 16)
+    problems.push('AFS_METRICS_TOKEN is too short: at least 16 characters (openssl rand -hex 24)');
+  const minFreeMb = keepOf('AFS_MIN_FREE_MB', 1024, 1024 * 1024);
   const caFile = text('AFS_CA_FILE');
   const masterKey = text('AFS_MASTER_KEY');
   const masterKeyFile = text('AFS_MASTER_KEY_FILE');
@@ -253,6 +263,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     maxRuns,
     maxRunsPerProject,
     gitLocal: localText === 'on',
+    ...(metricsToken ? { metricsToken } : {}),
+    minFreeMb,
     dataDir,
     ...(engineDataDir ? { engineDataDir: engineDataDir.replace(/\/+$/, '') } : {}),
     database,

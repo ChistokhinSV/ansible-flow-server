@@ -25,6 +25,7 @@ import { serverMeta } from './meta';
 import { emailChannel, webhookChannel } from './notify/channels';
 import { Notifier } from './notify/notifier';
 import { smtpForSending, webhookKey } from './notify/settings';
+import { Metrics } from './ops/metrics';
 import { Git } from './projects/git';
 import { ProjectSync } from './projects/sync';
 import { Executor } from './runs/executor';
@@ -167,6 +168,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   let executor: Executor | undefined;
   let schedules: Schedules | undefined;
   let environments: Environments | undefined;
+  let metrics: Metrics | undefined;
   let retention: NodeJS.Timeout | undefined;
   let stopPruning: () => Promise<unknown> = async () => undefined;
   const hub = new RunHub();
@@ -260,6 +262,13 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       return gitAuthOf(revealed);
     });
     schedules = new Schedules({ db, git, sync: projects, queue: runs, log });
+    // AFS-37: what Prometheus reads; the certificate in use changes when one is installed.
+    metrics = new Metrics({
+      db,
+      version: meta.version,
+      designer: meta.designer.version,
+      certificateEnds: () => (served ? new Date(served.info.notAfter) : undefined),
+    });
     // AFS-32: execution environments are built on the same engine as runs, one at a time.
     environments = new Environments({
       db,
@@ -268,10 +277,18 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       dir: join(config.dataDir, 'environments'),
       engine: config.containerEngine,
       timeoutMs: config.buildTimeoutMinutes * 60_000,
+      metrics,
     });
     app = buildApp({
       log,
       database,
+      metrics,
+      ...(config.metricsToken ? { metricsToken: config.metricsToken } : {}),
+      readiness: {
+        dataDir: config.dataDir,
+        engine: () => executor?.engineName,
+        minFreeBytes: (config.minFreeMb ?? 1024) * 1024 * 1024,
+      },
       projects: { git, sync: projects, allowLocal: config.gitLocal },
       masterKey,
       runs,
@@ -333,6 +350,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         log,
         hub,
         approvalWaiting: (run, gate) => notify.approvalWaiting(run, gate),
+        ...(metrics ? { metrics } : {}),
       },
       {
         dataDir: config.dataDir,

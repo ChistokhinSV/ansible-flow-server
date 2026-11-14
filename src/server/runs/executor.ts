@@ -34,6 +34,7 @@ import { approvalsOf, gatesOf, lastGate, openGate } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import { schemaIssues } from '../flows';
 import type { Logger } from '../log';
+import type { MetricsSink } from '../ops/metrics';
 import type { Git } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
@@ -89,6 +90,8 @@ export interface ExecutorDeps {
   hub?: RunHub;
   /** AFS-29: told when a run starts to wait at an approval. */
   approvalWaiting?: (run: string, gate: string) => void;
+  /** AFS-37: told how long each run took. */
+  metrics?: MetricsSink;
 }
 
 /** Why a run was stopped from outside. */
@@ -232,6 +235,11 @@ export class Executor {
     return found;
   }
 
+  /** AFS-37: the engine runs use now; undefined while none answers (/readyz). */
+  get engineName(): string | undefined {
+    return this.options.runner ? 'test' : this.engine;
+  }
+
   /** Where a run's output is kept. */
   outputFile(runId: string): string {
     if (!/^[A-Za-z0-9-]{1,64}$/.test(runId)) throw new Error('Not a run id');
@@ -338,6 +346,7 @@ export class Executor {
     const say = log.child({ run: r.id, number: r.number });
     let why: Stop | undefined;
     const controller = new AbortController();
+    const handled = Date.now();
     void stopped.then((s) => {
       why ??= s;
       controller.abort();
@@ -379,8 +388,12 @@ export class Executor {
         say.warn('The run was given to another worker or lost: its end is not recorded here');
         return;
       }
-      const done = await queue.finish(r.id, token, outcome, error, new Date(), view);
+      const ended = new Date();
+      const done = await queue.finish(r.id, token, outcome, error, ended, view);
       this.deps.hub?.ended(r.id);
+      // AFS-37: from the run's first start (a run that waited for approval spans several).
+      const began = r.startedAt ? Date.parse(r.startedAt) : handled;
+      this.deps.metrics?.runEnded(r.mode, outcome, (ended.getTime() - began) / 1000);
       if (!done) say.warn('The lease ran out before the run could be recorded');
       say.info({ outcome, ...(error ? { why: error } : {}) }, 'Run ended');
     };
