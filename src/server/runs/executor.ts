@@ -101,6 +101,21 @@ const run = (command: string, args: string[], timeoutMs = 15_000) =>
     ),
   );
 
+/**
+ * AFS-36: the user namespace of a run with rootless podman: the server's own user becomes the
+ * image's user (keep-id), so what the run writes into the run folder is the server's to read.
+ * Nothing for docker, for a server that is root, or an image that runs as root (then the image's
+ * root already is the server's user).
+ */
+export function usernsOptions(
+  engine: Engine,
+  serverUid: number,
+  imageUser: { uid: number; gid: number } | undefined,
+): string[] {
+  if (engine !== 'podman' || serverUid === 0 || !imageUser || imageUser.uid === 0) return [];
+  return ['--userns', `keep-id:uid=${imageUser.uid},gid=${imageUser.gid}`];
+}
+
 /** The container engine that answers, when there is one. */
 export async function findEngine(wanted: ExecutorOptions['engine']): Promise<Engine | undefined> {
   if (wanted === 'off') return undefined;
@@ -179,9 +194,25 @@ export class Executor {
   private ownerOf(image: string): Promise<{ uid: number; gid: number } | undefined> {
     if (this.options.runner || process.getuid?.() !== 0 || !this.engine)
       return Promise.resolve(undefined);
+    return this.imageUser(image);
+  }
+
+  /**
+   * AFS-36: with rootless podman (the native install), the image's own user is mapped to the
+   * server's: it writes the run's events into the run folder, which is the server's.
+   */
+  private async usernsOf(image: string): Promise<string[]> {
+    if (this.options.runner || !this.engine) return [];
+    const serverUid = process.getuid?.() ?? 0;
+    if (this.engine !== 'podman' || serverUid === 0) return [];
+    return usernsOptions(this.engine, serverUid, await this.imageUser(image));
+  }
+
+  /** The user an image runs as, found once. */
+  private imageUser(image: string): Promise<{ uid: number; gid: number } | undefined> {
     let found = this.owners.get(image);
     if (!found) {
-      const engine = this.engine;
+      const engine = this.engine as Engine;
       found = Promise.all([
         run(engine, ['run', '--rm', '--entrypoint', 'id', image, '-u'], 120_000),
         run(engine, ['run', '--rm', '--entrypoint', 'id', image, '-g'], 120_000),
@@ -191,6 +222,12 @@ export class Executor {
         () => undefined,
       );
       this.owners.set(image, found);
+      // An image that could not be asked (not pulled yet, the engine not ready) is asked again
+      // next time: kept, the miss would last as long as the server (found on Rocky 10).
+      const asked = found;
+      void asked.then((user) => {
+        if (!user && this.owners.get(image) === asked) this.owners.delete(image);
+      });
     }
     return found;
   }
@@ -435,7 +472,14 @@ export class Executor {
         kind: 'container',
         engine,
         image,
-        options: ['--label', this.label, '--label', `afs.run=${r.id}`, ...creds.options],
+        options: [
+          '--label',
+          this.label,
+          '--label',
+          `afs.run=${r.id}`,
+          ...creds.options,
+          ...(await this.usernsOf(image)),
+        ],
         mounts: creds.mounts,
         source: 'afd',
         label: `${image} (${engine})`,
