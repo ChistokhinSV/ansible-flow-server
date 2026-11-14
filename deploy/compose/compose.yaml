@@ -1,0 +1,59 @@
+# Ansible Flow Server with docker compose (AFS-35). See README "Run with docker compose".
+#
+#   cp .env.example .env      # then change what you need
+#   docker compose up -d                       # SQLite in the data volume
+#   docker compose --profile postgres up -d    # PostgreSQL beside it (set AFS_DATABASE_URL)
+#
+# Runs go in containers the server starts through the engine's socket: they are siblings of the
+# server, and the server tells the engine where its data volume is (found from its own
+# container's mounts, or AFS_ENGINE_DATA_DIR).
+name: ansible-flow-server
+
+services:
+  server:
+    image: ${AFS_IMAGE:-ghcr.io/chistokhinsv/ansible-flow-server}:${AFS_VERSION:-latest}
+    # Or build it from this repository: docker compose build
+    build:
+      context: ../..
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${AFS_PUBLISH_PORT:-8443}:8443"
+    # Every AFS_* setting of the server can go in .env (see the repository's .env.example).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AFS_HOST: 0.0.0.0
+      AFS_PORT: "8443"
+      AFS_DATA_DIR: /var/lib/afs
+    volumes:
+      - afs-data:/var/lib/afs
+      - ${AFS_ENGINE_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    profiles: [postgres]
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: afs
+      POSTGRES_DB: afs
+      # Required with this profile: the image refuses to start without it. (A compose "required"
+      # check would be read even when the profile is off.)
+      POSTGRES_PASSWORD: ${AFS_DB_PASSWORD:-}
+    volumes:
+      # From PostgreSQL 18 the image keeps its data under /var/lib/postgresql/<major>/docker.
+      - afs-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afs -d afs"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  afs-data:
+  afs-db:

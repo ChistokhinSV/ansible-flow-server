@@ -34,7 +34,7 @@ tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 | Execution environments built from a list of collections                    | planned                    |
 | Schedules, REST API with tokens, MCP endpoint                              | API and MCP done           |
 | Sign-in with local users, OIDC and LDAP; HTTPS with certificate management | local users and HTTPS done |
-| Install with docker compose or as a Linux service                          | planned                    |
+| Install with docker compose or as a Linux service                          | docker compose done        |
 
 ## Requirements
 
@@ -42,6 +42,53 @@ tickets are in YouTrack project AFS; the decisions are in [docs/adr](docs/adr).
 - git
 - [just](https://github.com/casey/just) for the development commands
 - For now, a checkout of Ansible Flow Designer beside this one (see below)
+
+## Run with docker compose
+
+The server image (`ghcr.io/chistokhinsv/ansible-flow-server`, also on Docker Hub as
+`chistokhinsv/ansible-flow-server`; amd64 and arm64) is published for each release. It runs flows
+in sibling containers through the engine's socket. The files are in
+[deploy/compose](deploy/compose).
+
+```sh
+mkdir flow-server && cd flow-server
+curl -fsSLO https://raw.githubusercontent.com/ChistokhinSV/ansible-flow-server/main/deploy/compose/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/ChistokhinSV/ansible-flow-server/main/deploy/compose/.env.example
+# change .env: AFS_PUBLIC_URL at least
+docker compose up -d
+docker compose logs server | grep -i "setup code"
+```
+
+```text
+server-1  | [09:44:37 13.11.2026] WARN  Made a master key. Keep a copy somewhere safe: stored credentials cannot be read without it file=/var/lib/afs/master.key key=3fa1c2d4
+server-1  | [09:44:37 13.11.2026] WARN  No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
+```
+
+- **The first administrator:** open the address and enter the setup code from the log, or
+  `docker compose exec server node dist/server.js user add dana --name "Dana Whitfield" --admin`
+  (the password is asked).
+- **Data:** the `afs-data` volume holds the database (SQLite), repositories, runs, the
+  certificate and the master key. Back it up whole; keep a copy of `master.key` (or set
+  `AFS_MASTER_KEY`) outside it: without the key, stored credentials cannot be read.
+- **PostgreSQL:** set `AFS_DB_PASSWORD` and
+  `AFS_DATABASE_URL=postgres://afs:${AFS_DB_PASSWORD}@postgres:5432/afs` in `.env`, then
+  `docker compose --profile postgres up -d`. Its data is the `afs-db` volume.
+- **HTTPS:** the server makes a self-signed certificate at first start; request or install yours
+  on the Server certificate page (see [HTTPS and the certificate](#https-and-the-certificate)).
+  Behind a proxy that does HTTPS: `AFS_TLS=off` (the server then answers plain HTTP on 8080:
+  publish that port instead).
+- **Runs:** the server starts them with the docker command in its image, through
+  `AFS_ENGINE_SOCKET` (default `/var/run/docker.sock`; rootless docker:
+  `/run/user/<uid>/docker.sock`). Whoever can use that socket controls the machine: the server
+  runs as root in its container for it. It finds where its data volume is on the engine's machine
+  by itself; when it cannot (it logs nothing about "The data folder as the engine's machine has
+  it"), set `AFS_ENGINE_DATA_DIR`.
+- **Upgrade:** set `AFS_VERSION` to the new release, then `docker compose pull && docker compose
+  up -d`. The database is changed at start.
+- **Build the image yourself:** `docker compose build` from `deploy/compose` in a checkout (with
+  the designer's packages in `vendor/` until they are on npm).
+
+Every `AFS_*` setting ([Configuration](#configuration)) can go in `.env`.
 
 ## Install for development
 
@@ -163,6 +210,7 @@ problem is named.
 | `AFS_MAX_RUNS`                | `4`                                                  | Runs at once on this server                                                                        |
 | `AFS_MAX_RUNS_PER_PROJECT`    | `1`                                                  | Runs at once of one project                                                                        |
 | `AFS_CONTAINER_ENGINE`        | `auto`                                               | The container engine runs use: `auto`, `docker`, `podman`, or `off`                                |
+| `AFS_ENGINE_DATA_DIR`         | found from the server's own container                | The server in a container: its data folder as the engine's machine has it                          |
 | `AFS_EE_IMAGE`                | `ghcr.io/ansible/community-ansible-dev-tools:latest` | The image a run uses unless its launch names one                                                   |
 | `AFS_RUN_TIMEOUT_MINUTES`     | `240`                                                | A run that takes longer is stopped                                                                 |
 | `AFS_RUNS_KEEP_DAYS`          | `90`                                                 | Ended runs older than this are removed, with their output                                          |
@@ -835,16 +883,10 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEEP_PER_FLOW`
 (200) of one flow, with their output.
 
-**The server in a container** runs flows in sibling containers: give it the engine's socket and
-mount the data folder at the same path as on the host.
-
-```sh
-docker run -d --name flow-server \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /srv/flow-server:/srv/flow-server -e AFS_DATA_DIR=/srv/flow-server/data \
-  -e AFS_TLS=off -e AFS_HOST=0.0.0.0 -p 8080:8080 \
-  <an image with Node.js 24, git and the docker command> node dist/server.js
-```
+**The server in a container** runs flows in sibling containers through the engine's socket; see
+[Run with docker compose](#run-with-docker-compose). The data folder may be any volume: at start
+the server asks the engine about its own container and gives run containers the volume's paths
+as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find out).
 
 ### Execution environments
 

@@ -15,6 +15,7 @@ import type { Logger } from '../log';
 import type { MasterKey } from '../secrets/masterKey';
 import { inventoryEnv, registrySignIn } from './credentials';
 import type { Engine } from './executor';
+import { rewriteMounts, type ToHost } from './hostPaths';
 import { pullWithSignIn } from './registry';
 import type { Workdir, Workdirs } from './workdir';
 
@@ -30,6 +31,8 @@ interface Probe {
 
 export interface ProbesOptions {
   engine: () => Engine | undefined;
+  /** AFS-35: a data folder path as the engine's machine has it. */
+  toHost?: () => ToHost;
   /** The designer's probe files, where containers can mount them. */
   probeDir: string;
   workdirs: Workdirs;
@@ -138,6 +141,7 @@ export class InventoryProbes {
         `afs-${id}`,
       );
       spec.env = { ...spec.env, ...vars.processEnv };
+      if (this.options.toHost) spec.args = rewriteMounts(spec.args, this.options.toHost());
       const client = new ProbeClient(spec, workdir.dir, CONTAINER.root, (line) =>
         this.options.log.debug({ probe: id }, line),
       );

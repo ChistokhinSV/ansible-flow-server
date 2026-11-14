@@ -56,6 +56,11 @@ export interface Config {
   gitLocal: boolean;
   /** Where the server keeps what it owns: the SQLite database, its certificate, the mirrors. */
   dataDir: string;
+  /**
+   * AFS-35: the data folder as the container engine's machine sees it, when the server runs in a
+   * container and cannot find out itself. Unset: found from the server's own container.
+   */
+  engineDataDir?: string;
   database: { kind: 'sqlite'; file: string } | { kind: 'postgres'; url: string };
   log: { level: LogLevel; format: 'text' | 'json' };
 }
@@ -188,6 +193,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (localText !== 'on' && localText !== 'off')
     problems.push(`AFS_GIT_LOCAL is "${localText}": use on or off`);
   const dataDir = resolve(text('AFS_DATA_DIR') ?? 'data');
+  // AFS-35: the data folder as the container engine's machine sees it (the server in a container).
+  const engineDataDir = text('AFS_ENGINE_DATA_DIR');
+  if (engineDataDir && !engineDataDir.startsWith('/'))
+    problems.push(
+      `AFS_ENGINE_DATA_DIR is "${engineDataDir}": an absolute path on the engine's machine`,
+    );
 
   let database: Config['database'] = { kind: 'sqlite', file: join(dataDir, 'afs.db') };
   const url = text('AFS_DATABASE_URL');
@@ -243,6 +254,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     maxRunsPerProject,
     gitLocal: localText === 'on',
     dataDir,
+    ...(engineDataDir ? { engineDataDir: engineDataDir.replace(/\/+$/, '') } : {}),
     database,
     log: { level: level as LogLevel, format: format as 'text' | 'json' },
   };

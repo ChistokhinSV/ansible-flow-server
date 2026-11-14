@@ -8,6 +8,7 @@ Nothing is released yet.
 
 ### Added
 
+- Run with docker compose: the server image (GitHub's registry and Docker Hub, amd64 and arm64, published for each release), a compose file with SQLite by default and a PostgreSQL profile, and an `.env` example. Runs start as sibling containers through the engine's socket; the data may be any volume, since the server finds where the engine has it (or `AFS_ENGINE_DATA_DIR` says). See [Run with docker compose](README.md#run-with-docker-compose).
 - The server speaks HTTPS itself. At first start it makes a self-signed certificate; the `cert` commands request a certificate from your authority, install one, roll back, or make a new self-signed one, and the server uses a new certificate without a restart. Behind a proxy that does HTTPS, set `AFS_TLS=off`. See [HTTPS and the certificate](README.md#https-and-the-certificate).
 - A Server certificate page for administrators, and the same actions over the API: the certificate in use with its days left, a request made and downloaded for your certificate authority, the signed certificate installed (or replaced with a certificate and key), a new self-signed one, a rollback, the history. A refused certificate is shown with every reason. Administrators see a banner on every page while the certificate has 30 days or fewer left.
 - Settings from the environment or a `.env` file; SQLite by default, or PostgreSQL with `AFS_DATABASE_URL`. See [Configuration](README.md#configuration).
