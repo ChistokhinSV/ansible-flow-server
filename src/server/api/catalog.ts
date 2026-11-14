@@ -422,6 +422,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     E,
   )('The environment as ansible-builder v3 reads it, for AWX or AAP'),
+  'GET /api/v1/search': S(
+    'Search',
+    'signed in',
+    'self',
+  )(
+    'What the words name, among what the caller may see: workspaces, projects, flows, launch configurations, runs (by number too), environments; people and groups for administrators. Each with the page it opens',
+  ),
   'GET /api/v1/galaxy/search': S(
     'Environments',
     'signed in',

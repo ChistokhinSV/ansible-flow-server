@@ -25,6 +25,7 @@ import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
+import type { SearchHit } from '../server/search/types';
 import type { Credential } from '../server/secrets/credentials';
 import type { CertificateInfo, CertificateState } from '../server/tls/types';
 
@@ -60,6 +61,7 @@ export type {
   RunNotify,
   Schedule,
   ScheduleInput,
+  SearchHit,
   SmtpSecurity,
   SmtpSettings,
   TokenInfo,
@@ -267,6 +269,9 @@ export const api = {
     );
     return reply.ok ? reply.text() : '';
   },
+
+  /** AFS-69: what the words name, among what the caller may see. */
+  search: (q: string) => call<SearchHit[]>('GET', `/search?${queryOf({ q })}`),
 
   // What a flow needs from its environment (AFS-33).
   galaxySearch: (q: string) =>

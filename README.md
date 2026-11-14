@@ -448,6 +448,11 @@ setup code from its log); after that, sign-in.
 | `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON                                                                          |
 | `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                                                                              |
 
+- **Search** in the top bar (`/` or Ctrl+K): as you type, the workspaces, projects, flows (by name,
+  key or file), launch configurations, runs (by number, flow or configuration), environments and
+  pages the person may see; people and groups for administrators. Arrows and Enter open one, Esc
+  closes. The same over the API: `GET /api/v1/search?q=` (a token made for one workspace searches
+  there only).
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.

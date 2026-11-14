@@ -25,6 +25,7 @@ import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
 import { registerSchedules } from './schedules/routes';
 import type { Schedules } from './schedules/schedules';
+import { registerSearch } from './search/routes';
 import type { MasterKey } from './secrets/masterKey';
 import { registerCredentials } from './secrets/routes';
 import { type CertificateDeps, registerCertificate } from './tls/routes';
@@ -144,6 +145,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   }
   if (deps.certificate) registerCertificate(app, deps.certificate);
+  if (deps.projects) registerSearch(app, { db: deps.database.db, git: deps.projects.git });
   if (deps.environments)
     registerEnvironments(app, { db: deps.database.db, environments: deps.environments });
   if (deps.environments && deps.projects)
