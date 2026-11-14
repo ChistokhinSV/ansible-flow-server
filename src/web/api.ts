@@ -18,10 +18,13 @@ import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
 import type { Credential } from '../server/secrets/credentials';
+import type { CertificateInfo, CertificateState } from '../server/tls/types';
 
 export type {
   AuditEntry,
   AuditFilter,
+  CertificateInfo,
+  CertificateState,
   Credential,
   Delivery,
   FlowList,
@@ -293,6 +296,32 @@ export const api = {
     call<Delivery[]>('GET', `/notifications?${queryOf(filter)}`),
   retryDelivery: (id: string) =>
     call<void>('POST', `/notifications/${encodeURIComponent(id)}/retry`),
+
+  // The server certificate (administrators, AFS-54).
+  certificate: () => call<CertificateState>('GET', '/admin/certificate'),
+  certificateHistory: () =>
+    call<
+      {
+        at: string;
+        action: string;
+        by: string;
+        subject?: string;
+        fingerprint?: string;
+        notAfter?: string;
+      }[]
+    >('GET', '/admin/certificate/history'),
+  certificateRequest: (names: string[], organization?: string) =>
+    call<CertificateState>('POST', '/admin/certificate/request', {
+      names,
+      ...(organization ? { organization } : {}),
+    }),
+  installCertificate: (certificate: string, key?: string) =>
+    call<CertificateState>('POST', '/admin/certificate/install', {
+      certificate,
+      ...(key ? { key } : {}),
+    }),
+  selfSignedCertificate: () => call<CertificateState>('POST', '/admin/certificate/self-signed', {}),
+  rollbackCertificate: () => call<CertificateState>('POST', '/admin/certificate/rollback'),
 
   tokens: () => call<TokenInfo[]>('GET', '/tokens'),
   addToken: (input: {

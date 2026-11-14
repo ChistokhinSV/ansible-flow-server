@@ -26,7 +26,9 @@ import {
   selfSignedCertificate,
 } from './certificates';
 
-export type CertificateSource = 'self-signed' | 'installed';
+import type { CertificateSource } from './types';
+
+export type { CertificateSource } from './types';
 
 export interface StoredCertificate extends KeyAndCertificate {
   source: CertificateSource;

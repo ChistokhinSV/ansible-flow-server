@@ -6,6 +6,7 @@ import { createPrivateKey, type webcrypto, X509Certificate } from 'node:crypto';
 import { isIP } from 'node:net';
 import { createSecureContext } from 'node:tls';
 import * as x509 from '@peculiar/x509';
+import type { CertificateInfo } from './types';
 
 /** Keys are ECDSA P-256: accepted everywhere a browser or an Ansible host connects from. */
 const ALGORITHM = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
@@ -14,22 +15,7 @@ const DAY = 24 * 60 * 60 * 1000;
 /** A self-signed certificate lasts a year; it is meant to be replaced long before. */
 export const SELF_SIGNED_DAYS = 365;
 
-export interface CertificateInfo {
-  /** `CN=flows.example.net, O=Example` */
-  subject: string;
-  issuer: string;
-  /** The names it is good for: DNS names and IP addresses. */
-  names: string[];
-  notBefore: string;
-  notAfter: string;
-  /** Whole days until it expires; negative once it has. */
-  daysLeft: number;
-  selfSigned: boolean;
-  /** SHA-256 of the certificate, as browsers show it. */
-  fingerprint: string;
-  /** Certificates that follow it in the file: its chain. */
-  chain: number;
-}
+export type { CertificateInfo } from './types';
 
 export interface KeyAndCertificate {
   /** The certificate, followed by its chain if it has one. */

@@ -641,3 +641,12 @@ textarea {
 .rows.approvals > li {
   list-style: none;
 }
+
+/* The server certificate page (AFS-54): PEM text, and a fingerprint that wraps. */
+textarea.mono {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 0.85em;
+}
+code.wrap {
+  overflow-wrap: anywhere;
+}

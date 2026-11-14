@@ -267,6 +267,12 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       notifier: notify,
+      certificate: {
+        store,
+        tls: config.tls,
+        defaultNames: selfSignedNames(config),
+        ...(publicHost(config) ? { host: publicHost(config) } : {}),
+      },
       dev: { maxBytes: config.devBundleMaxMb * 1024 * 1024, keepHours: config.devKeepHours },
       ...(config.publicUrl ? { publicUrl: config.publicUrl } : {}),
       trustedProxies: config.trustedProxies,
