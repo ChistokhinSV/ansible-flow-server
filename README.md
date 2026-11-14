@@ -383,7 +383,9 @@ just user add ci-pipeline --service
 just user token ci-pipeline --name nightly --workspace net --days 30
 ```
 
-Its tokens are listed and revoked like anyone's (`GET`/`DELETE /api/v1/users/<id>/tokens`).
+Its tokens are listed and revoked like anyone's (`GET`/`DELETE /api/v1/users/<id>/tokens`). On
+the pages, an administrator adds a service account at Administration > People and groups and makes
+its tokens on its page.
 A service account is given levels like a person (see [Access levels](#access-levels)).
 
 ### The API
@@ -408,22 +410,25 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
 The server serves its own pages at its address. A new server shows the first-run setup (the
 setup code from its log); after that, sign-in.
 
-| Page                                   | Shows                                                                                       |
-| -------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `/`                                    | The workspaces; administrators add one                                                      |
-| `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                        |
-| `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed |
-| `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                        |
-| `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values       |
-| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one           |
-| `/runs`                                | Every run, the newest first, filtered by state                                              |
-| `/runs/<id>`                           | One run: what ran, its approvals, the run on the canvas, its output; Stop and Run again     |
-| `/approvals`                           | What waits for a decision: yours to decide (with a comment), and others' with why not       |
-| `/docs/api`                            | The API reference, from the server's OpenAPI document                                       |
-| `/account`                             | Your profile (name, email address; webhook for administrators) and access tokens            |
-| `/admin`                               | Administration: the audit log; people, groups and the certificate are not built yet         |
-| `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON              |
-| `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                  |
+| Page                                   | Shows                                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/`                                    | The workspaces; administrators add one                                                                                     |
+| `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external                                                       |
+| `/w/<workspace>/<project>`             | State, commit, branches, its flows with their findings, the `git clone` command, who pushed                                |
+| `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                                                       |
+| `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values                                      |
+| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one                                          |
+| `/runs`                                | Every run, the newest first, filtered by state                                                                             |
+| `/runs/<id>`                           | One run: what ran, its approvals, the run on the canvas, its output; Stop and Run again                                    |
+| `/approvals`                           | What waits for a decision: yours to decide (with a comment), and others' with why not                                      |
+| `/docs/api`                            | The API reference, from the server's OpenAPI document                                                                      |
+| `/account`                             | Your profile (name, email address; webhook for administrators) and access tokens                                           |
+| `/admin`                               | Administration: people and groups, the audit log, notifications; the certificate is not built yet                          |
+| `/admin/people`                        | Everyone, with kind, state, groups and last sign-in; the groups; add a person, service account or group                    |
+| `/admin/people/<id>`                   | One account: profile, administrator, disable or enable, password, groups, tokens (made here for a service account), delete |
+| `/admin/groups/<id>`                   | One group: name, email address and webhook, members, delete                                                                |
+| `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON                                             |
+| `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                                                 |
 
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
@@ -434,7 +439,10 @@ setup code from its log); after that, sign-in.
   them.
 - A workspace's page has its Access for administrators: grants, and who can do what.
 - Each page shows only what the person's level lets them do; the server decides either way.
-- Not there yet: the pages for people, groups, credentials and the certificate.
+- Administrators manage people and groups at `/admin/people`. The server's rules stand there too
+  (the last administrator stays one; nobody disables or deletes themself), and a refusal is shown
+  as the server words it.
+- Not there yet: the pages for credentials and the certificate.
 
 ### Workspaces and projects
 

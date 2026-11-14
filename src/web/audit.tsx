@@ -11,6 +11,15 @@ export function AdminPage() {
       <PageHead title="Administration" />
       <ul className="cards">
         <li>
+          <Link to="/admin/people" className="card">
+            <strong>People and groups</strong>
+            <span className="muted">
+              Accounts, administrators, service accounts and their tokens, passwords, and the groups
+              access levels and approvals name.
+            </span>
+          </Link>
+        </li>
+        <li>
           <Link to="/admin/audit" className="card">
             <strong>Audit log</strong>
             <span className="muted">
@@ -30,8 +39,8 @@ export function AdminPage() {
         </li>
       </ul>
       <p className="empty">
-        People, groups and the server's certificate will be managed here too; until then they are
-        managed with the server's commands and API. This part of the server is not built yet.
+        The server's certificate will be managed here too; until then it is managed with the
+        server's commands. This part of the server is not built yet.
       </p>
     </>
   );
