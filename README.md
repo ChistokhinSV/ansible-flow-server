@@ -723,20 +723,22 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 }
 ```
 
-| Address (under `/api/v1`)            | Does                                                                                                                             | Who                                        |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `/workspaces`, `/workspaces/:id`     | List, add, change, delete (by id or key)                                                                                         | read: what you see; change: administrators |
-| `/workspaces/:id/projects`           | A workspace's projects; add one (its source is looked at at once)                                                                | as above                                   |
-| `/projects/:id`                      | A project; change its name, source, branch, timer; delete                                                                        | as above                                   |
-| `POST /projects/:id/sync`            | Look at the source now                                                                                                           | `rw` on the workspace                      |
-| `GET /samples`                       | The sample projects a hosted project can start from                                                                              | signed in                                  |
-| `POST /projects/:id/start`           | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                            | `rw` on the workspace                      |
-| `GET /projects/:id/branches`         | The branches the source has                                                                                                      | signed in                                  |
-| `GET /projects/:id/pushes`           | Who pushed what through the server, newest first                                                                                 | signed in                                  |
-| `GET /projects/:id/flows`            | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read | signed in                                  |
-| `GET /projects/:id/flows/view?path=` | One flow as the designer shows it (the flow, findings, positions, generated plays)                                               | signed in                                  |
-| `POST /projects/:id/hook`, `DELETE`  | Make a push hook (its token is shown once); remove it                                                                            | administrators                             |
-| `POST /hooks/projects/:id/push`      | Called by the git host with the hook's token                                                                                     | the token                                  |
+| Address (under `/api/v1`)             | Does                                                                                                                                | Who                                        |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `/workspaces`, `/workspaces/:id`      | List, add, change, delete (by id or key)                                                                                            | read: what you see; change: administrators |
+| `/workspaces/:id/projects`            | A workspace's projects; add one (its source is looked at at once)                                                                   | as above                                   |
+| `/projects/:id`                       | A project; change its name, source, branch, timer; delete                                                                           | as above                                   |
+| `POST /projects/:id/sync`             | Look at the source now                                                                                                              | `rw` on the workspace                      |
+| `GET /samples`                        | The sample projects a hosted project can start from                                                                                 | signed in                                  |
+| `POST /projects/:id/start`            | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                               | `rw` on the workspace                      |
+| `GET /projects/:id/branches`          | The branches: names, and each with its newest commit, commits not on the project's branch and the launch configurations that run it | signed in                                  |
+| `POST /projects/:id/branches`         | `{"name","from"}`: a branch from a branch or a commit                                                                               | `rw` on the workspace                      |
+| `DELETE /projects/:id/branches?name=` | Delete a branch; `&force=true` for one with commits not on the project's branch                                                     | `rw` on the workspace                      |
+| `GET /projects/:id/pushes`            | Who pushed what through the server, newest first                                                                                    | signed in                                  |
+| `GET /projects/:id/flows`             | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read    | signed in                                  |
+| `GET /projects/:id/flows/view?path=`  | One flow as the designer shows it (the flow, findings, positions, generated plays)                                                  | signed in                                  |
+| `POST /projects/:id/hook`, `DELETE`   | Make a push hook (its token is shown once); remove it                                                                               | administrators                             |
+| `POST /hooks/projects/:id/push`       | Called by the git host with the hook's token                                                                                        | the token                                  |
 
 - **The source** is `https://…`, `ssh://…` or `git@host:path`. An address with a password in it
   is refused. A folder of this machine is allowed only with `AFS_GIT_LOCAL=on`.
@@ -799,6 +801,23 @@ While the server uses its own first certificate, tell git to trust it:
 - **The project's branch** (`gitRef`) cannot be deleted and its history cannot be rewritten
   through the server. Other branches are free. Only branches are pushed, not tags.
 - **Who pushed** is kept (`GET /projects/:id/pushes`); commits keep their own authors.
+
+#### Branches
+
+The project's page lists its branches with their newest commit and how many of its commits are
+not on the project's branch. Who may push makes a branch from a branch or a commit and deletes
+one; administrators make another branch the project's branch (the one that runs), which is
+`PATCH /projects/:id {"gitRef"}`.
+
+- **For a project with a source** the branch is made or deleted at the source first, with the
+  project's credential, as a push through the server is; the mirror follows only what the source
+  took.
+- **Never deleted:** the project's branch, and a branch a launch configuration runs (the answer
+  names them; change those first).
+- **Asked again:** a branch with commits that are not on the project's branch (`409 unmerged`
+  with the count; `force=true` deletes it). For a hosted project those commits are then gone.
+- Each change is in the record of pushes and the audit log (`project.branch-create`,
+  `project.branch-delete`, with the branch's name).
 - Deleting a hosted project puts its repository aside in `data/repos/deleted`: it was the
   only copy.
 

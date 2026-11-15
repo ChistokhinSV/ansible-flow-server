@@ -4,6 +4,7 @@
 //   /api/v1/workspaces, /workspaces/:id            :id is the workspace's id or its key
 //   /api/v1/workspaces/:id/projects
 //   /api/v1/projects/:id, /sync, /branches, /pushes, /hook
+//   /api/v1/projects/:id/branches                  list with commits, make, delete (AFS-59)
 //   /api/v1/projects/:id/flows, /flows/view?path=   the flows at the project's commit
 //   /api/v1/projects/:id/events, /changes, /flows/history   who changed which flow (AFS-75)
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
@@ -15,6 +16,7 @@ import { accessOf } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
+import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError } from './git';
 import {
@@ -95,6 +97,13 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
         if (e instanceof StartRefused)
           return reply.code(400).send({ error: 'invalid', message: e.message });
+        if (e instanceof BranchRefused)
+          return reply
+            .code(e.code === 'not_found' ? 404 : 409)
+            .send({ error: e.code, message: e.message, ...e.details });
+        // A source that refused a branch change: its reason, without what git said around it.
+        if (e instanceof GitError)
+          return reply.code(400).send({ error: 'source_refused', message: e.message });
         throw e;
       }
     };
@@ -362,13 +371,63 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     if (!signedIn(request, reply)) return reply;
     const project = await getProject(db, request.params.id);
     if (!project) return reply.code(404).send(NO_PROJECT);
-    try {
-      return { branches: await deps.git.branches(project.id) };
-    } catch (e) {
-      if (e instanceof GitError) return { branches: [] };
-      throw e;
-    }
+    // `branches`: the names, as before; `details`: each with its newest commit (AFS-59).
+    const details = await listBranches(deps, project);
+    return { branches: details.map((b) => b.name).sort(), details };
   });
+
+  app.post<WithId & { Body: { name: string; from: string } }>(
+    '/api/v1/projects/:id/branches',
+    { schema: { ...ID, ...body(['name', 'from'], { name: text(200, 1), from: text(200, 1) }) } },
+    answering(async (request, reply) => {
+      // rw on the workspace: checked before (api/catalog.ts).
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      request.auditDetail = { branch: request.body.name, from: request.body.from };
+      const made = await createBranch(deps, project, request.body, me);
+      request.log.info(
+        { by: me.login, project: project.key, branch: made.name, commit: made.commit.slice(0, 12) },
+        'Branch made',
+      );
+      return reply.code(201).send(made);
+    }),
+  );
+
+  app.delete<WithId & { Querystring: { name: string; force?: boolean } }>(
+    '/api/v1/projects/:id/branches',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name'],
+          properties: { name: text(200, 1), force: { type: 'boolean' } },
+        },
+      },
+    },
+    answering(async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      request.auditDetail = { branch: request.query.name, force: request.query.force === true };
+      const gone = await deleteBranch(
+        deps,
+        project,
+        request.query.name,
+        { force: request.query.force === true },
+        me,
+      );
+      request.log.info(
+        { by: me.login, project: project.key, branch: gone.name, was: gone.commit.slice(0, 12) },
+        'Branch deleted',
+      );
+      return reply.code(200).send(gone);
+    }),
+  );
 
   app.get<WithId & { Querystring: { limit?: number } }>(
     '/api/v1/projects/:id/pushes',

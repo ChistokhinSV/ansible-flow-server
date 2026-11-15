@@ -170,7 +170,23 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The first commit of a hosted project with none: {"sample"}, or a zip or tar.gz as the body'),
-  'GET /api/v1/projects/:id/branches': S('Projects', 'signed in', P)("A project's branches"),
+  'GET /api/v1/projects/:id/branches': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    "A project's branches: names, and each with its newest commit, commits not on the project's branch and the launch configurations that run it",
+  ),
+  'POST /api/v1/projects/:id/branches': S(
+    'Projects',
+    'signed in',
+    P,
+  )('Make a branch from a branch or a commit (at the source first for a project with one)'),
+  'DELETE /api/v1/projects/:id/branches': S(
+    'Projects',
+    'signed in',
+    P,
+  )("Delete a branch (?name=, ?force=true for one with commits not on the project's branch)"),
   'GET /api/v1/projects/:id/pushes': S(
     'Projects',
     'signed in',
@@ -739,6 +755,8 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
+  'POST /api/v1/projects/:id/branches': 'rw on the workspace',
+  'DELETE /api/v1/projects/:id/branches': 'rw on the workspace',
   'POST /api/v1/projects/:id/start': 'rw on the workspace',
   'GET /git/:workspace/:repo/info/refs': 'ro on the workspace',
   'POST /git/:workspace/:repo/git-upload-pack': 'ro on the workspace',

@@ -45,7 +45,30 @@ const signedInAs = (user: typeof dana) => ({
   'GET /workspaces': () => ({ body: [network] }),
   'GET /workspaces/network': () => ({ body: network }),
   'GET /workspaces/network/projects': () => ({ body: [edge, lab] }),
-  'GET /projects/p1/branches': () => ({ body: { branches: ['main', 'try/idea'] } }),
+  'GET /projects/p1/branches': () => ({
+    body: {
+      branches: ['main', 'try/idea'],
+      details: [
+        {
+          name: 'try/idea',
+          commit: '41d7a0c93be2f5681a0c4e7d9b3f2a6c8e1d0b57',
+          author: 'Omar Haddad',
+          at: '2026-11-13T12:09:23.386Z',
+          subject: 'Try NTP pools',
+          ahead: 2,
+        },
+        {
+          name: 'main',
+          commit: '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b',
+          author: 'Dana Whitfield',
+          at: '2026-11-13T10:00:00.000Z',
+          subject: 'Edge baseline v7',
+          ahead: 0,
+          project: true,
+        },
+      ],
+    },
+  }),
   'GET /projects/p2/branches': () => ({ body: { branches: [] } }),
   'GET /projects/p1/pushes?limit=20': () => ({
     body: [
@@ -265,7 +288,11 @@ describe('signed in', () => {
     ).toBeTruthy();
     expect(screen.getByText('up to date')).toBeTruthy();
     expect(screen.getByText('9f2c1e7ab3d4')).toBeTruthy();
-    await screen.findByText('main, try/idea');
+    const branches = (await screen.findByRole('heading', { name: 'Branches' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(branches.textContent).toContain('try/idea');
+    expect(branches.textContent).toContain('Try NTP pools');
     const row = (await screen.findByText('omar')).closest('tr');
     expect(row?.textContent).toContain('9f2c1e7a');
     expect(row?.textContent).toContain('41d7a0c9');
@@ -273,6 +300,56 @@ describe('signed in', () => {
     // The breadcrumb leads back.
     fireEvent.click(screen.getByRole('link', { name: 'network' }));
     await screen.findByRole('heading', { name: 'Network team' });
+  });
+
+  it("makes and deletes branches, and makes one the project's branch (AFS-59)", async () => {
+    const asked: [string, unknown][] = [];
+    const confirms: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      confirms.push(text);
+      return true;
+    });
+    routes = {
+      ...signedInAs(dana),
+      'POST /projects/p1/branches': (body) => {
+        asked.push(['create', body]);
+        return { status: 201, body: { name: 'feature/ntp', commit: edge.commit } };
+      },
+      'DELETE /projects/p1/branches?name=try%2Fidea&force=true': () => {
+        asked.push(['delete', 'try/idea']);
+        return { body: { name: 'try/idea', commit: edge.commit } };
+      },
+      'PATCH /projects/p1': (body) => {
+        asked.push(['patch', body]);
+        return { body: { ...edge, gitRef: 'try/idea' } };
+      },
+    };
+    window.history.replaceState(null, '', '/w/network/edge');
+    render(<App />);
+    const panel = (await screen.findByRole('heading', { name: 'Branches' })).closest(
+      'section',
+    ) as HTMLElement;
+    // The branch that runs cannot be deleted from here.
+    expect(screen.queryByRole('button', { name: 'Delete main' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete try/idea' }));
+    await waitFor(() => expect(asked).toEqual([['delete', 'try/idea']]));
+    expect(confirms[0]).toBe('Delete the branch try/idea? It has 2 commits not on main.');
+
+    fireEvent.click(screen.getByRole('button', { name: "Make it the project's branch" }));
+    await waitFor(() => expect(asked[1]).toEqual(['patch', { gitRef: 'try/idea' }]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'New branch' }));
+    fireEvent.change(
+      screen.getByLabelText('Name', { selector: 'section[aria-labelledby=branches] input' }),
+      {
+        target: { value: 'feature/ntp' },
+      },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Make the branch' }));
+    await waitFor(() =>
+      expect(asked[2]).toEqual(['create', { name: 'feature/ntp', from: 'main' }]),
+    );
+    expect(panel.isConnected).toBe(true);
   });
 
   it("lists a project's flows with their findings, and shows one on the designer's page", async () => {

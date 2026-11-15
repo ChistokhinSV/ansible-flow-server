@@ -29,6 +29,7 @@ import type {
   SmtpSecurity,
   SmtpSettings,
 } from '../server/notify/types';
+import type { Branch } from '../server/projects/branches';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
@@ -40,6 +41,7 @@ import type { CertificateInfo, CertificateState } from '../server/tls/types';
 export type {
   AuditEntry,
   AuditFilter,
+  Branch,
   CertificateInfo,
   CertificateState,
   Credential,
@@ -222,10 +224,20 @@ export const api = {
   startProject: (id: string, from: { sample: string } | File) =>
     call<Project>('POST', `/projects/${id}/start`, from),
   /** `gitCredential: null`: the source is read without signing in. */
-  changeProject: (id: string, input: { gitCredential?: string | null }) =>
+  changeProject: (id: string, input: { gitCredential?: string | null; gitRef?: string }) =>
     call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
-  branches: (id: string) => call<{ branches: string[] }>('GET', `/projects/${id}/branches`),
+  branches: (id: string) =>
+    call<{ branches: string[]; details?: Branch[] }>('GET', `/projects/${id}/branches`),
+  /** AFS-59: a branch from a branch or a commit. */
+  createBranch: (id: string, input: { name: string; from: string }) =>
+    call<{ name: string; commit: string }>('POST', `/projects/${id}/branches`, input),
+  /** AFS-59: `force` for a branch with commits that are not on the project's branch. */
+  deleteBranch: (id: string, name: string, force = false) =>
+    call<{ name: string; commit: string }>(
+      'DELETE',
+      `/projects/${id}/branches?name=${encodeURIComponent(name)}${force ? '&force=true' : ''}`,
+    ),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
   /** AFS-76: the project's drafts (flows being edited in the pages). */

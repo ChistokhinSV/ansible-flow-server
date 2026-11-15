@@ -63,6 +63,8 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/projects/:id/start': { action: 'project.start', id: at() },
   'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
   'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },
+  'POST /api/v1/projects/:id/branches': { action: 'project.branch-create', id: at() },
+  'DELETE /api/v1/projects/:id/branches': { action: 'project.branch-delete', id: at() },
   'POST /api/v1/projects/:id/hook': { action: 'project.hook-set', id: at() },
   'DELETE /api/v1/projects/:id/hook': { action: 'project.hook-remove', id: at() },
   'POST /api/v1/hooks/projects/:id/push': { action: 'project.hook-push', id: at() },
@@ -289,6 +291,8 @@ declare module 'fastify' {
   interface FastifyRequest {
     /** The name of the object a change is about, read before the change. */
     auditName?: string;
+    /** Names a route adds to its entry that are not secret (a branch, AFS-59). */
+    auditDetail?: Record<string, string | boolean>;
   }
 }
 
@@ -348,6 +352,7 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     const result = resultOf(status);
     const detail = detailOfBody(request.method, request.body);
     if (spec.parent && params.id) detail[spec.parent] = params.id;
+    Object.assign(detail, request.auditDetail);
     if (result !== 'ok' && typeof answer.error === 'string') detail.error = answer.error;
 
     let actor: AuditEntry['actor'] = request.user

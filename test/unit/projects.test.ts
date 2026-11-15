@@ -448,7 +448,7 @@ describe('workspaces and projects over HTTP', () => {
     expect((list as { key: string }[]).map((p) => p.key)).toEqual(['broken', 'flows']);
     expect(
       (await call('GET', `/api/v1/projects/${project.id}/branches`, { cookie: member })).json(),
-    ).toEqual({ branches: ['main'] });
+    ).toMatchObject({ branches: ['main'], details: [{ name: 'main', project: true, ahead: 0 }] });
   });
 
   it('sync on request, a change of branch, and delete', async () => {
