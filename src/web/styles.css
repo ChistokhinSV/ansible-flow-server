@@ -791,3 +791,10 @@ a.button.primary {
   flex: 1 1 16rem;
   min-width: 0;
 }
+
+/* AFS-60: a short list without bullets (host key fingerprints). */
+ul.plain {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.25rem 0;
+}

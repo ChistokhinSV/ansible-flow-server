@@ -314,7 +314,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                 key: input.key,
                 name: input.name,
                 ...(input.hosted ? {} : { gitUrl: input.gitUrl }),
-                ...(!input.hosted && https(input.gitUrl) && input.gitCredential
+                ...(!input.hosted && signsIn(input.gitUrl) && input.gitCredential
                   ? { gitCredential: input.gitCredential }
                   : {}),
                 ...(input.hosted && start.from === 'sample' && start.sample
@@ -376,8 +376,9 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                 hint="https://, ssh:// or git@host:path. No password in the address."
               />
             )}
-            {!input.hosted && https(input.gitUrl) && (
+            {!input.hosted && signsIn(input.gitUrl) && (
               <GitCredentialChoice
+                ssh={sshUrl(input.gitUrl)}
                 workspace={workspace}
                 value={input.gitCredential}
                 onChange={(gitCredential) => setInput({ ...input, gitCredential })}
@@ -417,6 +418,87 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
 // --- a project
 
 const https = (url?: string) => /^https:\/\//i.test(url?.trim() ?? '');
+/** AFS-60: an ssh address (ssh:// or user@host:path). */
+const sshUrl = (url?: string) =>
+  /^ssh:\/\//i.test(url?.trim() ?? '') || /^[\w.-]+@[\w.-]+:[^/\\]/.test(url?.trim() ?? '');
+/** A source that signs in: https with a token or login, ssh with a key. */
+const signsIn = (url?: string) => https(url) || sshUrl(url);
+
+/** AFS-60: the host key trusted for an ssh source; administrators accept a changed one. */
+function HostKey({
+  project,
+  admin,
+  onChanged,
+}: {
+  project: Project;
+  admin: boolean;
+  onChanged(): void;
+}) {
+  const key = useLoad(() => api.hostKey(project.id), [project.id, project.sync.at]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const changed = /SSH host key is not the one the server trusts/.test(project.sync.error ?? '');
+  if (!key.data?.host) return null;
+  return (
+    <div className="field">
+      <strong>SSH host key</strong> <code>{key.data.host}</code>
+      {key.data.keys.length ? (
+        <ul className="plain">
+          {key.data.keys.map((k) => (
+            <li key={k}>
+              <code>{k}</code>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="muted">
+          Not trusted yet: the next look at the source trusts the key it finds.
+        </div>
+      )}
+      {changed && (
+        <p className="notice error" role="alert">
+          The host shows another key than the one trusted. That happens when the server was
+          reinstalled, or when someone is in between.
+          {admin
+            ? ' Accept it only if you know why it changed.'
+            : ' An administrator can accept it.'}
+        </p>
+      )}
+      {error && (
+        <p className="notice error" role="alert">
+          {error}
+        </p>
+      )}
+      {admin && changed && (
+        <button
+          type="button"
+          className="danger"
+          disabled={busy}
+          onClick={async () => {
+            if (
+              !window.confirm(
+                `Forget the trusted key of ${key.data?.host} and trust the key it shows now?`,
+              )
+            )
+              return;
+            setBusy(true);
+            setError(undefined);
+            try {
+              await api.forgetHostKey(project.id);
+              onChanged();
+            } catch (e) {
+              setError(messageOf(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Accept the new host key
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** What an external project signs in to its https source with; saving looks at the source again. */
 function SourceSignIn({
@@ -441,6 +523,7 @@ function SourceSignIn({
       }}
     >
       <GitCredentialChoice
+        ssh={sshUrl(project.gitUrl)}
         workspace={workspace}
         value={value}
         onChange={(v) => {
@@ -795,7 +878,10 @@ export function ProjectPage({
             )}
           </dd>
         </dl>
-        {me.admin && !project.hosted && https(project.gitUrl) && (
+        {!project.hosted && sshUrl(project.gitUrl) && (
+          <HostKey project={project} admin={me.admin} onChanged={found.reload} />
+        )}
+        {me.admin && !project.hosted && signsIn(project.gitUrl) && (
           <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
         )}
       </section>

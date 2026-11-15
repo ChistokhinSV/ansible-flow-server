@@ -183,3 +183,49 @@ describe("a project's git credential", () => {
     expect(sent('PATCH /projects/p1')).toEqual([{ gitCredential: 'c2' }]);
   });
 });
+
+describe('an ssh source (AFS-60)', () => {
+  it('signs in with an SSH key, shows the trusted host key, and an administrator accepts a changed one', async () => {
+    let edge = {
+      id: 'p1',
+      workspace: 'w1',
+      key: 'edge',
+      name: 'Edge',
+      hosted: false,
+      gitUrl: 'git@git.example.net:network/edge-flows.git',
+      gitRef: 'main',
+      sync: {
+        state: 'error',
+        error:
+          "The source's SSH host key is not the one the server trusts: if the change is expected, an administrator accepts the new key on the project's page",
+      },
+    } as Record<string, unknown>;
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /workspaces/network/projects': () => ({ body: [edge] }),
+      'GET /workspaces/network/credentials': () => ({ body: [sshKey, gitToken] }),
+      'GET /projects/p1/host-key': () => ({
+        body: { host: 'git.example.net', keys: ['ED25519 SHA256:ZmljdGlvbmFsIGhvc3Qga2V5'] },
+      }),
+      'POST /projects/p1/host-key/forget': () => {
+        edge = { ...edge, sync: { state: 'ok', at: '2026-11-15T10:00:00.000Z' } };
+        return { body: edge };
+      },
+    };
+    open('/w/network/edge');
+    await screen.findByText('ED25519 SHA256:ZmljdGlvbmFsIGhvc3Qga2V5');
+    expect(screen.getByText(/another key than the one trusted/)).toBeTruthy();
+    const choice = (await screen.findByLabelText('Signs in with')) as HTMLSelectElement;
+    await waitFor(() =>
+      expect([...choice.options].map((o) => o.textContent)).toEqual([
+        "the server's own SSH key",
+        'edge-ssh (SSH key)',
+      ]),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Accept the new host key' }));
+    await waitFor(() => expect(sent('POST /projects/p1/host-key/forget')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Accept the new host key' })).toBeNull(),
+    );
+  });
+});

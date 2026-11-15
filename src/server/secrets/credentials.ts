@@ -298,12 +298,24 @@ export async function reveal(db: Db, key: MasterKey, id: string): Promise<Reveal
 }
 
 /** What git sends as HTTP Basic sign-in for a credential a project may use for its source. */
-export function gitAuthOf(revealed: Revealed): { username: string; password: string } | undefined {
+export function gitAuthOf(
+  revealed: Revealed,
+):
+  | { username: string; password: string }
+  | { privateKey: string; passphrase?: string; username?: string }
+  | undefined {
   if (revealed.kind === 'git_token' && revealed.secret.token)
     // A token needs a user name on the wire; most hosts accept any.
     return { username: revealed.fields.username ?? 'git', password: revealed.secret.token };
   if (revealed.kind === 'login' && revealed.fields.username && revealed.secret.password)
     return { username: revealed.fields.username, password: revealed.secret.password };
+  // AFS-60: an ssh source signs in with a key (its user from the address, else this one).
+  if (revealed.kind === 'ssh_key' && revealed.secret.privateKey)
+    return {
+      privateKey: revealed.secret.privateKey,
+      ...(revealed.secret.passphrase ? { passphrase: revealed.secret.passphrase } : {}),
+      ...(revealed.fields.username ? { username: revealed.fields.username } : {}),
+    };
   return undefined;
 }
 

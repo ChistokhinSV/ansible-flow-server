@@ -18,7 +18,7 @@ import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
 import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
-import { type Git, GitError } from './git';
+import { type Git, GitError, sshHost } from './git';
 import {
   archiveFiles,
   listSamples,
@@ -358,6 +358,40 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         'Project started',
       );
       return reply.code(201).send(started.project);
+    }),
+  );
+
+  // --- AFS-60: the SSH host key the server trusts for a project's ssh source
+
+  app.get<WithId>('/api/v1/projects/:id/host-key', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const project = await getProject(db, request.params.id);
+    if (!project) return reply.code(404).send(NO_PROJECT);
+    const host = project.gitUrl ? sshHost(project.gitUrl) : undefined;
+    if (!host || !project.gitUrl) return { keys: [] };
+    return { host, keys: await deps.git.hostKeys(project.gitUrl) };
+  });
+
+  app.post<WithId>(
+    '/api/v1/projects/:id/host-key/forget',
+    { schema: ID },
+    answering(async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      const host = project.gitUrl ? sshHost(project.gitUrl) : undefined;
+      if (!host || !project.gitUrl)
+        return reply.code(400).send({ error: 'invalid', message: 'The project has no ssh source' });
+      const before = await deps.git.hostKeys(project.gitUrl);
+      await deps.git.forgetHostKeys(project.gitUrl);
+      request.auditDetail = { host, forgot: before.join(', ') };
+      request.log.warn(
+        { by: me.login, project: project.key, host, forgot: before },
+        'SSH host key forgotten: the next look at the source trusts the key it finds',
+      );
+      // The next look trusts what the host shows now.
+      return (await deps.sync.sync(project.id)) ?? reply.code(404).send(NO_PROJECT);
     }),
   );
 

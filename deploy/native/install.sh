@@ -83,6 +83,8 @@ case "$ARCH" in x86_64) ARCH=x64 ;; aarch64 | arm64) ARCH=arm64 ;; esac
 [ "$(cat "$HERE/ARCH")" = "$ARCH" ] || die "this bundle is for linux-$(cat "$HERE/ARCH"), the machine is $ARCH"
 "$HERE/node/bin/node" --version >/dev/null || die "the bundled Node.js does not run here"
 command -v git >/dev/null || die "git is needed (apt install git / dnf install git)"
+command -v ssh >/dev/null && command -v ssh-keygen >/dev/null ||
+  say "Note: projects with an ssh:// or git@ source need ssh and ssh-keygen (apt install openssh-client / dnf install openssh-clients)"
 case "$ENGINE" in
 podman)
   command -v podman >/dev/null ||

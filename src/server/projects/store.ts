@@ -304,8 +304,7 @@ async function credentialProblem(
   gitUrl: string,
 ): Promise<string | undefined> {
   if (!gitUrl) return 'The server hosts this project: there is no source to sign in to';
-  if (!/^https?:\/\//i.test(gitUrl))
-    return 'A credential is for a source reached over https; an ssh source uses the server’s own key';
+  const ssh = !/^https?:\/\//i.test(gitUrl);
   const credential = await db
     .selectFrom('credential')
     .select(['workspace_id', 'kind'])
@@ -313,8 +312,11 @@ async function credentialProblem(
     .executeTakeFirst();
   if (!credential || credential.workspace_id !== workspaceId)
     return 'The workspace has no such credential';
-  if (credential.kind !== 'git_token' && credential.kind !== 'login')
-    return 'A repository is signed in to with a git token or a login, not another kind of credential';
+  // AFS-60: an ssh source signs in with a key; an https one with a token or a login.
+  if (ssh && credential.kind !== 'ssh_key')
+    return 'An ssh source is signed in to with an SSH key credential';
+  if (!ssh && credential.kind !== 'git_token' && credential.kind !== 'login')
+    return 'An https source is signed in to with a git token or a login, not another kind of credential';
   return undefined;
 }
 
@@ -359,11 +361,12 @@ export async function updateProject(
     );
     if (why) throw new ProjectError('invalid', why);
   }
-  // A source that is no longer reached over https has no use for the credential it had.
+  // A source now reached another way (https or ssh, AFS-60) has no use for the credential it had.
+  const https = (url?: string) => /^https?:\/\//i.test(url?.trim() ?? '');
   const dropped =
     change.gitCredential === undefined &&
     change.gitUrl !== undefined &&
-    !/^https?:\/\//i.test(change.gitUrl.trim());
+    https(change.gitUrl) !== https(current.gitUrl);
   const moved =
     change.gitUrl !== undefined ||
     change.gitRef !== undefined ||
