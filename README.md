@@ -1116,6 +1116,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   commit (a hand-edited `generated/` file has no effect).
 - In the launch's image, else `AFS_EE_IMAGE`. Without a container engine (or with
   `AFS_CONTAINER_ENGINE=off`) runs wait in the queue.
+- **The repository's files and config:** before Ansible starts, the designer's probe reads the
+  repository's `ansible.cfg` in the run's image (for a moment, without the run's credentials).
+  The run keeps the callbacks it enables and the paths it gives, and adds the repository's own
+  `library/` (with `module_utils/`), `filter_plugins/`, `lookup_plugins/`, `test_plugins/`,
+  `action_plugins/` and its root `group_vars/` and `host_vars/`, as a run from VS Code does. A
+  relative file a step reads (`templates/motd.j2`) is the repository's. When the config cannot be
+  read, the run goes on without these and the server's log says why.
 - Credentials: SSH key (mounted read-only for the run; a key with a passphrase is unlocked into
   an ssh-agent inside the run, so the image needs `openssh-client`), login and become
   passwords, the vault password, environment variables, and a registry sign-in: before the run

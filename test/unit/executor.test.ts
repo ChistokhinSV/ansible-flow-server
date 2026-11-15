@@ -25,7 +25,7 @@ import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { registrySignIn, runCredentials } from '../../src/server/runs/credentials';
-import { Executor, usernsOptions } from '../../src/server/runs/executor';
+import { Executor, type ExecutorOptions, usernsOptions } from '../../src/server/runs/executor';
 import { RunQueue } from '../../src/server/runs/queue';
 import { registryOf } from '../../src/server/runs/registry';
 import { rootFromGenerated, writeGenerated } from '../../src/server/runs/workdir';
@@ -143,7 +143,10 @@ async function launch(request: Parameters<typeof prepareLaunch>[2] = {}) {
 }
 
 /** An executor whose Ansible is `fake`, and what it saw. */
-function executor(fake: Fake, options: { timeoutMs?: number } = {}) {
+function executor(
+  fake: Fake,
+  options: { timeoutMs?: number; repoConfig?: ExecutorOptions['repoConfig'] } = {},
+) {
   const seen: Seen[] = [];
   const log = createLogger({ level: 'debug', format: 'json', write: (l) => lines.push(l) });
   const ex = new Executor(
@@ -157,6 +160,7 @@ function executor(fake: Fake, options: { timeoutMs?: number } = {}) {
       timeoutMs: options.timeoutMs ?? 60_000,
       heartbeatMs: 30,
       pollMs: 20,
+      ...(options.repoConfig ? { repoConfig: options.repoConfig } : {}),
       runner: async (request, hooks) => {
         const s: Seen = { request, hooks };
         const keyMount = request.env.kind === 'container' ? request.env.mounts[0] : undefined;
@@ -188,6 +192,42 @@ const until = async (check: () => Promise<boolean>, ms = 5000) => {
 };
 const ended = (id: string) =>
   until(async () => !['queued', 'running'].includes((await queue.get(id))?.state ?? ''));
+
+describe("the repository's Ansible config (AFS-80)", () => {
+  it('is read in the run image over the run checkout and goes into the run', async () => {
+    const asked: { image: string; root: string; name: string }[] = [];
+    const config = {
+      enabled: ['profile_tasks'],
+      paths: ['/usr/share/ansible/plugins/callback'],
+      plugins: { library: ['/usr/share/ansible/plugins/modules'] },
+      varsEnabled: ['host_group_vars'],
+    };
+    const { ex, seen } = executor(async () => ({ rc: 0 }), {
+      repoConfig: async (o) => {
+        asked.push({ image: o.image, root: o.root, name: o.name });
+        return config;
+      },
+    });
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.image).toBe('afd-ee:2.19');
+    expect(asked[0]?.root).toBe(seen[0]?.request.root);
+    expect(seen[0]?.request.callbacks).toEqual(config);
+  });
+
+  it('a config that cannot be read leaves the run as before', async () => {
+    const { ex, seen } = executor(async () => ({ rc: 0 }), { repoConfig: async () => undefined });
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect((await queue.get(run.id))?.state).toBe('succeeded');
+    expect(seen[0]?.request.callbacks).toBeUndefined();
+  });
+});
 
 describe('a run', () => {
   it("gets the commit's files, the flow's code fresh, its inputs and credentials, and ends", async () => {
