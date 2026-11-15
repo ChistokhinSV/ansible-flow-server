@@ -177,6 +177,100 @@ function SyncBadge({ project }: { project: Project }) {
   return <span className="badge">{project.hosted ? 'empty' : 'not read yet'}</span>;
 }
 
+/** AFS-58: why the archive a project was made with was refused, for its page to say. */
+let startRefusal: string | undefined;
+
+/** AFS-58: what an empty hosted project starts with: a sample, or an archive of files. */
+function StartChoice({
+  value,
+  onChange,
+  empty = true,
+}: {
+  /** Offer starting with nothing (when making a project). */
+  empty?: boolean;
+  value: { from: 'empty' | 'sample' | 'archive'; sample: string; archive?: File };
+  onChange(v: { from: 'empty' | 'sample' | 'archive'; sample: string; archive?: File }): void;
+}) {
+  const samples = useLoad(() => api.samples(), []);
+  const chosen = samples.data?.find((s) => s.key === value.sample);
+  // The first sample is chosen until another is: also when the list comes after the choice.
+  const first = samples.data?.[0]?.key;
+  useEffect(() => {
+    if (value.from === 'sample' && !value.sample && first) onChange({ ...value, sample: first });
+  }, [value, first, onChange]);
+  return (
+    <fieldset>
+      <legend>Start with</legend>
+      {empty && (
+        <label className="choice">
+          <input
+            type="radio"
+            name="start"
+            checked={value.from === 'empty'}
+            onChange={() => onChange({ ...value, from: 'empty' })}
+          />
+          Nothing: the first push makes the branch
+        </label>
+      )}
+      <label className="choice">
+        <input
+          type="radio"
+          name="start"
+          checked={value.from === 'sample'}
+          onChange={() =>
+            onChange({
+              ...value,
+              from: 'sample',
+              sample: value.sample || samples.data?.[0]?.key || '',
+            })
+          }
+        />
+        A sample project
+      </label>
+      {value.from === 'sample' && (
+        <div className="field">
+          <label htmlFor="start-sample">Sample</label>
+          <select
+            id="start-sample"
+            value={value.sample}
+            onChange={(e) => onChange({ ...value, sample: e.target.value })}
+          >
+            {samples.data?.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          {chosen && <small className="muted">{chosen.description}</small>}
+        </div>
+      )}
+      <label className="choice">
+        <input
+          type="radio"
+          name="start"
+          checked={value.from === 'archive'}
+          onChange={() => onChange({ ...value, from: 'archive' })}
+        />
+        An archive of files (zip or tar.gz)
+      </label>
+      {value.from === 'archive' && (
+        <div className="field">
+          <label htmlFor="start-archive">Archive</label>
+          <input
+            id="start-archive"
+            type="file"
+            accept=".zip,.tar.gz,.tgz,application/zip,application/gzip"
+            onChange={(e) => onChange({ ...value, archive: e.target.files?.[0] })}
+          />
+          <small className="muted">
+            Committed as it is; one folder that holds everything is taken off.
+          </small>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
 export function Workspace({ me, workspace }: { me: User; workspace: string }) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
   const projects = useLoad(() => api.projects(workspace), [workspace]);
@@ -188,6 +282,11 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
     hosted: true,
     gitCredential: '',
   });
+  const [start, setStart] = useState<{
+    from: 'empty' | 'sample' | 'archive';
+    sample: string;
+    archive?: File;
+  }>({ from: 'empty', sample: '' });
   return (
     <>
       <nav aria-label="Breadcrumb" className="crumbs">
@@ -207,6 +306,9 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
             submit="Add"
             onCancel={() => setAdding(false)}
             onSubmit={async () => {
+              const archive = input.hosted && start.from === 'archive' ? start.archive : undefined;
+              if (input.hosted && start.from === 'archive' && !archive)
+                throw new Error('Choose the archive to start with');
               const made = await api.addProject(workspace, {
                 key: input.key,
                 name: input.name,
@@ -214,7 +316,15 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                 ...(!input.hosted && https(input.gitUrl) && input.gitCredential
                   ? { gitCredential: input.gitCredential }
                   : {}),
+                ...(input.hosted && start.from === 'sample' && start.sample
+                  ? { sample: start.sample }
+                  : {}),
               });
+              // The project is made either way; its page says if the archive was refused.
+              if (archive)
+                await api.startProject(made.id, archive).catch((e: Error) => {
+                  startRefusal = e.message;
+                });
               navigate(`/w/${workspace}/${made.key}`);
             }}
           >
@@ -242,7 +352,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                   checked={input.hosted}
                   onChange={() => setInput({ ...input, hosted: true })}
                 />
-                Kept by this server (starts empty)
+                Kept by this server
               </label>
               <label className="choice">
                 <input
@@ -254,6 +364,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
                 An existing repository
               </label>
             </fieldset>
+            {input.hosted && <StartChoice value={start} onChange={setStart} />}
             {!input.hosted && (
               <Field
                 label="Repository address"
@@ -364,6 +475,48 @@ function FlowNews({ news, onDismiss }: { news: FlowChanges; onDismiss: () => voi
         Dismiss
       </button>
     </div>
+  );
+}
+
+/** AFS-58: an empty hosted project gets its first commit from a sample or an archive. */
+function StartPanel({ project, onStarted }: { project: Project; onStarted(): void }) {
+  const [start, setStart] = useState<{
+    from: 'empty' | 'sample' | 'archive';
+    sample: string;
+    archive?: File;
+  }>({ from: 'sample', sample: 'hello' });
+  const [refused] = useState(() => {
+    const said = startRefusal;
+    startRefusal = undefined;
+    return said;
+  });
+  return (
+    <section className="panel" aria-labelledby="start">
+      <h2 id="start">Start this project</h2>
+      <p className="muted">
+        The repository is empty. Give it a first commit from a sample or an archive of your files,
+        or push one with git.
+      </p>
+      {refused && (
+        <p className="notice error" role="alert">
+          The archive was refused: {refused}
+        </p>
+      )}
+      <Form
+        submit="Start"
+        onSubmit={async () => {
+          if (start.from === 'archive') {
+            if (!start.archive) throw new Error('Choose the archive to start with');
+            await api.startProject(project.id, start.archive);
+          } else if (start.from === 'sample')
+            await api.startProject(project.id, { sample: start.sample });
+          else return;
+          onStarted();
+        }}
+      >
+        <StartChoice value={start} onChange={setStart} empty={false} />
+      </Form>
+    </section>
   );
 }
 
@@ -481,6 +634,10 @@ export function ProjectPage({
           <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
         )}
       </section>
+
+      {project.hosted && !project.commit && (me.admin || access?.workspace === 'rw') && (
+        <StartPanel project={project} onStarted={found.reload} />
+      )}
 
       {/* The repository holds every flow: it is for who has a level on the workspace. */}
       {(me.admin || access?.workspace) && (

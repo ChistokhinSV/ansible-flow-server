@@ -442,6 +442,53 @@ describe('signed in', () => {
     await screen.findByText('There is no such project.');
   });
 
+  it('starts an empty hosted project from a sample, and makes one from a sample (AFS-58)', async () => {
+    const samples = [
+      { key: 'hello', name: 'Hello, Ansible', description: 'The smallest useful flow.' },
+      { key: 'edge-baseline', name: 'Edge baseline', description: 'NTP, AAA and syslog.' },
+    ];
+    let started = false;
+    const sent: unknown[] = [];
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces/network/projects': () => ({
+        body: [edge, started ? { ...lab, commit: 'a'.repeat(40), sync: { state: 'ok' } } : lab],
+      }),
+      'GET /samples': () => ({ body: samples }),
+      'POST /projects/p2/start': (body) => {
+        sent.push(body);
+        started = true;
+        return { status: 201, body: { ...lab, commit: 'a'.repeat(40) } };
+      },
+      'POST /workspaces/network/projects': (body) => {
+        sent.push(body);
+        return { status: 201, body: { ...lab, id: 'p3', key: 'try' } };
+      },
+    };
+    window.history.replaceState(null, '', '/w/network/lab');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Start this project' });
+    // Nothing to choose "start empty" from: it is empty already.
+    expect(screen.queryByLabelText(/Nothing: the first push/)).toBeNull();
+    await screen.findByText('The smallest useful flow.');
+    fireEvent.change(screen.getByLabelText('Sample'), { target: { value: 'edge-baseline' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Start this project' })).toBeNull(),
+    );
+    expect(sent).toEqual([{ sample: 'edge-baseline' }]);
+
+    navigate('/w/network');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add project' }));
+    type('Name', 'Try');
+    type('Key', 'try');
+    fireEvent.click(screen.getByLabelText('A sample project'));
+    await screen.findByText('The smallest useful flow.');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ key: 'try', name: 'Try', sample: 'hello' });
+  });
+
   it('makes an access token for one workspace, shows it once, and lists what it has', async () => {
     const made = {
       id: 't1',
