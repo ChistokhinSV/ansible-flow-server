@@ -1,7 +1,9 @@
 // Workspaces and projects, as rows, and the rules about them the database cannot keep.
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Schema, SyncState } from '../db/schema';
+import { open, seal } from '../secrets/crypto';
+import type { MasterKey } from '../secrets/masterKey';
 import { gitUrlProblem, refProblem } from './git';
 
 export interface Workspace {
@@ -36,6 +38,8 @@ export interface Project {
   pollSeconds: number;
   /** A push hook is set up (its token is shown only when it is made). */
   hook: boolean;
+  /** AFS-61: the hook can also check GitHub's signature (made since its secret is kept sealed). */
+  hookSigned: boolean;
 }
 
 export class ProjectError extends Error {
@@ -198,6 +202,7 @@ const projectOf = (row: ProjectRow, workspaceKey: string): Project => ({
   },
   pollSeconds: row.poll_seconds,
   hook: row.hook_token_hash !== null,
+  hookSigned: row.hook_secret_enc !== null,
 });
 
 const projectRows = (db: Db) =>
@@ -279,6 +284,7 @@ export async function createProject(
     poll_seconds: pollSeconds,
     git_credential_id: input.gitCredential ?? null,
     hook_token_hash: null,
+    hook_secret_enc: null,
     created_at: at,
     updated_at: at,
   };
@@ -532,11 +538,22 @@ const hashOf = (token: string) => createHash('sha256').update(token).digest('hex
  * Makes a new token for the project's push hook and resolves with it. It is shown this once;
  * the database keeps its hash. A token made before stops working.
  */
-export async function newHookToken(db: Db, id: string): Promise<string> {
+/** AFS-61: what the hook's sealed secret is sealed for. */
+const hookContext = (id: string) => `project-hook:${id}`;
+
+/**
+ * A new hook token: kept as a hash (a token sent in a header is checked against it) and, with the
+ * master key, sealed too (AFS-61: GitHub signs the body with it, so the server must read it).
+ */
+export async function newHookToken(db: Db, id: string, key?: MasterKey): Promise<string> {
   const token = randomBytes(24).toString('base64url');
   const done = await db
     .updateTable('project')
-    .set({ hook_token_hash: hashOf(token), updated_at: now() })
+    .set({
+      hook_token_hash: hashOf(token),
+      hook_secret_enc: key ? seal(key, token, hookContext(id)) : null,
+      updated_at: now(),
+    })
     .where('id', '=', id)
     .executeTakeFirst();
   if (!done.numUpdatedRows) throw new ProjectError('not_found', 'No such project');
@@ -546,7 +563,7 @@ export async function newHookToken(db: Db, id: string): Promise<string> {
 export async function removeHookToken(db: Db, id: string): Promise<void> {
   await db
     .updateTable('project')
-    .set({ hook_token_hash: null, updated_at: now() })
+    .set({ hook_token_hash: null, hook_secret_enc: null, updated_at: now() })
     .where('id', '=', id)
     .execute();
 }
@@ -561,4 +578,57 @@ export async function hookTokenMatches(db: Db, id: string, token: string): Promi
   // A project without a hook, and no project at all, compare against nothing anyone knows.
   const expected = Buffer.from(row?.hook_token_hash ?? hashOf(randomBytes(8).toString('hex')));
   return timingSafeEqual(Buffer.from(hashOf(token)), expected) && !!row?.hook_token_hash;
+}
+
+/**
+ * AFS-61: true when `signature` (GitHub's `X-Hub-Signature-256`, `sha256=<hex>`) is the HMAC of
+ * `body` with the project's hook secret. A project without a sealed secret, and no project at
+ * all, are checked against a secret nobody knows, so the answer takes the same time.
+ */
+export async function hookSignatureMatches(
+  db: Db,
+  key: MasterKey,
+  id: string,
+  body: Buffer,
+  signature: string,
+): Promise<boolean> {
+  const row = await db
+    .selectFrom('project')
+    .select('hook_secret_enc')
+    .where('id', '=', id)
+    .executeTakeFirst();
+  let secret = randomBytes(24).toString('base64url');
+  let known = false;
+  if (row?.hook_secret_enc)
+    try {
+      secret = open(key, row.hook_secret_enc, hookContext(id));
+      known = true;
+    } catch {
+      // Sealed with another key: no signature matches.
+    }
+  const expected = Buffer.from(
+    `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`,
+    'utf8',
+  );
+  const given = Buffer.from(signature, 'utf8');
+  return given.length === expected.length && timingSafeEqual(given, expected) && known;
+}
+
+/** AFS-61: the hook secrets, sealed again with another key (`secrets rotate`). */
+export async function resealHookSecrets(
+  db: Db,
+  again: (sealed: string, context: string) => string,
+): Promise<number> {
+  const rows = await db
+    .selectFrom('project')
+    .select(['id', 'hook_secret_enc'])
+    .where('hook_secret_enc', 'is not', null)
+    .execute();
+  for (const r of rows)
+    await db
+      .updateTable('project')
+      .set({ hook_secret_enc: again(r.hook_secret_enc as string, hookContext(r.id)) })
+      .where('id', '=', r.id)
+      .execute();
+  return rows.length;
 }

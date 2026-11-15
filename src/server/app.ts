@@ -160,7 +160,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // AFS-75: one watcher of the projects' branches for every event stream of this server.
     const watch = deps.projects.watch ?? new ProjectWatch(deps.database.db, deps.log);
     app.addHook('onClose', async () => watch.stop());
-    registerProjects(app, { db: deps.database.db, ...deps.projects, watch });
+    registerProjects(app, {
+      db: deps.database.db,
+      ...deps.projects,
+      watch,
+      ...(deps.masterKey ? { masterKey: deps.masterKey } : {}),
+    });
     // AFS-76: flows edited in the pages, together.
     registerDrafts(app, {
       db: deps.database.db,

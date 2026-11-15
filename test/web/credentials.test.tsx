@@ -229,3 +229,49 @@ describe('an ssh source (AFS-60)', () => {
     );
   });
 });
+
+describe('the push hook (AFS-61)', () => {
+  it('an administrator sets one up and sees the token once, with how to give it to GitHub', async () => {
+    let edge = {
+      id: 'p1',
+      workspace: 'w1',
+      key: 'edge',
+      name: 'Edge',
+      hosted: false,
+      gitUrl: 'https://git.example.net/network/edge-flows.git',
+      gitRef: 'main',
+      hook: false,
+      hookSigned: false,
+      sync: { state: 'ok' },
+    } as Record<string, unknown>;
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /workspaces/network/projects': () => ({ body: [edge] }),
+      'GET /workspaces/network/credentials': () => ({ body: [gitToken] }),
+      'POST /projects/p1/hook': () => {
+        edge = { ...edge, hook: true, hookSigned: true };
+        return {
+          status: 201,
+          body: {
+            token: 'fictional-hook-token',
+            url: '/api/v1/hooks/projects/p1/push',
+            headers: ['X-Gitlab-Token', 'X-AFS-Token', 'Authorization: Bearer'],
+            signature: 'X-Hub-Signature-256',
+          },
+        };
+      },
+    };
+    open('/w/network/edge');
+    const panel = (await screen.findByRole('heading', { name: 'Push hook' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(within(panel).getByText('No hook yet.')).toBeTruthy();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Set up a hook' }));
+    await within(panel).findByText('fictional-hook-token');
+    expect(
+      within(panel).getByText(`${window.location.origin}/api/v1/hooks/projects/p1/push`),
+    ).toBeTruthy();
+    expect(panel.textContent).toContain('the token as Secret');
+    await within(panel).findByRole('button', { name: 'Remove the hook' });
+  });
+});

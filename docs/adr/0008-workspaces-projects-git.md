@@ -59,7 +59,9 @@ hook and no such project get the same answer, and guessing is rate-limited.
   SSH one the server's own account can already reach.
 - **GitHub's signed hooks.** GitHub proves itself by signing the request with a secret the server
   must keep readable, which also waits for AFS-17. GitLab, Gitea and anything that can send a
-  header work now.
+  header work now. Done in AFS-61: the hook's token is kept sealed with the master key next to
+  its hash, and `X-Hub-Signature-256` is checked over the body's bytes (HMAC-SHA256, compared in
+  constant time; the same answer and limit as a wrong token).
 - **The server as the git address of every project**: ADR-0010 (AFS-14). Since then a project
   may have no source (the server hosts it), and one hook of the server's own runs for a push.
 - **Choosing the commit of a run.** A project's commit here is the newest of its branch, which a

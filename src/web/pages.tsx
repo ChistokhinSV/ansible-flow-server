@@ -770,6 +770,111 @@ function BranchesPanel({
   );
 }
 
+/**
+ * The push hook of a project with a source: the git host calls it when someone pushes, so the
+ * server looks at the source at once. Its token is shown once; GitHub uses it as the hook's
+ * secret and signs each call with it (AFS-61), GitLab and Gitea send it in a header.
+ */
+function PushHook({ project, onChanged }: { project: Project; onChanged(): void }) {
+  const [made, setMade] = useState<{ token: string; url: string }>();
+  const [error, setError] = useState<string>();
+  const act = async (work: () => Promise<unknown>) => {
+    setError(undefined);
+    try {
+      await work();
+      onChanged();
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+  const address = made ? `${window.location.origin}${made.url}` : '';
+  return (
+    <section className="panel" aria-labelledby="push-hook">
+      <h2 id="push-hook">Push hook</h2>
+      <p className="muted">
+        The git host calls it when someone pushes, and the server looks at the source at once
+        instead of waiting for its timer.
+      </p>
+      {error && (
+        <p className="notice error" role="alert">
+          {error}
+        </p>
+      )}
+      {!made && (
+        <p>
+          {project.hook
+            ? project.hookSigned
+              ? 'A hook is set up.'
+              : 'A hook is set up, made before signed hooks: for GitHub, make a new one.'
+            : 'No hook yet.'}
+        </p>
+      )}
+      {made && (
+        <div className="notice ok" role="status">
+          <p>Set it up at the git host now: the token is not shown again.</p>
+          <dl className="facts">
+            <dt>Address</dt>
+            <dd>
+              <Copyable text={address} label="the hook's address" />
+            </dd>
+            <dt>Token</dt>
+            <dd>
+              <Copyable text={made.token} label="the hook's token" />
+            </dd>
+          </dl>
+          <ul>
+            <li>
+              <strong>GitHub:</strong> Settings, Webhooks, Add webhook: the address as Payload URL,
+              content type <code>application/json</code>, the token as Secret, just the push event.
+            </li>
+            <li>
+              <strong>GitLab:</strong> Settings, Webhooks: the address as URL, the token as Secret
+              token, Push events.
+            </li>
+            <li>
+              <strong>Gitea, Forgejo, others:</strong> the address, and the token in an{' '}
+              <code>Authorization: Bearer</code> or <code>X-AFS-Token</code> header.
+            </li>
+          </ul>
+        </div>
+      )}
+      <div className="actions">
+        <button
+          type="button"
+          onClick={() =>
+            void act(async () => {
+              if (
+                project.hook &&
+                !window.confirm('Make a new hook token? The git host must be given the new one.')
+              )
+                return;
+              setMade(await api.makeHook(project.id));
+            })
+          }
+        >
+          {project.hook ? 'Make a new token' : 'Set up a hook'}
+        </button>
+        {project.hook && (
+          <button
+            type="button"
+            className="danger"
+            onClick={() =>
+              void act(async () => {
+                if (!window.confirm('Remove the push hook? Calls with its token are refused.'))
+                  return;
+                await api.removeHook(project.id);
+                setMade(undefined);
+              })
+            }
+          >
+            Remove the hook
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function ProjectPage({
   me,
   workspace,
@@ -885,6 +990,8 @@ export function ProjectPage({
           <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
         )}
       </section>
+
+      {me.admin && !project.hosted && <PushHook project={project} onChanged={found.reload} />}
 
       {project.hosted && !project.commit && (me.admin || access?.workspace === 'rw') && (
         <StartPanel project={project} onStarted={found.reload} />

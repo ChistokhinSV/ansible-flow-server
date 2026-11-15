@@ -8,6 +8,13 @@ import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-61: a push hook's secret, sealed with the master key, so the server can check GitHub's
+  // signature of a hook's body (the hash alone checks a token sent in a header).
+  '0023_project_hook_secret': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('project').addColumn('hook_secret_enc', 'text').execute();
+    },
+  },
   // AFS-76: a flow edited in the pages: one shared draft per project and flow, from a commit of
   // the project's branch, and each edit made to it (who, before and after) for undo and marks.
   '0022_flow_draft': {
