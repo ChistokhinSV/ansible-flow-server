@@ -54,10 +54,34 @@ jobs:
 
       - name: Is there a newer designer?
         id: version
+        # The designer publishes its four packages one after another, and npm's registry may not
+        # show a new one for a few minutes: a version is taken only when all four show it. Until
+        # then (or while npm does not answer) the job ends without a proposal; the next run looks
+        # again.
         run: |
           have=$(node -p "require('./package.json').dependencies['@ansible-flow/core']")
-          newest=$(npm view @ansible-flow/core version)
           echo "have=$have" >> "$GITHUB_OUTPUT"
+          versions=""
+          for pkg in core node assets designer; do
+            v=""
+            for try in 1 2 3; do
+              if v=$(npm view "@ansible-flow/$pkg" version 2>/dev/null) && [ -n "$v" ]; then break; fi
+              v=""
+              sleep 20
+            done
+            if [ -z "$v" ]; then
+              echo "::notice::npm does not show @ansible-flow/$pkg now: the next run looks again"
+              exit 0
+            fi
+            echo "@ansible-flow/$pkg $v"
+            versions="$versions $v"
+          done
+          # shellcheck disable=SC2086 # one word per version
+          newest=$(printf '%s\n' $versions | sort -u)
+          if [ "$(echo "$newest" | wc -l)" -ne 1 ]; then
+            echo "::notice::The designer's packages are not all at one version yet ($versions): the next run looks again"
+            exit 0
+          fi
           echo "newest=$newest" >> "$GITHUB_OUTPUT"
           branch="afd-packages-$newest"
           if [ "$have" = "$newest" ]; then
@@ -72,10 +96,17 @@ jobs:
         if: steps.version.outputs.take == 'true'
         env:
           V: ${{ steps.version.outputs.newest }}
+        # A package npm has just listed may still be missing from the mirror an install reads.
         run: |
-          npm install --save-exact --no-fund --no-audit \
-            "@ansible-flow/core@$V" "@ansible-flow/node@$V" "@ansible-flow/assets@$V"
-          npm install --save-exact --save-dev --no-fund --no-audit "@ansible-flow/designer@$V"
+          for try in 1 2 3; do
+            if npm install --save-exact --no-fund --no-audit \
+                "@ansible-flow/core@$V" "@ansible-flow/node@$V" "@ansible-flow/assets@$V" &&
+              npm install --save-exact --save-dev --no-fund --no-audit "@ansible-flow/designer@$V"; then
+              exit 0
+            fi
+            sleep 60
+          done
+          exit 1
 
       - name: Type check
         if: steps.version.outputs.take == 'true'
