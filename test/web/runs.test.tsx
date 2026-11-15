@@ -79,12 +79,12 @@ describe('the runs list', () => {
     };
     window.history.replaceState(null, '', '/runs');
     render(<App />);
-    expect((await screen.findByRole('link', { name: '#7' })).getAttribute('href')).toBe('/runs/r1');
-    expect(screen.getByText('running', { selector: '.badge' })).toBeTruthy();
+    expect((await screen.findByRole('link', { name: /#7/ })).getAttribute('href')).toBe('/runs/r1');
+    expect(screen.getByRole('link', { name: /#7/ }).textContent).toContain('running');
     expect(screen.getByRole('link', { name: 'Runs' }).getAttribute('aria-current')).toBe('page');
-    fireEvent.change(screen.getByLabelText(/State/), { target: { value: 'failed' } });
-    await waitFor(() => expect(screen.queryByRole('link', { name: '#7' })).toBeNull());
-    expect(screen.getByRole('link', { name: '#6' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'Failed' }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: /#7/ })).toBeNull());
+    expect(screen.getByRole('link', { name: /#6/ }).textContent).toContain('failed');
   });
 });
 

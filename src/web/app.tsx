@@ -52,7 +52,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   }
   if (path === '/') return <Home me={me} />;
   if (path === '/workspaces') return <Workspaces me={me} />;
-  if (path === '/runs') return <RunsPage />;
+  if (path === '/runs') return <RunsPage me={me} />;
   const one = match('/runs/:id', path);
   if (one?.id) return <RunPage id={one.id} me={me} theme={theme} />;
   if (path === '/account') return <Account me={me} />;

@@ -19,7 +19,7 @@ import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link, navigate } from './router';
-import { RunTable } from './runs';
+import { RunList } from './runs';
 import type { ThemeChoice } from './theme';
 import { TokensPanel } from './tokens';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -40,7 +40,7 @@ export function Workspaces({ me }: { me: User }) {
         )}
       </PageHead>
       {adding && (
-        <section className="panel" aria-label="Add workspace">
+        <section className="panel sheet" aria-label="Add workspace">
           <Form
             submit="Add"
             onCancel={() => setAdding(false)}
@@ -228,7 +228,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
       </PageHead>
       <Loading state={space.error ? space : projects} />
       {adding && (
-        <section className="panel" aria-label="Add project">
+        <section className="panel sheet" aria-label="Add project">
           <Form
             submit="Add"
             onCancel={() => setAdding(false)}
@@ -986,7 +986,7 @@ export function ProjectPage({
         <h2 id="runs">Recent runs</h2>
         <Loading state={runs} />
         {runs.data?.length === 0 && <p className="muted">None yet.</p>}
-        {!!runs.data?.length && <RunTable runs={runs.data} showProject={false} />}
+        {!!runs.data?.length && <RunList runs={runs.data} me={me} />}
       </section>
 
       {branchList.data && (

@@ -80,7 +80,7 @@ describe('approvals', () => {
       'section',
     ) as HTMLElement;
     expect(within(yours).getByText('Check the change ticket first')).toBeTruthy();
-    expect(within(yours).getByRole('link', { name: 'Firewall upgrade · run 7' })).toBeTruthy();
+    expect(within(yours).getByRole('link', { name: 'Firewall upgrade #7' })).toBeTruthy();
     const others = screen
       .getByRole('heading', { name: 'Waiting for others' })
       .closest('section') as HTMLElement;
