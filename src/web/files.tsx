@@ -445,7 +445,7 @@ export function FilesPage({
 
   const crumbs = (
     <nav aria-label="Breadcrumb" className="crumbs">
-      <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
+      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">Files</span>
     </nav>
   );

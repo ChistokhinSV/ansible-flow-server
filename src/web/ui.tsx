@@ -82,11 +82,14 @@ export function Form({
   submit,
   children,
   onCancel,
+  quiet,
 }: {
   onSubmit: () => Promise<void>;
   submit: string;
   children: ReactNode;
   onCancel?: () => void;
+  /** The submit button is not the page's main action (another way is offered first). */
+  quiet?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -112,7 +115,7 @@ export function Form({
         </p>
       )}
       <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>
+        <button type="submit" className={quiet ? undefined : 'primary'} disabled={busy}>
           {busy ? 'Working…' : submit}
         </button>
         {onCancel && (
@@ -156,6 +159,32 @@ export function Time({ at }: { at?: string }) {
       {date.toLocaleString()}
     </time>
   );
+}
+
+/** How long ago, in words: "just now", "5 min ago", "3 h ago", "yesterday", or the date. */
+export function ago(at: string, now = Date.now()): string {
+  const minutes = Math.round((now - Date.parse(at)) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  const day = new Date(at);
+  const today = new Date(now);
+  if (hours < 24 && day.getDate() === today.getDate()) return `${hours} h ago`;
+  const yesterday = new Date(now - 86_400_000);
+  if (day.toDateString() === yesterday.toDateString()) return 'yesterday';
+  return day.toLocaleDateString();
+}
+
+/** How long something has gone on, in words: "6 min", "2 h 5 min". */
+export function span(from: string, to?: string, now = Date.now()): string {
+  const minutes = Math.max(
+    0,
+    Math.round(((to ? Date.parse(to) : now) - Date.parse(from)) / 60_000),
+  );
+  if (minutes < 1) return 'less than a minute';
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  return `${Math.floor(minutes / 60)} h${rest ? ` ${rest} min` : ''}`;
 }
 
 /** A page's heading, with what can be done on the page beside it. */

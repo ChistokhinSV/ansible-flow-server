@@ -121,9 +121,12 @@ function GateCard({
 export function RunApprovals({ run, changed }: { run: string; changed: string }) {
   const gates = useLoad(() => api.runApprovals(run), [run, changed]);
   if (!gates.data?.length) return null;
+  // One that waits is the tinted thing on the run's page (AFS-64).
+  const waiting = gates.data.some((g) => g.status === 'waiting');
+  const yours = gates.data.some((g) => g.status === 'waiting' && g.mayDecide);
   return (
-    <section className="panel" aria-labelledby="run-approvals">
-      <h2 id="run-approvals">Approvals</h2>
+    <section className={waiting ? 'panel decision' : 'panel'} aria-labelledby="run-approvals">
+      <h2 id="run-approvals">{yours ? 'Your approval' : 'Approvals'}</h2>
       {gates.data.map((g) => (
         <GateCard
           key={g.id}

@@ -1,7 +1,6 @@
-// Light and dark. The page follows the device unless the person chose; the choice is kept in
-// this browser. The colours themselves are in styles.css and are the designer's standalone
-// theme (ansible-flow-designer, src/webview/theme/standalone.ts), so the canvas and the pages
-// around it are one surface.
+// Dark and light (AFS-64). The pages are dark unless the person chose light or to follow the
+// device; the choice is kept in this browser. The colours are in styles.css. The flow canvas
+// keeps the designer's own look and is told which of the two to use.
 export type ThemeChoice = 'system' | 'light' | 'dark';
 export type ThemeKind = 'light' | 'dark';
 
@@ -10,17 +9,17 @@ const KEY = 'afs.theme';
 export function storedTheme(): ThemeChoice {
   try {
     const value = window.localStorage.getItem(KEY);
-    return value === 'light' || value === 'dark' ? value : 'system';
+    return value === 'light' || value === 'system' ? value : 'dark';
   } catch {
     // Storage can be blocked (private window, settings): the page works without it.
-    return 'system';
+    return 'dark';
   }
 }
 
 /** The theme a choice means on this device now. */
 export function kindOf(choice: ThemeChoice): ThemeKind {
   if (choice !== 'system') return choice;
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
 /** Applies a choice to the page and remembers it. */
@@ -29,7 +28,7 @@ export function applyTheme(choice: ThemeChoice): ThemeKind {
   if (choice === 'system') delete root.dataset.theme;
   else root.dataset.theme = choice;
   try {
-    if (choice === 'system') window.localStorage.removeItem(KEY);
+    if (choice === 'dark') window.localStorage.removeItem(KEY);
     else window.localStorage.setItem(KEY, choice);
   } catch {
     // Not kept: the choice holds until the page is closed.
@@ -37,6 +36,6 @@ export function applyTheme(choice: ThemeChoice): ThemeKind {
   return kindOf(choice);
 }
 
-/** The next choice when the theme button is pressed: system, light, dark, system. */
+/** The next choice when the theme button is pressed: dark, light, as the device, dark. */
 export const nextTheme = (choice: ThemeChoice): ThemeChoice =>
-  choice === 'system' ? 'light' : choice === 'light' ? 'dark' : 'system';
+  choice === 'dark' ? 'light' : choice === 'light' ? 'system' : 'dark';

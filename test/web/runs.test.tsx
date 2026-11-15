@@ -156,6 +156,51 @@ describe('a run', () => {
     expect(screen.getByText('The canvas shows the run once it started.')).toBeTruthy();
   });
 
+  it('lists its hosts, those with a problem first, and says why one failed (AFS-64)', async () => {
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs/r1': () => ({
+        body: { ...run, state: 'failed', endedAt: '2026-11-13T12:03:02.000Z' },
+      }),
+      'GET /runs/r1/view': () => ({
+        body: {
+          id: 'r1',
+          mode: 'real',
+          state: 'done',
+          startedAt: run.startedAt,
+          summary: {
+            nodes: {},
+            outcome: {},
+            failures: [],
+            unreachable: ['fw-edge-17'],
+            hosts: ['fw-edge-01', 'fw-edge-17'],
+            stoppedEarly: false,
+            problems: {
+              n1: {
+                'fw-edge-17': {
+                  task: 'Gather facts',
+                  status: 'unreachable',
+                  msg: 'ssh: connect to host port 22: Connection timed out',
+                },
+              },
+            },
+          },
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const hosts = (await screen.findByRole('heading', { name: 'Hosts' })).closest(
+      'section',
+    ) as HTMLElement;
+    const rows = [...hosts.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows).toEqual(['fw-edge-17not reachable', 'fw-edge-01went well']);
+    await screen.findByRole('heading', { name: 'Why fw-edge-17 was not reached' });
+    expect(screen.getByText(/Connection timed out/)).toBeTruthy();
+    expect(screen.getByText(/Failed after 3 min/)).toBeTruthy();
+    expect(screen.getByText(/1 with a problem/)).toBeTruthy();
+  });
+
   it('says so when there is no such run', async () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/runs/nothing');

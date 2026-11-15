@@ -12,6 +12,8 @@ export default defineConfig({
     outDir: '../../dist/web',
     emptyOutDir: true,
     sourcemap: true,
+    // Fonts stay files: the pages' policy loads fonts from this server only, not data: URLs.
+    assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
     target: 'es2023',
     // Two pages: the application, and the designer on a page of its own (viewer.ts).
     rollupOptions: { input: ['src/web/index.html', 'src/web/viewer.html'] },

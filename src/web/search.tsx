@@ -8,7 +8,9 @@ import { navigate } from './router';
 
 /** The pages that are always there, found by their words. */
 const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
-  { title: 'Workspaces', words: 'workspaces home projects', to: '/' },
+  { title: 'Home', words: 'home start waiting recent', to: '/' },
+  { title: 'Workspaces', words: 'workspaces projects', to: '/workspaces' },
+  { title: 'Library', words: 'library shared subflows', to: '/library' },
   { title: 'Runs', words: 'runs history', to: '/runs' },
   { title: 'Approvals', words: 'approvals waiting decide', to: '/approvals' },
   {
