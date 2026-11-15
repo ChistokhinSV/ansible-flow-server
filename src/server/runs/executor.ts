@@ -46,6 +46,7 @@ import type { RunHub } from './hub';
 import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
 import type { Job, Outcome, RunQueue } from './queue';
 import { pullWithSignIn } from './registry';
+import { repositoryConfig } from './repoConfig';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
 /** How often the worker says it still has a run. */
@@ -75,6 +76,8 @@ export interface ExecutorOptions {
   timeoutMs: number;
   /** Tests: what runs the flow instead of the designer's pipeline. */
   runner?: (request: RunFlowRequest, hooks: RunFlowHooks) => Promise<RunView>;
+  /** Tests: how the repository's Ansible config is read (AFS-80); with a runner, by default not. */
+  repoConfig?: typeof repositoryConfig;
   /** Tests: how often the lease is kept alive. */
   heartbeatMs?: number;
   pollMs?: number;
@@ -520,6 +523,23 @@ export class Executor {
       };
       line(`Environment: ${env.label}`);
       if (controller.signal.aborted) return await finish(...stoppedWhy());
+      // AFS-80: the repository's Ansible config as the run's image reads it, so the run keeps its
+      // callbacks and adds its library/, module_utils/, plugin folders and root group_vars.
+      const readConfig =
+        this.options.repoConfig ?? (this.options.runner ? undefined : repositoryConfig);
+      const repoConfig = !readConfig
+        ? undefined
+        : await readConfig({
+            engine,
+            image,
+            root: workdir.dir,
+            probeDir: this.probeDir,
+            options: ['--label', this.label, '--label', `afs.run=${r.id}`],
+            ...(this.toHost ? { toHost: this.toHost } : {}),
+            log: this.deps.log,
+            name: `afs-config-${r.id.slice(0, 12)}-${Date.now().toString(36)}`,
+          });
+      if (controller.signal.aborted) return await finish(...stoppedWhy());
       const runner = this.options.runner ?? runFlow;
       const storage = join(this.options.dataDir, 'runs', project.id);
       const folder = (runId: string) => join(runsDir(storage, doc.flow.id), runId);
@@ -544,6 +564,7 @@ export class Executor {
             root,
             probeDir: this.probeDir,
             playbook: playbookPath,
+            ...(repoConfig ? { callbacks: repoConfig } : {}),
             ...(r.inventory ? { inventory: r.inventory } : {}),
             storage,
             keepRuns: 1000,
