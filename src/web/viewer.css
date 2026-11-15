@@ -17,3 +17,36 @@
 .afs-choose button {
   text-align: start;
 }
+
+/* AFS-75: someone changed the flow on the branch. */
+.viewer-bar {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: calc(100vw - 32px);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font:
+    14px / 1.4 system-ui,
+    sans-serif;
+  color: var(--vscode-editor-foreground, #1f2328);
+  background: var(--vscode-sideBar-background, #f6f8fa);
+  border: 1px solid var(--vscode-focusBorder, #0078d4);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+}
+.viewer-bar[hidden] {
+  display: none;
+}
+.viewer-bar-close {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: inherit;
+}

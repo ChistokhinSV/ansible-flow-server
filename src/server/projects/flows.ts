@@ -13,7 +13,7 @@ import type { Git } from './git';
 export type { FlowSummary };
 
 /** A flow is a file named like this, anywhere in the repository. */
-const FLOW_FILE = /\.flow\.ya?ml$/i;
+export const FLOW_FILE = /\.flow\.ya?ml$/i;
 /** A repository with more flows than this shows the first ones, by path. */
 export const MAX_FLOWS = 500;
 /** How many answers are kept for the same commit being asked about again. */

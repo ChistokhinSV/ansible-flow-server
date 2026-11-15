@@ -7,10 +7,12 @@
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
 // Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
+// When someone changes the flow on the branch, a bar says so (AFS-75, viewerChanges.ts).
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
+import { followFlow } from './viewerChanges';
 import { chooseConfig, launcher } from './viewerLaunch';
 
 const params = new URLSearchParams(window.location.search);
@@ -160,6 +162,21 @@ async function start(): Promise<void> {
     },
   });
 
+  const bar = document.createElement('div');
+  bar.className = 'viewer-bar';
+  bar.setAttribute('role', 'status');
+  bar.hidden = true;
+  document.body.prepend(bar);
+  const following = followFlow({
+    project,
+    path,
+    commit: flow.data.commit,
+    snapshot: flow.data.snapshot,
+    send,
+    bar,
+    live: !commit,
+  });
+
   const stateKey = `afs.viewer.${project}.${path}`;
   mount(root, {
     theme,
@@ -195,6 +212,12 @@ async function start(): Promise<void> {
             return;
           case 'launchCancel':
             launch.cancel(message.token);
+            return;
+          case 'lens':
+            following.lens(message.lens);
+            return;
+          case 'compareWith':
+            following.compareWith(message.ref);
             return;
           case 'showRun':
             showRun(message.id, true);

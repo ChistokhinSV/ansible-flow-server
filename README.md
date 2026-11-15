@@ -625,6 +625,16 @@ setup code from its log); after that, sign-in.
 - Light and dark: follows the device, or the choice made with the theme button.
 - Works at phone width and with a keyboard and a screen reader.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
+- **When someone changes a flow you have open** (a push, through the server or to the source the
+  server looks at), a bar on the canvas says who and how much ("Mia Ortega changed this flow: 3
+  steps"). **Show changes** opens the new version in the Changes lens, compared with the one you
+  had; **Update** just shows the new version. A flow removed from the branch is said so and stays
+  as it was. The Changes lens also compares with any earlier commit that changed the flow. A
+  project's page lists the flows changed while it is open, and by whom. Over the API:
+  `GET /api/v1/projects/<id>/events` (server-sent events: `commit`, then `moved` with from and to),
+  `GET /api/v1/projects/<id>/changes?from=<commit>` (the flows added, changed or removed, and who
+  changed them) and `GET /api/v1/projects/<id>/flows/history?path=` (the commits that changed a
+  flow).
 - A run is shown on the canvas as in VS Code, live while it goes; a step's host output, the flow's earlier runs and Stop work from the canvas, and an approval is decided in its Run tab.
 - Run on the canvas opens the designer's launch dialog over a launch configuration of the flow (pick one when there are several): its start values, the inventory's groups, and the hosts the targets match, counted again as you type. Run launches it (`operator` on the flow) and the run shows on the canvas.
 - Administrators read the audit log at `/admin/audit` and export it.

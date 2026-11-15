@@ -173,6 +173,25 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('One flow as the designer shows it (at a commit when asked)'),
+  'GET /api/v1/projects/:id/events': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    "The project's branch as it moves, as server-sent events: `commit` at once, then `moved` (from, to)",
+  ),
+  'GET /api/v1/projects/:id/changes': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    "The flows that differ between `from` and the project's commit (or `to`): added, changed or removed, and who changed them",
+  ),
+  'GET /api/v1/projects/:id/flows/history': S(
+    'Projects',
+    'signed in',
+    P,
+  )('The commits that changed a flow, newest first'),
   'POST /api/v1/projects/:id/hook': S(
     'Projects',
     'administrators',
@@ -639,6 +658,9 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/flows': 'can see',
   'GET /api/v1/projects/:id/access': 'can see',
   'GET /api/v1/projects/:id/flows/view': 'ro',
+  'GET /api/v1/projects/:id/events': 'can see',
+  'GET /api/v1/projects/:id/changes': 'can see',
+  'GET /api/v1/projects/:id/flows/history': 'ro',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
   'GET /git/:workspace/:repo/info/refs': 'ro on the workspace',
   'POST /git/:workspace/:repo/git-upload-pack': 'ro on the workspace',
@@ -703,7 +725,10 @@ const LEVEL_OF: Partial<Record<Who, Level | 'see'>> = {
   'rw on the workspace': 'rw',
 };
 /** flows/view names its flow in the query. */
-const FLOW_QUERY: Record<string, string> = { 'GET /api/v1/projects/:id/flows/view': 'path' };
+const FLOW_QUERY: Record<string, string> = {
+  'GET /api/v1/projects/:id/flows/view': 'path',
+  'GET /api/v1/projects/:id/flows/history': 'path',
+};
 
 /** What a route reaches: the workspace, and the project and flow when it reaches one. */
 interface Target {

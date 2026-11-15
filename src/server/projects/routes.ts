@@ -5,14 +5,16 @@
 //   /api/v1/workspaces/:id/projects
 //   /api/v1/projects/:id, /sync, /branches, /pushes, /hook
 //   /api/v1/projects/:id/flows, /flows/view?path=   the flows at the project's commit
+//   /api/v1/projects/:id/events, /changes, /flows/history   who changed which flow (AFS-75)
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
+import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
-import { FlowError, ProjectFlows } from './flows';
+import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError } from './git';
 import {
   createProject,
@@ -32,6 +34,7 @@ import {
   updateWorkspace,
 } from './store';
 import type { ProjectSync } from './sync';
+import type { ProjectWatch } from './watch';
 
 export interface ProjectDeps {
   db: Kysely<Schema>;
@@ -41,7 +44,13 @@ export interface ProjectDeps {
   allowLocal: boolean;
   /** A clone or fetch asks the source first when the last look is older than this (tests). */
   freshMs?: number;
+  /** AFS-75: tells the event streams when a project's branch moves. */
+  watch?: ProjectWatch;
 }
+
+/** A comment line now and then keeps a quiet stream open through proxies. */
+const KEEP_ALIVE_MS = 25_000;
+const COMMIT_PATTERN = { type: 'string', pattern: '^[0-9a-f]{40}$' };
 
 const STATUS: Record<ProjectError['code'], number> = {
   invalid: 400,
@@ -352,6 +361,144 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
             .send({ error: e.code, message: e.message });
         if (e instanceof GitError)
           return reply.code(404).send({ error: 'not_found', message: 'No such flow' });
+        throw e;
+      }
+    },
+  );
+
+  // --- who changed which flow (AFS-75)
+
+  /** The streams open now: a server that closes ends them, or it would wait for them. */
+  const streams = new Set<ServerResponse>();
+  app.addHook('preClose', async () => {
+    for (const stream of streams) stream.end();
+    streams.clear();
+  });
+
+  /**
+   * The project's branch as it moves, as server-sent events: `commit` (where it is, at once) and
+   * `moved` (from, to) each time it goes to another commit. What changed: `/changes`.
+   */
+  app.get<WithId>('/api/v1/projects/:id/events', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const project = await getProject(db, request.params.id);
+    if (!project) return reply.code(404).send(NO_PROJECT);
+    if (!deps.watch)
+      return reply.code(404).send({ error: 'not_found', message: 'This server does not watch' });
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    let open = true;
+    const send = (event: string, data: unknown) => {
+      if (open) raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    send('commit', { commit: project.commit ?? null });
+    const unwatch = await deps.watch.watch(project.id, (move) => send('moved', move));
+    const alive = setInterval(() => {
+      if (open) raw.write(': still here\n\n');
+    }, KEEP_ALIVE_MS);
+    streams.add(raw);
+    raw.on('close', () => {
+      open = false;
+      unwatch();
+      clearInterval(alive);
+      streams.delete(raw);
+    });
+    return reply;
+  });
+
+  /**
+   * The flows that differ between a commit and the project's commit (or `to`), among those the
+   * person may see: added, changed or removed, and who changed them, newest first.
+   */
+  app.get<WithId & { Querystring: { from: string; to?: string } }>(
+    '/api/v1/projects/:id/changes',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          required: ['from'],
+          additionalProperties: false,
+          properties: { from: COMMIT_PATTERN, to: COMMIT_PATTERN },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      const to = request.query.to ?? project.commit;
+      const { from } = request.query;
+      if (!to)
+        return reply
+          .code(404)
+          .send({ error: 'not_found', message: 'The project has no commit yet' });
+      // A commit the server does not have (one not pushed yet) cannot be compared here.
+      for (const commit of [from, to])
+        if (!(await deps.git.hasCommit(project.id, commit)))
+          return reply.code(409).send({
+            error: 'unknown_commit',
+            message: `The project has no commit ${commit.slice(0, 12)}`,
+          });
+      const access = await accessOf(db, request);
+      const changed = (await deps.git.changedFiles(project.id, from, to)).filter(
+        (f) => FLOW_FILE.test(f.file) && access?.onFlow(project.workspace, project.id, f.file),
+      );
+      const flowsChanged = [];
+      for (const f of changed.slice(0, 200)) {
+        // Who changed it in between, newest first.
+        const commits = await deps.git
+          .fileHistory(project.id, to, f.file, { since: from, limit: 50 })
+          .catch(() => []);
+        flowsChanged.push({
+          ...f,
+          authors: [...new Set(commits.map((c) => c.author))],
+          ...(commits[0] ? { at: commits[0].at, commit: commits[0].commit } : {}),
+        });
+      }
+      return { from, to, flows: flowsChanged };
+    },
+  );
+
+  /** The commits that changed a flow, newest first, up to the project's commit (or `commit`). */
+  app.get<WithId & { Querystring: { path: string; commit?: string; limit?: number } }>(
+    '/api/v1/projects/:id/flows/history',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          required: ['path'],
+          additionalProperties: false,
+          properties: {
+            path: text(1000, 1),
+            commit: COMMIT_PATTERN,
+            limit: { type: 'integer', minimum: 1, maximum: 100 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      const commit = request.query.commit ?? project.commit;
+      if (!commit) return [];
+      if (!FLOW_FILE.test(request.query.path))
+        return reply.code(404).send({ error: 'not_found', message: 'Not a flow file' });
+      try {
+        return await deps.git.fileHistory(project.id, commit, request.query.path, {
+          limit: request.query.limit ?? 30,
+        });
+      } catch (e) {
+        if (e instanceof GitError)
+          return reply.code(404).send({ error: 'not_found', message: 'No such commit or flow' });
         throw e;
       }
     },

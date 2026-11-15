@@ -7,8 +7,11 @@ import { dirname, join } from 'node:path';
 export interface TestRepo {
   /** The folder; its address as a project's source. */
   dir: string;
-  /** Writes files and commits them on the current branch; gives the commit. */
-  commit(files: Record<string, string>, message?: string): string;
+  /**
+   * Writes files and commits them on the current branch; gives the commit. A file whose text is
+   * null is removed. `author` is "Name <email>" (else Dana Whitfield).
+   */
+  commit(files: Record<string, string | null>, message?: string, author?: string): string;
   /** Makes a branch at the current commit and moves to it. */
   branch(name: string): void;
   checkout(name: string): void;
@@ -37,13 +40,24 @@ export function testRepo(
     }).trim();
   const repo: TestRepo = {
     dir,
-    commit(files, message = 'Change') {
+    commit(files, message = 'Change', author) {
       for (const [path, text] of Object.entries(files)) {
+        if (text === null) {
+          rmSync(join(dir, path), { force: true });
+          continue;
+        }
         mkdirSync(dirname(join(dir, path)), { recursive: true });
         writeFileSync(join(dir, path), text);
       }
       git('add', '--all');
-      git('commit', '--quiet', '--allow-empty', '-m', message);
+      git(
+        'commit',
+        '--quiet',
+        '--allow-empty',
+        '-m',
+        message,
+        ...(author ? [`--author=${author}`] : []),
+      );
       return git('rev-parse', 'HEAD');
     },
     branch: (name) => void git('checkout', '--quiet', '-b', name),
