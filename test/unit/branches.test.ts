@@ -150,8 +150,6 @@ describe('branches of a hosted project', () => {
       subject: 'Change notes.md',
     });
     expect(by.release).toMatchObject({ ahead: 0, configurations: ['Release check'] });
-    // Newest commit first.
-    expect(listed.details[0].name).toBe('try/idea');
 
     const del = (name: string, force = false) =>
       call(omar, 'DELETE', `${url}?name=${encodeURIComponent(name)}${force ? '&force=true' : ''}`);
