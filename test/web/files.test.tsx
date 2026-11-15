@@ -1,0 +1,167 @@
+// AFS-78: the Files page with the server played by the test: the tree of the branch, a text file
+// read, a change set made of a delete and a move that the tree shows before Save, Save as one
+// request with the commit it began at, and a refusal that lists the files the branch changed.
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { App } from '../../src/web/app';
+import { applyChanges } from '../../src/web/files';
+
+const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
+const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
+const project = {
+  id: 'p1',
+  workspace: 'w1',
+  key: 'core',
+  name: 'Core',
+  hosted: true,
+  gitRef: 'main',
+  commit: COMMIT,
+  sync: { state: 'ok' },
+};
+const files = [
+  { path: 'flows/hello/hello.flow.yaml', size: 900 },
+  { path: 'roles/web/tasks/main.yml', size: 40 },
+  { path: 'templates/web.conf.j2', size: 24 },
+];
+
+let asked: { key: string; body?: unknown }[];
+let routes: Record<string, (body?: unknown) => { status?: number; body?: unknown; text?: string }>;
+beforeEach(() => {
+  asked = [];
+  window.scrollTo = () => undefined;
+  // jsdom has no layout; CodeMirror asks for the boxes of text ranges.
+  const empty = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] });
+  Range.prototype.getClientRects = empty as never;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  try {
+    window.localStorage.clear();
+  } catch {}
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+    const key = `${init.method ?? 'GET'} ${url.replace('/api/v1', '')}`;
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    asked.push({ key, body });
+    const answer = routes[key]?.(body) ?? {
+      status: 404,
+      body: { error: 'not_found', message: key },
+    };
+    const status = answer.status ?? 200;
+    return {
+      ok: status < 300,
+      status,
+      headers: new Headers({
+        'content-type':
+          answer.text !== undefined ? 'text/plain; charset=utf-8' : 'application/json',
+      }),
+      json: async () => answer.body,
+      text: async () => answer.text ?? '',
+    } as Response;
+  });
+  routes = {
+    'GET /session': () => ({ body: omar }),
+    'GET /workspaces/net/projects': () => ({ body: [project] }),
+    'GET /projects/p1/access': () => ({
+      body: { admin: false, workspace: 'rw', approve: false, flows: {} },
+    }),
+    'GET /projects/p1/branches': () => ({ body: { branches: ['main', 'try/files'] } }),
+    'GET /projects/p1/files?branch=main': () => ({
+      body: { branch: 'main', commit: COMMIT, files },
+    }),
+    [`GET /projects/p1/files/content?commit=${COMMIT}&path=templates%2Fweb.conf.j2`]: () => ({
+      text: 'listen {{ web_port }};\n',
+    }),
+    [`GET /projects/p1/files/history?commit=${COMMIT}&path=templates%2Fweb.conf.j2&limit=5`]:
+      () => ({
+        body: [{ commit: COMMIT, author: 'Lina', at: '2026-11-15T09:00:00.000Z', subject: 'Port' }],
+      }),
+  };
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+const sent = (key: string) => asked.filter((a) => a.key === key).map((a) => a.body);
+
+describe('the files page', () => {
+  it('shows a file, keeps changes until Save, and lists the files a refused Save is about', async () => {
+    window.history.replaceState(null, '', '/w/net/core/files?path=templates%2Fweb.conf.j2');
+    render(<App />);
+    // The template opens with its text and who changed it last.
+    await screen.findByText(/last changed by/);
+    expect(await screen.findByText(/Lina/)).toBeTruthy();
+    // The editor is in a shadow root (the pages' CSP allows its constructed style sheets there).
+    await waitFor(() =>
+      expect(document.querySelector('.code-editor')?.shadowRoot?.textContent).toContain(
+        'listen {{ web_port }};',
+      ),
+    );
+
+    // Move it into the role; delete the old flows folder.
+    fireEvent.click(screen.getByRole('button', { name: 'Rename or move' }));
+    const to = screen.getByRole('textbox', { name: 'New path' });
+    fireEvent.change(to, { target: { value: 'roles/web/templates/web.conf.j2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(
+      await screen.findByText('Move templates/web.conf.j2 to roles/web/templates/web.conf.j2'),
+    ).toBeTruthy();
+    expect(screen.getByText('moved')).toBeTruthy();
+
+    routes['POST /projects/p1/files'] = () => ({
+      status: 409,
+      body: {
+        error: 'conflict',
+        message: 'main changed the same files since the change set began',
+        files: ['templates/web.conf.j2'],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save to main' }));
+    expect(await screen.findByText(/changed the same files/)).toBeTruthy();
+    expect(screen.getByText('templates/web.conf.j2', { selector: 'code' })).toBeTruthy();
+    expect(sent('POST /projects/p1/files')[0]).toEqual({
+      branch: 'main',
+      base: COMMIT,
+      changes: [
+        { op: 'move', from: 'templates/web.conf.j2', to: 'roles/web/templates/web.conf.j2' },
+      ],
+    });
+
+    // The change set is still there; the second Save goes through.
+    routes['POST /projects/p1/files'] = () => ({
+      status: 201,
+      body: { branch: 'main', commit: 'a'.repeat(40), files: ['x', 'y'] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save to main' }));
+    expect(await screen.findByText(/Saved 2 files as aaaaaaaaaaaa on main/)).toBeTruthy();
+    expect(screen.queryByText(/Changes not saved/)).toBeNull();
+  });
+
+  it('read-only people read, and get no buttons that change', async () => {
+    routes['GET /projects/p1/access'] = () => ({
+      body: { admin: false, workspace: 'ro', approve: false, flows: {} },
+    });
+    window.history.replaceState(null, '', '/w/net/core/files?path=templates%2Fweb.conf.j2');
+    render(<App />);
+    await screen.findByText(/last changed by/);
+    expect(screen.queryByRole('button', { name: 'New file' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Download' }).getAttribute('href')).toContain(
+      'download=true',
+    );
+  });
+});
+
+describe('the tree after a change set', () => {
+  it('follows writes, moves of folders and deletes, and marks what changed', () => {
+    const after = applyChanges(files, [
+      { op: 'write', path: 'templates/web.conf.j2', text: 'listen 80;\n' },
+      { op: 'move', from: 'templates', to: 'roles/web/templates' },
+      { op: 'delete', path: 'flows' },
+      { op: 'write', path: 'files/new.txt', text: 'hi' },
+    ]);
+    expect(after.map((f) => [f.path, f.state])).toEqual([
+      ['files/new.txt', 'new'],
+      ['roles/web/tasks/main.yml', undefined],
+      ['roles/web/templates/web.conf.j2', 'changed'],
+    ]);
+    expect(after[2]?.from).toBe('templates/web.conf.j2');
+  });
+});

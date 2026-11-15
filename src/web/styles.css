@@ -218,6 +218,18 @@ button.primary {
 button.danger {
   color: var(--bad);
 }
+/* A button that reads as a link (AFS-78: the file tree, Take back, Cancel). */
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0.1rem 0.2rem;
+  min-height: 1.75rem;
+  text-align: left;
+}
+button.link:hover:not(:disabled) {
+  text-decoration: underline;
+}
 .actions {
   display: flex;
   gap: 0.5rem;
@@ -797,4 +809,75 @@ ul.plain {
   list-style: none;
   padding-left: 0;
   margin: 0.25rem 0;
+}
+
+/* AFS-78: the files of a project. */
+.files {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) 2.5fr;
+  gap: 1rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .files {
+    grid-template-columns: 1fr;
+  }
+}
+.file-tree {
+  list-style: none;
+  margin: 0;
+  padding-left: 1rem;
+}
+.files-tree > .file-tree {
+  padding-left: 0;
+}
+.file-item {
+  margin: 0.15rem 0;
+  overflow-wrap: anywhere;
+}
+.file-tree .selected {
+  font-weight: 600;
+  text-decoration: underline;
+}
+.file-tree button.folder {
+  color: var(--fg);
+}
+.file-actions {
+  margin-bottom: 0.75rem;
+}
+.tag {
+  font-size: 0.75rem;
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+}
+.tag.new {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.tag.changed,
+.tag.moved {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.small {
+  font-size: 0.85em;
+}
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+.change-list {
+  margin: 0 0 0.5rem;
+}
+.code-editor {
+  min-width: 0;
+}
+textarea.code {
+  width: 100%;
+  min-height: 20rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }

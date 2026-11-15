@@ -38,6 +38,15 @@ export interface BranchInfo {
   ahead: number;
 }
 
+/** AFS-78: a file of a commit. */
+export interface TreeEntry {
+  path: string;
+  /** 100644, or 100755 for a program, 120000 for a link. */
+  mode: string;
+  object: string;
+  size: number;
+}
+
 export class GitError extends Error {
   constructor(
     message: string,
@@ -945,6 +954,117 @@ export class Git {
           cwd,
           timeoutMs: READ_TIMEOUT_MS,
           env: who,
+        })
+      )
+        .toString('utf8')
+        .trim();
+      if (!COMMIT.test(commit)) throw new GitError('Git made no commit');
+      return commit;
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * AFS-78: the files of a commit with their mode, object and size (in bytes), paths with forward
+   * slashes.
+   */
+  async tree(projectId: string, commit: string): Promise<TreeEntry[]> {
+    if (!COMMIT.test(commit)) throw new GitError('Not a commit');
+    const out = await this.run(['ls-tree', '-r', '-l', '-z', commit], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+      maxBytes: 64 * 1024 * 1024,
+    });
+    const entries: TreeEntry[] = [];
+    for (const line of out.toString('utf8').split('\0')) {
+      const m = /^(\d{6}) (\w+) ([0-9a-f]{40,64}) +(-|\d+)\t(.+)$/s.exec(line);
+      // Submodules (commit entries) are not files of this repository.
+      if (m?.[2] !== 'blob') continue;
+      if (!m) continue;
+      entries.push({
+        mode: m[1] as string,
+        object: m[3] as string,
+        size: Number(m[4]),
+        path: m[5] as string,
+      });
+    }
+    return entries;
+  }
+
+  /**
+   * AFS-78: a commit on top of `parent` with files written (new bytes, or an object the
+   * repository has, for a move) and files removed, made with git's plumbing as commitFile is.
+   * Paths are checked by the caller.
+   */
+  async commitChanges(
+    projectId: string,
+    change: {
+      parent: string;
+      writes: { path: string; mode: string; bytes?: Buffer; object?: string }[];
+      removes: string[];
+      author: { name: string; email: string };
+      message: string;
+    },
+  ): Promise<string> {
+    if (!COMMIT.test(change.parent)) throw new GitError('Not a commit');
+    const cwd = this.mirror(projectId);
+    const work = await mkdtemp(join(tmpdir(), 'afs-files-'));
+    try {
+      // An empty work tree: some index changes ask for one, and none reads from it.
+      const tree0 = join(work, 'tree');
+      await mkdir(tree0);
+      const env = { GIT_INDEX_FILE: join(work, 'index'), GIT_WORK_TREE: tree0 };
+      const opts = { cwd, timeoutMs: FETCH_TIMEOUT_MS, env };
+      await this.run(['read-tree', change.parent], opts);
+      const fresh = change.writes.filter((w) => w.bytes);
+      const objects = new Map<string, string>();
+      for (let at = 0; at < fresh.length; at += 200) {
+        const batch = fresh.slice(at, at + 200);
+        const files = await Promise.all(
+          batch.map(async (w, i) => {
+            const file = join(work, `blob-${at + i}`);
+            await writeFile(file, w.bytes as Buffer);
+            return file;
+          }),
+        );
+        const out = (await this.run(['hash-object', '-w', '--', ...files], opts))
+          .toString('utf8')
+          .trim()
+          .split('\n');
+        batch.forEach((w, i) => {
+          const object = out[i]?.trim();
+          if (!object) throw new GitError('Git stored no file');
+          objects.set(w.path, object);
+        });
+      }
+      // Removes first: a file may take the place of a folder that goes, and the other way round.
+      for (let at = 0; at < change.removes.length; at += 200)
+        await this.run(
+          ['update-index', '--force-remove', '--', ...change.removes.slice(at, at + 200)],
+          opts,
+        );
+      for (let at = 0; at < change.writes.length; at += 100) {
+        const args = change.writes.slice(at, at + 100).flatMap((w) => {
+          const object = w.object ?? objects.get(w.path);
+          if (!object) throw new GitError('A file has no content');
+          return ['--cacheinfo', `${w.mode},${object},${w.path}`];
+        });
+        await this.run(['update-index', '--add', ...args], opts);
+      }
+      const tree = (await this.run(['write-tree'], opts)).toString('utf8').trim();
+      const message = join(work, 'message');
+      await writeFile(message, change.message);
+      const commit = (
+        await this.run(['commit-tree', tree, '-p', change.parent, '-F', message], {
+          ...opts,
+          env: {
+            ...env,
+            GIT_AUTHOR_NAME: change.author.name,
+            GIT_AUTHOR_EMAIL: change.author.email,
+            GIT_COMMITTER_NAME: 'Ansible Flow Server',
+            GIT_COMMITTER_EMAIL: 'ansible-flow-server@localhost',
+          },
         })
       )
         .toString('utf8')

@@ -30,6 +30,7 @@ import type {
   SmtpSettings,
 } from '../server/notify/types';
 import type { Branch } from '../server/projects/branches';
+import type { FileChange, FileEntry } from '../server/projects/files';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
@@ -50,6 +51,8 @@ export type {
   EnvironmentBuild,
   EnvironmentInput,
   EnvironmentSpec,
+  FileChange,
+  FileEntry,
   FlowCheck,
   FlowList,
   FlowSummary,
@@ -92,6 +95,8 @@ export class ApiError extends Error {
       form?: LaunchForm;
       /** AFS-76: a Save the branch's changes stand in the way of. */
       conflicts?: { id: string; label: string }[];
+      /** AFS-78: the files the branch changed since a change set began. */
+      files?: string[];
     } = {},
   ) {
     super(message);
@@ -142,6 +147,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       ...(Array.isArray(data?.problems) ? { problems: data.problems } : {}),
       ...(data?.form ? { form: data.form } : {}),
       ...(Array.isArray(data?.conflicts) ? { conflicts: data.conflicts } : {}),
+      ...(Array.isArray(data?.files) ? { files: data.files } : {}),
     },
   );
 }
@@ -251,6 +257,28 @@ export const api = {
       `/projects/${id}/branches?name=${encodeURIComponent(name)}${force ? '&force=true' : ''}`,
     ),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
+  /** AFS-78: the files of the project's branch, or of `branch`. */
+  files: (id: string, branch?: string) =>
+    call<{ branch: string; commit?: string; files: FileEntry[] }>(
+      'GET',
+      `/projects/${id}/files${branch ? `?branch=${encodeURIComponent(branch)}` : ''}`,
+    ),
+  /** AFS-78: the commits that changed a file or folder, newest first. */
+  fileHistory: (id: string, commit: string, path: string) =>
+    call<{ commit: string; author: string; at: string; subject: string }[]>(
+      'GET',
+      `/projects/${id}/files/history?commit=${commit}&path=${encodeURIComponent(path)}&limit=5`,
+    ),
+  /** AFS-78: one commit with the change set. */
+  saveFiles: (
+    id: string,
+    input: { branch: string; base?: string; message?: string; changes: FileChange[] },
+  ) =>
+    call<{ branch: string; commit: string; files: string[]; unchanged?: boolean }>(
+      'POST',
+      `/projects/${id}/files`,
+      input,
+    ),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
   /** AFS-76: the project's drafts (flows being edited in the pages). */
   drafts: (id: string) => call<Draft[]>('GET', `/projects/${id}/drafts`),

@@ -8,6 +8,7 @@ import { ApprovalsPage } from './approvals';
 import { AdminPage, AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
 import { EnvironmentPage } from './environments';
+import { FilesPage } from './files';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { NotificationsPage } from './notifications';
 import {
@@ -88,6 +89,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   const edit = match('/w/:workspace/:project/launch/:id/edit', path);
   if (edit?.workspace && edit.project && edit.id)
     return <LaunchConfigEdit workspace={edit.workspace} project={edit.project} id={edit.id} />;
+  const files = match('/w/:workspace/:project/files', path);
+  if (files?.workspace && files.project)
+    return <FilesPage me={me} workspace={files.workspace} project={files.project} theme={theme} />;
   const workspace = match('/w/:workspace', path);
   if (workspace?.workspace) return <Workspace me={me} workspace={workspace.workspace} />;
   const project = match('/w/:workspace/:project', path);
