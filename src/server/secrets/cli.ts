@@ -3,8 +3,10 @@
 //   secrets rotate    make a new master key and seal everything again with it
 // Stop the server before `rotate`: a running server keeps the old key in memory.
 import { existsSync, renameSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { CertificateStore } from '../tls/store';
 import { checkKey, rotate } from './credentials';
 import { SealError } from './crypto';
 import {
@@ -18,6 +20,11 @@ import {
 } from './masterKey';
 
 const USAGE = 'Use: secrets status | secrets rotate';
+
+/** AFS-62: the server certificate's private keys, in the data folder, sealed with the new key. */
+function resealCertificate(settings: KeySettings, from: MasterKey, to: MasterKey): number {
+  return new CertificateStore(join(settings.dataDir, 'tls'), from).reseal(to);
+}
 
 export async function secretsCommand(
   db: Kysely<Schema>,
@@ -62,7 +69,9 @@ export async function secretsCommand(
   if (!key.file) {
     // The key lives in the settings: the server cannot change them. The new key is said once.
     const sealed = await rotate(db, key, to);
+    const keys = resealCertificate(settings, key, to);
     print(`${sealed} credential(s) sealed again with the new master key ${to.id}.`);
+    if (keys) print(`${keys} certificate key(s) sealed again.`);
     print('Set AFS_MASTER_KEY to this value before the server starts again:');
     print(next.toString('base64'));
     return 0;
@@ -73,11 +82,13 @@ export async function secretsCommand(
   rmSync(pending, { force: true });
   writeKeyFile(pending, next);
   const sealed = await rotate(db, key, to);
+  const keys = resealCertificate(settings, key, to);
   const old = `${key.file}.${key.id}.old`;
   if (existsSync(old)) rmSync(old);
   renameSync(key.file, old);
   renameSync(pending, key.file);
   print(`${sealed} credential(s) sealed again with the new master key ${to.id}.`);
+  if (keys) print(`${keys} certificate key(s) sealed again.`);
   print(`The key is in ${key.file}; the old one is kept as ${old} until you remove it.`);
   return 0;
 }

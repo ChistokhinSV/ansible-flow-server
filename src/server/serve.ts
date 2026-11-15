@@ -36,7 +36,7 @@ import { pruneRuns } from './runs/retention';
 import { Schedules } from './schedules/schedules';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
-import { loadMasterKey } from './secrets/masterKey';
+import { loadMasterKey, type MasterKey } from './secrets/masterKey';
 import { type CertificateInfo, certificateProblems, certificatesOf } from './tls/certificates';
 import { CertificateStore } from './tls/store';
 
@@ -63,9 +63,9 @@ export interface RunningServer {
   stop(why: string): Promise<void>;
 }
 
-/** Where the certificate is kept. */
-export const certificateStore = (config: Config) =>
-  new CertificateStore(join(config.dataDir, 'tls'));
+/** Where the certificate is kept; with the master key its private keys are sealed (AFS-62). */
+export const certificateStore = (config: Config, masterKey?: MasterKey) =>
+  new CertificateStore(join(config.dataDir, 'tls'), masterKey);
 
 /**
  * The names a self-signed certificate is made for: the public address's host when the settings
@@ -128,7 +128,13 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     log.info({ file: config.caFile, authorities: extra.length }, 'Also trusting the authorities');
   }
 
-  const store = certificateStore(config);
+  // The master key: made at a first start (the database checks it below). It is needed before
+  // the certificate, whose private keys it seals (AFS-62).
+  const masterKey = loadMasterKey(config);
+  const store = certificateStore(config, masterKey);
+  const sealedNow = store.sealKeys();
+  if (sealedNow)
+    log.info({ keys: sealedNow }, "Sealed the certificate's private keys with the master key");
   // Made once the database is open; the certificate's warnings reach it from then on.
   let notifier: Notifier | undefined;
   let served =
@@ -210,8 +216,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         }).catch(() => undefined);
       },
     });
-    // The master key: made at a first start, and then it must be the one the secrets need.
-    const masterKey = loadMasterKey(config);
+    // The master key must be the one the secrets need.
     try {
       await checkKey(database.db, masterKey);
     } catch (e) {
@@ -499,6 +504,9 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         timer = setTimeout(reload, 300);
       });
       watcher.on('error', (e) => log.warn({ err: e }, 'The certificate folder is not watched'));
+      // The server answers before it is fully started: a change made meanwhile is looked for once.
+      timer = setTimeout(reload, 300);
+      timer.unref();
       daily = setInterval(warnOfExpiry, DAY_MS);
       daily.unref();
     }

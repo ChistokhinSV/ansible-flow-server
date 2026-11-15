@@ -14,6 +14,7 @@
 // certificate to new connections; it need not be restarted.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { type Config, publicHost } from '../config';
+import { loadMasterKey } from '../secrets/masterKey';
 import { certificateStore, selfSignedNames } from '../serve';
 import type { CertificateInfo } from './certificates';
 import { isPfx, pfxToPem } from './pfx';
@@ -53,7 +54,8 @@ export async function certCommand(
   args: string[],
   print: (line: string) => void = console.log,
 ): Promise<number> {
-  const store = certificateStore(config);
+  // AFS-62: the keys are sealed with the server's master key (made if there is none yet).
+  const store = certificateStore(config, loadMasterKey(config));
   const [command, ...rest] = args;
   try {
     switch (command) {

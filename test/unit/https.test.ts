@@ -9,6 +9,7 @@ import { connect } from 'node:tls';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import type { Config } from '../../src/server/config';
 import { createLogger } from '../../src/server/log';
+import { loadMasterKey } from '../../src/server/secrets/masterKey';
 import {
   certificateStore,
   type RunningServer,
@@ -140,7 +141,7 @@ describe('the server over HTTPS', () => {
         checks: { database: { state: 'ok' } },
       });
     } else {
-      const own = certificateStore(config).current()?.certificate ?? '';
+      const own = certificateStore(config, loadMasterKey(config)).current()?.certificate ?? '';
       const reply = await get(`${running.url}/readyz`, own);
       expect(reply.status).toBe(200);
       expect(JSON.parse(reply.body)).toMatchObject({
@@ -172,7 +173,7 @@ describe('the server over HTTPS', () => {
     if (direct) expect(before).toBe(running.certificate?.().fingerprint);
 
     // An administrator has a request signed and installs the answer (the cert commands do this).
-    const store = certificateStore(config);
+    const store = certificateStore(config, loadMasterKey(config));
     const authority = await testAuthority();
     const request = await store.request({ names: ['127.0.0.1'] }, { by: 'test' });
     const installed = store.install((await authority.sign(request)) + authority.certificate, {
@@ -204,7 +205,9 @@ describe('the server over HTTPS', () => {
     const { config, lines } = settings();
     running = await startServer(config, logTo(lines));
     const before = await served(running.url);
-    await certificateStore(config).selfSigned(selfSignedNames(config), { by: 'test' });
+    await certificateStore(config, loadMasterKey(config)).selfSigned(selfSignedNames(config), {
+      by: 'test',
+    });
     // The folder is watched: within a moment new connections get the new certificate.
     let now = before;
     for (let i = 0; i < 40 && now === before; i++) {
@@ -216,7 +219,7 @@ describe('the server over HTTPS', () => {
 
   it('warns about a certificate close to its end', async () => {
     const { config, lines } = settings();
-    const store = certificateStore(config);
+    const store = certificateStore(config, loadMasterKey(config));
     const authority = await testAuthority();
     const request = await store.request({ names: ['127.0.0.1'] }, { by: 'test' });
     store.install(await authority.sign(request, { to: new Date(Date.now() + 5 * 864e5) }), {
@@ -288,7 +291,7 @@ describe('plain HTTP behind a proxy (AFS_TLS=off)', () => {
     running = await startServer(config, logTo(lines));
     expect(running.url).toMatch(/^http:\/\//);
     expect(running.certificate).toBeUndefined();
-    expect(certificateStore(config).current()).toBeUndefined();
+    expect(certificateStore(config, loadMasterKey(config)).current()).toBeUndefined();
     expect((await fetch(`${running.url}/healthz`)).status).toBe(200);
   });
 
