@@ -428,14 +428,19 @@ export function GitCredentialChoice({
   workspace,
   value,
   onChange,
+  ssh = false,
 }: {
   workspace: string;
   value: string;
   onChange(id: string): void;
+  /** AFS-60: an ssh source signs in with an SSH key; an https one with a token or a login. */
+  ssh?: boolean;
 }) {
   const list = useLoad(() => api.credentials(workspace), [workspace]);
   const id = useId();
-  const usable = (list.data ?? []).filter((c) => GIT_KINDS.includes(c.kind));
+  const usable = (list.data ?? []).filter((c) =>
+    ssh ? c.kind === 'ssh_key' : GIT_KINDS.includes(c.kind),
+  );
   return (
     <div className="field">
       <label htmlFor={id}>Signs in with</label>
@@ -445,7 +450,9 @@ export function GitCredentialChoice({
         onChange={(e) => onChange(e.target.value)}
         aria-describedby={`${id}-hint`}
       >
-        <option value="">nothing (a public repository)</option>
+        <option value="">
+          {ssh ? "the server's own SSH key" : 'nothing (a public repository)'}
+        </option>
         {usable.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name} ({KIND_LABEL[c.kind]})
@@ -453,7 +460,9 @@ export function GitCredentialChoice({
         ))}
       </select>
       <small id={`${id}-hint`} className="muted">
-        For an https:// address: a git token or a login and password of this workspace
+        {ssh
+          ? 'For an ssh address: an SSH key of this workspace'
+          : 'For an https:// address: a git token or a login and password of this workspace'}
         {list.data && usable.length === 0 ? ' (it has none yet: add one under Credentials)' : ''}.
       </small>
     </div>

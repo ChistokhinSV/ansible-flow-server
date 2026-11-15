@@ -160,6 +160,18 @@ export const ROUTES: Record<string, RouteDoc> = {
     P,
   )('Delete a project (refused while runs go)'),
   'POST /api/v1/projects/:id/sync': S('Projects', 'administrators', P)('Look at the source now'),
+  'GET /api/v1/projects/:id/host-key': S(
+    'Projects',
+    'signed in',
+    P,
+  )("The SSH host key the server trusts for the project's ssh source (fingerprints)"),
+  'POST /api/v1/projects/:id/host-key/forget': S(
+    'Projects',
+    'administrators',
+    P,
+  )(
+    'Forget the trusted host key of the ssh source (after a change you expected) and look again: the key found is trusted',
+  ),
   'GET /api/v1/samples': S(
     'Projects',
     'signed in',
@@ -755,6 +767,7 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
+  'GET /api/v1/projects/:id/host-key': 'can see',
   'POST /api/v1/projects/:id/branches': 'rw on the workspace',
   'DELETE /api/v1/projects/:id/branches': 'rw on the workspace',
   'POST /api/v1/projects/:id/start': 'rw on the workspace',

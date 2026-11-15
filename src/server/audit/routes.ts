@@ -60,6 +60,7 @@ export const ACTIONS: Record<string, Action> = {
   'PATCH /api/v1/projects/:id': { action: 'project.change', id: at() },
   'DELETE /api/v1/projects/:id': { action: 'project.delete', id: at() },
   'POST /api/v1/projects/:id/sync': { action: 'project.sync', id: at() },
+  'POST /api/v1/projects/:id/host-key/forget': { action: 'project.host-key-forget', id: at() },
   'POST /api/v1/projects/:id/start': { action: 'project.start', id: at() },
   'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
   'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },

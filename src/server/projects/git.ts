@@ -4,7 +4,15 @@
 // about calling it safely: no shell, no prompts, no settings of the machine or its user, a time
 // limit on every call, and only addresses the server is willing to fetch from.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -35,10 +43,29 @@ export class GitError extends Error {
     message: string,
     /** What git said, for the log; may name paths of this machine. */
     readonly detail = '',
+    /** AFS-60: the source's SSH host key is not the one the server trusts. */
+    readonly hostKeyChanged = false,
   ) {
     super(message);
     this.name = 'GitError';
   }
+}
+
+/** AFS-60: what an SSH error from git means, in the server's words. */
+function sshReason(said: string): { message: string; hostKeyChanged?: boolean } | undefined {
+  if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed/.test(said))
+    return {
+      message:
+        "The source's SSH host key is not the one the server trusts: if the change is expected, an administrator accepts the new key on the project's page",
+      hostKeyChanged: true,
+    };
+  if (/incorrect passphrase|invalid format|error in libcrypto|Load key .*: /i.test(said))
+    return {
+      message: "The credential's SSH key cannot be read: a wrong passphrase, or not a private key",
+    };
+  if (/Permission denied \(publickey/.test(said))
+    return { message: 'The source refused the SSH key (Permission denied)' };
+  return undefined;
 }
 
 export interface GitOptions {
@@ -52,6 +79,8 @@ export interface GitOptions {
    * machine does.
    */
   caBundle?: string;
+  /** AFS-60: told when the server trusts an SSH host it had not seen (trust on first use). */
+  onTrusted?: (host: string, fingerprints: string[]) => void;
 }
 
 /**
@@ -105,11 +134,29 @@ const COMMIT = /^[0-9a-f]{40}$/;
 /** Takes what could be a secret out of git's words before they are shown or logged. */
 export const scrub = (text: string) => text.replace(/\/\/[^/\s@]+@/g, '//***@').trim();
 
-/** What the server signs in to a source with, over HTTPS. */
-export interface GitAuth {
-  username: string;
-  password: string;
+/** What the server signs in to a source with: over HTTPS, or (AFS-60) an SSH key. */
+export type GitAuth =
+  | { username: string; password: string }
+  | { privateKey: string; passphrase?: string; username?: string };
+
+const isKey = (auth: GitAuth | undefined): auth is Extract<GitAuth, { privateKey: string }> =>
+  !!auth && 'privateKey' in auth;
+
+/** AFS-60: the host of an ssh address as known_hosts names it (`[host]:port` off port 22). */
+export function sshHost(url: string): string | undefined {
+  const scp = /^[\w.-]+@([\w.-]+):[^/\\]/.exec(url);
+  if (scp && !/^ssh:/i.test(url)) return scp[1];
+  if (!/^ssh:\/\//i.test(url)) return undefined;
+  try {
+    const u = new URL(url);
+    return u.port && u.port !== '22' ? `[${u.hostname}]:${u.port}` : u.hostname;
+  } catch {
+    return undefined;
+  }
 }
+
+/** A path for the shell line git runs ssh with (forward slashes, quoted). */
+const shellPath = (path: string) => `"${path.replace(/\\/g, '/').replace(/"/g, '')}"`;
 
 /**
  * How a sign-in reaches git for one call: as a setting in the call's own environment, for the
@@ -117,7 +164,7 @@ export interface GitAuth {
  * not send it to another host the source may point to.
  */
 export function authEnv(url: string, auth: GitAuth | undefined): Record<string, string> {
-  if (!auth || !/^https?:\/\//i.test(url)) return {};
+  if (!auth || isKey(auth) || !/^https?:\/\//i.test(url)) return {};
   const basic = Buffer.from(`${auth.username}:${auth.password}`, 'utf8').toString('base64');
   return {
     GIT_CONFIG_COUNT: '1',
@@ -184,6 +231,7 @@ export class Git {
   private readonly emptyConfig: string;
   private readonly hooksDir: string;
   private readonly caFile: string | undefined;
+  private readonly knownHosts: string;
 
   constructor(private readonly options: GitOptions) {
     mkdirSync(options.reposDir, { recursive: true });
@@ -197,6 +245,8 @@ export class Git {
       this.caFile = join(options.reposDir, 'ca-bundle.pem');
       writeFileSync(this.caFile, options.caBundle);
     }
+    // AFS-60: the SSH hosts the server trusts, kept with the repositories (trust on first use).
+    this.knownHosts = join(options.reposDir, 'known_hosts');
     this.hooksDir = join(options.reposDir, 'hooks');
     mkdirSync(this.hooksDir, { recursive: true });
     const hook = join(this.hooksDir, 'pre-receive');
@@ -230,6 +280,158 @@ export class Git {
     ];
   }
 
+  /**
+   * AFS-60: how git runs ssh. Host keys: the server's own known_hosts (data folder) first, where a
+   * host seen for the first time is added (trust on first use), then the account's, read too; a
+   * key that differs from a trusted one stops the call. With a key from a credential: only that
+   * key. A key with a passphrase is unlocked by a helper that reads it from a private file (ssh
+   * asks no one: no password or keyboard sign-in either).
+   */
+  private sshCommand(key?: { file: string; user?: string; askpass?: boolean }): string {
+    return [
+      'ssh',
+      // BatchMode would refuse even the helper; without a key there is nothing to ask for.
+      ...(key?.askpass ? [] : ['-o', 'BatchMode=yes']),
+      '-o',
+      'ConnectTimeout=20',
+      '-o',
+      'PasswordAuthentication=no',
+      '-o',
+      'KbdInteractiveAuthentication=no',
+      '-o',
+      'StrictHostKeyChecking=accept-new',
+      '-o',
+      `"UserKnownHostsFile=${this.knownHosts.replace(/\\/g, '/')} ~/.ssh/known_hosts"`,
+      ...(key
+        ? [
+            '-i',
+            shellPath(key.file),
+            '-o',
+            'IdentitiesOnly=yes',
+            '-o',
+            'IdentityAgent=none',
+            ...(key.user ? ['-o', `User=${key.user}`] : []),
+          ]
+        : []),
+    ].join(' ');
+  }
+
+  /**
+   * AFS-60: what one git call needs to sign in to `url`: the HTTPS header, or for an SSH key the
+   * key in a private folder of its own for this call only (and the passphrase helper), removed by
+   * `dispose` as soon as the call ends.
+   */
+  private signIn(
+    url: string,
+    auth: GitAuth | undefined,
+  ): { env: Record<string, string>; dispose(): void } {
+    if (!isKey(auth) || !sshHost(url)) return { env: authEnv(url, auth), dispose: () => undefined };
+    const dir = mkdtempSync(join(tmpdir(), 'afs-ssh-'));
+    try {
+      chmodSync(dir, 0o700);
+      const file = join(dir, 'key');
+      const text = auth.privateKey.replace(/\r\n/g, '\n');
+      writeFileSync(file, text.endsWith('\n') ? text : `${text}\n`, { mode: 0o600 });
+      const env: Record<string, string> = {};
+      if (auth.passphrase) {
+        const pass = join(dir, 'passphrase');
+        writeFileSync(pass, auth.passphrase, { mode: 0o600 });
+        const helper = join(dir, 'askpass');
+        writeFileSync(helper, `#!/bin/sh\ncat ${shellPath(pass)}\n`, { mode: 0o700 });
+        env.SSH_ASKPASS = helper.replace(/\\/g, '/');
+        env.SSH_ASKPASS_REQUIRE = 'force';
+        env.DISPLAY = env.DISPLAY ?? 'none';
+      }
+      // A user in the address wins; otherwise the credential's.
+      const inUrl = /^[\w.-]+@/.test(url) || /^ssh:\/\/[^/@]+@/i.test(url);
+      env.GIT_SSH_COMMAND = this.sshCommand({
+        file,
+        ...(auth.username && !inUrl ? { user: auth.username } : {}),
+        askpass: !!auth.passphrase,
+      });
+      return { env, dispose: () => rmSync(dir, { recursive: true, force: true }) };
+    } catch (e) {
+      rmSync(dir, { recursive: true, force: true });
+      throw e;
+    }
+  }
+
+  /** A call to a source with its sign-in, and a note when a host is trusted for the first time. */
+  private async withSource<T>(
+    url: string,
+    auth: GitAuth | undefined,
+    call: (env: Record<string, string>) => Promise<T>,
+  ): Promise<T> {
+    const host = sshHost(url);
+    const before = host ? this.knownHostsSize() : 0;
+    const sign = this.signIn(url, auth);
+    try {
+      return await call(sign.env);
+    } catch (e) {
+      // ssh on Linux says a wrong passphrase as a refused key.
+      if (
+        e instanceof GitError &&
+        isKey(auth) &&
+        auth.passphrase &&
+        e.message === 'The source refused the SSH key (Permission denied)'
+      )
+        throw new GitError(
+          "The source refused the SSH key (Permission denied), or the key's passphrase is wrong",
+          e.detail,
+        );
+      throw e;
+    } finally {
+      sign.dispose();
+      if (host && this.knownHostsSize() !== before && this.options.onTrusted) {
+        const keys = await this.hostKeys(url).catch(() => []);
+        this.options.onTrusted(host, keys);
+      }
+    }
+  }
+
+  private knownHostsSize(): number {
+    try {
+      return statSync(this.knownHosts).size;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** AFS-60: the fingerprints of the host keys the server trusts for an ssh address. */
+  async hostKeys(url: string): Promise<string[]> {
+    const host = sshHost(url);
+    if (!host || !existsSync(this.knownHosts)) return [];
+    const out = await new Promise<string>((resolve) =>
+      execFile(
+        'ssh-keygen',
+        ['-l', '-F', host, '-f', this.knownHosts],
+        { timeout: READ_TIMEOUT_MS, windowsHide: true },
+        (error, stdout) => resolve(error ? '' : String(stdout)),
+      ),
+    );
+    // "<host> <type> SHA256:…" per key; comment lines start with #.
+    return out
+      .split('\n')
+      .filter((l) => l.trim() && !l.startsWith('#'))
+      .map((l) => l.trim().split(/\s+/).slice(1).join(' '));
+  }
+
+  /** AFS-60: forgets the host keys trusted for an address; the next call trusts what it finds. */
+  async forgetHostKeys(url: string): Promise<void> {
+    const host = sshHost(url);
+    if (!host || !existsSync(this.knownHosts)) return;
+    await new Promise<void>((resolve, reject) =>
+      execFile(
+        'ssh-keygen',
+        ['-R', host, '-f', this.knownHosts],
+        { timeout: READ_TIMEOUT_MS, windowsHide: true },
+        (error) =>
+          error ? reject(new GitError('The host key could not be forgotten')) : resolve(),
+      ),
+    );
+    rmSync(`${this.knownHosts}.old`, { force: true });
+  }
+
   private env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     return {
       PATH: process.env.PATH,
@@ -250,7 +452,7 @@ export class Git {
       GIT_ASKPASS: '',
       SSH_ASKPASS: '',
       GCM_INTERACTIVE: 'never',
-      GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=20',
+      GIT_SSH_COMMAND: this.sshCommand(),
       GIT_ALLOW_PROTOCOL: this.options.allowLocal ? 'https:ssh:file:http' : 'https:ssh',
       LC_ALL: 'C',
       ...extra,
@@ -279,12 +481,14 @@ export class Git {
             return reject(new GitError('Git gave more than was asked for', 'maxBuffer'));
           const said = scrub(stderr.toString('utf8'));
           const timedOut = (error as { killed?: boolean }).killed === true;
+          const ssh = timedOut ? undefined : sshReason(said);
           reject(
             new GitError(
               timedOut
                 ? `Git did not finish in ${Math.round(options.timeoutMs / 1000)} seconds`
-                : (said.split('\n').filter(Boolean).at(-1) ?? 'Git failed'),
+                : (ssh?.message ?? said.split('\n').filter(Boolean).at(-1) ?? 'Git failed'),
               said,
+              ssh?.hostKeyChanged,
             ),
           );
         },
@@ -313,18 +517,20 @@ export class Git {
     const problem = gitUrlProblem(url, this.options.allowLocal);
     if (problem) throw new GitError(problem);
     // Branches only, exactly as the source has them: one deleted there is deleted here.
-    await this.run(
-      [
-        'fetch',
-        '--prune',
-        '--no-tags',
-        '--force',
-        '--quiet',
-        '--',
-        url,
-        '+refs/heads/*:refs/heads/*',
-      ],
-      { cwd: this.mirror(projectId), timeoutMs: FETCH_TIMEOUT_MS, env: authEnv(url, auth) },
+    await this.withSource(url, auth, (env) =>
+      this.run(
+        [
+          'fetch',
+          '--prune',
+          '--no-tags',
+          '--force',
+          '--quiet',
+          '--',
+          url,
+          '+refs/heads/*:refs/heads/*',
+        ],
+        { cwd: this.mirror(projectId), timeoutMs: FETCH_TIMEOUT_MS, env },
+      ),
     );
   }
 
@@ -454,17 +660,19 @@ export class Git {
     if (upstream) {
       const urlProblem = gitUrlProblem(upstream.url, this.options.allowLocal);
       if (urlProblem) throw new GitError(urlProblem);
-      await this.run(
-        [
-          'push',
-          '--quiet',
-          '--atomic',
-          `--force-with-lease=${ref}:${old ?? ''}`,
-          '--',
-          upstream.url,
-          commit ? `${commit}:${ref}` : `:${ref}`,
-        ],
-        { cwd, timeoutMs: FETCH_TIMEOUT_MS, env: authEnv(upstream.url, upstream.auth) },
+      await this.withSource(upstream.url, upstream.auth, (env) =>
+        this.run(
+          [
+            'push',
+            '--quiet',
+            '--atomic',
+            `--force-with-lease=${ref}:${old ?? ''}`,
+            '--',
+            upstream.url,
+            commit ? `${commit}:${ref}` : `:${ref}`,
+          ],
+          { cwd, timeoutMs: FETCH_TIMEOUT_MS, env },
+        ),
       );
     }
     if (commit)
@@ -767,17 +975,19 @@ export class Git {
     if (upstream) {
       const urlProblem = gitUrlProblem(upstream.url, this.options.allowLocal);
       if (urlProblem) throw new GitError(urlProblem);
-      await this.run(
-        [
-          'push',
-          '--quiet',
-          '--atomic',
-          `--force-with-lease=${ref}:${old}`,
-          '--',
-          upstream.url,
-          `${commit}:${ref}`,
-        ],
-        { cwd, timeoutMs: FETCH_TIMEOUT_MS, env: authEnv(upstream.url, upstream.auth) },
+      await this.withSource(upstream.url, upstream.auth, (env) =>
+        this.run(
+          [
+            'push',
+            '--quiet',
+            '--atomic',
+            `--force-with-lease=${ref}:${old}`,
+            '--',
+            upstream.url,
+            `${commit}:${ref}`,
+          ],
+          { cwd, timeoutMs: FETCH_TIMEOUT_MS, env },
+        ),
       );
     }
     await this.run(['update-ref', ref, commit, old], { cwd, timeoutMs: READ_TIMEOUT_MS });
@@ -902,7 +1112,13 @@ export class Git {
       throw new GitError('Not a branch name');
     if (options.upstream && gitUrlProblem(options.upstream, this.options.allowLocal))
       throw new GitError('Not a repository address');
-    return spawn(
+    // The hook's own push to the source runs in this environment and so signs in too; an SSH
+    // key's file stays until git ends.
+    const sign =
+      push && options.upstream
+        ? this.signIn(options.upstream, options.auth)
+        : { env: {}, dispose: () => undefined };
+    const child = spawn(
       'git',
       [
         ...this.base(push ? this.hooksDir : ''),
@@ -920,11 +1136,13 @@ export class Git {
           ...(push
             ? { AFS_PROTECTED: options.protectedRef ?? '', AFS_UPSTREAM: options.upstream ?? '' }
             : {}),
-          // The hook's own push to the source runs in this environment and so signs in too.
-          ...(push && options.upstream ? authEnv(options.upstream, options.auth) : {}),
+          ...sign.env,
         }),
       },
     );
+    child.once('close', () => sign.dispose());
+    child.once('error', () => sign.dispose());
+    return child;
   }
 
   /**

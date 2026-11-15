@@ -379,7 +379,7 @@ for (const [name, config] of databases) {
       );
       expect(
         await make({ gitUrl: 'git@git.example.net:network/edge.git', gitCredential: token.id }),
-      ).toMatch(/reached over https/);
+      ).toMatch(/An ssh source is signed in to with an SSH key credential/);
       expect(await make({ gitCredential: token.id })).toMatch(/server hosts this project/);
 
       // What git is given for each kind.

@@ -227,6 +227,11 @@ export const api = {
   changeProject: (id: string, input: { gitCredential?: string | null; gitRef?: string }) =>
     call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
+  /** AFS-60: the SSH host key trusted for an ssh source. */
+  hostKey: (id: string) =>
+    call<{ host?: string; keys: string[] }>('GET', `/projects/${id}/host-key`),
+  /** AFS-60: forget it (a change that was expected) and look again, trusting the key found. */
+  forgetHostKey: (id: string) => call<Project>('POST', `/projects/${id}/host-key/forget`),
   branches: (id: string) =>
     call<{ branches: string[]; details?: Branch[] }>('GET', `/projects/${id}/branches`),
   /** AFS-59: a branch from a branch or a commit. */

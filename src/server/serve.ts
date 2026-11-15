@@ -9,7 +9,7 @@ import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { buildApp } from './app';
 import { timeOutDue } from './approvals/gates';
-import { pruneAudit } from './audit/store';
+import { pruneAudit, recordAudit } from './audit/store';
 import { DirectorySync, LdapSignIn } from './auth/ldap/ldap';
 import { sweepSessions } from './auth/sessions';
 import { setupCode } from './auth/setup';
@@ -194,6 +194,21 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       allowLocal: config.gitLocal,
       // With authorities of the network's own (AFS_CA_FILE), git is given all the server trusts.
       ...(config.caFile ? { caBundle: tls.getCACertificates('default').join('\n') } : {}),
+      // AFS-60: an SSH host seen for the first time is trusted (its key kept): said and audited.
+      onTrusted: (host, fingerprints) => {
+        log.info(
+          { host, keys: fingerprints },
+          'Trusted the SSH host key of a git source on first use',
+        );
+        void recordAudit(database.db, {
+          actor: null,
+          source: 'server',
+          action: 'git.host-key-trusted',
+          object: { type: 'host', name: host },
+          result: 'ok',
+          detail: { keys: fingerprints.join(', ') },
+        }).catch(() => undefined);
+      },
     });
     // The master key: made at a first start, and then it must be the one the secrets need.
     const masterKey = loadMasterKey(config);

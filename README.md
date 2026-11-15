@@ -834,7 +834,7 @@ one; administrators make another branch the project's branch (the one that runs)
 ]
 ```
 
-Not there yet: GitHub's signed hooks, and an ssh source with a stored key. For a private repository over https see
+Not there yet: GitHub's signed hooks. For a private repository over https see
 [Credentials](#credentials-and-the-master-key).
 
 ### Credentials and the master key
@@ -884,10 +884,21 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 
 - **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
   the values. To change a secret, send it again whole.
-- **A private repository:** give the project a `git_token` or `login` credential of its
-  workspace: `"gitCredential": "<credential id>"` when adding it, or
-  `PATCH /projects/:id` (`null` takes it away). For a source over https. The server signs in
-  with it to read the source and to pass pushes on.
+- **A private repository:** give the project a credential of its workspace:
+  `"gitCredential": "<credential id>"` when adding it, or `PATCH /projects/:id` (`null` takes it
+  away). A `git_token` or `login` for an `https://` source, an `ssh_key` for an `ssh://` or
+  `git@host:path` one. The server signs in with it to read the source and to pass pushes on.
+- **An SSH key** is written to a private folder for one git call only and removed after it; a key
+  with a passphrase is unlocked by a helper that reads it from a private file (never an argument or
+  a variable of the call). The user is the one in the address, else the credential's `username`.
+  Without a credential, an ssh source uses the server account's own key, as before.
+- **SSH host keys** are trusted on first use: the first look at an ssh source keeps its host key
+  in `<data folder>/repos/known_hosts` (the account's `~/.ssh/known_hosts` is read too), says so
+  in the log and the audit log (`git.host-key-trusted`), and the project's page shows the
+  fingerprint. A host that later shows another key stops the project with a reason; an
+  administrator who knows why it changed presses **Accept the new host key**
+  (`POST /projects/:id/host-key/forget`), and the next look trusts the key it finds.
+  `GET /projects/:id/host-key` gives the fingerprints.
 - A credential a project uses is not deleted until the project has another.
 - With authorities of your own (`AFS_CA_FILE`), the server's git trusts them too.
 
@@ -900,10 +911,9 @@ On the pages, a workspace's **Credentials** list what each holds (never a secret
 projects and launch configurations use it; administrators add one with a form for its kind, change
 its name, description and visible fields, replace its secret (the fields start empty and the
 browser does not fill them; a private key can come from a file), and delete one nothing uses. An
-external project with an `https://` address chooses what it signs in with on its page (and when
-it is added); a source that asks for a sign-in says so there.
-
-Not there yet: an ssh source with a stored key.
+external project chooses what it signs in with on its page (and when it is added): a git token or
+a login for an `https://` address, an SSH key for an ssh one; a source that asks for a sign-in
+says so there.
 
 ### Launch configurations
 
