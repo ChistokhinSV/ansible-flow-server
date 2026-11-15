@@ -85,3 +85,7 @@ Nothing is released yet.
   - Each entry names who, from where (pages, API, git, server command), what, to what, and how it ended. No secret values are kept.
   - Administrators read it on the **Audit log** page, filtered by person, subject, result, source and dates, and export it as CSV or JSON; `GET /api/v1/audit` for scripts.
   - Entries are kept for `AFS_AUDIT_KEEP_DAYS` (365); `0` keeps them all.
+
+### Changed
+
+- Built on Ansible Flow Designer 0.86.0.
