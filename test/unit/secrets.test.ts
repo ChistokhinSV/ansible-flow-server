@@ -35,6 +35,7 @@ import {
   newKey,
   parseKey,
 } from '../../src/server/secrets/masterKey';
+import { CertificateStore } from '../../src/server/tls/store';
 import { emptyWorkspaces } from './helpers/clean';
 import { grant } from './helpers/grant';
 
@@ -620,6 +621,11 @@ describe('the secrets commands', () => {
       kind: 'vault',
       secret: { password: 'kept through a rotation' },
     });
+    // AFS-62: the certificate's key in the data folder, sealed with this key.
+    const certificate = await new CertificateStore(join(dataDir, 'tls'), key).selfSigned(
+      ['flows.example.net'],
+      { by: 'test' },
+    );
     const status = await run('status');
     expect(status.code).toBe(0);
     expect(status.text).toContain(`Master key ${key.id}`);
@@ -638,6 +644,11 @@ describe('the secrets commands', () => {
       password: 'kept through a rotation',
     });
     expect((await run('status')).code).toBe(0);
+    expect(rotated.text).toContain('1 certificate key(s) sealed again.');
+    expect(new CertificateStore(join(dataDir, 'tls'), next).current()?.key).toBe(certificate.key);
+    expect(() => new CertificateStore(join(dataDir, 'tls'), key).current()).toThrow(
+      /another master key/,
+    );
 
     // A key from the settings cannot be written by the server: the new one is said, once.
     const env = { masterKey: next.key.toString('base64'), dataDir: join(root, 'cli-env') };

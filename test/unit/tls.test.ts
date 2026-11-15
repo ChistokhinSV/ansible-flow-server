@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Config } from '../../src/server/config';
+import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import {
   certificateProblems,
   certificateRequest,
@@ -333,5 +335,58 @@ describe('the cert commands', () => {
     expect(installed.text).toContain('Issuer       CN=Fixture Root CA');
     expect(installed.text).toContain('Chain        1 more certificate');
     expect(installed.text).not.toContain('fixture-only');
+  });
+});
+
+describe('the private keys at rest (AFS-62)', () => {
+  const masterKey = (): MasterKey => {
+    const bytes = newKey();
+    return { key: bytes, id: keyId(bytes), source: 'env' };
+  };
+  const filesOf = (folder: string) =>
+    readdirSync(folder).map((name) => [name, readFileSync(join(folder, name), 'utf8')] as const);
+
+  it('are sealed with the master key: no private key in any file of the folder', async () => {
+    const folder = join(root, 'sealed');
+    const key = masterKey();
+    const store = new CertificateStore(folder, key);
+    await store.selfSigned(['flows.example.net'], BY);
+    await store.selfSigned(['flows.example.net'], BY);
+    await store.request({ names: ['flows.example.net'] }, BY);
+    const files = filesOf(folder);
+    expect(
+      files
+        .map(([n]) => n)
+        .filter((n) => n.includes('key'))
+        .sort(),
+    ).toEqual(['key.sealed', 'previous-key.sealed', 'request-key.sealed']);
+    for (const [name, text] of files) expect(text, name).not.toContain('PRIVATE KEY');
+    expect(store.current()?.key).toContain('BEGIN PRIVATE KEY');
+    expect(store.rollback(BY).info.subject).toBe('CN=flows.example.net');
+    // Without the key, or with another one, the folder gives nothing away.
+    expect(() => new CertificateStore(folder).current()).toThrow(/needs the server's master key/);
+    expect(() => new CertificateStore(folder, masterKey()).current()).toThrow(/another master key/);
+  });
+
+  it('kept plain by an older server are sealed at start, request and rollback keys too', async () => {
+    const folder = join(root, 'plain');
+    const plain = new CertificateStore(folder);
+    const first = await plain.selfSigned(['flows.example.net'], BY);
+    const second = await plain.selfSigned(['flows.example.net'], BY);
+    await plain.request({ names: ['flows.example.net'] }, BY);
+    expect(existsSync(join(folder, 'key.pem'))).toBe(true);
+    const key = masterKey();
+    const store = new CertificateStore(folder, key);
+    expect(store.sealKeys()).toBe(3);
+    expect(store.sealKeys()).toBe(0);
+    expect(filesOf(folder).some(([, text]) => text.includes('PRIVATE KEY'))).toBe(false);
+    expect(store.current()?.key).toBe(second.key);
+    expect(store.pendingRequest()).toContain('CERTIFICATE REQUEST');
+    expect(store.rollback(BY).key).toBe(first.key);
+    // Sealed again with another key (`secrets rotate`): the new key opens them, the old does not.
+    const next = masterKey();
+    expect(store.reseal(next)).toBe(3);
+    expect(new CertificateStore(folder, next).current()?.key).toBe(first.key);
+    expect(() => store.current()).toThrow(/another master key/);
   });
 });

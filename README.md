@@ -332,7 +332,13 @@ A running server serves it to new connections from now on.
   chain is in order, and it is good for the host of `AFS_PUBLIC_URL`. Every problem is named.
 - A running server needs no restart: new connections get the new certificate within a moment.
 - The server warns in its log when the certificate has 30 days or fewer left.
-- Keys and certificates are in `<data folder>/tls`. Back that folder up with the rest.
+- Keys and certificates are in `<data folder>/tls`. Back that folder up with the rest. The
+  private keys (in use, the one before it, a waiting request's) are sealed with the master key
+  (`*.sealed`): a copy of the folder gives them away only with the master key. A plain `key.pem`
+  from an older server is sealed at its next start; `secrets rotate` seals them again with the
+  new key. This protects them only when the master key is kept elsewhere: give it as
+  `AFS_MASTER_KEY`, or point `AFS_MASTER_KEY_FILE` outside the data folder (another disk, a
+  secret mount). With `master.key` in the data folder, a copy of the folder has both.
 - Behind a proxy that does HTTPS: `AFS_TLS=off` and `AFS_TRUSTED_PROXIES`.
 
 A PFX file (`.pfx`, `.p12`), as Windows certificate authorities and many appliances export one,
