@@ -100,7 +100,7 @@ describe('approvals', () => {
     await waitFor(() =>
       expect(screen.queryByRole('heading', { name: 'Yours to decide' })).toBeNull(),
     );
-    expect(screen.getByRole('link', { name: 'Approvals' }).getAttribute('aria-current')).toBe(
+    expect(screen.getByRole('link', { name: /^Approvals/ }).getAttribute('aria-current')).toBe(
       'page',
     );
   });

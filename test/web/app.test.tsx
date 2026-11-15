@@ -202,7 +202,7 @@ describe('before anyone is signed in', () => {
       },
     };
     render(<App />);
-    await screen.findByRole('heading', { name: 'Sign in' });
+    await screen.findByRole('heading', { name: 'Sign in to Ansible Flow Server' });
     type('Login', 'omar');
     type('Password', 'not it');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -229,8 +229,9 @@ describe('before anyone is signed in', () => {
 describe('signed in', () => {
   it('an administrator sees what administrators do; someone else does not', async () => {
     routes = signedInAs(dana);
+    window.history.replaceState(null, '', '/workspaces');
     const first = render(<App />);
-    await screen.findByRole('link', { name: /Network team/ });
+    await screen.findAllByRole('link', { name: /Network team/ });
     expect(screen.getByRole('button', { name: 'Add workspace' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Administration' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Workspaces' }).getAttribute('aria-current')).toBe(
@@ -243,8 +244,9 @@ describe('signed in', () => {
     render(<App />);
     await screen.findByRole('heading', { name: 'Nothing here' });
     expect(screen.queryByRole('link', { name: 'Administration' })).toBeNull();
-    navigate('/');
-    await screen.findByRole('link', { name: /Network team/ });
+    navigate('/workspaces');
+    await screen.findByRole('heading', { name: 'Workspaces' });
+    await screen.findAllByRole('link', { name: /Network team/ });
     expect(screen.queryByRole('button', { name: 'Add workspace' })).toBeNull();
   });
 
@@ -263,6 +265,7 @@ describe('signed in', () => {
       }),
       'GET /workspaces/dc/projects': () => ({ body: [] }),
     };
+    window.history.replaceState(null, '', '/workspaces');
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add workspace' }));
     type('Name', 'Data centre');
@@ -373,11 +376,11 @@ describe('signed in', () => {
     expect(Object.fromEntries(src.searchParams)).toEqual({
       project: 'p1',
       path: 'flows/os-upgrade.flow.yaml',
-      theme: 'auto',
+      theme: 'dark',
     });
     expect(screen.getByText(/main at 9f2c1e7ab3d4 · shown, not changed/)).toBeTruthy();
     // The designer follows the theme the person chose.
-    fireEvent.click(screen.getByRole('button', { name: 'Theme: as the device' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: dark' }));
     await waitFor(() =>
       expect(
         new URL(
@@ -614,30 +617,34 @@ describe('signed in', () => {
   it('shows sign-in again when the server says the session has ended', async () => {
     routes = signedInAs(dana);
     render(<App />);
-    await screen.findByRole('link', { name: /Network team/ });
+    const [link] = await screen.findAllByRole('link', { name: /Network team/ });
     routes['GET /workspaces/network'] = () => ({
       status: 401,
       body: { error: 'unauthorized', message: 'Sign in first' },
     });
-    fireEvent.click(screen.getByRole('link', { name: /Network team/ }));
-    await screen.findByRole('heading', { name: 'Sign in' });
+    fireEvent.click(link as HTMLElement);
+    await screen.findByRole('heading', { name: 'Sign in to Ansible Flow Server' });
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
   });
 
-  it('signs out, and the theme button goes round: device, light, dark', async () => {
+  it('signs out, and the theme button goes round: dark, light, device', async () => {
     routes = { ...signedInAs(dana), 'DELETE /session': () => ({ status: 204 }) };
     render(<App />);
-    await screen.findByRole('link', { name: /Network team/ });
+    await screen.findAllByRole('link', { name: /Network team/ });
     const root = document.documentElement;
-    fireEvent.click(screen.getByRole('button', { name: 'Theme: as the device' }));
-    await waitFor(() => expect(root.dataset.theme).toBe('light'));
-    fireEvent.click(screen.getByRole('button', { name: 'Theme: light' }));
-    await waitFor(() => expect(root.dataset.theme).toBe('dark'));
-    expect(window.localStorage.getItem('afs.theme')).toBe('dark');
+    // Dark unless the person chose otherwise (AFS-64).
+    expect(root.dataset.theme).toBe('dark');
     fireEvent.click(screen.getByRole('button', { name: 'Theme: dark' }));
+    await waitFor(() => expect(root.dataset.theme).toBe('light'));
+    expect(window.localStorage.getItem('afs.theme')).toBe('light');
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: light' }));
     await waitFor(() => expect(root.dataset.theme).toBeUndefined());
+    expect(window.localStorage.getItem('afs.theme')).toBe('system');
+    fireEvent.click(screen.getByRole('button', { name: 'Theme: as the device' }));
+    await waitFor(() => expect(root.dataset.theme).toBe('dark'));
+    expect(window.localStorage.getItem('afs.theme')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    await screen.findByRole('heading', { name: 'Sign in' });
+    await screen.findByRole('heading', { name: 'Sign in to Ansible Flow Server' });
     expect(calls).toContain('DELETE /session');
   });
 });

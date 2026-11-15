@@ -2,7 +2,7 @@
 // and the administrators' page that sets them up, with what their groups claim means here and
 // who may still sign in with a password.
 import { type ReactNode, useState } from 'react';
-import type { Mapping, Provider, ProviderInput } from '../server/auth/oidc/types';
+import type { Mapping, Provider, ProviderInput, SignInMethods } from '../server/auth/oidc/types';
 import type { Group } from '../server/auth/users';
 import { api } from './api';
 import { DirectoriesSection } from './directories';
@@ -10,8 +10,7 @@ import { Link } from './router';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 /** The sign-in page's provider buttons, and why the last sign-in failed (?error=). */
-export function ProviderButtons() {
-  const methods = useLoad(api.signInMethods, []);
+export function ProviderButtons({ methods }: { methods: { data?: SignInMethods } }) {
   const error = new URLSearchParams(window.location.search).get('error');
   const back = window.location.pathname === '/signin' ? '/' : window.location.pathname;
   const providers = methods.data?.providers ?? [];

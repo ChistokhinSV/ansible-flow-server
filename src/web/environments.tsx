@@ -414,7 +414,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
   }, [reloadEnv, reloadBuilds]);
   const crumbs = (
     <nav aria-label="Breadcrumb" className="crumbs">
-      <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
+      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <span aria-current="page">{env?.name ?? 'environment'}</span>
     </nav>
   );

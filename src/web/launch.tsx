@@ -179,7 +179,7 @@ function Crumbs({
 }) {
   return (
     <nav aria-label="Breadcrumb" className="crumbs">
-      <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
+      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <Link to={base(workspace, project)}>{project}</Link> /{' '}
       {config && (
         <>

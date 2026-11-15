@@ -20,84 +20,9 @@ import { LaunchConfigsSection } from './launch';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
-import { ProviderButtons } from './signin';
 import type { ThemeChoice } from './theme';
 import { TokensPanel } from './tokens';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
-
-// --- before anyone is signed in
-
-export function Setup({ onDone }: { onDone: (user: User) => void }) {
-  const [input, setInput] = useState({ code: '', login: '', name: '', password: '' });
-  const set = (key: keyof typeof input) => (e: { target: { value: string } }) =>
-    setInput((before) => ({ ...before, [key]: e.target.value }));
-  return (
-    <main className="narrow" id="main">
-      <h1>Set up Ansible Flow Server</h1>
-      <p className="muted">
-        This server has no user yet. Make its first administrator. The setup code is in the server's
-        log, written when it started.
-      </p>
-      <Form submit="Make the administrator" onSubmit={async () => onDone(await api.setup(input))}>
-        <Field label="Setup code" value={input.code} onChange={set('code')} required autoFocus />
-        <Field
-          label="Login"
-          value={input.login}
-          onChange={set('login')}
-          required
-          autoComplete="username"
-        />
-        <Field
-          label="Name"
-          value={input.name}
-          onChange={set('name')}
-          required
-          autoComplete="name"
-        />
-        <Field
-          label="Password"
-          type="password"
-          value={input.password}
-          onChange={set('password')}
-          required
-          minLength={12}
-          autoComplete="new-password"
-          hint="At least 12 characters. A few words work well."
-        />
-      </Form>
-    </main>
-  );
-}
-
-export function SignIn({ onDone }: { onDone: (user: User) => void }) {
-  const [login, setLogin] = useState('');
-  const [password, setPassword] = useState('');
-  return (
-    <main className="narrow" id="main">
-      <h1>Sign in</h1>
-      {/* AFS-30: the organisation's sign-in first, when there is one. */}
-      <ProviderButtons />
-      <Form submit="Sign in" onSubmit={async () => onDone(await api.signIn(login, password))}>
-        <Field
-          label="Login"
-          value={login}
-          onChange={(e) => setLogin(e.target.value)}
-          required
-          autoFocus
-          autoComplete="username"
-        />
-        <Field
-          label="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          autoComplete="current-password"
-        />
-      </Form>
-    </main>
-  );
-}
 
 // --- workspaces
 
@@ -292,7 +217,7 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
   return (
     <>
       <nav aria-label="Breadcrumb" className="crumbs">
-        <Link to="/">Workspaces</Link> / <span aria-current="page">{workspace}</span>
+        <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
       </nav>
       <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
         {me.admin && space.data && !adding && (
@@ -927,7 +852,7 @@ export function ProjectPage({
   };
   const crumbs = (
     <nav aria-label="Breadcrumb" className="crumbs">
-      <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
+      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <span aria-current="page">{key}</span>
     </nav>
   );
@@ -1275,8 +1200,9 @@ export function FlowPage({
     <div className="flow-page">
       <div className="flow-head">
         <nav aria-label="Breadcrumb" className="crumbs">
-          <Link to="/">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-          <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">{file}</span>
+          <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link>{' '}
+          / <Link to={`/w/${workspace}/${key}`}>{key}</Link> /{' '}
+          <span aria-current="page">{file}</span>
         </nav>
         <PageHead
           title={title}
@@ -1577,7 +1503,7 @@ export function NotFound() {
     <>
       <PageHead title="Nothing here" />
       <p className="empty">
-        There is no page at this address. <Link to="/">Go to the workspaces.</Link>
+        There is no page at this address. <Link to="/">Go home.</Link>
       </p>
     </>
   );
