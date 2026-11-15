@@ -1,5 +1,13 @@
 // The server's certificate: made, requested, checked, installed, taken back.
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -300,5 +308,29 @@ describe('the cert commands', () => {
     expect((await run(c, 'request')).code).toBe(2);
     expect((await run(c, 'frobnicate')).code).toBe(2);
     expect((await run(c, 'install', join(dir, 'missing.pem'))).code).toBe(1);
+  });
+
+  it('installs from a PFX with --passphrase-file, never taking the passphrase as an argument', async () => {
+    const c = config({ publicUrl: 'https://flows.example.net' });
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'flows.pfx');
+    // Made with openssl for flows.example.net under "Fixture Root CA" (passphrase fixture-only).
+    writeFileSync(file, readFileSync(join(__dirname, '..', 'fixtures', 'tls', 'ec.pfx')));
+    const bare = await run(c, 'install', file);
+    expect(bare.code).toBe(2);
+    expect(bare.text).toContain('--passphrase-file');
+    const wrong = join(dir, 'wrong.txt');
+    writeFileSync(wrong, 'nope\n');
+    const refused = await run(c, 'install', file, '--passphrase-file', wrong);
+    expect(refused.code).toBe(1);
+    expect(refused.text).toContain('The PFX passphrase is wrong');
+    const passFile = join(dir, 'pass.txt');
+    // A trailing newline (as editors and echo leave) is not part of the passphrase.
+    writeFileSync(passFile, 'fixture-only\n');
+    const installed = await run(c, 'install', file, '--passphrase-file', passFile);
+    expect(installed.code).toBe(0);
+    expect(installed.text).toContain('Issuer       CN=Fixture Root CA');
+    expect(installed.text).toContain('Chain        1 more certificate');
+    expect(installed.text).not.toContain('fixture-only');
   });
 });

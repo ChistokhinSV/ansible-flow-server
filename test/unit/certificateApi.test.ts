@@ -2,7 +2,7 @@
 // self-signed certificate, makes a request and downloads it, installs the signed answer (the
 // request's key used, the request gone), sees a refused certificate with every reason, rolls back,
 // and reads the history with their login. Others, and tokens, may not change it.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -157,5 +157,30 @@ describe('the server certificate over HTTP', () => {
     );
     expect(audit).toContain('certificate.install ok');
     expect(audit.filter((a) => a.startsWith('certificate.install ')).length).toBe(3);
+  });
+
+  it('installs a PFX (base64) with its passphrase, which stays out of the audit log', async () => {
+    // Made with openssl for flows.example.net under "Fixture Root CA" (passphrase fixture-only).
+    const pfx = readFileSync(join(__dirname, '..', 'fixtures', 'tls', 'ec.pfx')).toString('base64');
+    const wrong = await call('POST', '/install', {
+      cookie: dana,
+      body: { pfx, passphrase: 'nope' },
+    });
+    expect(wrong.statusCode).toBe(422);
+    expect(JSON.stringify(wrong.json())).toContain('The PFX passphrase is wrong');
+    expect((await call('POST', '/install', { cookie: dana, body: {} })).statusCode).toBe(400);
+    const installed = await call('POST', '/install', {
+      cookie: dana,
+      body: { pfx, passphrase: 'fixture-only' },
+    });
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json().current.info).toMatchObject({
+      names: ['flows.example.net'],
+      issuer: 'CN=Fixture Root CA',
+      chain: 1,
+    });
+    const entries = (await listAudit(database.db, { action: 'certificate.install' })).entries;
+    expect(JSON.stringify(entries)).not.toContain('fixture-only');
+    expect(JSON.stringify(entries)).not.toContain('nope');
   });
 });

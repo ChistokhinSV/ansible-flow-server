@@ -143,6 +143,42 @@ describe('the Server certificate page', () => {
     expect(sent('POST /admin/certificate/rollback')).toHaveLength(1);
   });
 
+  it('installs a PFX file with its passphrase, sent as base64', async () => {
+    const state = {
+      tls: 'on',
+      current: { source: 'self-signed', info: info(200) },
+      host: 'flows.example.net',
+      defaultNames: ['flows.example.net'],
+    };
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /admin/certificate': () => ({ body: state }),
+      'GET /admin/certificate/history': () => ({ body: [] }),
+      'POST /admin/certificate/install': () => ({
+        body: { ...state, current: { source: 'installed', info: info(397) } },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/certificate');
+    render(<App />);
+    const panel = (await screen.findByRole('heading', { name: 'Install a PFX file' })).closest(
+      'section',
+    ) as HTMLElement;
+    const install = within(panel).getByRole('button', { name: 'Install' }) as HTMLButtonElement;
+    expect(install.disabled).toBe(true);
+    const file = new File([new Uint8Array([0x30, 0x82, 0x01, 0xff])], 'flows.pfx');
+    fireEvent.change(within(panel).getByLabelText('PFX file'), { target: { files: [file] } });
+    fireEvent.change(within(panel).getByLabelText('Passphrase'), {
+      target: { value: 'not-a-real-one' },
+    });
+    fireEvent.click(install);
+    await screen.findByText(/Installed\. New connections get the certificate now/);
+    expect(sent('POST /admin/certificate/install')).toEqual([
+      { pfx: 'MIIB/w==', passphrase: 'not-a-real-one' },
+    ]);
+    // The passphrase field is emptied once installed.
+    expect((within(panel).getByLabelText('Passphrase') as HTMLInputElement).value).toBe('');
+  });
+
   it('warns administrators on every page when the end is near; others are never asked', async () => {
     routes = {
       'GET /session': () => ({ body: dana }),

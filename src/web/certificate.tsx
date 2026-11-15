@@ -198,6 +198,71 @@ function RequestPanel({
   );
 }
 
+/** A file's bytes as base64. */
+async function base64Of(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+/** AFS-55: a PFX (PKCS#12) file, as Windows certificate authorities and appliances export them. */
+function PfxPanel({ onDone }: { onDone(s: CertificateState): void }) {
+  const [file, setFile] = useState<File>();
+  const [passphrase, setPassphrase] = useState('');
+  const [turn, setTurn] = useState(0);
+  const action = useAction((s) => {
+    setFile(undefined);
+    setPassphrase('');
+    setTurn((t) => t + 1);
+    onDone(s);
+  });
+  return (
+    <section className="panel" aria-labelledby="install-pfx">
+      <h2 id="install-pfx">Install a PFX file</h2>
+      <p className="muted">
+        A PFX (.pfx or .p12) holds the certificate, its chain and its key. They go through the same
+        checks; the passphrase is used once and kept nowhere.
+      </p>
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const chosen = file;
+          if (!chosen) return;
+          void action.run(async () => api.installPfx(await base64Of(chosen), passphrase));
+        }}
+      >
+        <div className="field">
+          <label htmlFor="pfx-file">PFX file</label>
+          <input
+            key={turn}
+            id="pfx-file"
+            type="file"
+            accept=".pfx,.p12,application/x-pkcs12"
+            onChange={(e) => setFile(e.target.files?.[0])}
+          />
+        </div>
+        <Field
+          label="Passphrase"
+          type="password"
+          autoComplete="off"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+          hint="Empty when the file has none."
+        />
+        <Refusal error={action.error} />
+        <div className="actions">
+          <button type="submit" className="primary" disabled={action.busy || !file}>
+            Install
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 function InstallPanel({
   state,
   onDone,
@@ -384,6 +449,7 @@ export function CertificatePage() {
               state={state}
               onDone={changed('Installed. New connections get the certificate now.')}
             />
+            <PfxPanel onDone={changed('Installed. New connections get the certificate now.')} />
           </div>
           <History turn={turn} />
         </>
