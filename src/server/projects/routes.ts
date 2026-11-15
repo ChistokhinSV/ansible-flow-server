@@ -270,6 +270,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     gitCredential?: string | null;
     gitRef?: string;
     pollSeconds?: number;
+    library?: boolean;
   };
   app.patch<WithId & { Body: ProjectChangeBody }>(
     '/api/v1/projects/:id',
@@ -282,6 +283,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           gitCredential: { type: ['string', 'null'], minLength: 1, maxLength: 64 },
           gitRef: text(200, 1),
           pollSeconds: { type: 'integer', minimum: 0 },
+          library: { type: 'boolean' },
         }),
       },
     },

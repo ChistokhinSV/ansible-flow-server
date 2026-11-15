@@ -744,6 +744,28 @@ changed the same files is `409` with `files`.
 
 Not there yet: a diff before Save, and a link from a step's template in the designer to its file.
 
+### Flow library
+
+An administrator makes a project a **library** on its page (**Make it a library**). Its flows'
+subflows (a backup with its check, a maintenance window, an approval chain) are then offered to
+every project on the server, to people who may read the library's workspace (`ro` or more).
+
+- **Library** (the top bar) lists what the libraries offer: each subflow, its flow, version and
+  commit.
+- While a flow is edited in the pages, **Insert Shared Subflow…** on the canvas opens the library:
+  the subflow picked is copied into the draft, pinned to the library flow's version and commit
+  (`ref.from: afs://<workspace>/<project>/<file>#<subflow>`). In VS Code, with this server set
+  (`afd.runner.url`), the designer lists the library too.
+- The copy lives in the flow: runs read nothing from the library. A flow's page lists its library
+  copies under **From the library**: up to date, behind (the library has a newer version; **Update**
+  while the draft is edited copies it again), or no longer offered.
+- A library flow's version is its `flow.version`: raise it when its subflows change, so the flows
+  that copy them see an update.
+
+Over the API: `GET /api/v1/library/subflows` lists what you may read;
+`GET /api/v1/library/subflow?from=afs://…` gives one as it is now, with its steps; an
+administrator sets `PATCH /api/v1/projects/<id>` `{"library": true}`.
+
 ### Workspaces and projects
 
 A workspace is a team's space. A project in it is a git repository whose flows the server will

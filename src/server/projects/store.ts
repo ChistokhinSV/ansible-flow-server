@@ -40,6 +40,8 @@ export interface Project {
   hook: boolean;
   /** AFS-61: the hook can also check GitHub's signature (made since its secret is kept sealed). */
   hookSigned: boolean;
+  /** AFS-79: a library: its flows' subflows are offered to every project on the server. */
+  library: boolean;
 }
 
 export class ProjectError extends Error {
@@ -203,6 +205,7 @@ const projectOf = (row: ProjectRow, workspaceKey: string): Project => ({
   pollSeconds: row.poll_seconds,
   hook: row.hook_token_hash !== null,
   hookSigned: row.hook_secret_enc !== null,
+  library: row.library === 1,
 });
 
 const projectRows = (db: Db) =>
@@ -285,6 +288,7 @@ export async function createProject(
     git_credential_id: input.gitCredential ?? null,
     hook_token_hash: null,
     hook_secret_enc: null,
+    library: 0,
     created_at: at,
     updated_at: at,
   };
@@ -333,6 +337,8 @@ export interface ProjectChange {
   gitCredential?: string | null;
   gitRef?: string;
   pollSeconds?: number;
+  /** AFS-79: offer its flows' subflows to every project (administrators). */
+  library?: boolean;
 }
 
 /**
@@ -384,6 +390,7 @@ export async function updateProject(
       ...(change.gitUrl !== undefined ? { git_url: change.gitUrl.trim() } : {}),
       ...(change.gitRef !== undefined ? { git_ref: change.gitRef.trim() } : {}),
       ...(change.pollSeconds !== undefined ? { poll_seconds: change.pollSeconds } : {}),
+      ...(change.library !== undefined ? { library: change.library ? 1 : 0 } : {}),
       ...(change.gitCredential !== undefined ? { git_credential_id: change.gitCredential } : {}),
       ...(dropped ? { git_credential_id: null } : {}),
       ...(moved

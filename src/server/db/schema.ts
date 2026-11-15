@@ -215,6 +215,8 @@ export interface ProjectTable {
   hook_token_hash: string | null;
   /** AFS-61: the same token sealed with the master key, to check GitHub's signature; null: none. */
   hook_secret_enc: string | null;
+  /** AFS-79: 1 when the project is a library: its flows' subflows are offered to every project. */
+  library: number;
   created_at: IsoTime;
   updated_at: IsoTime;
 }

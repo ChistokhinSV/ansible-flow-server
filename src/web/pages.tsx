@@ -17,6 +17,7 @@ import {
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
+import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link, navigate } from './router';
 import { RunTable } from './runs';
 import { ProviderButtons } from './signin';
@@ -972,6 +973,20 @@ export function ProjectPage({
           <dd>
             <code>{project.gitRef}</code>
           </dd>
+          <dt>Library</dt>
+          <dd>
+            {project.library
+              ? "Its flows' subflows are offered to every project (the Library page)."
+              : 'No'}{' '}
+            {me.admin && (
+              <button
+                type="button"
+                onClick={() => void api.setLibrary(project.id, !project.library).then(found.reload)}
+              >
+                {project.library ? 'Stop offering' : 'Make it a library'}
+              </button>
+            )}
+          </dd>
           <dt>Commit</dt>
           <dd>
             {project.commit ? <code>{project.commit.slice(0, 12)}</code> : 'none yet'}
@@ -1189,6 +1204,9 @@ export function FlowPage({
   const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
   const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
   const [said, setSaid] = useState<string>();
+  const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
+  // AFS-79: the draft changed (an insert here, an edit by anyone): the library copies are read again.
+  const [changed, setChanged] = useState(0);
   const reloadAll = useRef<() => void>(() => undefined);
   reloadAll.current = () => {
     found.reload();
@@ -1214,6 +1232,8 @@ export function FlowPage({
         by?: string;
         people?: { login: string; name: string }[];
         steps?: string[];
+        level?: string;
+        at?: { x: number; y: number };
       } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
       if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
@@ -1221,6 +1241,7 @@ export function FlowPage({
         const by = data.by;
         const steps = data.steps ?? [];
         setEdits((e) => [{ by, steps, at: new Date().toISOString() }, ...e].slice(0, 5));
+        setChanged((n) => n + 1);
       }
       if (data?.type === 'afs-draft-saved')
         stop.current(
@@ -1228,6 +1249,9 @@ export function FlowPage({
         );
       if (data?.type === 'afs-draft-gone')
         stop.current(`${data.by ?? 'Someone'} discarded the draft.`);
+      // AFS-79: Insert Shared Subflow… on the canvas picks from the library here.
+      if (data?.type === 'afs-draft-insert-shared')
+        setInserting({ level: data.level ?? 'root', ...(data.at ? { at: data.at } : {}) });
     };
     window.addEventListener('message', heard);
     return () => window.removeEventListener('message', heard);
@@ -1290,6 +1314,27 @@ export function FlowPage({
         ) : null}
         {editing ? (
           <DraftBar draft={editing} people={people} edits={edits} onDone={stopEditing} />
+        ) : null}
+        {editing && inserting ? (
+          <InsertFromLibrary
+            draft={editing}
+            where={inserting}
+            onDone={(words) => {
+              setInserting(undefined);
+              if (words) {
+                setSaid(words);
+                setChanged((n) => n + 1);
+              }
+            }}
+          />
+        ) : null}
+        {project?.commit ? (
+          <LibraryCopies
+            project={project}
+            file={file}
+            changed={changed}
+            {...(editing ? { editing } : {})}
+          />
         ) : null}
         <Loading state={found} />
         {!found.loading && !found.error && !project && (

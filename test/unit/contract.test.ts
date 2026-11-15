@@ -21,7 +21,7 @@ import { LaunchConfigs } from '../../src/server/launch/configs';
 import { createLogger } from '../../src/server/log';
 import { FEATURES, serverMeta } from '../../src/server/meta';
 import { Git } from '../../src/server/projects/git';
-import { createProject, createWorkspace } from '../../src/server/projects/store';
+import { createProject, createWorkspace, updateProject } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { RunQueue } from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
@@ -36,7 +36,7 @@ interface Contract {
     tokens: Record<string, { user: string; readOnly?: boolean }>;
     workspace: { key: string; name: string };
     grants: { user: string; level: GrantLevel }[];
-    project: { key: string; name: string; branch: string; files: string };
+    project: { key: string; name: string; branch: string; files: string; library?: boolean };
     launchConfigs: { name: string; flowFile: string; inventory?: string; inputs?: object }[];
   };
   exchanges: {
@@ -124,6 +124,8 @@ for (const [name, config] of databases) {
         },
         true,
       );
+      // AFS-79: the contract's project may be a library (its subflows offered to every project).
+      if (world.project.library) await updateProject(db(), project.id, { library: true }, true);
       await sync.sync(project.id);
       const configs = new LaunchConfigs(db(), reposGit);
       for (const c of world.launchConfigs)

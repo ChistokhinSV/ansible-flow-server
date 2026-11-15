@@ -8,6 +8,15 @@ import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-79: a library project offers its flows' subflows to every project on the server.
+  '0024_project_library': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('project')
+        .addColumn('library', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+    },
+  },
   // AFS-61: a push hook's secret, sealed with the master key, so the server can check GitHub's
   // signature of a hook's body (the hash alone checks a token sent in a header).
   '0023_project_hook_secret': {

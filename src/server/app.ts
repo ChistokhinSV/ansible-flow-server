@@ -26,6 +26,7 @@ import { type ReadinessDeps, readiness } from './ops/health';
 import type { Metrics } from './ops/metrics';
 import { registerFiles } from './projects/filesRoutes';
 import { registerGit } from './projects/gitHttp';
+import { registerLibrary } from './projects/libraryRoutes';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import { ProjectWatch } from './projects/watch';
 import type { CatalogState } from './runs/catalogs';
@@ -169,6 +170,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
     // AFS-78: the project's files in the pages.
     registerFiles(app, { db: deps.database.db, ...deps.projects });
+    // AFS-79: the flow library: library projects' subflows, offered to every project.
+    registerLibrary(app, { db: deps.database.db, git: deps.projects.git });
     // AFS-76: flows edited in the pages, together.
     registerDrafts(app, {
       db: deps.database.db,

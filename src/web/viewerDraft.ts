@@ -17,7 +17,9 @@ export type DraftNotice =
   | { type: 'afs-draft-people'; people: { login: string; name: string }[] }
   | { type: 'afs-draft-edit'; by: string; steps: string[] }
   | { type: 'afs-draft-saved'; commit?: string; by?: string }
-  | { type: 'afs-draft-gone'; by?: string };
+  | { type: 'afs-draft-gone'; by?: string }
+  /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
+  | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } };
 
 const json = (method: string, url: string, body?: unknown) =>
   fetch(url, {
@@ -186,6 +188,13 @@ export function editDraft(options: {
                 if (!r.ok) notify(String(r.data?.message ?? 'Not laid out'));
               },
             );
+            return;
+          case 'insertShared':
+            tellPage({
+              type: 'afs-draft-insert-shared',
+              level: message.level,
+              ...(message.at ? { at: message.at } : {}),
+            });
             return;
           case 'run':
           case 'launchRun':
