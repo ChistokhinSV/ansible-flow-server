@@ -60,6 +60,8 @@ export const ACTIONS: Record<string, Action> = {
   'PATCH /api/v1/projects/:id': { action: 'project.change', id: at() },
   'DELETE /api/v1/projects/:id': { action: 'project.delete', id: at() },
   'POST /api/v1/projects/:id/sync': { action: 'project.sync', id: at() },
+  'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
+  'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },
   'POST /api/v1/projects/:id/hook': { action: 'project.hook-set', id: at() },
   'DELETE /api/v1/projects/:id/hook': { action: 'project.hook-remove', id: at() },
   'POST /api/v1/hooks/projects/:id/push': { action: 'project.hook-push', id: at() },
@@ -151,6 +153,13 @@ export const READS = new Set([
   'POST /api/v1/admin/oidc-providers/:id/test',
   'POST /api/v1/admin/ldap-directories/:id/test',
   'POST /git/:workspace/:repo/git-upload-pack',
+  // AFS-76: edits of a draft are kept with the draft (who, before, after); its save is audited.
+  'POST /api/v1/projects/:id/drafts',
+  'POST /api/v1/drafts/:id/commands',
+  'POST /api/v1/drafts/:id/undo',
+  'POST /api/v1/drafts/:id/tidy',
+  'POST /api/v1/drafts/:id/here',
+  'POST /api/v1/drafts/:id/catalog',
 ]);
 
 const CHANGES = ['POST', 'PUT', 'PATCH', 'DELETE'];
@@ -180,6 +189,10 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
           .select('key as n')
           .where((eb) => eb.or([eb('id', '=', id), eb('key', '=', id)]))
           .executeTakeFirst(),
+      );
+    case 'draft':
+      return one(
+        db.selectFrom('flow_draft').select('file as n').where('id', '=', id).executeTakeFirst(),
       );
     case 'project': {
       const project = await db

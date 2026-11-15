@@ -8,6 +8,49 @@ import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-76: a flow edited in the pages: one shared draft per project and flow, from a commit of
+  // the project's branch, and each edit made to it (who, before and after) for undo and marks.
+  '0022_flow_draft': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('flow_draft')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('project_id', 'text', (c) =>
+          c.notNull().references('project.id').onDelete('cascade'),
+        )
+        .addColumn('file', 'text', (c) => c.notNull())
+        .addColumn('base_commit', 'text', (c) => c.notNull())
+        .addColumn('text', 'text', (c) => c.notNull())
+        .addColumn('revision', 'integer', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) =>
+          c.references('user_account.id').onDelete('set null'),
+        )
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addUniqueConstraint('flow_draft_project_file', ['project_id', 'file'])
+        .execute();
+      await db.schema
+        .createTable('flow_draft_edit')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('draft_id', 'text', (c) =>
+          c.notNull().references('flow_draft.id').onDelete('cascade'),
+        )
+        .addColumn('revision', 'integer', (c) => c.notNull())
+        .addColumn('user_id', 'text', (c) => c.references('user_account.id').onDelete('set null'))
+        // command, undo, layout: what made the edit.
+        .addColumn('kind', 'text', (c) => c.notNull())
+        .addColumn('before_text', 'text', (c) => c.notNull())
+        .addColumn('after_text', 'text', (c) => c.notNull())
+        .addColumn('undone', 'integer', (c) => c.notNull())
+        .addColumn('at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createIndex('flow_draft_edit_draft')
+        .on('flow_draft_edit')
+        .columns(['draft_id', 'revision'])
+        .execute();
+    },
+  },
   // AFS-31: sign-in with LDAP and Active Directory. A person is an entry of a directory, found
   // again by its own id (entryUUID, objectGUID). An account the directory sync disabled is marked,
   // so only those are enabled again when the entry is back.

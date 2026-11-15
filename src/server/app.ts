@@ -10,6 +10,8 @@ import type { Connect } from './auth/ldap/client';
 import { LdapSignIn } from './auth/ldap/ldap';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
+import { Drafts } from './drafts/drafts';
+import { registerDrafts } from './drafts/routes';
 import { registerFlowChecks } from './environments/checkRoutes';
 import type { Environments } from './environments/environments';
 import { registerEnvironments } from './environments/routes';
@@ -25,6 +27,7 @@ import type { Metrics } from './ops/metrics';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import { ProjectWatch } from './projects/watch';
+import type { CatalogState } from './runs/catalogs';
 import type { RunHub } from './runs/hub';
 import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
@@ -76,6 +79,8 @@ export interface AppDeps {
   dev?: { maxBytes: number; keepHours: number };
   /** AFS-67: reads a launch's inventory in its image (the executor's probes). */
   inventory?: InventoryReader;
+  /** AFS-76: the module catalog of an image (the server's default without one), and Rebuild. */
+  catalog?: { get(image?: string): CatalogState; retry(image?: string): void };
   /** AFS-31: tests: the directory a test plays, instead of real LDAP connections. */
   ldapConnect?: Connect;
   /** AFS-37: what /readyz checks beyond the database. */
@@ -156,6 +161,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const watch = deps.projects.watch ?? new ProjectWatch(deps.database.db, deps.log);
     app.addHook('onClose', async () => watch.stop());
     registerProjects(app, { db: deps.database.db, ...deps.projects, watch });
+    // AFS-76: flows edited in the pages, together.
+    registerDrafts(app, {
+      db: deps.database.db,
+      ...(deps.catalog ? { catalog: deps.catalog } : {}),
+      drafts: new Drafts({
+        db: deps.database.db,
+        git: deps.projects.git,
+        sync: deps.projects.sync,
+        log: deps.log,
+      }),
+    });
     registerGit(app, { db: deps.database.db, ...deps.projects });
     registerLaunch(app, {
       db: deps.database.db,

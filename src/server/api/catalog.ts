@@ -43,7 +43,9 @@ export type Reach =
   | { environment: string }
   | { grant: string }
   | { gitWorkspace: string }
-  | { projectQuery: string };
+  | { projectQuery: string }
+  /** AFS-76: a flow's draft, which reaches its project and flow. */
+  | { draft: string };
 
 export interface RouteDoc {
   summary: string;
@@ -62,6 +64,7 @@ const W = { workspace: 'id' } as const;
 const P = { project: 'id' } as const;
 const C = { config: 'id' } as const;
 const R = { run: 'id' } as const;
+const D = { draft: 'id' } as const;
 const K = { credential: 'id' } as const;
 const E = { environment: 'id' } as const;
 
@@ -192,6 +195,59 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The commits that changed a flow, newest first'),
+  'GET /api/v1/projects/:id/drafts': S(
+    'Editing',
+    'signed in',
+    P,
+  )('The flows being edited in the pages, each with who has edited it'),
+  'POST /api/v1/projects/:id/drafts': S(
+    'Editing',
+    'signed in',
+    P,
+  )("Open the flow's draft (`path`), made from the project's commit when there is none"),
+  'GET /api/v1/drafts/:id': S(
+    'Editing',
+    'signed in',
+    D,
+  )('A draft, and its flow as the designer shows it'),
+  'GET /api/v1/drafts/:id/events': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    'A draft as it changes, as server-sent events: `draft`, `edit` (who, which steps, the flow after), `people`, `saved`, `discarded`',
+  ),
+  'POST /api/v1/drafts/:id/commands': S(
+    'Editing',
+    'signed in',
+    D,
+  )("One of the designer's commands, on the draft as it is now"),
+  'POST /api/v1/drafts/:id/undo': S(
+    'Editing',
+    'signed in',
+    D,
+  )("Take back the caller's own last edit; refused when someone changed the same place since"),
+  'POST /api/v1/drafts/:id/tidy': S('Editing', 'signed in', D)('Lay out a level (`level`) again'),
+  'POST /api/v1/drafts/:id/here': S(
+    'Editing',
+    'signed in',
+    D,
+  )('Say the caller is in the draft, and which step they have selected (`node`)'),
+  'POST /api/v1/drafts/:id/save': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "Save the draft as one commit on the project's branch (merged first when the branch moved; `force` keeps the draft's side of conflicts)",
+  ),
+  'DELETE /api/v1/drafts/:id': S('Editing', 'signed in', D)('Discard the draft'),
+  'POST /api/v1/drafts/:id/catalog': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "The module catalog of the flow's image, as the designer asks it (search, doc, names, status, rebuild); 202 while it is first read",
+  ),
   'POST /api/v1/projects/:id/hook': S(
     'Projects',
     'administrators',
@@ -659,6 +715,17 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/access': 'can see',
   'GET /api/v1/projects/:id/flows/view': 'ro',
   'GET /api/v1/projects/:id/events': 'can see',
+  'GET /api/v1/projects/:id/drafts': 'can see',
+  'POST /api/v1/projects/:id/drafts': 'rw',
+  'GET /api/v1/drafts/:id': 'ro',
+  'GET /api/v1/drafts/:id/events': 'ro',
+  'POST /api/v1/drafts/:id/commands': 'rw',
+  'POST /api/v1/drafts/:id/undo': 'rw',
+  'POST /api/v1/drafts/:id/tidy': 'rw',
+  'POST /api/v1/drafts/:id/here': 'ro',
+  'POST /api/v1/drafts/:id/save': 'rw',
+  'DELETE /api/v1/drafts/:id': 'rw',
+  'POST /api/v1/drafts/:id/catalog': 'ro',
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
@@ -727,6 +794,7 @@ const LEVEL_OF: Partial<Record<Who, Level | 'see'>> = {
 /** flows/view names its flow in the query. */
 const FLOW_QUERY: Record<string, string> = {
   'GET /api/v1/projects/:id/flows/view': 'path',
+  'POST /api/v1/projects/:id/drafts': 'path',
   'GET /api/v1/projects/:id/flows/history': 'path',
 };
 
@@ -792,6 +860,20 @@ async function targetOf(
           .executeTakeFirst()
       : undefined;
     return row ? { workspace: row.workspace_id } : undefined;
+  }
+  if ('draft' in reach) {
+    const id = params[reach.draft];
+    const row = id
+      ? await db
+          .selectFrom('flow_draft')
+          .innerJoin('project', 'project.id', 'flow_draft.project_id')
+          .select(['project.workspace_id', 'flow_draft.project_id', 'flow_draft.file'])
+          .where('flow_draft.id', '=', id)
+          .executeTakeFirst()
+      : undefined;
+    return row
+      ? { workspace: row.workspace_id, project: row.project_id, file: row.file }
+      : undefined;
   }
   if ('credential' in reach) {
     const id = params[reach.credential];

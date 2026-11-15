@@ -356,6 +356,73 @@ describe('signed in', () => {
     expect(screen.queryByText(/Changed on the branch just now/)).toBeNull();
   });
 
+  it('edits a flow in the pages: the draft, who is there, a Save the branch stands in the way of (AFS-76)', async () => {
+    const file = 'flows/os-upgrade.flow.yaml';
+    const draft = {
+      id: 'd1',
+      project: 'p1',
+      file,
+      baseCommit: edge.commit,
+      revision: 0,
+      createdAt: '2026-11-15T09:00:00.000Z',
+      updatedAt: '2026-11-15T09:00:00.000Z',
+      editors: [],
+    };
+    let saves = 0;
+    routes = {
+      ...signedInAs(omar),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: { [file]: 'rw' } },
+      }),
+      'GET /projects/p1/drafts': () => ({ body: [] }),
+      [`POST /projects/p1/drafts?path=${encodeURIComponent(file)}`]: () => ({
+        status: 201,
+        body: draft,
+      }),
+      'POST /drafts/d1/save': (body) => {
+        saves++;
+        return (body as { force?: boolean }).force
+          ? { body: { commit: '41d7a0c93be2f5681a0c4e7d9b3f2a6c8e1d0b57' } }
+          : {
+              status: 409,
+              body: {
+                error: 'conflict',
+                message: 'The branch changed the same places since the draft began',
+                conflicts: [{ id: 'node:x:title', label: 'Upgrade: title' }],
+              },
+            };
+      },
+    };
+    window.history.replaceState(null, '', `/w/network/edge/flow/${file}`);
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const bar = await screen.findByRole('region', { name: 'Editing' });
+    const frame = screen.getByTitle(/on the designer/) as HTMLIFrameElement;
+    expect(new URL(frame.src).searchParams.get('draft')).toBe('d1');
+    // The frame says who is there and what the others changed.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'afs-draft-people', people: [{ login: 'mia', name: 'Mia Ortega' }] },
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'afs-draft-edit', by: 'Mia Ortega', steps: ['Pre-checks'] },
+      }),
+    );
+    await waitFor(() => expect(bar.textContent).toContain('here now: Mia Ortega'));
+    expect(bar.textContent).toContain('Mia Ortega changed Pre-checks');
+    type("What changed (the commit's message)", 'Safer pre-checks');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Upgrade: title')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: "Save with the draft's side" }));
+    expect(await screen.findByText('Saved as 41d7a0c93be2.')).toBeTruthy();
+    expect(saves).toBe(2);
+    expect(screen.queryByRole('region', { name: 'Editing' })).toBeNull();
+  });
+
   it('a hosted project that is empty says to push; a project that is not there says so', async () => {
     routes = {
       ...signedInAs(omar),

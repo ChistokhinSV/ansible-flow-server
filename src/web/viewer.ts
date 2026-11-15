@@ -4,6 +4,7 @@
 //   /viewer.html?project=<id>&path=<file in the repository>&theme=light|dark|auto
 //                [&commit=<40 hex>]   the flow at that commit (a run's), not the project's
 //                [&run=<run id>]      that run on the canvas, live while it goes
+//                [&draft=<draft id>]  AFS-76: the flow's draft, edited (viewerDraft.ts)
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
 // Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
@@ -13,6 +14,7 @@ import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
 import { followFlow } from './viewerChanges';
+import { editDraft } from './viewerDraft';
 import { chooseConfig, launcher } from './viewerLaunch';
 
 const params = new URLSearchParams(window.location.search);
@@ -65,6 +67,20 @@ function go(to: string): void {
 }
 
 async function start(): Promise<void> {
+  // AFS-76: editing the flow's draft, with everyone else editing it.
+  const draft = params.get('draft');
+  if (draft) {
+    const me = await get('/api/v1/session').catch(() => undefined);
+    if (!me?.ok) return say('Sign in to edit this flow.');
+    editDraft({
+      root,
+      draft,
+      me: String(me.data?.login ?? ''),
+      theme,
+      stateKey: `afs.draft.${draft}`,
+    });
+    return;
+  }
   if (!project || !path) return say('This address names no flow.');
   let flow: Awaited<ReturnType<typeof get>>;
   try {

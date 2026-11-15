@@ -772,3 +772,22 @@ a.button.primary {
     grid-template-columns: 1fr;
   }
 }
+
+/* AFS-76: editing a flow's draft in the pages. */
+.draft-bar p {
+  margin: 0 0 0.5rem;
+}
+.draft-edits {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+}
+.draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.draft-actions input {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
