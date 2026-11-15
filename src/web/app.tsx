@@ -10,6 +10,7 @@ import { CertificateBanner, CertificatePage } from './certificate';
 import { EnvironmentPage } from './environments';
 import { FilesPage } from './files';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
+import { LibraryPage } from './library';
 import { NotificationsPage } from './notifications';
 import {
   Account,
@@ -61,6 +62,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/account') return <Account me={me} />;
   if (path === '/docs/api') return <ApiDocs />;
   if (path === '/approvals') return <ApprovalsPage />;
+  if (path === '/library') return <LibraryPage />;
   if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
   if (path === '/admin/notifications') return me.admin ? <NotificationsPage /> : <NotFound />;
@@ -164,6 +166,9 @@ export function App() {
             </Link>
             <Link to="/approvals" aria-current={at('/approvals')}>
               Approvals
+            </Link>
+            <Link to="/library" aria-current={at('/library')}>
+              Library
             </Link>
             {me.admin && (
               <Link to="/admin" aria-current={at('/admin')}>

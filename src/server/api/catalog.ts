@@ -233,6 +233,18 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The commits that changed a flow, newest first'),
+  'GET /api/v1/library/subflows': S(
+    'Library',
+    'signed in',
+    'server',
+  )(
+    "The subflows the server's library projects offer, of the libraries whose workspace you may read: source (afs://…), title, flow, version and commit",
+  ),
+  'GET /api/v1/library/subflow': S(
+    'Library',
+    'signed in',
+    'server',
+  )('One library subflow as it is now, to copy (?from=afs://…)'),
   'GET /api/v1/projects/:id/files': S(
     'Files',
     'signed in',

@@ -32,6 +32,7 @@ import type {
 import type { Branch } from '../server/projects/branches';
 import type { FileChange, FileEntry } from '../server/projects/files';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
+import type { LibrarySubflow } from '../server/projects/library';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
@@ -65,6 +66,7 @@ export type {
   LaunchForm,
   LaunchRequest,
   Level,
+  LibrarySubflow,
   NotifySettings,
   PreparedLaunch,
   Problem,
@@ -150,6 +152,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       ...(Array.isArray(data?.files) ? { files: data.files } : {}),
     },
   );
+}
+
+/** The part of a flow the pages read: its nodes, with shared subflows' sources (AFS-79). */
+export interface FlowNodeLike {
+  id: string;
+  key: string;
+  title: string;
+  type?: string;
+  ref?: { from: string; version: number; commit?: string };
+  subflow?: { nodes?: FlowNodeLike[] };
+}
+export interface FlowDocLike {
+  nodes?: FlowNodeLike[];
 }
 
 export interface Meta {
@@ -288,6 +303,29 @@ export const api = {
   saveDraft: (id: string, input: { message?: string; force?: boolean }) =>
     call<{ commit: string; unchanged?: boolean }>('POST', `/drafts/${id}/save`, input),
   discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
+  /** AFS-79: the draft and its flow as the designer shows it. */
+  draft: (id: string) =>
+    call<{ draft: Draft; snapshot: { doc?: FlowDocLike } }>('GET', `/drafts/${id}`),
+  /** AFS-79: one of the designer's commands, applied to the draft. */
+  draftCommand: (id: string, command: Record<string, unknown>) =>
+    call<{ created?: string }>('POST', `/drafts/${id}/commands`, { command }),
+  /** AFS-79: a flow at the project's commit, as the designer shows it. */
+  flowView: (id: string, path: string) =>
+    call<{ commit: string; snapshot: { doc?: FlowDocLike } }>(
+      'GET',
+      `/projects/${id}/flows/view?path=${encodeURIComponent(path)}`,
+    ),
+  /** AFS-79: the subflows of the server's library you may read. */
+  library: () => call<{ subflows: LibrarySubflow[] }>('GET', '/library/subflows'),
+  /** AFS-79: one library subflow as it is now, to copy. */
+  librarySubflow: (from: string) =>
+    call<LibrarySubflow & { node: Record<string, unknown> }>(
+      'GET',
+      `/library/subflow?from=${encodeURIComponent(from)}`,
+    ),
+  /** AFS-79: make a project a library, or not (administrators). */
+  setLibrary: (id: string, library: boolean) =>
+    call<Project>('PATCH', `/projects/${id}`, { library }),
   /** AFS-75: the flows that differ between `from` and the project's commit (or `to`). */
   changes: (id: string, from: string, to?: string) =>
     call<FlowChanges>('GET', `/projects/${id}/changes?from=${from}${to ? `&to=${to}` : ''}`),

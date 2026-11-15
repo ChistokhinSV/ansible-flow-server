@@ -881,3 +881,17 @@ textarea.code {
   min-height: 20rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
+
+/* AFS-79: library copies on a flow's page. */
+.tag.current {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.tag.behind {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.tag.gone {
+  color: var(--bad);
+  border-color: var(--bad);
+}
