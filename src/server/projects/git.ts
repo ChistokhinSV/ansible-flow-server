@@ -18,6 +18,18 @@ export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 /** The most one push may bring. */
 export const MAX_PUSH_BYTES = 512 * 1024 * 1024;
 
+/** AFS-59: a branch with its newest commit. */
+export interface BranchInfo {
+  name: string;
+  commit: string;
+  author: string;
+  /** When its newest commit was made (committer date, ISO). */
+  at: string;
+  subject: string;
+  /** Commits on it that are not on the project's branch. */
+  ahead: number;
+}
+
 export class GitError extends Error {
   constructor(
     message: string,
@@ -352,6 +364,116 @@ export class Git {
   /** The branches the mirror has. */
   async branches(projectId: string): Promise<string[]> {
     return [...(await this.refs(projectId)).keys()].sort();
+  }
+
+  /**
+   * AFS-59: every branch with its newest commit (author, time, subject) and how many of its
+   * commits are not on `base` (the project's branch), newest commit first.
+   */
+  async branchDetails(projectId: string, base: string): Promise<BranchInfo[]> {
+    const cwd = this.mirror(projectId);
+    const out = await this.run(
+      [
+        'for-each-ref',
+        '--sort=-committerdate',
+        '--format=%(refname:short)%00%(objectname)%00%(authorname)%00%(committerdate:iso-strict)%00%(subject)',
+        'refs/heads',
+      ],
+      { cwd, timeoutMs: READ_TIMEOUT_MS },
+    );
+    const baseCommit = (await this.refs(projectId)).get(base);
+    const branches: BranchInfo[] = [];
+    for (const line of out.toString('utf8').split('\n')) {
+      const [name, commit, author, at, subject] = line.split('\0');
+      if (!name || !commit || !COMMIT.test(commit)) continue;
+      let ahead = 0;
+      if (baseCommit && commit !== baseCommit)
+        ahead = Number(
+          (
+            await this.run(['rev-list', '--count', commit, `^${baseCommit}`], {
+              cwd,
+              timeoutMs: READ_TIMEOUT_MS,
+            })
+          )
+            .toString('utf8')
+            .trim(),
+        );
+      else if (!baseCommit)
+        ahead = Number(
+          (await this.run(['rev-list', '--count', commit], { cwd, timeoutMs: READ_TIMEOUT_MS }))
+            .toString('utf8')
+            .trim(),
+        );
+      branches.push({
+        name,
+        commit,
+        author: author ?? '',
+        at: at ?? '',
+        subject: subject ?? '',
+        ahead,
+      });
+    }
+    return branches;
+  }
+
+  /** A branch name or a commit (full or abbreviated) of the mirror, as a commit. */
+  async commitOf(projectId: string, from: string): Promise<string> {
+    if (/^[0-9a-f]{7,40}$/.test(from)) {
+      try {
+        const out = await this.run(['rev-parse', '--verify', '--quiet', `${from}^{commit}`], {
+          cwd: this.mirror(projectId),
+          timeoutMs: READ_TIMEOUT_MS,
+        });
+        const commit = out.toString('utf8').trim();
+        if (COMMIT.test(commit)) return commit;
+      } catch {
+        // Not a commit: perhaps a branch named like one.
+      }
+    }
+    return this.resolve(projectId, from);
+  }
+
+  /**
+   * AFS-59: makes `branch` at `commit` (it must not exist), or deletes it (`commit` undefined)
+   * from `old`: at the source first when the project has one, so the mirror changes only when the
+   * source took it; then in the mirror, only if the branch there is still as expected.
+   */
+  async setBranch(
+    projectId: string,
+    branch: string,
+    change: { old?: string; commit?: string },
+    upstream?: { url: string; auth?: GitAuth },
+  ): Promise<void> {
+    const problem = refProblem(branch);
+    if (problem) throw new GitError(problem);
+    const { old, commit } = change;
+    if ((old && !COMMIT.test(old)) || (commit && !COMMIT.test(commit)) || (!old && !commit))
+      throw new GitError('Not a commit');
+    const cwd = this.mirror(projectId);
+    const ref = `refs/heads/${branch}`;
+    if (upstream) {
+      const urlProblem = gitUrlProblem(upstream.url, this.options.allowLocal);
+      if (urlProblem) throw new GitError(urlProblem);
+      await this.run(
+        [
+          'push',
+          '--quiet',
+          '--atomic',
+          `--force-with-lease=${ref}:${old ?? ''}`,
+          '--',
+          upstream.url,
+          commit ? `${commit}:${ref}` : `:${ref}`,
+        ],
+        { cwd, timeoutMs: FETCH_TIMEOUT_MS, env: authEnv(upstream.url, upstream.auth) },
+      );
+    }
+    if (commit)
+      await this.run(['update-ref', ref, commit, old ?? '0'.repeat(40)], {
+        cwd,
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+    else
+      await this.run(['update-ref', '-d', ref, old as string], { cwd, timeoutMs: READ_TIMEOUT_MS });
   }
 
   /** Every branch of the mirror with the commit it is at. */

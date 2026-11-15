@@ -6,6 +6,7 @@ import { useProjectAccess, WorkspaceAccess } from './access';
 import {
   ApiError,
   api,
+  type Branch,
   type Draft,
   type FlowChanges,
   type FlowList,
@@ -520,6 +521,172 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
   );
 }
 
+/**
+ * AFS-59: the project's branches with their newest commit; who may push makes and deletes them,
+ * administrators choose the one that runs.
+ */
+function BranchesPanel({
+  project,
+  branches,
+  mayChange,
+  admin,
+  onChanged,
+}: {
+  project: Project;
+  branches: Branch[];
+  mayChange: boolean;
+  admin: boolean;
+  onChanged(): void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [input, setInput] = useState({ name: '', from: project.gitRef });
+  const [error, setError] = useState<string>();
+  const remove = async (b: Branch) => {
+    setError(undefined);
+    const lost =
+      b.ahead > 0
+        ? ` It has ${b.ahead} commit${b.ahead === 1 ? '' : 's'} not on ${project.gitRef}${project.hosted ? ', which will be gone' : ''}.`
+        : '';
+    if (!window.confirm(`Delete the branch ${b.name}?${lost}`)) return;
+    try {
+      await api.deleteBranch(project.id, b.name, b.ahead > 0);
+      onChanged();
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+  const makeRun = async (b: Branch) => {
+    setError(undefined);
+    if (
+      !window.confirm(
+        `Make ${b.name} the project's branch? Launch configurations and schedules that follow the project's branch run its commits from now on.`,
+      )
+    )
+      return;
+    try {
+      await api.changeProject(project.id, { gitRef: b.name });
+      onChanged();
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+  return (
+    <section className="panel" aria-labelledby="branches">
+      <h2 id="branches">Branches</h2>
+      {error && (
+        <p className="notice error" role="alert">
+          {error}
+        </p>
+      )}
+      {branches.length === 0 && <p className="muted">None yet.</p>}
+      {branches.length > 0 && (
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Branch</th>
+                <th scope="col">Newest commit</th>
+                <th scope="col">Not on {project.gitRef}</th>
+                {(mayChange || admin) && (
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {branches.map((b) => (
+                <tr key={b.name}>
+                  <td>
+                    <code>{b.name}</code>
+                    {b.project && (
+                      <>
+                        {' '}
+                        <span className="badge ok">runs</span>
+                      </>
+                    )}
+                    {b.configurations && (
+                      <div className="muted">used by {b.configurations.join(', ')}</div>
+                    )}
+                  </td>
+                  <td>
+                    <code>{b.commit.slice(0, 8)}</code> {b.subject}
+                    <div className="muted">
+                      {b.author} · <Time at={b.at} />
+                    </div>
+                  </td>
+                  <td>{b.project ? '' : b.ahead ? `${b.ahead}` : 'none'}</td>
+                  {(mayChange || admin) && (
+                    <td className="actions">
+                      {admin && !b.project && (
+                        <button type="button" onClick={() => void makeRun(b)}>
+                          Make it the project's branch
+                        </button>
+                      )}
+                      {mayChange && !b.project && !b.configurations && (
+                        <button
+                          type="button"
+                          className="danger"
+                          aria-label={`Delete ${b.name}`}
+                          onClick={() => void remove(b)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {mayChange && branches.length > 0 && !adding && (
+        <button type="button" onClick={() => setAdding(true)}>
+          New branch
+        </button>
+      )}
+      {adding && (
+        <Form
+          submit="Make the branch"
+          onCancel={() => setAdding(false)}
+          onSubmit={async () => {
+            await api.createBranch(project.id, {
+              name: input.name.trim(),
+              from: input.from.trim(),
+            });
+            setAdding(false);
+            setInput({ name: '', from: project.gitRef });
+            onChanged();
+          }}
+        >
+          <Field
+            label="Name"
+            value={input.name}
+            onChange={(e) => setInput({ ...input, name: e.target.value })}
+            required
+            autoFocus
+            placeholder="feature/ntp-servers"
+          />
+          <Field
+            label="From"
+            value={input.from}
+            onChange={(e) => setInput({ ...input, from: e.target.value })}
+            required
+            list="branch-names"
+            hint="A branch, or a commit."
+          />
+          <datalist id="branch-names">
+            {branches.map((b) => (
+              <option key={b.name} value={b.name} />
+            ))}
+          </datalist>
+        </Form>
+      )}
+    </section>
+  );
+}
+
 export function ProjectPage({
   me,
   workspace,
@@ -536,7 +703,7 @@ export function ProjectPage({
   const project = found.data;
   const id = project?.id;
   const access = useProjectAccess(id).data;
-  const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
+  const branchList = useLoad(async () => (id ? await api.branches(id) : undefined), [id]);
   const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
   const runs = useLoad(async () => (id ? api.runs({ project: id, limit: 10 }) : []), [id]);
   const flows = useLoad(
@@ -567,7 +734,7 @@ export function ProjectPage({
     await api.syncProject(id).catch(() => undefined);
     setLooking(false);
     found.reload();
-    branches.reload();
+    branchList.reload();
   };
   const crumbs = (
     <nav aria-label="Breadcrumb" className="crumbs">
@@ -627,8 +794,6 @@ export function ProjectPage({
               </span>
             )}
           </dd>
-          <dt>Branches</dt>
-          <dd>{branches.data?.length ? branches.data.join(', ') : 'none yet'}</dd>
         </dl>
         {me.admin && !project.hosted && https(project.gitUrl) && (
           <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
@@ -684,6 +849,20 @@ export function ProjectPage({
         {runs.data?.length === 0 && <p className="muted">None yet.</p>}
         {!!runs.data?.length && <RunTable runs={runs.data} showProject={false} />}
       </section>
+
+      {branchList.data && (
+        <BranchesPanel
+          project={project}
+          branches={branchList.data.details ?? []}
+          mayChange={me.admin || access?.workspace === 'rw'}
+          admin={me.admin}
+          onChanged={() => {
+            branchList.reload();
+            found.reload();
+            pushes.reload();
+          }}
+        />
+      )}
 
       <section className="panel" aria-labelledby="pushes">
         <h2 id="pushes">Pushes through this server</h2>
