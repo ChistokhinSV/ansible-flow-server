@@ -4,7 +4,7 @@
 // image, kept in the data folder: built once, then opened.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
@@ -94,6 +94,10 @@ export class ModuleCatalogs {
     const cache = join(folder, 'docs');
     mkdirSync(cache, { recursive: true });
     const root = await mkdtemp(join(this.options.dir, 'root-'));
+    // The probe runs as the image's own user: it enters the (empty) repository folder and writes
+    // the collections' docs, whoever the server runs as.
+    await chmod(root, 0o755);
+    await chmod(cache, 0o777);
     const label = `${image} (${engine})`;
     let client: ProbeClient | undefined;
     try {

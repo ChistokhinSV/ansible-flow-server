@@ -646,6 +646,38 @@ setup code from its log); after that, sign-in.
   (the last administrator stays one; nobody disables or deletes themself), and a refusal is shown
   as the server words it.
 
+### Editing flows in the pages
+
+Someone with `rw` on a flow edits it on its page: **Edit** opens the designer in full, as in VS
+Code. Everyone who edits the same flow edits one shared draft:
+
+- **Edits are shared at once.** Each change goes to the server, which applies it to the draft in
+  the order it gets them, and everyone's canvas shows the result. Changes to different steps all
+  apply; when two people change the same field, the later one wins. The draft bar says who is
+  here and what the others changed last.
+- **Ctrl+Z takes back your own last edit**, and leaves the others' alone. When someone changed the
+  same place after you, it is refused with what they changed.
+- **Save** makes one commit on the project's branch, with your message, by you, and
+  `Co-authored-by` for everyone else who edited. For a project with an external repository the
+  commit is pushed there first, only if the branch there has not moved. When the branch moved
+  since the draft began, the draft is merged onto it step by step first; places both changed are
+  listed, and **Save with the draft's side** takes the draft's version of those.
+- A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
+  by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard** it. Runs take
+  the flow from the branch, so a draft runs only once saved.
+- **Binding steps** searches the module catalog of the flow's image (its launch configuration's
+  environment or image, else the server's default `AFS_EE_IMAGE`). The first time an image is
+  asked for, the server reads its plugin docs with the designer's probe (a few minutes; the
+  catalog's state shows meanwhile) and keeps the index in the data folder. A repository's own
+  roles and playbooks are not offered yet.
+- Over the API: `POST /api/v1/projects/<id>/drafts?path=` opens a flow's draft;
+  `GET /api/v1/drafts/<id>/events` follows it (server-sent events: `draft`, `edit`, `people`,
+  `saved`, `discarded`); `POST /api/v1/drafts/<id>/commands` (the designer's commands), `/undo`,
+  `/tidy`, `/here`, `/catalog`, `/save`; `DELETE /api/v1/drafts/<id>` discards.
+
+Not there yet: colours per person and selections on the canvas, Follow, and VS Code joining a
+draft (designer AFD-285).
+
 ### Workspaces and projects
 
 A workspace is a team's space. A project in it is a git repository whose flows the server will
