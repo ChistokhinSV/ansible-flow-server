@@ -115,13 +115,20 @@ export function archiveKind(bytes: Buffer): 'zip' | 'tar.gz' | undefined {
   return undefined;
 }
 
-/** The files of a zip or tar.gz archive, with one folder that holds everything taken off. */
-export async function archiveFiles(bytes: Buffer, limits: Limits): Promise<StartFiles> {
+/**
+ * The files of a zip or tar.gz archive, with one folder that holds everything taken off (a start);
+ * `keepTop` keeps it (AFS-78: a folder's archive unpacked into a folder of the project).
+ */
+export async function archiveFiles(
+  bytes: Buffer,
+  limits: Limits,
+  options: { keepTop?: boolean } = {},
+): Promise<StartFiles> {
   const kind = archiveKind(bytes);
   if (!kind) throw new StartRefused('Not a zip or tar.gz archive');
   const files = kind === 'zip' ? unzip(bytes, limits) : await untar(bytes, limits);
   if (!files.size) throw new StartRefused('The archive has no files');
-  return withoutTopFolder(files);
+  return options.keepTop ? files : withoutTopFolder(files);
 }
 
 /** A tally of what is unpacked, refused past the limits. */

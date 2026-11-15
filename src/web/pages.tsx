@@ -1014,7 +1014,13 @@ export function ProjectPage({
       )}
 
       <section className="panel" aria-labelledby="flows">
-        <h2 id="flows">Flows</h2>
+        <div className="panel-head">
+          <h2 id="flows">Flows</h2>
+          {project.commit && (
+            // AFS-78: everything else in the repository.
+            <Link to={`/w/${workspace}/${key}/files`}>Files of the project</Link>
+          )}
+        </div>
         {news && <FlowNews news={news} onDismiss={() => setNews(undefined)} />}
         <Loading state={flows} />
         {flows.data?.flows.length === 0 && (

@@ -699,6 +699,51 @@ Code. Everyone who edits the same flow edits one shared draft:
 Not there yet: colours per person and selections on the canvas, Follow, and VS Code joining a
 draft (designer AFD-285).
 
+### Files of a project
+
+**Files of the project** (on a project's page, beside its flows) shows everything else in the
+repository: templates, files, `group_vars`, roles, `ansible.cfg`. Pick a branch, read any file,
+and download it. Text files (YAML, Jinja2, ini and cfg, Python, Markdown, JSON, shell) open in an
+editor with highlighting; flows are read here and edited in the flow editor.
+
+With `rw` on the workspace you change files: edit text, **New file**, **Upload files** and
+**Upload a folder (zip)** (a zip or tar.gz unpacked into the folder you are in), **Rename or
+move** and **Delete** (files and folders). The changes are listed until **Save**, which makes one
+commit of them on the branch, with your message, by you; this browser keeps them meanwhile, and
+**Take back** drops one. When the branch moved since your first change, Save goes on top of it,
+unless the branch changed one of the same files: then nothing is saved and those files are
+listed. For a project with an external repository the commit is pushed there first. A Save is
+listed with the pushes and in the audit log (`project.files-save`).
+
+Limits: an edited file up to 1 MB, an uploaded one up to 5 MB, archives as for a start
+(`AFS_ARCHIVE_MAX_MB`); paths stay inside the project and never in `.git`. Larger files go by
+`git push`.
+
+Over the API: `GET /api/v1/projects/<id>/files?branch=` lists the files;
+`GET /api/v1/projects/<id>/files/content?commit=&path=` gives one (`&download=true` as a
+download); `GET /api/v1/projects/<id>/files/history?commit=&path=` the commits that changed it;
+`POST /api/v1/projects/<id>/files` saves a change set:
+
+```json
+{
+  "branch": "main",
+  "base": "9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b",
+  "message": "Add the web template",
+  "changes": [
+    { "op": "write", "path": "templates/web.conf.j2", "text": "listen {{ web_port }};
+" },
+    { "op": "move", "from": "files/old.cfg", "to": "files/web.cfg" },
+    { "op": "delete", "path": "files/unused" },
+    { "op": "unpack", "path": "roles", "base64": "<a zip or tar.gz>" }
+  ]
+}
+```
+
+A write takes `text` or `base64`, and `executable: true` for a program. A refusal because the branch
+changed the same files is `409` with `files`.
+
+Not there yet: a diff before Save, and a link from a step's template in the designer to its file.
+
 ### Workspaces and projects
 
 A workspace is a team's space. A project in it is a git repository whose flows the server will

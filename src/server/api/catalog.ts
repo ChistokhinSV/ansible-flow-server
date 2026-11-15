@@ -233,6 +233,28 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The commits that changed a flow, newest first'),
+  'GET /api/v1/projects/:id/files': S(
+    'Files',
+    'signed in',
+    P,
+  )("The files of the project's branch (or ?branch=): path, size, program or link"),
+  'GET /api/v1/projects/:id/files/content': S(
+    'Files',
+    'signed in',
+    P,
+  )('A file at a commit: text as text/plain, anything else (or ?download=true) as a download'),
+  'GET /api/v1/projects/:id/files/history': S(
+    'Files',
+    'signed in',
+    P,
+  )('The commits that changed a file or folder up to a commit, newest first'),
+  'POST /api/v1/projects/:id/files': S(
+    'Files',
+    'signed in',
+    P,
+  )(
+    'Save a change set as one commit on a branch: write (text or base64), delete, move (files or folders) and unpack (a zip or tar.gz into a folder); refused when the branch changed the same files since `base`',
+  ),
   'GET /api/v1/projects/:id/drafts': S(
     'Editing',
     'signed in',
@@ -766,6 +788,10 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/catalog': 'ro',
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
+  'GET /api/v1/projects/:id/files': 'ro',
+  'GET /api/v1/projects/:id/files/content': 'ro',
+  'GET /api/v1/projects/:id/files/history': 'ro',
+  'POST /api/v1/projects/:id/files': 'rw on the workspace',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
   'GET /api/v1/projects/:id/host-key': 'can see',
   'POST /api/v1/projects/:id/branches': 'rw on the workspace',

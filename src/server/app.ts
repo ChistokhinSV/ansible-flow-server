@@ -24,6 +24,7 @@ import type { Notifier } from './notify/notifier';
 import { registerNotifications } from './notify/routes';
 import { type ReadinessDeps, readiness } from './ops/health';
 import type { Metrics } from './ops/metrics';
+import { registerFiles } from './projects/filesRoutes';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import { ProjectWatch } from './projects/watch';
@@ -166,6 +167,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       watch,
       ...(deps.masterKey ? { masterKey: deps.masterKey } : {}),
     });
+    // AFS-78: the project's files in the pages.
+    registerFiles(app, { db: deps.database.db, ...deps.projects });
     // AFS-76: flows edited in the pages, together.
     registerDrafts(app, {
       db: deps.database.db,
