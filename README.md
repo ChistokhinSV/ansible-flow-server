@@ -172,7 +172,7 @@ just start
 ```
 
 ```text
-[09:44:37 13.11.2026] INFO  Ansible Flow Server starts version=0.1.0 designer=0.85.0
+[09:44:37 13.11.2026] INFO  Ansible Flow Server starts version=0.1.0 designer=0.86.0
 [09:44:37 13.11.2026] INFO  Database ready kind=sqlite where=/srv/flow-server/data/afs.db changes=1
 [09:44:37 13.11.2026] INFO  Server certificate subject="CN=127.0.0.1" names=127.0.0.1,localhost expires=2027-11-13T08:44:37.000Z source=self-signed
 [09:44:37 13.11.2026] INFO  Server listening at https://127.0.0.1:8443
@@ -195,7 +195,7 @@ curl --insecure https://127.0.0.1:8443/api/v1/meta
 {
   "name": "Ansible Flow Server",
   "version": "0.1.0",
-  "designer": { "version": "0.85.0", "format": 2, "formats": [1, 2], "bundle": "0.85.0" },
+  "designer": { "version": "0.86.0", "format": 2, "formats": [1, 2], "bundle": "0.86.0" },
   "features": [
     "git",
     "launch-configs",
@@ -240,7 +240,7 @@ just check-flows test/fixtures/hello.flow.yaml test/fixtures/firewall-upgrade.fl
 ```
 
 ```text
-Ansible Flow Server 0.1.0, built on Ansible Flow Designer 0.85.0; reads flows up to format 2
+Ansible Flow Server 0.1.0, built on Ansible Flow Designer 0.86.0; reads flows up to format 2
 test/fixtures/hello.flow.yaml: Hello, Ansible (hello v1, format 2), 3 steps, 0 errors, 0 warnings
 test/fixtures/firewall-upgrade.flow.yaml: Firewall firmware upgrade (firewall-upgrade v1, format 2), 18 steps, 0 errors, 0 warnings
 ```
