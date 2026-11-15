@@ -24,6 +24,7 @@ import { type ReadinessDeps, readiness } from './ops/health';
 import type { Metrics } from './ops/metrics';
 import { registerGit } from './projects/gitHttp';
 import { type ProjectDeps, registerProjects } from './projects/routes';
+import { ProjectWatch } from './projects/watch';
 import type { RunHub } from './runs/hub';
 import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
@@ -151,7 +152,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   if (deps.projects) {
-    registerProjects(app, { db: deps.database.db, ...deps.projects });
+    // AFS-75: one watcher of the projects' branches for every event stream of this server.
+    const watch = deps.projects.watch ?? new ProjectWatch(deps.database.db, deps.log);
+    app.addHook('onClose', async () => watch.stop());
+    registerProjects(app, { db: deps.database.db, ...deps.projects, watch });
     registerGit(app, { db: deps.database.db, ...deps.projects });
     registerLaunch(app, {
       db: deps.database.db,

@@ -198,6 +198,9 @@ export const api = {
   branches: (id: string) => call<{ branches: string[] }>('GET', `/projects/${id}/branches`),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
+  /** AFS-75: the flows that differ between `from` and the project's commit (or `to`). */
+  changes: (id: string, from: string, to?: string) =>
+    call<FlowChanges>('GET', `/projects/${id}/changes?from=${from}${to ? `&to=${to}` : ''}`),
 
   runs: (filter: { project?: string; state?: string; limit?: number } = {}) =>
     call<Run[]>(
@@ -486,3 +489,16 @@ export const api = {
   }) => call<NewToken>('POST', '/tokens', input),
   revokeToken: (id: string) => call<void>('DELETE', `/tokens/${id}`),
 };
+
+/** AFS-75: what happened to which flows between two commits, and who did it. */
+export interface FlowChanges {
+  from: string;
+  to: string;
+  flows: {
+    file: string;
+    change: 'added' | 'changed' | 'removed';
+    authors: string[];
+    at?: string;
+    commit?: string;
+  }[];
+}

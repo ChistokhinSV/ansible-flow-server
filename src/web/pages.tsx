@@ -1,9 +1,16 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useProjectAccess, WorkspaceAccess } from './access';
-import { api, type FlowList, type FlowSummary, type Project, type User } from './api';
+import {
+  api,
+  type FlowChanges,
+  type FlowList,
+  type FlowSummary,
+  type Project,
+  type User,
+} from './api';
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
@@ -336,6 +343,28 @@ function SourceSignIn({
   );
 }
 
+const CHANGE_WORDS = { added: 'added', changed: 'changed', removed: 'removed' } as const;
+
+/** AFS-75: the flows someone changed on the branch while the page was open. */
+function FlowNews({ news, onDismiss }: { news: FlowChanges; onDismiss: () => void }) {
+  return (
+    <div className="notice" role="status">
+      <p>Changed on the branch just now:</p>
+      <ul>
+        {news.flows.map((f) => (
+          <li key={f.file}>
+            <code>{f.file}</code> {CHANGE_WORDS[f.change]}
+            {f.authors.length ? ` by ${f.authors.join(', ')}` : ''}
+          </li>
+        ))}
+      </ul>
+      <button type="button" onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
 export function ProjectPage({
   me,
   workspace,
@@ -359,6 +388,23 @@ export function ProjectPage({
     async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),
     [id, project?.commit],
   );
+  const [news, setNews] = useState<FlowChanges>();
+  // AFS-75: the branch moves while the page is open: the list follows, and says which flows
+  // changed and who changed them.
+  useEffect(() => {
+    if (!id || typeof EventSource === 'undefined') return;
+    const events = new EventSource(`/api/v1/projects/${encodeURIComponent(id)}/events`);
+    events.addEventListener('moved', (event) => {
+      const move = JSON.parse((event as MessageEvent).data) as { from?: string; to: string };
+      found.reload();
+      if (move.from)
+        void api
+          .changes(id, move.from, move.to)
+          .then((c) => c.flows.length && setNews(c))
+          .catch(() => undefined);
+    });
+    return () => events.close();
+  }, [id, found.reload]);
   const [looking, setLooking] = useState(false);
   const look = async () => {
     if (!id) return;
@@ -452,6 +498,7 @@ export function ProjectPage({
 
       <section className="panel" aria-labelledby="flows">
         <h2 id="flows">Flows</h2>
+        {news && <FlowNews news={news} onDismiss={() => setNews(undefined)} />}
         <Loading state={flows} />
         {flows.data?.flows.length === 0 && (
           <p className="muted">
@@ -593,6 +640,18 @@ export function FlowPage({
   );
   const flow = flows.data?.flows.find((f) => f.file === file);
   const title = flow?.name ?? file.split('/').at(-1) ?? file;
+  // AFS-75: the designer's frame says which commit it shows after an Update.
+  const [shown, setShown] = useState<string>();
+  useEffect(() => {
+    const heard = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { type?: string; commit?: string } | null;
+      if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
+    };
+    window.addEventListener('message', heard);
+    return () => window.removeEventListener('message', heard);
+  }, []);
+  const commit = shown ?? project?.commit;
   const viewer =
     project &&
     `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}&theme=${
@@ -608,8 +667,8 @@ export function FlowPage({
         <PageHead
           title={title}
           lead={
-            project?.commit
-              ? `${project.gitRef} at ${project.commit.slice(0, 12)} · shown, not changed`
+            project && commit
+              ? `${project.gitRef} at ${commit.slice(0, 12)} · shown, not changed`
               : undefined
           }
         >

@@ -310,6 +310,52 @@ describe('signed in', () => {
     );
   });
 
+  it('says which flows someone changed on the branch while the page is open', async () => {
+    // A stand-in for the browser's EventSource: the test plays the server's events.
+    const streams: { url: string; on: Record<string, (e: MessageEvent) => void> }[] = [];
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        on: Record<string, (e: MessageEvent) => void> = {};
+        constructor(readonly url: string) {
+          streams.push(this);
+        }
+        addEventListener(kind: string, listener: (e: MessageEvent) => void) {
+          this.on[kind] = listener;
+        }
+        close() {}
+      },
+    );
+    const next = '41d7a0c93be2f5681a0c4e7d9b3f2a6c8e1d0b57';
+    routes = {
+      ...signedInAs(dana),
+      [`GET /projects/p1/changes?from=${edge.commit}&to=${next}`]: () => ({
+        body: {
+          from: edge.commit,
+          to: next,
+          flows: [
+            { file: 'flows/os-upgrade.flow.yaml', change: 'changed', authors: ['Mia Ortega'] },
+            { file: 'old/broken.flow.yaml', change: 'removed', authors: ['Omar Haddad'] },
+          ],
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/network/edge');
+    render(<App />);
+    await screen.findByRole('link', { name: /OS upgrade/ });
+    const stream = streams.find((s) => s.url === '/api/v1/projects/p1/events');
+    expect(stream).toBeTruthy();
+    stream?.on.moved?.({ data: JSON.stringify({ from: edge.commit, to: next }) } as MessageEvent);
+    const news = await screen.findByText(/Changed on the branch just now/);
+    const box = news.closest('.notice') as HTMLElement;
+    expect(box.textContent).toContain('flows/os-upgrade.flow.yaml changed by Mia Ortega');
+    expect(box.textContent).toContain('old/broken.flow.yaml removed by Omar Haddad');
+    // The list is read again for the new commit.
+    expect(calls.filter((c) => c === 'GET /workspaces/network/projects').length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText(/Changed on the branch just now/)).toBeNull();
+  });
+
   it('a hosted project that is empty says to push; a project that is not there says so', async () => {
     routes = {
       ...signedInAs(omar),

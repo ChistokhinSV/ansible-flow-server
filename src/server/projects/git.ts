@@ -491,6 +491,72 @@ export class Git {
     );
   }
 
+  /**
+   * AFS-75: the files that differ between two commits, each added, changed or removed (a rename
+   * is a removal and an addition: a flow is known by its path).
+   */
+  async changedFiles(
+    projectId: string,
+    from: string,
+    to: string,
+  ): Promise<{ file: string; change: 'added' | 'changed' | 'removed' }[]> {
+    if (!COMMIT.test(from) || !COMMIT.test(to)) throw new GitError('Not a commit');
+    const out = await this.run(['diff', '--name-status', '--no-renames', '-z', from, to, '--'], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+      maxBytes: 16 * 1024 * 1024,
+    });
+    const parts = out.toString('utf8').split('\0');
+    const files: { file: string; change: 'added' | 'changed' | 'removed' }[] = [];
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+      const status = parts[i] ?? '';
+      const file = parts[i + 1] ?? '';
+      if (!file) continue;
+      files.push({
+        file,
+        change: status.startsWith('A') ? 'added' : status.startsWith('D') ? 'removed' : 'changed',
+      });
+    }
+    return files;
+  }
+
+  /**
+   * AFS-75: the commits that changed a file, newest first: up to `commit`, and after `since`
+   * when given (who changed it between two commits).
+   */
+  async fileHistory(
+    projectId: string,
+    commit: string,
+    path: string,
+    options: { since?: string; limit?: number } = {},
+  ): Promise<{ commit: string; author: string; at: string; subject: string }[]> {
+    if (!COMMIT.test(commit) || (options.since && !COMMIT.test(options.since)))
+      throw new GitError('Not a commit');
+    if (!path || path.startsWith('/') || path.includes('\0') || path.split('/').includes('..'))
+      throw new GitError('Not a path inside the repository');
+    const range = options.since ? `${options.since}..${commit}` : commit;
+    const out = await this.run(
+      [
+        'log',
+        '-z',
+        `--max-count=${options.limit ?? 30}`,
+        '--format=%H%x1f%an%x1f%aI%x1f%s',
+        range,
+        '--',
+        path,
+      ],
+      { cwd: this.mirror(projectId), timeoutMs: READ_TIMEOUT_MS },
+    );
+    return out
+      .toString('utf8')
+      .split('\0')
+      .filter(Boolean)
+      .map((line) => {
+        const [hash = '', author = '', at = '', subject = ''] = line.trim().split('\x1f');
+        return { commit: hash, author, at, subject };
+      });
+  }
+
   /** True when a commit has a file or a folder at this path. */
   async exists(projectId: string, commit: string, path: string): Promise<boolean> {
     if (!COMMIT.test(commit)) throw new GitError('Not a commit');
