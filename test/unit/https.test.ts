@@ -43,6 +43,7 @@ function settings(extra: Partial<Config> = {}): { config: Config; lines: string[
       auditKeepDays: 365,
       notificationsKeepDays: 30,
       devBundleMaxMb: 50,
+      archiveMaxMb: 50,
       devKeepHours: 24,
       galaxyUrl: 'https://galaxy.ansible.com',
       buildTimeoutMinutes: 60,

@@ -160,6 +160,16 @@ export const ROUTES: Record<string, RouteDoc> = {
     P,
   )('Delete a project (refused while runs go)'),
   'POST /api/v1/projects/:id/sync': S('Projects', 'administrators', P)('Look at the source now'),
+  'GET /api/v1/samples': S(
+    'Projects',
+    'signed in',
+    'server',
+  )('The sample projects a hosted project can start from'),
+  'POST /api/v1/projects/:id/start': S(
+    'Projects',
+    'signed in',
+    P,
+  )('The first commit of a hosted project with none: {"sample"}, or a zip or tar.gz as the body'),
   'GET /api/v1/projects/:id/branches': S('Projects', 'signed in', P)("A project's branches"),
   'GET /api/v1/projects/:id/pushes': S(
     'Projects',
@@ -729,6 +739,7 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
+  'POST /api/v1/projects/:id/start': 'rw on the workspace',
   'GET /git/:workspace/:repo/info/refs': 'ro on the workspace',
   'POST /git/:workspace/:repo/git-upload-pack': 'ro on the workspace',
   'POST /git/:workspace/:repo/git-receive-pack': 'rw on the workspace',

@@ -291,7 +291,12 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         engine: () => executor?.engineName,
         minFreeBytes: (config.minFreeMb ?? 1024) * 1024 * 1024,
       },
-      projects: { git, sync: projects, allowLocal: config.gitLocal },
+      projects: {
+        git,
+        sync: projects,
+        allowLocal: config.gitLocal,
+        archiveMaxBytes: config.archiveMaxMb * 1024 * 1024,
+      },
       masterKey,
       runs,
       runOutput: (id) => executor?.outputFile(id) ?? '',

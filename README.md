@@ -278,6 +278,7 @@ problem is named.
 | `AFS_NOTIFICATIONS_KEEP_DAYS` | `30`                                                 | Notifications sent or given up on are kept this many days                                          |
 | `AFS_DEV_BUNDLE_MAX_MB`       | `50`                                                 | The largest bundle of unpushed work a dev run takes                                                |
 | `AFS_DEV_KEEP_HOURS`          | `24`                                                 | How long the server keeps a dev run's work                                                         |
+| `AFS_ARCHIVE_MAX_MB`          | `50`                                                 | The most an archive a hosted project starts from may unpack to                                     |
 | `AFS_GALAXY_URL`              | `https://galaxy.ansible.com`                         | Where environment builds look up collection versions (Galaxy, an Automation Hub, a private Galaxy) |
 | `AFS_BUILD_TIMEOUT_MINUTES`   | `60`                                                 | How long an environment build may take                                                             |
 | `AFS_GIT_LOCAL`               | `off`                                                | `on`: a project's repository may be a folder of this machine                                       |
@@ -728,6 +729,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 | `/workspaces/:id/projects`           | A workspace's projects; add one (its source is looked at at once)                                                                | as above                                   |
 | `/projects/:id`                      | A project; change its name, source, branch, timer; delete                                                                        | as above                                   |
 | `POST /projects/:id/sync`            | Look at the source now                                                                                                           | `rw` on the workspace                      |
+| `GET /samples`                       | The sample projects a hosted project can start from                                                                              | signed in                                  |
+| `POST /projects/:id/start`           | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                            | `rw` on the workspace                      |
 | `GET /projects/:id/branches`         | The branches the source has                                                                                                      | signed in                                  |
 | `GET /projects/:id/pushes`           | Who pushed what through the server, newest first                                                                                 | signed in                                  |
 | `GET /projects/:id/flows`            | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read | signed in                                  |
@@ -745,6 +748,33 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   `Authorization: Bearer` (GitLab, Gitea, anything that can send a header).
 - The server needs the `git` program.
 
+#### Starting a hosted project from a sample or an archive
+
+A hosted project can get its first commit from the server instead of a first push: one of the
+designer's sample projects, or an archive of your own files. Choose it under **Start with** when
+adding the project, or on the project's page while it has no commit (**Start this project**).
+
+```sh
+curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projects \
+  -d '{"key":"try","name":"Try it","sample":"hello"}'
+curl ... -X POST https://flows.example.net:8443/api/v1/projects/<id>/start \
+  -H 'content-type: application/gzip' --data-binary @edge-flows.tar.gz
+```
+
+- **Samples:** Hello, Ansible (runs on localhost), Edge baseline (with the playbooks and roles it
+  binds) and Firewall firmware upgrade (with an approval). Each flow is at
+  `flows/<key>/<key>.flow.yaml`, with an `inventory.ini`.
+- **Archives:** zip (`application/zip`) or tar.gz (`application/gzip`). One folder that holds
+  everything is taken off. The files are committed as they are, `.gitignore` or not; programs in
+  a tar.gz stay programs.
+- **Refused, with the reason:** a path that leaves the project (`..`, absolute, a drive), links
+  and other special entries, a `.git` folder, more than 5,000 files, more than
+  `AFS_ARCHIVE_MAX_MB` (50) unpacked, counted while unpacking.
+- **Only while empty:** a project with commits (409) is pushed to instead; a project with a
+  source starts from its source.
+- The commit is by the person who started the project, and shows in the record of pushes; the
+  audit log has `project.start`.
+
 #### Git: clone, fetch and push through the server
 
 Every project, hosted or with a source, is at `<server><gitPath>`. Sign in with a
@@ -761,7 +791,8 @@ While the server uses its own first certificate, tell git to trust it:
 
 - **Who:** `ro` on the workspace clones and fetches, `rw` on it pushes (see
   [Access levels](#access-levels)). A read-only token never pushes.
-- **A hosted project** starts empty; the first push makes its branch.
+- **A hosted project** starts empty, or from a sample or an archive (see above); otherwise the
+  first push makes its branch.
 - **A project with a source:** a clone or fetch gets what the source has now. A push is passed
   on to the source and is accepted only if the source accepts it. Until credentials exist, that
   works only where the server's own account may push to the source.
@@ -784,8 +815,7 @@ While the server uses its own first certificate, tell git to trust it:
 ]
 ```
 
-Not there yet: GitHub's signed hooks, an ssh source with a stored key, and starting a hosted
-project from a sample. For a private repository over https see
+Not there yet: GitHub's signed hooks, and an ssh source with a stored key. For a private repository over https see
 [Credentials](#credentials-and-the-master-key).
 
 ### Credentials and the master key

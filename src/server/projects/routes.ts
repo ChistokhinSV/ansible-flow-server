@@ -7,6 +7,7 @@
 //   /api/v1/projects/:id/flows, /flows/view?path=   the flows at the project's commit
 //   /api/v1/projects/:id/events, /changes, /flows/history   who changed which flow (AFS-75)
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
+//   /api/v1/samples, /api/v1/projects/:id/start     a hosted project's first commit (AFS-58)
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -16,6 +17,15 @@ import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError } from './git';
+import {
+  archiveFiles,
+  listSamples,
+  MAX_FILES,
+  type StartFiles,
+  StartRefused,
+  sampleFiles,
+  startProject,
+} from './start';
 import {
   createProject,
   createWorkspace,
@@ -46,6 +56,8 @@ export interface ProjectDeps {
   freshMs?: number;
   /** AFS-75: tells the event streams when a project's branch moves. */
   watch?: ProjectWatch;
+  /** AFS-58: an archive a project starts from unpacks to at most this (default 50 MB). */
+  archiveMaxBytes?: number;
 }
 
 /** A comment line now and then keeps a quiet stream open through proxies. */
@@ -71,6 +83,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   const { db } = deps;
   const hookFailures = new FailureLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
   const flows = new ProjectFlows(deps.git);
+  const archiveMaxBytes = deps.archiveMaxBytes ?? 50 * 1024 * 1024;
 
   const answering =
     <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
@@ -80,6 +93,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       } catch (e) {
         if (e instanceof ProjectError)
           return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
+        if (e instanceof StartRefused)
+          return reply.code(400).send({ error: 'invalid', message: e.message });
         throw e;
       }
     };
@@ -179,6 +194,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     gitCredential?: string;
     gitRef?: string;
     pollSeconds?: number;
+    /** AFS-58: a hosted project's first commit is this sample project. */
+    sample?: string;
   };
   app.post<WithId & { Body: NewProjectBody }>(
     '/api/v1/workspaces/:id/projects',
@@ -192,6 +209,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           gitCredential: text(64, 1),
           gitRef: text(200, 1),
           pollSeconds: { type: 'integer', minimum: 0 },
+          sample: text(63, 1),
         }),
       },
     },
@@ -200,7 +218,23 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       if (!me) return reply;
       const workspace = await getWorkspace(db, request.params.id);
       if (!workspace) return reply.code(404).send(NO_WORKSPACE);
-      const project = await createProject(db, workspace.id, request.body, deps.allowLocal);
+      const { sample, ...asked } = request.body;
+      if (sample && asked.gitUrl)
+        return reply.code(400).send({
+          error: 'invalid',
+          message: 'A project with a source starts from it, not from a sample',
+        });
+      // The sample is read before the project is made: a wrong key makes nothing.
+      const start = sample ? sampleFiles(sample) : undefined;
+      const project = await createProject(db, workspace.id, asked, deps.allowLocal);
+      if (start) {
+        const started = await startProject(deps, project, start, me, `the ${sample} sample`);
+        request.log.info(
+          { by: me.login, workspace: workspace.key, project: project.key, sample },
+          'Project added from a sample',
+        );
+        return reply.code(201).send(started.project);
+      }
       request.log.info(
         { by: me.login, workspace: workspace.key, project: project.key },
         'Project added',
@@ -262,6 +296,59 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       await deps.sync.forget(project.id, project.hosted);
       request.log.info({ by: me.login, project: project.key }, 'Project deleted');
       return reply.code(204).send();
+    }),
+  );
+
+  // --- AFS-58: a hosted project's first commit, from a sample or an archive
+
+  app.get('/api/v1/samples', async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    return listSamples();
+  });
+
+  // An archive comes as the body itself: zip or tar.gz, at most the limit (packed).
+  for (const type of ['application/zip', 'application/gzip', 'application/x-gzip'])
+    app.addContentTypeParser(
+      type,
+      { parseAs: 'buffer', bodyLimit: archiveMaxBytes },
+      (_request, body, done) => done(null, body),
+    );
+  app.post<WithId & { Body: { sample?: string } | Buffer }>(
+    '/api/v1/projects/:id/start',
+    { schema: ID, bodyLimit: archiveMaxBytes },
+    answering(async (request, reply) => {
+      // rw on the workspace: checked before (api/catalog.ts).
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const project = await getProject(db, request.params.id);
+      if (!project) return reply.code(404).send(NO_PROJECT);
+      const body = request.body;
+      let files: StartFiles;
+      let what: string;
+      if (Buffer.isBuffer(body)) {
+        files = await archiveFiles(body, { maxBytes: archiveMaxBytes, maxFiles: MAX_FILES });
+        what = 'an archive';
+      } else if (body && typeof body === 'object' && typeof body.sample === 'string') {
+        files = sampleFiles(body.sample);
+        what = `the ${body.sample} sample`;
+      } else
+        return reply.code(400).send({
+          error: 'invalid',
+          message:
+            'Send {"sample": "<key>"}, or a zip (application/zip) or tar.gz (application/gzip) as the body',
+        });
+      const started = await startProject(deps, project, files, me, what);
+      request.log.info(
+        {
+          by: me.login,
+          project: project.key,
+          from: what,
+          files: started.files,
+          commit: started.commit.slice(0, 12),
+        },
+        'Project started',
+      );
+      return reply.code(201).send(started.project);
     }),
   );
 

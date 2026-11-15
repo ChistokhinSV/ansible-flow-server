@@ -109,8 +109,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     reply = await fetch(`/api/v1${path}`, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'content-type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      // AFS-58: a file (an archive) goes as it is, typed by its name.
+      headers:
+        body === undefined
+          ? {}
+          : {
+              'content-type':
+                body instanceof Blob
+                  ? /\.zip$/i.test((body as File).name ?? '')
+                    ? 'application/zip'
+                    : 'application/gzip'
+                  : 'application/json',
+            },
+      ...(body === undefined ? {} : { body: body instanceof Blob ? body : JSON.stringify(body) }),
     });
   } catch {
     throw new ApiError(0, 'unreachable', 'The server does not answer. Check your connection.');
@@ -196,8 +207,20 @@ export const api = {
     call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`),
   addProject: (
     workspace: string,
-    input: { key: string; name: string; gitUrl?: string; gitRef?: string; gitCredential?: string },
+    input: {
+      key: string;
+      name: string;
+      gitUrl?: string;
+      gitRef?: string;
+      gitCredential?: string;
+      sample?: string;
+    },
   ) => call<Project>('POST', `/workspaces/${encodeURIComponent(workspace)}/projects`, input),
+  /** AFS-58: the sample projects a hosted project can start from. */
+  samples: () => call<{ key: string; name: string; description: string }[]>('GET', '/samples'),
+  /** AFS-58: an empty hosted project's first commit: a sample, or an archive (zip, tar.gz). */
+  startProject: (id: string, from: { sample: string } | File) =>
+    call<Project>('POST', `/projects/${id}/start`, from),
   /** `gitCredential: null`: the source is read without signing in. */
   changeProject: (id: string, input: { gitCredential?: string | null }) =>
     call<Project>('PATCH', `/projects/${id}`, input),

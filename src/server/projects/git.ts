@@ -5,9 +5,9 @@
 // limit on every call, and only addresses the server is willing to fetch from.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 
 /** How long a fetch may take. */
 export const FETCH_TIMEOUT_MS = 120_000;
@@ -659,6 +659,74 @@ export class Git {
       );
     }
     await this.run(['update-ref', ref, commit, old], { cwd, timeoutMs: READ_TIMEOUT_MS });
+  }
+
+  /**
+   * AFS-58: the first commit of an empty repository, with these files (paths checked by the
+   * caller), on `branch`, which must not exist yet. The files are written to a scratch folder and
+   * added with a scratch index, so the mirror never has a working folder.
+   */
+  async commitFirst(
+    projectId: string,
+    branch: string,
+    files: Map<string, { bytes: Buffer; executable?: boolean }>,
+    change: { author: { name: string; email: string }; message: string },
+  ): Promise<string> {
+    const problem = refProblem(branch);
+    if (problem) throw new GitError(problem);
+    const cwd = this.mirror(projectId);
+    const work = await mkdtemp(join(tmpdir(), 'afs-start-'));
+    try {
+      const tree = join(work, 'tree');
+      for (const [path, file] of files) {
+        const at = join(tree, ...path.split('/'));
+        await mkdir(dirname(at), { recursive: true });
+        await writeFile(at, file.bytes);
+      }
+      const message = join(work, 'message');
+      await writeFile(message, change.message);
+      const env = { GIT_INDEX_FILE: join(work, 'index') };
+      const opts = { cwd, timeoutMs: FETCH_TIMEOUT_MS, env };
+      // -f: what was sent is committed, whatever a .gitignore in it says.
+      await this.run(['--work-tree', tree, 'add', '-A', '-f', '--', '.'], opts);
+      const programs = [...files].filter(([, f]) => f.executable).map(([p]) => p);
+      for (let at = 0; at < programs.length; at += 200)
+        await this.run(
+          [
+            '--work-tree',
+            tree,
+            'update-index',
+            '--chmod=+x',
+            '--',
+            ...programs.slice(at, at + 200),
+          ],
+          opts,
+        );
+      const written = (await this.run(['write-tree'], opts)).toString('utf8').trim();
+      const commit = (
+        await this.run(['commit-tree', written, '-F', message], {
+          ...opts,
+          env: {
+            ...env,
+            GIT_AUTHOR_NAME: change.author.name,
+            GIT_AUTHOR_EMAIL: change.author.email,
+            GIT_COMMITTER_NAME: 'Ansible Flow Server',
+            GIT_COMMITTER_EMAIL: 'ansible-flow-server@localhost',
+          },
+        })
+      )
+        .toString('utf8')
+        .trim();
+      if (!COMMIT.test(commit)) throw new GitError('Git made no commit');
+      // The zero commit as the old value: only if the branch is still not there.
+      await this.run(['update-ref', `refs/heads/${branch}`, commit, '0'.repeat(40)], {
+        cwd,
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      return commit;
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
   }
 
   /** True when a commit has a file or a folder at this path. */

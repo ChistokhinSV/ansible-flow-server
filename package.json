@@ -13,14 +13,15 @@
     "url": "https://github.com/ChistokhinSV/ansible-flow-server.git"
   },
   "dependencies": {
-    "@ansible-flow/assets": "0.86.0",
-    "@ansible-flow/core": "0.86.0",
-    "@ansible-flow/node": "0.86.0",
+    "@ansible-flow/assets": "0.87.0",
+    "@ansible-flow/core": "0.87.0",
+    "@ansible-flow/node": "0.87.0",
     "@modelcontextprotocol/server": "2.4.0",
     "@peculiar/x509": "3.1.0",
     "@prometheus-io/client": "0.16.1",
     "croner": "11.0.0",
     "fastify": "5.12.8",
+    "fflate": "0.8.3",
     "kysely": "0.29.9",
     "ldapts": "9.2.0",
     "node-forge": "1.4.3",
@@ -28,10 +29,11 @@
     "openid-client": "6.9.0",
     "pg": "8.23.1",
     "reflect-metadata": "0.2.2",
-    "tar": "7.5.23"
+    "tar": "7.5.23",
+    "tar-stream": "3.2.2"
   },
   "devDependencies": {
-    "@ansible-flow/designer": "0.86.0",
+    "@ansible-flow/designer": "0.87.0",
     "@biomejs/biome": "2.6.7",
     "@modelcontextprotocol/client": "2.4.0",
     "@testing-library/dom": "10.4.2",
@@ -41,6 +43,7 @@
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/tar-stream": "3.1.5",
     "@vitejs/plugin-react": "6.3.0",
     "esbuild": "0.28.2",
     "jsdom": "31.0.1",

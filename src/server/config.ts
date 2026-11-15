@@ -45,6 +45,8 @@ export interface Config {
   notificationsKeepDays: number;
   /** AFS-26: a dev run's bundle at most this many megabytes, kept this many hours. */
   devBundleMaxMb: number;
+  /** AFS-58: an archive a hosted project starts from unpacks to at most this many megabytes. */
+  archiveMaxMb: number;
   devKeepHours: number;
   /** AFS-32: where collection versions are looked up; how long a build may take. */
   galaxyUrl: string;
@@ -177,6 +179,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const runsKeepPerFlow = keepOf('AFS_RUNS_KEEP_PER_FLOW', 200, 100_000);
   const notificationsKeepDays = keepOf('AFS_NOTIFICATIONS_KEEP_DAYS', 30, 3650);
   const devBundleMaxMb = keepOf('AFS_DEV_BUNDLE_MAX_MB', 50, 1024);
+  const archiveMaxMb = keepOf('AFS_ARCHIVE_MAX_MB', 50, 1024);
   const devKeepHours = keepOf('AFS_DEV_KEEP_HOURS', 24, 24 * 90);
   const buildTimeoutMinutes = keepOf('AFS_BUILD_TIMEOUT_MINUTES', 60, 24 * 60);
   const galaxyUrl = (text('AFS_GALAXY_URL') ?? 'https://galaxy.ansible.com').replace(/\/+$/, '');
@@ -257,6 +260,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     auditKeepDays: auditKeepDays > 36_500 || Number.isNaN(auditKeepDays) ? 365 : auditKeepDays,
     notificationsKeepDays,
     devBundleMaxMb,
+    archiveMaxMb,
     devKeepHours,
     galaxyUrl,
     buildTimeoutMinutes,
