@@ -153,13 +153,14 @@ export function ApprovalsPage() {
   }, [list.reload]);
   const mine = list.data?.filter((a) => a.mayDecide) ?? [];
   const others = list.data?.filter((a) => !a.mayDecide) ?? [];
-  const card = (a: NonNullable<typeof list.data>[number]) => (
-    <li key={a.gate.id} className="panel">
-      <p>
+  // Yours: each a tinted box with the decision in it (AFS-82). Others': plain rows with why not.
+  const card = (a: NonNullable<typeof list.data>[number], yours: boolean) => (
+    <li key={a.gate.id} className={yours ? 'decision' : 'approval-row'}>
+      <p className="approval-run">
         <Link to={`/runs/${a.run.id}`}>
-          {a.run.flow.name} · run {a.run.number}
+          {a.run.flow.name} #{a.run.number}
         </Link>{' '}
-        <span className="muted">launched by {a.requestedBy}</span>
+        <span className="muted">· launched by {a.requestedBy}</span>
       </p>
       <GateCard
         gate={a.gate}
@@ -176,20 +177,26 @@ export function ApprovalsPage() {
     <>
       <PageHead
         title="Approvals"
-        lead="Runs that wait for a person: what each asks, and the decision when it is yours."
+        lead={
+          list.data
+            ? mine.length
+              ? `${mine.length} waiting for you${others.length ? `, ${others.length} for others` : ''}.`
+              : 'Nothing waits for you.'
+            : undefined
+        }
       />
       <Loading state={list} />
       {list.data && list.data.length === 0 && <p className="empty">No run waits for a decision.</p>}
       {mine.length > 0 && (
         <section aria-labelledby="yours">
           <h2 id="yours">Yours to decide</h2>
-          <ul className="rows approvals">{mine.map(card)}</ul>
+          <ul className="approvals mine">{mine.map((a) => card(a, true))}</ul>
         </section>
       )}
       {others.length > 0 && (
         <section aria-labelledby="others">
           <h2 id="others">Waiting for others</h2>
-          <ul className="rows approvals">{others.map(card)}</ul>
+          <ul className="approvals list">{others.map((a) => card(a, false))}</ul>
         </section>
       )}
     </>

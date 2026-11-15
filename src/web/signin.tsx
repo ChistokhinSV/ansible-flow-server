@@ -166,7 +166,7 @@ function ProviderForm({
   const [d, setD] = useState(draft);
   const set = (change: Partial<Draft>) => setD((x) => ({ ...x, ...change }));
   return (
-    <section className="panel" aria-label={d.id ? `Change ${d.name}` : 'Add a provider'}>
+    <section className="panel sheet" aria-label={d.id ? `Change ${d.name}` : 'Add a provider'}>
       <Form
         submit={d.id ? 'Save' : 'Add'}
         onCancel={onCancel}

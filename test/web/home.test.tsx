@@ -92,13 +92,14 @@ describe('home', () => {
     const recent = screen
       .getByRole('heading', { name: 'Latest runs' })
       .closest('section') as HTMLElement;
-    expect([...recent.querySelectorAll('.end')].map((e) => e.textContent)).toEqual([
+    expect([...recent.querySelectorAll('.end > :first-child')].map((e) => e.textContent)).toEqual([
       'waiting for a decision',
       'went well',
       'failed',
     ]);
-    expect(recent.textContent).toContain('Run 2 · you');
-    expect(recent.textContent).toContain('Run 3 · omar');
+    const rows = [...recent.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows[0]).toContain('omar · 3 min ago · real');
+    expect(rows[1]).toContain('you · 3 min ago');
     // The side menu: the count of approvals for this person, and the workspaces.
     const menu = screen.getByRole('navigation', { name: 'Main' });
     expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals1');

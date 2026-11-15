@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { api, type User } from './api';
 import { Link } from './router';
-import { RunWords } from './runs';
+import { RunList } from './runs';
 import { ago, Loading, PageHead, useLoad } from './ui';
 
 const greeting = (hour: number) =>
@@ -89,27 +89,7 @@ export function Home({ me }: { me: User }) {
               No run yet. Runs start from a launch configuration of a project.
             </p>
           )}
-          {!!runs.data?.length && (
-            <ul className="list">
-              {runs.data.slice(0, 8).map((run) => (
-                <li key={run.id}>
-                  <Link to={`/runs/${run.id}`}>
-                    <span className="two">
-                      <span className="title">{run.flow.name}</span>
-                      <span className="sub">
-                        Run {run.number} ·{' '}
-                        {run.requestedBy.login === me.login ? 'you' : run.requestedBy.login} ·{' '}
-                        {ago(run.startedAt ?? run.createdAt)}
-                      </span>
-                    </span>
-                    <span className="end">
-                      <RunWords state={run.state} />
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+          {!!runs.data?.length && <RunList runs={runs.data.slice(0, 8)} me={me} />}
         </section>
         <section aria-labelledby="spaces">
           <div className="section-head">

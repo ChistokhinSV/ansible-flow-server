@@ -569,28 +569,35 @@ section + .panel {
   border-top: 0;
   padding-top: 0;
 }
+/* Things of a kind (workspaces, projects, the administration's pages): rows divided by
+   hairlines, a title and a line under it (AFS-82). */
 .cards {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: 0.75rem;
+  border-bottom: 1px solid var(--line);
 }
 .card {
-  display: grid;
-  gap: 0.3rem;
-  height: 100%;
-  padding: 1rem 1.1rem;
-  background: var(--panel);
-  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 13px 4px;
+  border-top: 1px solid var(--line);
   color: var(--fg);
   text-decoration: none;
   overflow-wrap: anywhere;
 }
+.card strong {
+  font-weight: 500;
+}
+.card > span {
+  font-size: 14px;
+}
 .card:hover {
-  background: var(--raised);
   color: var(--fg);
+}
+.card:hover strong {
+  color: var(--link);
 }
 .empty {
   color: var(--muted);
@@ -876,7 +883,7 @@ textarea {
 .gate + .gate {
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 .gate p {
   margin: 0;
@@ -885,13 +892,6 @@ textarea {
   display: block;
   margin-top: 0.25rem;
   font-style: italic;
-}
-.rows.approvals {
-  display: grid;
-  gap: 0.75rem;
-}
-.rows.approvals > li {
-  list-style: none;
 }
 
 /* The server certificate page (AFS-54): PEM text, and a fingerprint that wraps. */
@@ -1536,4 +1536,139 @@ textarea.code {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* AFS-82: a form being filled in sits on a quiet surface; the rest of the page stays flat. */
+.panel.sheet,
+.sheet {
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 20px;
+}
+.panel + .panel.sheet,
+.panel.sheet + .panel {
+  border-top: 0;
+}
+.panel.sheet + .panel {
+  padding-top: 0;
+}
+
+/* AFS-82: runs as rows; the state and the commit at the end. */
+.list .end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.list .title .muted {
+  font-weight: 400;
+}
+.list .sub .badge {
+  vertical-align: 1px;
+}
+
+/* AFS-82: a row of choices that filters a list. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -0.5rem 0 1.25rem;
+}
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--fg2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--raised);
+  color: var(--fg);
+}
+.chip.on {
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.chip input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.chip:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* AFS-82: the approvals inbox: yours tinted with the decision; others as rows. */
+.approvals {
+  list-style: none;
+  margin: 0 0 2rem;
+  padding: 0;
+}
+.approvals.mine {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.approvals.list > li {
+  padding: 14px 4px;
+  border-top: 1px solid var(--line);
+}
+.approval-run {
+  margin: 0 0 0.5rem;
+  font-size: 14px;
+}
+.decision .approval-run .muted {
+  color: var(--warn-fg);
+}
+
+/* AFS-82: sections side by side are one band, divided from the sections around it. */
+.columns {
+  margin: 0 0 2rem;
+}
+section + .columns,
+.columns + section,
+.columns + .columns {
+  border-top: 1px solid var(--line);
+  padding-top: 1.75rem;
+}
+
+/* AFS-82: items of a list are rows divided by hairlines; a row link inside keeps to the item. */
+.rows {
+  border-bottom: 1px solid var(--line);
+}
+.rows > li {
+  border-top: 1px solid var(--line);
+  padding: 12px 4px;
+}
+.rows > li > .row {
+  border-bottom: 0;
+  padding: 0;
+}
+.lib-intent {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.lib-ref {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.card .badge,
+.card .badges {
+  align-self: flex-start;
+}
+.files > .panel {
+  border-top: 0;
+  padding-top: 0;
+  margin-bottom: 0;
 }

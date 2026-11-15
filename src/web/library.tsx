@@ -45,7 +45,7 @@ export function LibraryPage() {
     <>
       <PageHead
         title="Library"
-        lead="Subflows library projects offer to every project: a flow takes a copy, pinned to the library flow's version"
+        lead="Subflows that library projects offer to every project. A flow takes a copy, pinned to the library flow's version."
       />
       <Loading state={listed} />
       {listed.data && !subflows.length && (
@@ -69,10 +69,8 @@ export function LibraryPage() {
                     in <Link to={`/w/${workspace}/${key}/flow/${s.file}`}>{s.flow}</Link>, version{' '}
                     {s.version} at {s.commit.slice(0, 12)}
                   </span>
-                  {s.intent && <p className="muted small">{s.intent}</p>}
-                  <div>
-                    <code className="small">{s.from}</code>
-                  </div>
+                  {s.intent && <p className="lib-intent">{s.intent}</p>}
+                  <code className="lib-ref">{s.from}</code>
                 </li>
               ))}
             </ul>

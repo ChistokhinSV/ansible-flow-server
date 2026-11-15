@@ -8,7 +8,7 @@ import { api, type Run, type User } from './api';
 import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
-import { Loading, PageHead, span, Time, useLoad } from './ui';
+import { ago, Loading, PageHead, span, Time, useLoad } from './ui';
 
 const ACTIVE = ['queued', 'running', 'waiting'];
 /** The output a page keeps; the rest is in the run's output file. */
@@ -38,35 +38,32 @@ export function StateBadge({ state }: { state: string }) {
   return <span className={`badge ${tone}`}>{LABEL[state] ?? state}</span>;
 }
 
-/** A table of runs; `project` adds the project column's absence (a project page). */
-export function RunTable({ runs, showProject = true }: { runs: Run[]; showProject?: boolean }) {
+/**
+ * Runs as rows (AFS-82): the flow and its run number, who started it and when, check or real,
+ * from which configuration; where it stands in coloured words at the end.
+ */
+export function RunList({
+  runs,
+  me,
+  showConfig = true,
+}: {
+  runs: Run[];
+  me?: User;
+  showConfig?: boolean;
+}) {
   return (
-    <div className="scroll">
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Run</th>
-            <th scope="col">Flow</th>
-            <th scope="col">State</th>
-            <th scope="col">Mode</th>
-            <th scope="col">Commit</th>
-            <th scope="col">By</th>
-            <th scope="col">Started</th>
-            {showProject && <th scope="col">Configuration</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {runs.map((run) => (
-            <tr key={run.id}>
-              <td>
-                <Link to={`/runs/${run.id}`}>#{run.number}</Link>
-              </td>
-              <td>{run.flow.name}</td>
-              <td>
-                <StateBadge state={run.state} />
-              </td>
-              <td>
-                {run.mode}
+    <ul className="list">
+      {runs.map((run) => (
+        <li key={run.id}>
+          <Link to={`/runs/${run.id}`}>
+            <span className="two">
+              <span className="title">
+                {run.flow.name} <span className="muted">#{run.number}</span>
+              </span>
+              <span className="sub">
+                {run.requestedBy.login === me?.login ? 'you' : run.requestedBy.login} ·{' '}
+                {ago(run.startedAt ?? run.createdAt)} · {run.mode === 'real' ? 'real' : 'check'}
+                {showConfig && run.config && <> · {run.config.name}</>}
                 {run.dev && (
                   <>
                     {' '}
@@ -83,24 +80,51 @@ export function RunTable({ runs, showProject = true }: { runs: Run[]; showProjec
                     </span>
                   </>
                 )}
-              </td>
-              <td>
-                <code>{run.commit.slice(0, 8)}</code>
-              </td>
-              <td>{run.requestedBy.login}</td>
-              <td>
-                <Time at={run.startedAt ?? run.createdAt} />
-              </td>
-              {showProject && <td>{run.config?.name ?? ''}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </span>
+            </span>
+            <span className="end">
+              <RunWords state={run.state} />
+              <span className="mono small muted">{run.commit.slice(0, 8)}</span>
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-export function RunsPage() {
+/** Filters a list of runs by state: a row of choices, one picked. */
+function StateChoices({ value, onChange }: { value: string; onChange(state: string): void }) {
+  const choices: [string, string][] = [
+    ['', 'All'],
+    ['running', 'Running'],
+    ['waiting', 'Waiting'],
+    ['failed', 'Failed'],
+    ['succeeded', 'Went well'],
+    ['queued', 'Queued'],
+    ['cancelled', 'Stopped'],
+    ['lost', 'Lost'],
+  ];
+  return (
+    <fieldset className="chips">
+      <legend className="sr-only">State</legend>
+      {choices.map(([state, label]) => (
+        <label key={state || 'all'} className={value === state ? 'chip on' : 'chip'}>
+          <input
+            type="radio"
+            name="run-state"
+            value={state}
+            checked={value === state}
+            onChange={() => onChange(state)}
+          />
+          {label}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+export function RunsPage({ me }: { me: User }) {
   const [state, setState] = useState('');
   const list = useLoad(() => api.runs({ ...(state ? { state } : {}), limit: 100 }), [state]);
   const going = list.data?.some((r) => ACTIVE.includes(r.state));
@@ -112,24 +136,17 @@ export function RunsPage() {
   }, [going, list.reload]);
   return (
     <>
-      <PageHead title="Runs" lead="Every run on this server, the newest first.">
-        <label className="inline">
-          State{' '}
-          <select value={state} onChange={(e) => setState(e.target.value)}>
-            <option value="">all</option>
-            {Object.keys(LABEL).map((s) => (
-              <option key={s} value={s}>
-                {LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </label>
-      </PageHead>
+      <PageHead title="Runs" lead="Every run you may see, the newest first." />
+      <StateChoices value={state} onChange={setState} />
       <Loading state={list} />
       {list.data?.length === 0 && (
-        <p className="empty">No run yet. Runs start from a launch configuration of a project.</p>
+        <p className="empty">
+          {state
+            ? 'No run in this state.'
+            : 'No run yet. Runs start from a launch configuration of a project.'}
+        </p>
       )}
-      {!!list.data?.length && <RunTable runs={list.data} />}
+      {!!list.data?.length && <RunList runs={list.data} me={me} />}
     </>
   );
 }

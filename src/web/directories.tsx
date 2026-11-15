@@ -78,7 +78,7 @@ function DirectoryForm({
     />
   );
   return (
-    <section className="panel" aria-label={d.id ? `Change ${d.name}` : 'Add a directory'}>
+    <section className="panel sheet" aria-label={d.id ? `Change ${d.name}` : 'Add a directory'}>
       <Form
         submit={d.id ? 'Save' : 'Add'}
         onCancel={onCancel}
