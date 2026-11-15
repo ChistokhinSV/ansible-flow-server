@@ -10,9 +10,10 @@
 //   /api/v1/hooks/projects/:id/push                called by the git host, with the hook's token
 //   /api/v1/samples, /api/v1/projects/:id/start     a hosted project's first commit (AFS-58)
 import type { ServerResponse } from 'node:http';
+import { type LibrarySubflow, libraryFindings, usesLibrary } from '@ansible-flow/core/flow/library';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
-import { accessOf } from '../access/grants';
+import { accessOf, atLeast } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
@@ -20,6 +21,7 @@ import type { MasterKey } from '../secrets/masterKey';
 import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError, sshHost } from './git';
+import type { Library } from './library';
 import {
   archiveFiles,
   listSamples,
@@ -64,6 +66,8 @@ export interface ProjectDeps {
   masterKey?: MasterKey;
   /** AFS-58: an archive a project starts from unpacks to at most this (default 50 MB). */
   archiveMaxBytes?: number;
+  /** AFS-79: the flow library, to say which library copies of a flow are behind. */
+  library?: Library;
 }
 
 /** A comment line now and then keeps a quiet stream open through proxies. */
@@ -541,7 +545,24 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           .code(404)
           .send({ error: 'not_found', message: 'The project has no such commit' });
       try {
-        return await flows.view(project.id, commit, request.query.path);
+        const view = await flows.view(project.id, commit, request.query.path);
+        // AFS-79: library copies against the library, as the person asking may read it.
+        const doc = view.snapshot.doc;
+        if (deps.library && doc && usesLibrary(doc)) {
+          const access = await accessOf(db, request);
+          const listed = await deps.library.list((w) => atLeast(access?.onWorkspace(w), 'ro'));
+          return {
+            ...view,
+            snapshot: {
+              ...view.snapshot,
+              findings: [
+                ...view.snapshot.findings,
+                ...libraryFindings(doc, listed as LibrarySubflow[]),
+              ],
+            },
+          };
+        }
+        return view;
       } catch (e) {
         if (e instanceof FlowError)
           return reply

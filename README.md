@@ -758,7 +758,8 @@ every project on the server, to people who may read the library's workspace (`ro
   (`afd.runner.url`), the designer lists the library too.
 - The copy lives in the flow: runs read nothing from the library. A flow's page lists its library
   copies under **From the library**: up to date, behind (the library has a newer version; **Update**
-  while the draft is edited copies it again), or no longer offered.
+  while the draft is edited copies it again), or no longer offered. The flow's problems on the canvas say the
+  same.
 - A library flow's version is its `flow.version`: raise it when its subflows change, so the flows
   that copy them see an update.
 

@@ -26,6 +26,7 @@ import { type ReadinessDeps, readiness } from './ops/health';
 import type { Metrics } from './ops/metrics';
 import { registerFiles } from './projects/filesRoutes';
 import { registerGit } from './projects/gitHttp';
+import { Library } from './projects/library';
 import { registerLibrary } from './projects/libraryRoutes';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import { ProjectWatch } from './projects/watch';
@@ -162,16 +163,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // AFS-75: one watcher of the projects' branches for every event stream of this server.
     const watch = deps.projects.watch ?? new ProjectWatch(deps.database.db, deps.log);
     app.addHook('onClose', async () => watch.stop());
+    // AFS-79: one library for its routes and for the flows' checks.
+    const library = new Library({ db: deps.database.db, git: deps.projects.git });
     registerProjects(app, {
       db: deps.database.db,
       ...deps.projects,
       watch,
+      library,
       ...(deps.masterKey ? { masterKey: deps.masterKey } : {}),
     });
     // AFS-78: the project's files in the pages.
     registerFiles(app, { db: deps.database.db, ...deps.projects });
     // AFS-79: the flow library: library projects' subflows, offered to every project.
-    registerLibrary(app, { db: deps.database.db, git: deps.projects.git });
+    registerLibrary(app, { db: deps.database.db, git: deps.projects.git, library });
     // AFS-76: flows edited in the pages, together.
     registerDrafts(app, {
       db: deps.database.db,

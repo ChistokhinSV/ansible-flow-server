@@ -125,7 +125,50 @@ describe('the flow library', () => {
     ).toBe(404);
   });
 
-  it('a new commit of the library flow is what it offers next', async () => {
+  it('a new commit of the library flow is what it offers next; a copy at the older one is behind', async () => {
+    // A flow of another project takes a copy, in a draft saved as one commit.
+    const user = (
+      await call(dana, 'POST', '/api/v1/workspaces/net/projects', {
+        key: 'edge',
+        name: 'Edge',
+        sample: 'hello',
+      })
+    ).json();
+    const flow = 'flows/hello/hello.flow.yaml';
+    const draft = (
+      await call(
+        omar,
+        'POST',
+        `/api/v1/projects/${user.id}/drafts?path=${encodeURIComponent(flow)}`,
+      )
+    ).json();
+    const got = (
+      await call(omar, 'GET', `/api/v1/library/subflow?from=${encodeURIComponent(BACKUP)}`)
+    ).json();
+    const added = await call(omar, 'POST', `/api/v1/drafts/${draft.id}/commands`, {
+      command: {
+        kind: 'addReference',
+        from: BACKUP,
+        version: got.version,
+        source: got.node,
+        commit: got.commit,
+      },
+    });
+    expect(added.statusCode).toBe(200);
+    expect((await call(omar, 'POST', `/api/v1/drafts/${draft.id}/save`, {})).statusCode).toBe(200);
+    const view = async () =>
+      (
+        await call(
+          omar,
+          'GET',
+          `/api/v1/projects/${user.id}/flows/view?path=${encodeURIComponent(flow)}`,
+        )
+      ).json().snapshot;
+    const before = await view();
+    const copy = before.doc.nodes.find((n: { key: string }) => n.key === 'backup');
+    expect(copy.ref).toMatchObject({ from: BACKUP, version: 1, commit: library.commit });
+    expect(before.findings.filter((f: { code: string }) => f.code === 'shared-source')).toEqual([]);
+
     const text = (await git.read(library.id, library.commit, FILE))?.toString('utf8') ?? '';
     const next = await git.commitFile(library.id, {
       parent: library.commit,
@@ -140,5 +183,9 @@ describe('the flow library', () => {
       await call(omar, 'GET', `/api/v1/library/subflow?from=${encodeURIComponent(BACKUP)}`)
     ).json();
     expect(one).toMatchObject({ version: 2, commit: next });
+    const after = await view();
+    expect(after.findings.filter((f: { code: string }) => f.code === 'shared-source')).toEqual([
+      expect.objectContaining({ severity: 'info', node: copy.id }),
+    ]);
   });
 });
