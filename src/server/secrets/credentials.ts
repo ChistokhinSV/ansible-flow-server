@@ -8,6 +8,7 @@ import { resealDirectories } from '../auth/ldap/directories';
 import { resealProviders } from '../auth/oidc/providers';
 import type { Schema } from '../db/schema';
 import { SEALED_SETTINGS, settingContext } from '../notify/settings';
+import { resealHookSecrets } from '../projects/store';
 import { open, seal } from './crypto';
 import { type CredentialKind, KINDS, SPEC } from './kinds';
 import type { MasterKey } from './masterKey';
@@ -384,11 +385,13 @@ export async function rotate(db: Db, from: MasterKey, to: MasterKey): Promise<nu
     const providers = await resealProviders(trx, again);
     // AFS-31: the LDAP directories' bind passwords.
     const directories = await resealDirectories(trx, again);
+    // AFS-61: the push hooks' secrets.
+    const hooks = await resealHookSecrets(trx, again);
     await trx.deleteFrom('setting').where('name', '=', CHECK).execute();
     await trx
       .insertInto('setting')
       .values({ name: CHECK, value: seal(to, CHECK_TEXT, CHECK), updated_at: now() })
       .execute();
-    return rows.length + runs.length + settings.length + providers + directories;
+    return rows.length + runs.length + settings.length + providers + directories + hooks;
   });
 }

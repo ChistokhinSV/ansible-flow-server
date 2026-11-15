@@ -213,6 +213,8 @@ export interface ProjectTable {
   git_credential_id: string | null;
   /** SHA-256 of the token a push hook must show; null: no hook. */
   hook_token_hash: string | null;
+  /** AFS-61: the same token sealed with the master key, to check GitHub's signature; null: none. */
+  hook_secret_enc: string | null;
   created_at: IsoTime;
   updated_at: IsoTime;
 }

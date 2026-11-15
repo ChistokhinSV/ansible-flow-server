@@ -746,8 +746,23 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 - **Kept up to date** when added, on request, by the push hook, and every `pollSeconds` (300
   unless set; 0 for never). A source that cannot be reached shows as the project's `sync` state
   with the reason; the commit it had stays.
-- **The push hook:** the git host sends the token in `X-Gitlab-Token`, `X-AFS-Token` or
-  `Authorization: Bearer` (GitLab, Gitea, anything that can send a header).
+- **The push hook:** set it up on the project's page (**Push hook**, administrators) or with
+  `POST /projects/:id/hook`; its address and token are shown once. GitLab, Gitea and anything that
+  can send a header send the token in `X-Gitlab-Token`, `X-AFS-Token` or `Authorization: Bearer`.
+  **GitHub** signs each call instead: in the repository's Settings, Webhooks, add one with the
+  address as Payload URL, content type `application/json`, the token as Secret, and the push
+  event. The server keeps the token sealed with the master key and checks `X-Hub-Signature-256`
+  over the call's bytes; GitHub's first call (`ping`) is answered `pong`. A wrong token or
+  signature, a project without a hook and no project get the same `401`, and too many from one
+  address wait. A hook made before signed hooks has only the token's hash: make a new token for
+  GitHub.
+
+  ```text
+  Payload URL   https://flows.example.net:8443/api/v1/hooks/projects/2a968c91-1ac7-4654-94c8-2eb24a28b10b/push
+  Content type  application/json
+  Secret        <the hook's token>
+  Events        Just the push event
+  ```
 - The server needs the `git` program.
 
 #### Starting a hosted project from a sample or an archive
@@ -834,8 +849,7 @@ one; administrators make another branch the project's branch (the one that runs)
 ]
 ```
 
-Not there yet: GitHub's signed hooks. For a private repository over https see
-[Credentials](#credentials-and-the-master-key).
+For a private repository see [Credentials](#credentials-and-the-master-key).
 
 ### Credentials and the master key
 

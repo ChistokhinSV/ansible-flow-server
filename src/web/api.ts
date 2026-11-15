@@ -227,6 +227,13 @@ export const api = {
   changeProject: (id: string, input: { gitCredential?: string | null; gitRef?: string }) =>
     call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
+  /** A push hook for the git host: its token (the secret GitHub signs with) is shown once. */
+  makeHook: (id: string) =>
+    call<{ token: string; url: string; headers: string[]; signature?: string }>(
+      'POST',
+      `/projects/${id}/hook`,
+    ),
+  removeHook: (id: string) => call<void>('DELETE', `/projects/${id}/hook`),
   /** AFS-60: the SSH host key trusted for an ssh source. */
   hostKey: (id: string) =>
     call<{ host?: string; keys: string[] }>('GET', `/projects/${id}/host-key`),

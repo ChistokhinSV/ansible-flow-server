@@ -16,6 +16,7 @@ import { accessOf } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
+import type { MasterKey } from '../secrets/masterKey';
 import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError, sshHost } from './git';
@@ -35,6 +36,7 @@ import {
   deleteWorkspace,
   getProject,
   getWorkspace,
+  hookSignatureMatches,
   hookTokenMatches,
   listProjects,
   listPushes,
@@ -58,12 +60,16 @@ export interface ProjectDeps {
   freshMs?: number;
   /** AFS-75: tells the event streams when a project's branch moves. */
   watch?: ProjectWatch;
+  /** AFS-61: seals a push hook's secret, so GitHub's signature of a hook can be checked. */
+  masterKey?: MasterKey;
   /** AFS-58: an archive a project starts from unpacks to at most this (default 50 MB). */
   archiveMaxBytes?: number;
 }
 
 /** A comment line now and then keeps a quiet stream open through proxies. */
 const KEEP_ALIVE_MS = 25_000;
+/** AFS-61: a hook's body is read only for its signature; GitHub sends at most 25 MB. */
+const HOOK_BODY_MAX = 25 * 1024 * 1024;
 const COMMIT_PATTERN = { type: 'string', pattern: '^[0-9a-f]{40}$' };
 
 const STATUS: Record<ProjectError['code'], number> = {
@@ -715,13 +721,15 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     answering(async (request, reply) => {
       const me = administrator(request, reply);
       if (!me) return reply;
-      const token = await newHookToken(db, request.params.id);
+      const token = await newHookToken(db, request.params.id, deps.masterKey);
       request.log.info({ by: me.login, project: request.params.id }, 'Push hook set up');
       return reply.code(201).send({
-        // Shown this once. The git host sends it back in one of these headers.
+        // Shown this once. The git host sends it back in one of these headers, or (GitHub,
+        // AFS-61) signs the hook's body with it as the hook's secret.
         token,
         url: `/api/v1/hooks/projects/${request.params.id}/push`,
         headers: ['X-Gitlab-Token', 'X-AFS-Token', 'Authorization: Bearer'],
+        ...(deps.masterKey ? { signature: 'X-Hub-Signature-256' } : {}),
       });
     }),
   );
@@ -733,10 +741,25 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   });
 
   /**
-   * The git host says the repository changed. It proves who it is with the hook's token; what it
-   * sends besides is not read: the server looks at the source itself.
+   * The git host says the repository changed. It proves who it is with the hook's token in a
+   * header, or (GitHub, AFS-61) with a signature of the body made with the token as its secret;
+   * what it sends is not read otherwise: the server looks at the source itself. The body is kept
+   * as bytes for the signature, whatever its type.
    */
-  app.post<WithId>('/api/v1/hooks/projects/:id/push', { schema: ID }, async (request, reply) => {
+  app.register(async (hooks) => {
+    hooks.removeAllContentTypeParsers();
+    hooks.addContentTypeParser(
+      '*',
+      { parseAs: 'buffer', bodyLimit: HOOK_BODY_MAX },
+      (_request, body, done) => done(null, body),
+    );
+    hooks.post<WithId>(
+      '/api/v1/hooks/projects/:id/push',
+      { schema: ID, bodyLimit: HOOK_BODY_MAX },
+      pushHook,
+    );
+  });
+  async function pushHook(request: FastifyRequest<WithId>, reply: FastifyReply) {
     const key = `ip:${request.ip}`;
     const wait = hookFailures.retryAfter(key);
     if (wait > 0)
@@ -752,11 +775,20 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       header('x-gitlab-token') ??
       header('x-afs-token') ??
       /^Bearer\s+(\S+)$/i.exec(header('authorization') ?? '')?.[1];
-    if (!token || !(await hookTokenMatches(db, request.params.id, token))) {
+    const signature = header('x-hub-signature-256');
+    const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+    const proven = token
+      ? await hookTokenMatches(db, request.params.id, token)
+      : signature && deps.masterKey
+        ? await hookSignatureMatches(db, deps.masterKey, request.params.id, body, signature)
+        : false;
+    if (!proven) {
       hookFailures.fail(key);
-      // One answer for a wrong token, a project without a hook and no such project.
+      // One answer for a wrong token or signature, a project without a hook and no such project.
       return reply.code(401).send({ error: 'unauthorized', message: 'The hook token is wrong' });
     }
+    // GitHub's first call when a hook is made: the signature is checked, nothing to look at.
+    if (header('x-github-event') === 'ping') return reply.code(200).send({ status: 'pong' });
     // The host does not wait for the fetch: it is told the server heard it.
     void deps.sync
       .sync(request.params.id)
@@ -764,5 +796,5 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         request.log.error({ err: e }, 'A push hook could not bring a project up to date'),
       );
     return reply.code(202).send({ status: 'accepted' });
-  });
+  }
 }
