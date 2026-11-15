@@ -491,6 +491,9 @@ export const api = {
       certificate,
       ...(key ? { key } : {}),
     }),
+  /** A PFX (PKCS#12) file, as base64, with its passphrase. */
+  installPfx: (pfx: string, passphrase: string) =>
+    call<CertificateState>('POST', '/admin/certificate/install', { pfx, passphrase }),
   selfSignedCertificate: () => call<CertificateState>('POST', '/admin/certificate/self-signed', {}),
   rollbackCertificate: () => call<CertificateState>('POST', '/admin/certificate/rollback'),
 

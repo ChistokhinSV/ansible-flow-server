@@ -12,6 +12,7 @@
 // new connections as soon as it sees the store's files change; no restart.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { administrator, inSession } from '../auth/guards';
+import { PFX_MAX, pfxToPem } from './pfx';
 import { CertificateRefused, type CertificateStore } from './store';
 import type { CertificateState } from './types';
 
@@ -116,24 +117,36 @@ export function registerCertificate(app: FastifyInstance, deps: CertificateDeps)
     }),
   );
 
-  app.post<{ Body: { certificate: string; key?: string } }>(
+  app.post<{
+    Body: { certificate?: string; key?: string; pfx?: string; passphrase?: string };
+  }>(
     '/api/v1/admin/certificate/install',
     {
-      // A certificate with its chain and a key: far below the server's default body limit, held to
-      // this so a mistake (a whole bundle of authorities) is said plainly.
-      bodyLimit: 4 * PEM_MAX,
+      // A certificate with its chain and a key, or a PFX (base64): far below the server's default
+      // body limit, held to this so a mistake (a whole bundle of authorities) is said plainly.
+      bodyLimit: 4 * PEM_MAX + 2 * PFX_MAX,
       schema: {
         body: {
           type: 'object',
           additionalProperties: false,
-          required: ['certificate'],
-          properties: { certificate: text(PEM_MAX, 1), key: text(PEM_MAX, 1) },
+          properties: {
+            certificate: text(PEM_MAX, 1),
+            key: text(PEM_MAX, 1),
+            // AFS-55: a PFX (PKCS#12) file as base64, and its passphrase (kept nowhere).
+            pfx: { type: 'string', minLength: 1, maxLength: Math.ceil((PFX_MAX * 4) / 3) + 4 },
+            passphrase: text(1024),
+          },
+          oneOf: [{ required: ['certificate'] }, { required: ['pfx'] }],
         },
       },
     },
     changing((request, _reply, by) => {
-      store.install(request.body.certificate, {
-        ...(request.body.key ? { key: request.body.key } : {}),
+      const body = request.body;
+      const pair = body.pfx
+        ? pfxToPem(Buffer.from(body.pfx, 'base64'), body.passphrase ?? '')
+        : { certificate: body.certificate as string, ...(body.key ? { key: body.key } : {}) };
+      store.install(pair.certificate, {
+        ...(pair.key ? { key: pair.key } : {}),
         ...(deps.host ? { host: deps.host } : {}),
         by,
       });

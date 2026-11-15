@@ -5,6 +5,8 @@
 //   cert install <certificate.pem>    install a signed certificate (its chain may follow it in
 //        [--key <key.pem>]            the file); without --key it answers the waiting request, or
 //                                     renews for the key in use
+//   cert install <file.pfx>           install from a PFX (PKCS#12): certificate, chain and key; the
+//        --passphrase-file <file>     passphrase is read from the file, never given as an argument
 //   cert self-signed [<name>…]        replace the certificate with a new self-signed one
 //   cert rollback                     go back to the certificate that was in use before
 //   cert history                      every change made to the certificate
@@ -14,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { type Config, publicHost } from '../config';
 import { certificateStore, selfSignedNames } from '../serve';
 import type { CertificateInfo } from './certificates';
+import { isPfx, pfxToPem } from './pfx';
 import { CertificateRefused } from './store';
 
 const BY = { by: 'cli' };
@@ -88,13 +91,31 @@ export async function certCommand(
       }
       case 'install': {
         const keyFile = option(rest, '--key');
+        const passphraseFile = option(rest, '--passphrase-file');
         const [file] = rest;
         if (!file) {
-          print('Name the certificate file: cert install <certificate.pem> [--key <key.pem>]');
+          print(
+            'Name the certificate file: cert install <certificate.pem> [--key <key.pem>], or cert install <file.pfx> --passphrase-file <file>',
+          );
           return 2;
         }
-        const stored = store.install(readFileSync(file, 'utf8'), {
-          ...(keyFile ? { key: readFileSync(keyFile, 'utf8') } : {}),
+        const bytes = readFileSync(file);
+        // AFS-55: a PFX holds the certificate, its chain and its key; its passphrase comes from a
+        // file, never an argument (a process list and the shell's history would show it).
+        let pair: { certificate: string; key?: string };
+        if (isPfx(bytes)) {
+          if (!passphraseFile) {
+            print('A PFX needs its passphrase: --passphrase-file <file> (an empty file: none)');
+            return 2;
+          }
+          pair = pfxToPem(bytes, readFileSync(passphraseFile, 'utf8').replace(/\r?\n$/, ''));
+        } else
+          pair = {
+            certificate: bytes.toString('utf8'),
+            ...(keyFile ? { key: readFileSync(keyFile, 'utf8') } : {}),
+          };
+        const stored = store.install(pair.certificate, {
+          ...(pair.key ? { key: pair.key } : {}),
           host: publicHost(config),
           ...BY,
         });
@@ -123,7 +144,7 @@ export async function certCommand(
       }
       default:
         print(
-          'Use: cert show | request <names> | install <file> [--key <file>] | self-signed | rollback | history',
+          'Use: cert show | request <names> | install <file> [--key <file> | --passphrase-file <file>] | self-signed | rollback | history',
         );
         return 2;
     }
