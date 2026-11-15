@@ -93,6 +93,19 @@ export function editDraft(options: {
     tellPage({ type: 'afs-draft-gone', by: news.by?.name });
   });
 
+  /** The catalog's state, again every 10 seconds while the image's docs are first read. */
+  let watching: ReturnType<typeof setTimeout> | undefined;
+  const catalogStatus = async (): Promise<void> => {
+    const r = await json('POST', `${base}/catalog`, { request: { op: 'status' } }).catch(
+      () => undefined,
+    );
+    const status = r?.data?.status as { state?: string } | undefined;
+    if (!status) return;
+    send({ type: 'catalogStatus', status } as HostMessage);
+    clearTimeout(watching);
+    if (status.state === 'loading') watching = setTimeout(() => void catalogStatus(), 10_000);
+  };
+
   // "I am here", now and every 20 seconds while the page is open.
   const here = () => void json('POST', `${base}/here`, {}).catch(() => undefined);
   here();
@@ -122,9 +135,32 @@ export function editDraft(options: {
           case 'ready':
             ready = true;
             send({ type: 'config', testMode: false });
-            send({ type: 'catalogStatus', status: { state: 'idle' } });
             if (latest) send({ type: 'snapshot', snapshot: latest } as unknown as HostMessage);
+            void catalogStatus();
             return;
+          case 'catalog': {
+            const reqId = message.reqId;
+            void json('POST', `${base}/catalog`, { request: message.request }).then((r) => {
+              if (r.status === 202 || !r.ok) {
+                const status = r.data?.status as { message?: string } | undefined;
+                send({
+                  type: 'catalogReply',
+                  reqId,
+                  ok: false,
+                  error: status?.message ?? String(r.data?.message ?? 'The catalog is not ready'),
+                } as HostMessage);
+                if (status) void catalogStatus();
+                return;
+              }
+              send({
+                type: 'catalogReply',
+                reqId,
+                ok: true,
+                result: (r.data?.result ?? r.data?.status) as never,
+              } as HostMessage);
+            });
+            return;
+          }
           case 'command': {
             const reqId = message.reqId;
             void json('POST', `${base}/commands`, { command: message.command }).then(

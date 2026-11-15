@@ -39,6 +39,7 @@ import type { Git } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
 import type { MasterKey } from '../secrets/masterKey';
+import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
@@ -153,6 +154,8 @@ export class Executor {
   private filling = false;
   private stopping = false;
   private engine: Engine | undefined;
+  /** AFS-76: module catalogs read from images, for editing in the pages. */
+  private readonly catalogs: ModuleCatalogs;
   private readonly workdirs: Workdirs;
   private readonly probeDir: string;
   private readonly outputDir: string;
@@ -169,6 +172,14 @@ export class Executor {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
     this.probeDir = join(options.dataDir, 'probe');
     this.outputDir = join(options.dataDir, 'output');
+    this.catalogs = new ModuleCatalogs({
+      engine: () => (this.options.runner ? undefined : this.engine),
+      toHost: () => this.toHost,
+      probeDir: this.probeDir,
+      dir: join(options.dataDir, 'catalogs'),
+      labels: [this.label],
+      log: deps.log,
+    });
     this.probes = new InventoryProbes({
       engine: () => (this.options.runner ? undefined : this.engine),
       toHost: () => this.toHost,
@@ -180,6 +191,16 @@ export class Executor {
       secretsDir: join(options.dataDir, 'secrets-tmp'),
       log: deps.log,
     });
+  }
+
+  /** AFS-76: the module catalog of an image (the server's default without one). */
+  catalog(image?: string): CatalogState {
+    return this.catalogs.get(image ?? this.options.image);
+  }
+
+  /** AFS-76: Rebuild in the designer: a catalog that failed is tried again. */
+  retryCatalog(image?: string): void {
+    this.catalogs.retry(image ?? this.options.image);
   }
 
   /**

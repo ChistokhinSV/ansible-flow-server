@@ -159,6 +159,7 @@ export const READS = new Set([
   'POST /api/v1/drafts/:id/undo',
   'POST /api/v1/drafts/:id/tidy',
   'POST /api/v1/drafts/:id/here',
+  'POST /api/v1/drafts/:id/catalog',
 ]);
 
 const CHANGES = ['POST', 'PUT', 'PATCH', 'DELETE'];

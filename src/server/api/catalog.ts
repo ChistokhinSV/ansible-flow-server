@@ -241,6 +241,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     "Save the draft as one commit on the project's branch (merged first when the branch moved; `force` keeps the draft's side of conflicts)",
   ),
   'DELETE /api/v1/drafts/:id': S('Editing', 'signed in', D)('Discard the draft'),
+  'POST /api/v1/drafts/:id/catalog': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "The module catalog of the flow's image, as the designer asks it (search, doc, names, status, rebuild); 202 while it is first read",
+  ),
   'POST /api/v1/projects/:id/hook': S(
     'Projects',
     'administrators',
@@ -718,6 +725,7 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/here': 'ro',
   'POST /api/v1/drafts/:id/save': 'rw',
   'DELETE /api/v1/drafts/:id': 'rw',
+  'POST /api/v1/drafts/:id/catalog': 'ro',
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',

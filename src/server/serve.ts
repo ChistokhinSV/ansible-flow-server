@@ -295,6 +295,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       masterKey,
       runs,
       runOutput: (id) => executor?.outputFile(id) ?? '',
+      // AFS-76: module catalogs from images, for editing in the pages.
+      catalog: {
+        get: (image) =>
+          executor
+            ? executor.catalog(image)
+            : { state: 'error', image: image ?? '', error: 'This server is still starting' },
+        retry: (image) => executor?.retryCatalog(image),
+      },
       // AFS-67: the executor reads inventories with the engine it found.
       inventory: (q) =>
         executor

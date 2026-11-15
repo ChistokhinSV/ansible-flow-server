@@ -11,13 +11,16 @@
 //   POST /api/v1/drafts/:id/save, DELETE /drafts/:id     save as one commit, discard
 import type { ServerResponse } from 'node:http';
 import type { FlowCommand } from '@ansible-flow/core/flow/commands';
+import type { CatalogRequest, CatalogStatus } from '@ansible-flow/core/protocol';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { signedIn } from '../auth/guards';
 import type { SessionUser } from '../auth/sessions';
 import type { Schema } from '../db/schema';
+import { environmentImage } from '../environments/image';
 import { FlowError, snapshotOf } from '../projects/flows';
 import { getProject } from '../projects/store';
+import type { CatalogState } from '../runs/catalogs';
 import { DraftError, type DraftNews, type Drafts, type Editor } from './drafts';
 
 /** How long "I am here" lasts without another. */
@@ -52,7 +55,11 @@ const editorOf = (u: SessionUser): Editor => ({ id: u.id, login: u.login, name: 
 
 export function registerDrafts(
   app: FastifyInstance,
-  deps: { db: Kysely<Schema>; drafts: Drafts },
+  deps: {
+    db: Kysely<Schema>;
+    drafts: Drafts;
+    catalog?: { get(image?: string): CatalogState; retry(image?: string): void };
+  },
 ): void {
   const { drafts } = deps;
   /** Who is in each draft (this server's pages; a page says so again every half minute). */
@@ -339,6 +346,100 @@ export function registerDrafts(
         return await drafts.save(request.params.id, { ...editorOf(me), email }, request.body ?? {});
       } catch (e) {
         return failed(reply, e);
+      }
+    },
+  );
+
+  /**
+   * The image a flow's runs use: a launch configuration of the flow names its environment or
+   * image; without one, the server's default.
+   */
+  const imageOf = async (project: string, file: string): Promise<string | undefined> => {
+    const configs = await deps.db
+      .selectFrom('launch_config')
+      .select(['environment_id', 'ee_image'])
+      .where('project_id', '=', project)
+      .where('flow_file', '=', file)
+      .execute();
+    for (const c of configs) {
+      if (c.environment_id) {
+        const found = await environmentImage(deps.db, c.environment_id);
+        if (found.image) return found.image;
+      }
+      if (c.ee_image) return c.ee_image;
+    }
+    return undefined;
+  };
+  const statusOf = (state: CatalogState): CatalogStatus =>
+    state.state === 'ready'
+      ? { state: 'ready', environment: state.image, ...state.index.stats() }
+      : state.state === 'loading'
+        ? {
+            state: 'loading',
+            environment: state.image,
+            message: `Reading the plugin docs of ${state.image} (the first time takes a few minutes)…`,
+          }
+        : { state: 'error', environment: state.image, message: state.error };
+
+  /**
+   * The module catalog of the flow's image, as the designer asks it: search, a plugin's docs,
+   * the names for Jinja completion, the catalog's state (`status`) and Rebuild. While the image's
+   * catalog is first read, the answer says so (202 with the state).
+   */
+  app.post<{ Params: { id: string }; Body: { request: CatalogRequest | { op: 'status' } } }>(
+    '/api/v1/drafts/:id/catalog',
+    {
+      schema: {
+        ...ID,
+        body: {
+          type: 'object',
+          required: ['request'],
+          properties: { request: { type: 'object', required: ['op'] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const draft = await drafts.text(request.params.id);
+      const project = await drafts.projectOf(request.params.id);
+      if (!draft || !project)
+        return reply.code(404).send({ error: 'not_found', message: 'No such draft' });
+      if (!deps.catalog)
+        return reply.code(422).send({ error: 'refused', message: 'This server reads no catalogs' });
+      const image = await imageOf(project.id, draft.file);
+      const asked = request.body.request;
+      if (asked.op === 'rebuild') deps.catalog.retry(image);
+      const state = deps.catalog.get(image);
+      if (asked.op === 'status' || asked.op === 'rebuild') return { status: statusOf(state) };
+      if (state.state !== 'ready') return reply.code(202).send({ status: statusOf(state) });
+      const index = state.index;
+      switch (asked.op) {
+        case 'search':
+          return {
+            result: index.search(
+              asked.query,
+              { ...(asked.types ? { types: asked.types } : {}) },
+              20,
+            ),
+          };
+        case 'doc': {
+          const type = asked.type ?? 'module';
+          const resolved = index.resolve(asked.fqcn, [], type);
+          const plugin = index.plugin(resolved.fqcn ?? asked.fqcn, type);
+          return {
+            result: plugin
+              ? { ...plugin, collection_version: index.collectionVersion(plugin.collection) }
+              : null,
+          };
+        }
+        case 'names':
+          return { result: index.names(asked.type) };
+        // A repository's own roles and playbooks are not read here yet.
+        case 'roles':
+        case 'playbooks':
+          return { result: [] };
+        default:
+          return reply.code(400).send({ error: 'invalid', message: 'Not a catalog request' });
       }
     },
   );

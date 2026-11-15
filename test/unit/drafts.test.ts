@@ -248,3 +248,92 @@ describe('editing a flow together', () => {
     expect((await call('omar', 'GET', `/projects/${project.id}/drafts`)).json).toEqual([]);
   });
 });
+
+describe("the module catalog of the flow's image", () => {
+  it('says while it is first read, then answers search and docs', async () => {
+    const { CatalogIndex } = await import('@ansible-flow/node/catalog/catalogIndex');
+    const index = CatalogIndex.build(':memory:', [
+      {
+        format: 1,
+        collection: 'ansible.builtin',
+        version: '2.19.0',
+        core: '2.19.0',
+        plugins: [
+          {
+            type: 'module',
+            fqcn: 'ansible.builtin.ping',
+            collection: 'ansible.builtin',
+            name: 'ping',
+            short_description: 'Try to connect to host, verify a usable python and return pong',
+            description: 'A trivial test module.',
+          },
+        ],
+        routing: {},
+        errors: [],
+      },
+    ]);
+    let ready = false;
+    const asked: (string | undefined)[] = [];
+    const log = createLogger({ level: 'error', format: 'json', write: () => undefined });
+    const git = new Git({ reposDir: join(root, 'repos'), allowLocal: true });
+    const app2 = buildApp({
+      log,
+      database,
+      instance: 'test',
+      projects: { git, sync, allowLocal: true },
+      catalog: {
+        get: (image) => {
+          asked.push(image);
+          return ready
+            ? { state: 'ready', index, image: image ?? 'afd-ee:2.19' }
+            : { state: 'loading', image: image ?? 'afd-ee:2.19' };
+        },
+        retry: () => undefined,
+      },
+    });
+    await app2.listen({ port: 0, host: '127.0.0.1' });
+    try {
+      const url = `http://127.0.0.1:${(app2.server.address() as AddressInfo).port}/api/v1`;
+      const post = async (path: string, body?: unknown) => {
+        const reply = await fetch(`${url}${path}`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${tokens.mia}`,
+            ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+          },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        });
+        return { status: reply.status, json: (await reply.json()) as Loose };
+      };
+      const draft = (await post(`/projects/${project.id}/drafts?path=${FILE}`)).json.id;
+      const search = { request: { op: 'search', query: 'connect python' } };
+      const loading = await post(`/drafts/${draft}/catalog`, search);
+      expect(loading.status).toBe(202);
+      expect(loading.json.status).toMatchObject({ state: 'loading', environment: 'afd-ee:2.19' });
+      ready = true;
+      const found = await post(`/drafts/${draft}/catalog`, search);
+      expect(found.json.result.map((h: { fqcn: string }) => h.fqcn)).toEqual([
+        'ansible.builtin.ping',
+      ]);
+      const doc = await post(`/drafts/${draft}/catalog`, {
+        request: { op: 'doc', fqcn: 'ping' },
+      });
+      expect(doc.json.result).toMatchObject({
+        fqcn: 'ansible.builtin.ping',
+        collection_version: '2.19.0',
+      });
+      expect(
+        (await post(`/drafts/${draft}/catalog`, { request: { op: 'status' } })).json.status,
+      ).toMatchObject({
+        state: 'ready',
+        modules: 1,
+      });
+      // No launch configuration names an image: the server's default.
+      expect(asked.every((a) => a === undefined)).toBe(true);
+      await post(`/drafts/${draft}/save`, {});
+    } finally {
+      index.close();
+      await app2.close();
+    }
+  });
+});
