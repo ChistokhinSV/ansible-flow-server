@@ -10,6 +10,8 @@ import type { Connect } from './auth/ldap/client';
 import { LdapSignIn } from './auth/ldap/ldap';
 import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
+import { Drafts } from './drafts/drafts';
+import { registerDrafts } from './drafts/routes';
 import { registerFlowChecks } from './environments/checkRoutes';
 import type { Environments } from './environments/environments';
 import { registerEnvironments } from './environments/routes';
@@ -156,6 +158,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const watch = deps.projects.watch ?? new ProjectWatch(deps.database.db, deps.log);
     app.addHook('onClose', async () => watch.stop());
     registerProjects(app, { db: deps.database.db, ...deps.projects, watch });
+    // AFS-76: flows edited in the pages, together.
+    registerDrafts(app, {
+      db: deps.database.db,
+      drafts: new Drafts({
+        db: deps.database.db,
+        git: deps.projects.git,
+        sync: deps.projects.sync,
+        log: deps.log,
+      }),
+    });
     registerGit(app, { db: deps.database.db, ...deps.projects });
     registerLaunch(app, {
       db: deps.database.db,

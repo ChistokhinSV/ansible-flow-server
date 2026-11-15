@@ -5,7 +5,8 @@
 // limit on every call, and only addresses the server is willing to fetch from.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { rename, rm } from 'node:fs/promises';
+import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
 /** How long a fetch may take. */
@@ -555,6 +556,109 @@ export class Git {
         const [hash = '', author = '', at = '', subject = ''] = line.trim().split('\x1f');
         return { commit: hash, author, at, subject };
       });
+  }
+
+  /**
+   * AFS-76: a commit on top of `parent` that changes one file to `text`, made in the mirror with
+   * git's plumbing (no working folder): the blob, a tree from the parent's with the file in it,
+   * the commit by `author`. Nothing points at it until `publish` moves the branch.
+   */
+  async commitFile(
+    projectId: string,
+    change: {
+      parent: string;
+      path: string;
+      text: string;
+      author: { name: string; email: string };
+      message: string;
+    },
+  ): Promise<string> {
+    const { parent, path } = change;
+    if (!COMMIT.test(parent)) throw new GitError('Not a commit');
+    if (!path || path.startsWith('/') || path.includes('\0') || path.split('/').includes('..'))
+      throw new GitError('Not a path inside the repository');
+    const cwd = this.mirror(projectId);
+    const work = await mkdtemp(join(tmpdir(), 'afs-commit-'));
+    try {
+      const file = join(work, 'blob');
+      const message = join(work, 'message');
+      await writeFile(file, change.text);
+      await writeFile(message, change.message);
+      const blob = (
+        await this.run(['hash-object', '-w', '--', file], { cwd, timeoutMs: READ_TIMEOUT_MS })
+      )
+        .toString('utf8')
+        .trim();
+      // The file keeps its mode (an executable stays one).
+      const listed = (
+        await this.run(['ls-tree', parent, '--', path], { cwd, timeoutMs: READ_TIMEOUT_MS })
+      ).toString('utf8');
+      const mode = /^(\d{6}) blob /.exec(listed)?.[1] ?? '100644';
+      const index = { GIT_INDEX_FILE: join(work, 'index') };
+      await this.run(['read-tree', parent], { cwd, timeoutMs: READ_TIMEOUT_MS, env: index });
+      await this.run(['update-index', '--add', '--cacheinfo', `${mode},${blob},${path}`], {
+        cwd,
+        timeoutMs: READ_TIMEOUT_MS,
+        env: index,
+      });
+      const tree = (await this.run(['write-tree'], { cwd, timeoutMs: READ_TIMEOUT_MS, env: index }))
+        .toString('utf8')
+        .trim();
+      const who = {
+        GIT_AUTHOR_NAME: change.author.name,
+        GIT_AUTHOR_EMAIL: change.author.email,
+        GIT_COMMITTER_NAME: 'Ansible Flow Server',
+        GIT_COMMITTER_EMAIL: 'ansible-flow-server@localhost',
+      };
+      const commit = (
+        await this.run(['commit-tree', tree, '-p', parent, '-F', message], {
+          cwd,
+          timeoutMs: READ_TIMEOUT_MS,
+          env: who,
+        })
+      )
+        .toString('utf8')
+        .trim();
+      if (!COMMIT.test(commit)) throw new GitError('Git made no commit');
+      return commit;
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * AFS-76: moves `branch` from `old` to `commit`: first in the project's source when it has one
+   * (only if the branch there is still at `old`), then in the mirror, also only from `old`.
+   */
+  async publish(
+    projectId: string,
+    branch: string,
+    old: string,
+    commit: string,
+    upstream?: { url: string; auth?: GitAuth },
+  ): Promise<void> {
+    const problem = refProblem(branch);
+    if (problem) throw new GitError(problem);
+    if (!COMMIT.test(old) || !COMMIT.test(commit)) throw new GitError('Not a commit');
+    const cwd = this.mirror(projectId);
+    const ref = `refs/heads/${branch}`;
+    if (upstream) {
+      const urlProblem = gitUrlProblem(upstream.url, this.options.allowLocal);
+      if (urlProblem) throw new GitError(urlProblem);
+      await this.run(
+        [
+          'push',
+          '--quiet',
+          '--atomic',
+          `--force-with-lease=${ref}:${old}`,
+          '--',
+          upstream.url,
+          `${commit}:${ref}`,
+        ],
+        { cwd, timeoutMs: FETCH_TIMEOUT_MS, env: authEnv(upstream.url, upstream.auth) },
+      );
+    }
+    await this.run(['update-ref', ref, commit, old], { cwd, timeoutMs: READ_TIMEOUT_MS });
   }
 
   /** True when a commit has a file or a folder at this path. */

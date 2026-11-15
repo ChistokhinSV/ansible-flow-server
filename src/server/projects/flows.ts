@@ -94,35 +94,39 @@ export class ProjectFlows {
       if (!FLOW_FILE.test(file)) throw new FlowError('not_found', 'Not a flow file');
       const bytes = await this.git.read(projectId, commit, file);
       if (!bytes) throw new FlowError('not_found', 'The project has no such flow at this commit');
-      const text = bytes.toString('utf8');
-      const summary = summarizeFlow(file, text);
-      const parsed = parseFlow(text);
-      if (!summary.ok || !parsed.doc)
-        throw new FlowError('unreadable', summary.problem ?? 'Not a flow file');
-      const { model, findings } = validateFlow(parsed.doc);
-      const layout = shownLayout(model);
-      const shown = layout === model.doc.layout ? model.doc : { ...model.doc, layout };
-      // Code is generated only for a flow without errors, as in the designer.
-      const preview = findings.some((f) => f.severity === 'error')
-        ? undefined
-        : codePreview(parsed.doc, file);
-      const positions = await Promise.all(
-        [...model.levels.values()].map((level) => autoPositions(level, shown.layout)),
-      );
-      return {
-        commit,
-        file,
-        snapshot: {
-          docVersion: 1,
-          doc: shown,
-          stale: false,
-          file: file.split('/').at(-1),
-          findings: [...findings, ...(preview?.findings ?? [])],
-          openPorts: openFailPorts(model),
-          autoPositions: Object.assign({}, ...positions),
-          ...(preview?.plays ? { plays: preview.plays } : {}),
-        },
-      };
+      return { commit, file, snapshot: await snapshotOf(bytes.toString('utf8'), file) };
     });
   }
+}
+
+/**
+ * One flow's text as the designer shows it: the flow, its findings, positions and generated plays
+ * (AFS-76: also a draft's text, with the draft's revision as its version). Rejects with a
+ * FlowError when the text is not a flow this server can read.
+ */
+export async function snapshotOf(text: string, file: string, docVersion = 1): Promise<Snapshot> {
+  const summary = summarizeFlow(file, text);
+  const parsed = parseFlow(text);
+  if (!summary.ok || !parsed.doc)
+    throw new FlowError('unreadable', summary.problem ?? 'Not a flow file');
+  const { model, findings } = validateFlow(parsed.doc);
+  const layout = shownLayout(model);
+  const shown = layout === model.doc.layout ? model.doc : { ...model.doc, layout };
+  // Code is generated only for a flow without errors, as in the designer.
+  const preview = findings.some((f) => f.severity === 'error')
+    ? undefined
+    : codePreview(parsed.doc, file);
+  const positions = await Promise.all(
+    [...model.levels.values()].map((level) => autoPositions(level, shown.layout)),
+  );
+  return {
+    docVersion,
+    doc: shown,
+    stale: false,
+    file: file.split('/').at(-1),
+    findings: [...findings, ...(preview?.findings ?? [])],
+    openPorts: openFailPorts(model),
+    autoPositions: Object.assign({}, ...positions),
+    ...(preview?.plays ? { plays: preview.plays } : {}),
+  };
 }

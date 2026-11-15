@@ -548,6 +548,8 @@ export interface DevBundleTable {
 }
 
 export interface Schema {
+  flow_draft: FlowDraftTable;
+  flow_draft_edit: FlowDraftEditTable;
   dev_bundle: DevBundleTable;
   schedule: ScheduleTable;
   environment: EnvironmentTable;
@@ -576,4 +578,31 @@ export interface Schema {
   ldap_directory: LdapDirectoryTable;
   ldap_mapping: LdapMappingTable;
   ldap_identity: LdapIdentityTable;
+}
+
+/** AFS-76: a flow edited in the pages, shared by everyone editing it, until saved or discarded. */
+export interface FlowDraftTable {
+  id: string;
+  project_id: string;
+  file: string;
+  /** The commit of the project's branch the draft started from. */
+  base_commit: string;
+  text: string;
+  revision: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** AFS-76: one edit of a draft: who made it and the text before and after (undo, marks). */
+export interface FlowDraftEditTable {
+  id: string;
+  draft_id: string;
+  revision: number;
+  user_id: string | null;
+  kind: 'command' | 'undo' | 'layout';
+  before_text: string;
+  after_text: string;
+  undone: number;
+  at: string;
 }
