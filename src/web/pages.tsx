@@ -1,10 +1,12 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useProjectAccess, WorkspaceAccess } from './access';
 import {
+  ApiError,
   api,
+  type Draft,
   type FlowChanges,
   type FlowList,
   type FlowSummary,
@@ -19,7 +21,7 @@ import { RunTable } from './runs';
 import { ProviderButtons } from './signin';
 import type { ThemeChoice } from './theme';
 import { TokensPanel } from './tokens';
-import { Copyable, Field, Form, Loading, PageHead, Time, useLoad } from './ui';
+import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 // --- before anyone is signed in
 
@@ -640,13 +642,57 @@ export function FlowPage({
   );
   const flow = flows.data?.flows.find((f) => f.file === file);
   const title = flow?.name ?? file.split('/').at(-1) ?? file;
+  // AFS-76: editing the flow's draft (rw on the flow), and the drafts there are.
+  const access = useProjectAccess(project?.id).data;
+  const mayEdit = !!access && (access.admin || access.flows?.[file] === 'rw');
+  const drafts = useLoad(
+    async () => (project ? api.drafts(project.id) : ([] as Draft[])),
+    [project?.id, project?.commit],
+  );
+  const waiting = drafts.data?.find((d) => d.file === file);
+  const [editing, setEditing] = useState<Draft>();
+  const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
+  const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
+  const [said, setSaid] = useState<string>();
+  const reloadAll = useRef<() => void>(() => undefined);
+  reloadAll.current = () => {
+    found.reload();
+    drafts.reload();
+  };
+  const stopEditing = (words?: string) => {
+    setEditing(undefined);
+    setPeople([]);
+    setEdits([]);
+    setSaid(words);
+    reloadAll.current();
+  };
+  const stop = useRef(stopEditing);
+  stop.current = stopEditing;
   // AFS-75: the designer's frame says which commit it shows after an Update.
   const [shown, setShown] = useState<string>();
   useEffect(() => {
     const heard = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: string; commit?: string } | null;
+      const data = event.data as {
+        type?: string;
+        commit?: string;
+        by?: string;
+        people?: { login: string; name: string }[];
+        steps?: string[];
+      } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
+      if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
+      if (data?.type === 'afs-draft-edit' && data.by) {
+        const by = data.by;
+        const steps = data.steps ?? [];
+        setEdits((e) => [{ by, steps, at: new Date().toISOString() }, ...e].slice(0, 5));
+      }
+      if (data?.type === 'afs-draft-saved')
+        stop.current(
+          `${data.by ?? 'Someone'} saved the draft${data.commit ? ` as ${data.commit.slice(0, 12)}` : ''}.`,
+        );
+      if (data?.type === 'afs-draft-gone')
+        stop.current(`${data.by ?? 'Someone'} discarded the draft.`);
     };
     window.addEventListener('message', heard);
     return () => window.removeEventListener('message', heard);
@@ -654,9 +700,18 @@ export function FlowPage({
   const commit = shown ?? project?.commit;
   const viewer =
     project &&
-    `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}&theme=${
-      theme === 'system' ? 'auto' : theme
-    }`;
+    `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}${
+      editing ? `&draft=${encodeURIComponent(editing.id)}` : ''
+    }&theme=${theme === 'system' ? 'auto' : theme}`;
+  const edit = async () => {
+    if (!project) return;
+    setSaid(undefined);
+    try {
+      setEditing(await api.openDraft(project.id, file));
+    } catch (e) {
+      setSaid(messageOf(e));
+    }
+  };
   return (
     <div className="flow-page">
       <div className="flow-head">
@@ -667,17 +722,40 @@ export function FlowPage({
         <PageHead
           title={title}
           lead={
-            project && commit
-              ? `${project.gitRef} at ${commit.slice(0, 12)} · shown, not changed`
-              : undefined
+            project && editing
+              ? `Editing a draft of ${project.gitRef} at ${editing.baseCommit.slice(0, 12)} · Save makes one commit`
+              : project && commit
+                ? `${project.gitRef} at ${commit.slice(0, 12)} · shown, not changed`
+                : undefined
           }
         >
-          {viewer && (
+          {mayEdit && !editing && project?.commit ? (
+            <button type="button" onClick={() => void edit()}>
+              {waiting ? 'Open the draft' : 'Edit'}
+            </button>
+          ) : null}
+          {viewer && !editing && (
             <a href={viewer} target="_blank" rel="noreferrer">
               Open on its own page
             </a>
           )}
         </PageHead>
+        {said ? (
+          <p className="notice" role="status">
+            {said}
+          </p>
+        ) : null}
+        {!editing && waiting ? (
+          <p className="notice" role="status">
+            Unsaved edits in the pages by{' '}
+            {waiting.editors.length ? waiting.editors.map((e) => e.name).join(', ') : 'nobody yet'}{' '}
+            (a draft since <Time at={waiting.createdAt} />
+            ).
+          </p>
+        ) : null}
+        {editing ? (
+          <DraftBar draft={editing} people={people} edits={edits} onDone={stopEditing} />
+        ) : null}
         <Loading state={found} />
         {!found.loading && !found.error && !project && (
           <p className="empty">There is no such project.</p>
@@ -685,14 +763,118 @@ export function FlowPage({
       </div>
       {viewer && project?.commit && (
         <iframe
-          // A new commit or theme is a new page for the designer.
-          key={`${project.commit}:${theme}`}
+          // A new commit, theme or draft is a new page for the designer.
+          key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
           className="flow-frame"
           src={viewer}
           title={`The flow ${title} on the designer's canvas`}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * AFS-76: while a flow's draft is being edited: who is here, what the others changed lately,
+ * Save (one commit, with a message) and Discard. A Save the branch's changes stand in the way of
+ * lists the conflicts and offers to save with the draft's side.
+ */
+function DraftBar({
+  draft,
+  people,
+  edits,
+  onDone,
+}: {
+  draft: Draft;
+  people: { login: string; name: string }[];
+  edits: { by: string; steps: string[]; at: string }[];
+  onDone(words?: string): void;
+}) {
+  const [message, setMessage] = useState('');
+  const [conflicts, setConflicts] = useState<{ id: string; label: string }[]>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const save = async (force = false) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const done = await api.saveDraft(draft.id, {
+        ...(message.trim() ? { message: message.trim() } : {}),
+        ...(force ? { force } : {}),
+      });
+      onDone(
+        done.unchanged
+          ? 'Nothing to save: the flow is as the branch has it.'
+          : `Saved as ${done.commit.slice(0, 12)}.`,
+      );
+    } catch (e) {
+      if (e instanceof ApiError && e.details.conflicts) setConflicts(e.details.conflicts);
+      else setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const discard = async () => {
+    if (!window.confirm("Discard the draft? Everyone's unsaved edits go.")) return;
+    try {
+      await api.discardDraft(draft.id);
+      onDone('The draft is discarded.');
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+  return (
+    <section className="panel draft-bar" aria-label="Editing">
+      <p>
+        <strong>Editing</strong> · here now:{' '}
+        {people.length ? people.map((p) => p.name).join(', ') : 'only you'}. Edits are shared at
+        once; Ctrl+Z takes back your own last one.
+      </p>
+      {edits.length ? (
+        <ul className="muted draft-edits">
+          {edits.map((e) => (
+            <li key={`${e.at}${e.by}`}>
+              {e.by} changed {e.steps.length ? e.steps.join(', ') : 'the flow'} (<Time at={e.at} />)
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {conflicts ? (
+        <div className="notice error" role="alert">
+          <p>The branch changed the same places since this draft began:</p>
+          <ul>
+            {conflicts.map((c) => (
+              <li key={c.id}>{c.label}</li>
+            ))}
+          </ul>
+          <button type="button" disabled={busy} onClick={() => void save(true)}>
+            Save with the draft's side
+          </button>
+        </div>
+      ) : null}
+      {error ? (
+        <p className="notice error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="draft-actions">
+        <input
+          aria-label="What changed (the commit's message)"
+          placeholder={`Edit ${draft.file}`}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+        <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
+          Save
+        </button>
+        <button type="button" disabled={busy} onClick={() => onDone()}>
+          Stop editing
+        </button>
+        <button type="button" className="danger" disabled={busy} onClick={() => void discard()}>
+          Discard
+        </button>
+      </div>
+    </section>
   );
 }
 

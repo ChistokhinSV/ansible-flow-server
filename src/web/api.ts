@@ -84,7 +84,13 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     /** The rest of the refusal: the field it is about, the problems of a launch. */
-    readonly details: { field?: string; problems?: Problem[]; form?: LaunchForm } = {},
+    readonly details: {
+      field?: string;
+      problems?: Problem[];
+      form?: LaunchForm;
+      /** AFS-76: a Save the branch's changes stand in the way of. */
+      conflicts?: { id: string; label: string }[];
+    } = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -122,6 +128,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       ...(typeof data?.field === 'string' ? { field: data.field } : {}),
       ...(Array.isArray(data?.problems) ? { problems: data.problems } : {}),
       ...(data?.form ? { form: data.form } : {}),
+      ...(Array.isArray(data?.conflicts) ? { conflicts: data.conflicts } : {}),
     },
   );
 }
@@ -198,6 +205,14 @@ export const api = {
   branches: (id: string) => call<{ branches: string[] }>('GET', `/projects/${id}/branches`),
   pushes: (id: string) => call<Push[]>('GET', `/projects/${id}/pushes?limit=20`),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
+  /** AFS-76: the project's drafts (flows being edited in the pages). */
+  drafts: (id: string) => call<Draft[]>('GET', `/projects/${id}/drafts`),
+  /** AFS-76: the flow's draft, started from the project's commit when there is none. */
+  openDraft: (id: string, path: string) =>
+    call<Draft>('POST', `/projects/${id}/drafts?path=${encodeURIComponent(path)}`),
+  saveDraft: (id: string, input: { message?: string; force?: boolean }) =>
+    call<{ commit: string; unchanged?: boolean }>('POST', `/drafts/${id}/save`, input),
+  discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
   /** AFS-75: the flows that differ between `from` and the project's commit (or `to`). */
   changes: (id: string, from: string, to?: string) =>
     call<FlowChanges>('GET', `/projects/${id}/changes?from=${from}${to ? `&to=${to}` : ''}`),
@@ -501,4 +516,16 @@ export interface FlowChanges {
     at?: string;
     commit?: string;
   }[];
+}
+
+/** AFS-76: a flow being edited in the pages: who has edited it, and from which commit. */
+export interface Draft {
+  id: string;
+  project: string;
+  file: string;
+  baseCommit: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  editors: { id: string; login: string; name: string }[];
 }
