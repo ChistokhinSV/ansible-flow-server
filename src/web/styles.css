@@ -1063,6 +1063,26 @@ ul.tight {
   margin: 0 0 0.5rem;
   padding-left: 1.2rem;
 }
+/* AFS-112: notices in the bar keep apart from the row of buttons under them. */
+.draft-bar .notice {
+  margin: 0 0 0.75rem;
+}
+.draft-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0.75rem;
+}
+.draft-bar .draft-conflict p {
+  flex: 1 1 24rem;
+  margin: 0;
+}
+.draft-conflict-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
 .draft-actions {
   display: flex;
   flex-wrap: wrap;

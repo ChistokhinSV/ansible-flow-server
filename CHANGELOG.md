@@ -115,6 +115,7 @@ Nothing is released yet.
 
 ### Fixed
 
+- When saving a draft finds the branch changed the same places, the notice is one short row with its choices, apart from the Save row under it, and can be closed with Not now.
 - Stopping a run that waits for approval ends it on its canvas too: the run says who stopped it instead of waiting, and the approval says who cancelled it.
 - Fields side by side stay on one line when the hint under one of them wraps.
 - A workspace's Add project button shows on its Projects tab only.
