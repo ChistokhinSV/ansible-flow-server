@@ -395,6 +395,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         worker: `server:${await instanceId(database.db)}`,
         slots: config.maxRuns,
         timeoutMs: config.runTimeoutMinutes * 60_000,
+        // AFS-116: where runs reach this server (AFS_RUN_URL, else the public address), and
+        // whether they check its certificate (AFS_RUN_VERIFY_TLS, else unless it is self-signed).
+        server: () => {
+          const url = config.runUrl ?? config.publicUrl;
+          if (!url) return undefined;
+          const selfSigned = config.tls === 'on' && !!store.current()?.info.selfSigned;
+          return { url, verifyTls: config.runVerifyTls ?? !selfSigned };
+        },
       },
     );
     await executor.start();

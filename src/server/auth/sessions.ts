@@ -32,6 +32,8 @@ export interface SessionUser {
     workspace?: string;
     /** AFS-24: an agent with this token may decide approvals over MCP. */
     mcpApprovals?: boolean;
+    /** AFS-116: a run's own token (the run's id): it decides no approval. */
+    run?: string;
   };
 }
 

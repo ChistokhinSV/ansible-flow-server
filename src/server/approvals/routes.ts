@@ -107,6 +107,13 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
     async (request, reply) => {
       const me = signedIn(request, reply);
       if (!me) return reply;
+      // AFS-116: approvals stay with people: a run's own token (a flow calling the server) never
+      // decides one, its own or another run's.
+      if (me.token?.run)
+        return reply.code(403).send({
+          error: 'forbidden',
+          message: "A run's token does not decide approvals: a person does",
+        });
       const run = await queue.get(request.params.id);
       if (!run) return reply.code(404).send({ error: 'not_found', message: 'No such run' });
       const gate = (await gatesOf(db, run.id)).find(

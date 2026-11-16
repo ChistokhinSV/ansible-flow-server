@@ -86,6 +86,43 @@
           - listed | map(attribute='id') | list | first == run.id
           - run_nowait.state in ['queued', 'running', 'succeeded']
 
+    - name: Run the first run again and wait for it
+      chistokhinsv.ansible_flow.run_relaunch:
+        run_id: "{{ run.id }}"
+        wait: true
+      register: again
+
+    - name: Launch one more to stop it
+      chistokhinsv.ansible_flow.run:
+        launch_config: "{{ run.launch_config.id }}"
+        inputs:
+          devices: localhost
+      register: to_stop
+
+    - name: Stop it and wait until it has stopped
+      chistokhinsv.ansible_flow.run_cancel:
+        run_id: "{{ to_stop.id }}"
+        wait: true
+      register: stopped
+
+    - name: Stop it again
+      chistokhinsv.ansible_flow.run_cancel:
+        run_id: "{{ to_stop.id }}"
+      register: stopped_again
+
+    - name: Relaunch and stop went as expected
+      ansible.builtin.assert:
+        that:
+          - again is changed
+          - again.relaunched_from == run.id
+          - again.number > run.number
+          - again.state == 'succeeded'
+          - again.hosts.localhost.status == 'ok'
+          # A quick check run may end before the stop reaches it.
+          - stopped.state in ['cancelled', 'succeeded']
+          - stopped.state != 'cancelled' or stopped is changed
+          - stopped_again is not changed
+
   always:
     - name: Remove what was made
       module_defaults:
@@ -103,6 +140,16 @@
           retries: 90
           delay: 5
           when: run_nowait.id is defined
+          ignore_errors: true
+
+        - name: Wait for the run that was stopped
+          chistokhinsv.ansible_flow.run_info:
+            run_id: "{{ to_stop.id }}"
+          register: last
+          until: last.finished
+          retries: 90
+          delay: 5
+          when: to_stop.id is defined
           ignore_errors: true
 
         - name: Remove the launch configuration

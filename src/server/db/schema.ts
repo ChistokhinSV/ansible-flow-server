@@ -235,6 +235,8 @@ export interface ApiTokenTable {
   workspace_id: string | null;
   /** AFS-24: an agent with this token may decide approvals over MCP (off unless asked for). */
   mcp_approve: Flag;
+  /** AFS-116: the run this token was made for; it ends with the run and decides no approval. */
+  run_id: string | null;
   created_at: IsoTime;
   last_used_at: IsoTime | null;
   expires_at: IsoTime | null;

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/ChistokhinSV/ansible-flow-server/main/media/icons/png/afs-icon-128.png" alt="" width="96" align="right" />
+
 # chistokhinsv.ansible_flow
 
 An Ansible collection that drives [Ansible Flow Server](https://github.com/ChistokhinSV/ansible-flow-server)
@@ -60,6 +62,25 @@ Set the connection once for every module of the collection with the `afs` action
 ```
 
 or export `AFS_URL` and `AFS_TOKEN` and leave the options out.
+
+## In a flow on the server: no settings
+
+A run on Ansible Flow Server has this collection, the version that came with the server, whatever
+image it runs in, and `AFS_URL`, `AFS_TOKEN` and `AFS_VALIDATE_CERTS` set for it. The token acts as
+whoever launched the run, on the run's workspace only, and ends with the run; it never decides an
+approval. So a step of a flow can launch another flow and wait for it with no connection options:
+
+```yaml
+- name: Back up the edge switches first
+  chistokhinsv.ansible_flow.run:
+    workspace: network
+    project: edge
+    launch_config: Back up edge
+    wait: true
+```
+
+In a skeleton (check mode) run, `run` and `run_relaunch` launch nothing: Ansible's check mode asks
+modules to change nothing.
 
 ## Launch a run and gate CI on it
 
@@ -232,6 +253,8 @@ secret is sent when the credential is made (`update_secret: on_create`, the defa
 | ----------------------------------------- | --------------------------------------------------------------------- |
 | `chistokhinsv.ansible_flow.run`           | Launch a launch configuration, optionally wait and gate on the result |
 | `chistokhinsv.ansible_flow.run_info`      | Read a run: state, hosts, approvals, output tail                      |
+| `chistokhinsv.ansible_flow.run_cancel`    | Stop a run, optionally wait until it has stopped                      |
+| `chistokhinsv.ansible_flow.run_relaunch`  | Run a run again (same commit and inputs), optionally wait for it      |
 | `chistokhinsv.ansible_flow.approval`      | Approve or reject an approval a run waits at                          |
 | `chistokhinsv.ansible_flow.workspace`     | Workspaces                                                            |
 | `chistokhinsv.ansible_flow.project`       | Projects: mirrors of a repository, or hosted (from a sample); sync    |

@@ -14,7 +14,7 @@ import { createGrant } from '../../src/server/access/grants';
 import { buildApp } from '../../src/server/app';
 import { gatesOf, timeOutDue } from '../../src/server/approvals/gates';
 import { listAudit } from '../../src/server/audit/store';
-import { createToken } from '../../src/server/auth/tokens';
+import { createRunToken, createToken, listTokens } from '../../src/server/auth/tokens';
 import { createGroup, createUser, setMembers } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
@@ -57,8 +57,14 @@ let config: string;
 let twoGates: string;
 const token: Record<string, string> = {};
 const ids: Record<string, string> = {};
+let workspaceId: string;
 /** The playbooks Ansible was asked to run, with their inputs. */
-const ran: { playbook: string; inputs: Record<string, unknown> }[] = [];
+const ran: {
+  playbook: string;
+  inputs: Record<string, unknown>;
+  options: string[];
+  runTokens: number;
+}[] = [];
 
 beforeAll(async () => {
   database = openDatabase({ kind: 'sqlite', file: ':memory:' });
@@ -74,6 +80,7 @@ beforeAll(async () => {
     'inventory/hosts.yaml': 'all:\n  hosts:\n    fw-edge-01: {}\n',
   });
   const workspace = await createWorkspace(db, { key: 'net', name: 'Network' });
+  workspaceId = workspace.id;
   project = (await sync.sync(
     (
       await createProject(
@@ -152,8 +159,21 @@ function executor(dataDir: string) {
       timeoutMs: 60_000,
       heartbeatMs: 30,
       pollMs: 20,
+      server: () => ({ url: 'https://afs.example.net', verifyTls: false }),
       runner: async (request: RunFlowRequest) => {
-        ran.push({ playbook: request.playbook, inputs: request.inputs });
+        // AFS-116: what the run's container gets to reach the server, and its token meanwhile.
+        const env = request.env as { options?: string[] };
+        const tokens = await database.db
+          .selectFrom('api_token')
+          .select('id')
+          .where('run_id', 'is not', null)
+          .execute();
+        ran.push({
+          playbook: request.playbook,
+          inputs: request.inputs,
+          options: env.options ?? [],
+          runTokens: tokens.length,
+        });
         const dir = join(runsDir(request.storage, request.doc.flow.id), request.id);
         mkdirSync(dir, { recursive: true });
         writeFileSync(
@@ -203,6 +223,54 @@ const call = (who: string, method: string, url: string, payload?: object) =>
     ...(payload ? { payload } : {}),
   });
 const segmentOf = (playbook: string) => /seg_([a-z-]+)\.yml$/.exec(playbook)?.[1];
+
+describe("a run's own token (AFS-116)", () => {
+  it('reaches the server from the run, ends with each turn, and is in no list of tokens', async () => {
+    const ex = executor(join(root, 'data-token'));
+    ran.length = 0;
+    const run = await launch();
+    await ex.start();
+    await stateIs(run.id, 'waiting');
+    await ex.stop();
+    const [first] = ran;
+    // The container gets the address, a token and whether to check the certificate, by name.
+    for (const name of ['AFS_URL', 'AFS_TOKEN', 'AFS_VALIDATE_CERTS'])
+      expect(first?.options.join(' ')).toContain(`-e ${name}`);
+    // The token existed while the run ran, and is gone now it waits for a person.
+    expect(first?.runTokens).toBe(1);
+    expect(
+      await database.db.selectFrom('api_token').select('id').where('run_id', '=', run.id).execute(),
+    ).toEqual([]);
+    expect(await listTokens(database.db, ids.dana as string)).not.toContainEqual(
+      expect.objectContaining({ name: `Run ${run.number}` }),
+    );
+    expect((await call('dana', 'POST', `/api/v1/runs/${run.id}/cancel`)).statusCode).toBe(202);
+  });
+
+  it('decides no approval, even for someone who may', async () => {
+    const ex = executor(join(root, 'data-token-2'));
+    const run = await launch();
+    await ex.start();
+    await stateIs(run.id, 'waiting');
+    await ex.stop();
+    // omar may decide; a token of a run he launched may not.
+    const token = await createRunToken(
+      database.db,
+      { id: run.id, number: run.number, by: ids.omar as string, workspace: workspaceId },
+      new Date(Date.now() + 60_000),
+    );
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/api/v1/runs/${run.id}/approvals/${GATE}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { decision: 'approved', comment: 'from a flow' },
+    });
+    expect(reply.statusCode).toBe(403);
+    expect(reply.json().message).toContain("A run's token does not decide approvals");
+    expect((await gatesOf(database.db, run.id))[0]?.status).toBe('waiting');
+    expect((await call('dana', 'POST', `/api/v1/runs/${run.id}/cancel`)).statusCode).toBe(202);
+  });
+});
 
 describe('a run of a flow with an approval', () => {
   it('in check mode approves by itself, as a skeleton run in VS Code does (AFS-111)', async () => {

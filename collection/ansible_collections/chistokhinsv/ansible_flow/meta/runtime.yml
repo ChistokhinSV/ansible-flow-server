@@ -8,6 +8,8 @@ action_groups:
     - launch_config
     - project
     - run
+    - run_cancel
     - run_info
+    - run_relaunch
     - schedule
     - workspace
