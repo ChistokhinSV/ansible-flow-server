@@ -101,6 +101,8 @@ Nothing is released yet.
   - Each entry names who, from where (pages, API, git, server command), what, to what, and how it ended. No secret values are kept.
   - Administrators read it on the **Audit log** page, filtered by person, subject, result, source and dates, and export it as CSV or JSON; `GET /api/v1/audit` for scripts.
   - Entries are kept for `AFS_AUDIT_KEEP_DAYS` (365); `0` keeps them all.
+- Running a flow from its canvas: the choice of launch configuration also offers New configuration…, which opens the page that adds one for this flow (also when the flow has none yet). The canvas's launch dialog has Save as Launch Configuration…: a new configuration like the one chosen, with the dialog's mode and inputs (secret inputs are never kept). On a launch configuration's Launch tab, host lists suggest the inventory's groups; under Settings, Whom suggests the server's people and groups.
+- Administrators delete a project on its Settings tab and a workspace on its Access tab, after typing its key; what goes with it is said first, and a refusal (a run going, a workspace not empty) is shown.
 
 ### Changed
 
@@ -115,5 +117,4 @@ Nothing is released yet.
 - Building an execution environment while its spec has changes not saved no longer builds the old spec without a word: the page says the changes are not saved, and the button reads Save and build, which saves them first.
 - The ansible-builder file of an execution environment follows its saved spec: collections added since the last build are in it, given as the spec writes them; collections the last build installed stay pinned to that version while it still meets the spec. With changes not saved, the page's link reads Save and get ansible-builder file and saves them first.
 - Show Terminal on a run's canvas goes to the run's output without loading the page again, and outlines it for a moment; from elsewhere it opens the run's page at its output. The output is headed Terminal output and shows Ansible's colours and bold text; All of it as text and agents still get plain text.
-- Running a flow from its canvas: the choice of launch configuration also offers New configuration…, which opens the page that adds one for this flow (also when the flow has none yet). The canvas's launch dialog has Save as Launch Configuration…: a new configuration like the one chosen, with the dialog's mode and inputs (secret inputs are never kept). On a launch configuration's Launch tab, host lists suggest the inventory's groups; under Settings, Whom suggests the server's people and groups.
 - The suggestions for host lists and Whom show: they keep what is already typed in the field, so a field that starts filled (`all`, `olga`) offers the rest after it. A host list also shows the inventory's groups as buttons under the field, read when the Launch tab opens; a button adds its group or takes it out.

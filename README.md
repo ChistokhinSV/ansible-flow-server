@@ -864,6 +864,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   Secret        <the hook's token>
   Events        Just the push event
   ```
+- **Deleting:** administrators delete a project at the bottom of its **Settings** tab, and a workspace at the bottom of its **Access** tab, after typing its key. A project goes with its launch configurations, their schedules, its run history and the server's copy of its repository (an external source stays as it is); it is refused while one of its runs goes. A workspace is refused while it still has projects or execution environments. Over the API: `DELETE /api/v1/projects/:id`, `DELETE /api/v1/workspaces/:id`.
 - The server needs the `git` program.
 
 #### Starting a hosted project from a sample or an archive

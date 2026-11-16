@@ -321,6 +321,84 @@ describe('signed in', () => {
     await screen.findByRole('heading', { name: 'Network team' });
   });
 
+  it('an administrator deletes a project once its key is typed; a refusal is shown (AFS-100)', async () => {
+    let refuse = true;
+    routes = {
+      ...signedInAs(dana),
+      'DELETE /projects/p1': () =>
+        refuse
+          ? {
+              status: 409,
+              body: {
+                error: 'not_empty',
+                message: 'Run 41 of the project is still going: cancel it first',
+              },
+            }
+          : { status: 204 },
+    };
+    window.history.replaceState(null, '', '/w/network/edge/settings');
+    render(<App />);
+    const section = (await screen.findByRole('heading', { name: 'Delete the project' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(section.textContent).toMatch(/run history/);
+    const button = within(section).getByRole('button', { name: 'Delete the project' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(section).getByLabelText('Type edge to confirm'), {
+      target: { value: 'edg' },
+    });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(section).getByLabelText('Type edge to confirm'), {
+      target: { value: 'edge' },
+    });
+    fireEvent.click(button);
+    expect(await within(section).findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Run 41 of the project is still going: cancel it first',
+    );
+    refuse = false;
+    fireEvent.click(button);
+    await waitFor(() => expect(window.location.pathname).toBe('/w/network'));
+    expect(calls.filter((c) => c === 'DELETE /projects/p1')).toHaveLength(2);
+  });
+
+  it('someone who is not an administrator is not offered Delete (AFS-100)', async () => {
+    routes = {
+      ...signedInAs(omar),
+      'GET /projects/p1/access': () => ({ body: { workspace: 'rw', flows: [] } }),
+    };
+    window.history.replaceState(null, '', '/w/network/edge/settings');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Library' });
+    expect(screen.queryByRole('heading', { name: 'Delete the project' })).toBeNull();
+  });
+
+  it("deletes a workspace from its Access tab; the server's refusal is shown (AFS-100)", async () => {
+    routes = {
+      ...signedInAs(dana),
+      'DELETE /workspaces/w1': () => ({
+        status: 409,
+        body: {
+          error: 'not_empty',
+          message: 'The workspace still has projects: delete them first',
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/network/-/access');
+    render(<App />);
+    const section = (await screen.findByRole('heading', { name: 'Delete the workspace' })).closest(
+      'section',
+    ) as HTMLElement;
+    fireEvent.change(within(section).getByLabelText('Type network to confirm'), {
+      target: { value: 'network' },
+    });
+    fireEvent.click(within(section).getByRole('button', { name: 'Delete the workspace' }));
+    expect((await within(section).findByRole('alert')).textContent).toBe(
+      'The workspace still has projects: delete them first',
+    );
+    expect(window.location.pathname).toBe('/w/network/-/access');
+  });
+
   it("makes and deletes branches, and makes one the project's branch (AFS-59)", async () => {
     const asked: [string, unknown][] = [];
     const confirms: string[] = [];

@@ -417,9 +417,87 @@ export function Workspace({
         <WorkspaceCredentials workspace={space.data.key} admin={me.admin} />
       )}
       {me.admin && space.data && tab === '-/access' && (
-        <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />
+        <>
+          <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />
+          <DeleteSection
+            what="workspace"
+            name={space.data.name}
+            keyword={space.data.key}
+            goes=" with its credentials and grants. A workspace that still has projects or execution environments is not deleted: delete them first"
+            remove={() => api.deleteWorkspace(space.data?.id ?? workspace)}
+            to="/workspaces"
+          />
+        </>
       )}
     </>
+  );
+}
+
+/**
+ * AFS-100: deleting something that takes more with it, for administrators. Says what goes, asks
+ * for its key typed again, and shows the server's refusal as it words it.
+ */
+function DeleteSection({
+  what,
+  name,
+  keyword,
+  goes,
+  remove,
+  to,
+}: {
+  what: 'project' | 'workspace';
+  name: string;
+  keyword: string;
+  goes: string;
+  remove(): Promise<void>;
+  to: string;
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const id = `delete-${what}`;
+  return (
+    <section className="panel danger-zone" aria-labelledby={id}>
+      <h2 id={id}>Delete the {what}</h2>
+      <p>
+        Deletes {what === 'project' ? 'the project' : 'the workspace'} <strong>{name}</strong>
+        {goes}. It cannot be undone.
+      </p>
+      <form
+        className="form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (typed.trim() !== keyword || busy) return;
+          setBusy(true);
+          setError(undefined);
+          try {
+            await remove();
+            navigate(to);
+          } catch (e) {
+            setError(messageOf(e));
+            setBusy(false);
+          }
+        }}
+      >
+        <Field
+          label={`Type ${keyword} to confirm`}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {error && (
+          <p className="notice error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="actions">
+          <button type="submit" className="danger" disabled={typed.trim() !== keyword || busy}>
+            {busy ? 'Deleting…' : `Delete the ${what}`}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -1161,6 +1239,17 @@ export function ProjectPage({
               </button>
             )}
           </section>
+
+          {me.admin && (
+            <DeleteSection
+              what="project"
+              name={project.name}
+              keyword={project.key}
+              goes=" with its launch configurations, their schedules, its run history and the server's copy of its repository (an external source stays as it is). A project with a run going is not deleted: stop the run first"
+              remove={() => api.deleteProject(project.id)}
+              to={`/w/${workspace}`}
+            />
+          )}
         </>
       )}
     </>
