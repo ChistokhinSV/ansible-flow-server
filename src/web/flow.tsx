@@ -356,16 +356,26 @@ function DraftBar({
         </ul>
       ) : null}
       {conflicts ? (
-        <div className="notice error" role="alert">
-          <p>The branch changed the same places since this draft began:</p>
-          <ul>
-            {conflicts.map((c) => (
-              <li key={c.id}>{c.label}</li>
+        // AFS-112: one compact row: what clashed, then the choices, apart from Save below.
+        <div className="notice error draft-conflict" role="alert">
+          <p>
+            <strong>The branch changed the same places</strong> since this draft began:{' '}
+            {conflicts.map((c, i) => (
+              <span key={c.id}>
+                {i ? ', ' : ''}
+                <code>{c.label}</code>
+              </span>
             ))}
-          </ul>
-          <button type="button" disabled={busy} onClick={() => void save(true)}>
-            Save with the draft's side
-          </button>
+            . Saving with the draft's side overwrites them; Discard drops the draft.
+          </p>
+          <div className="draft-conflict-actions">
+            <button type="button" disabled={busy} onClick={() => void save(true)}>
+              Save with the draft's side
+            </button>
+            <button type="button" className="link" onClick={() => setConflicts(undefined)}>
+              Not now
+            </button>
+          </div>
         </div>
       ) : null}
       {error ? (
