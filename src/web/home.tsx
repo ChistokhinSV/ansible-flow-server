@@ -91,9 +91,18 @@ export function Home({ me }: { me: User }) {
   const today = new Date().toDateString();
   const todays = (runs.data ?? []).filter((r) => new Date(r.createdAt).toDateString() === today);
   const well = todays.filter((r) => r.state === 'succeeded').length;
+  // AFS-102: what did not go well is said too, not only what did.
+  const failed = todays.filter((r) => r.state === 'failed' || r.state === 'lost').length;
+  const waiting = todays.filter((r) => r.state === 'waiting').length;
   const summary = [
     todays.length
-      ? `${plural(todays.length, 'run', 'runs')} today, ${well} went well.`
+      ? `${plural(todays.length, 'run', 'runs')} today: ${[
+          `${well} went well`,
+          failed ? `${failed} failed` : '',
+          waiting ? `${waiting} ${waiting === 1 ? 'waits' : 'wait'} for a decision` : '',
+        ]
+          .filter(Boolean)
+          .join(', ')}.`
       : 'No run yet today.',
     mine.length
       ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`

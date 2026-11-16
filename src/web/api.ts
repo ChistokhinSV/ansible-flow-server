@@ -235,6 +235,9 @@ export const api = {
   me: () => call<User>('GET', '/session'),
   signIn: (login: string, password: string) => call<User>('POST', '/session', { login, password }),
   signOut: () => call<void>('DELETE', '/session'),
+  /** AFS-104: your own password; your other sessions end. */
+  changePassword: (current: string, password: string) =>
+    call<void>('PUT', '/session/password', { current, password }),
   changeMe: (input: { name?: string; email?: string | null; webhookUrl?: string | null }) =>
     call<User>('PATCH', '/session', input),
 

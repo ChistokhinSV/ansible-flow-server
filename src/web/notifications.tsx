@@ -2,7 +2,7 @@
 // how it went, with a retry for those given up on) and, on a second tab, how the server sends (the
 // mail server, the key webhooks are signed with) and a test message. The log comes first: it is
 // what is looked at day to day; the settings are made once (AFS-88).
-import { useEffect, useId, useState } from 'react';
+import { type ReactNode, useEffect, useId, useState } from 'react';
 import { api, type Delivery, type NotifySettings, type SmtpSecurity } from './api';
 import { Link } from './router';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
@@ -16,7 +16,16 @@ const EVENT_LABEL: Record<string, string> = {
 };
 const TONE: Record<string, string> = { sent: 'ok', failed: 'bad', pending: 'busy' };
 
-function SmtpForm({ settings, onSaved }: { settings: NotifySettings; onSaved(): void }) {
+function SmtpForm({
+  settings,
+  onSaved,
+  more,
+}: {
+  settings: NotifySettings;
+  onSaved(): void;
+  /** AFS-101: Send no email, in the same row as Save. */
+  more?: ReactNode;
+}) {
   const smtp = settings.smtp;
   const [host, setHost] = useState(smtp?.host ?? '');
   const [security, setSecurity] = useState<SmtpSecurity>(smtp?.security ?? 'starttls');
@@ -27,6 +36,7 @@ function SmtpForm({ settings, onSaved }: { settings: NotifySettings; onSaved(): 
   const securityId = useId();
   return (
     <Form
+      more={more}
       submit="Save the mail server"
       onSubmit={async () => {
         await api.setSmtp({
@@ -255,7 +265,7 @@ function DeliveryLog({
                     {d.attempts > 1 && <div className="muted">{d.attempts} tries</div>}
                   </td>
                   <td className="detail">
-                    {d.lastError}
+                    {d.lastError ?? (d.status === 'sent' ? <span className="muted">—</span> : null)}
                     {d.status === 'pending' && d.nextAt && d.attempts > 0 && (
                       <div className="muted">
                         Next try <Time at={d.nextAt} />
@@ -312,19 +322,24 @@ function Settings({
           {!settings.smtp && (
             <p className="muted">No mail server yet: the server sends no email.</p>
           )}
-          <SmtpForm settings={settings} onSaved={onChanged} />
-          {settings.smtp && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (!window.confirm('Send no email any more?')) return;
-                await api.clearSmtp().catch(() => undefined);
-                onChanged();
-              }}
-            >
-              Send no email
-            </button>
-          )}
+          <SmtpForm
+            settings={settings}
+            onSaved={onChanged}
+            more={
+              settings.smtp && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm('Send no email any more?')) return;
+                    await api.clearSmtp().catch(() => undefined);
+                    onChanged();
+                  }}
+                >
+                  Send no email
+                </button>
+              )
+            }
+          />
         </section>
         <section className="panel" aria-labelledby="hooks">
           <h2 id="hooks">Webhooks</h2>

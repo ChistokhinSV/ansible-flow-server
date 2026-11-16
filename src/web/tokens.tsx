@@ -43,7 +43,15 @@ export function TokensPanel({
   const [adding, setAdding] = useState(false);
   return (
     <section className="panel" aria-labelledby="tokens">
-      <h2 id="tokens">Access tokens</h2>
+      {/* AFS-102: the section's action at its head. */}
+      <div className="section-head">
+        <h2 id="tokens">Access tokens</h2>
+        {add && !adding && (
+          <button type="button" onClick={() => setAdding(true)}>
+            Make a token
+          </button>
+        )}
+      </div>
       {intro}
       {made && (
         <div className="notice ok" role="status">
@@ -114,13 +122,6 @@ export function TokensPanel({
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-      {add && !adding && (
-        <div className="actions">
-          <button type="button" onClick={() => setAdding(true)}>
-            Make a token
-          </button>
         </div>
       )}
       {add && adding && (

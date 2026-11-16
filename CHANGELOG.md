@@ -103,10 +103,12 @@ Nothing is released yet.
   - Entries are kept for `AFS_AUDIT_KEEP_DAYS` (365); `0` keeps them all.
 - Running a flow from its canvas: the choice of launch configuration also offers New configuration…, which opens the page that adds one for this flow (also when the flow has none yet). The canvas's launch dialog has Save as Launch Configuration…: a new configuration like the one chosen, with the dialog's mode and inputs (secret inputs are never kept). On a launch configuration's Launch tab, host lists suggest the inventory's groups; under Settings, Whom suggests the server's people and groups.
 - Administrators delete a project on its Settings tab and a workspace on its Access tab, after typing its key; what goes with it is said first, and a refusal (a run going, a workspace not empty) is shown.
+- My account has a Password section: change your own password (your other sessions are signed out).
 
 ### Changed
 
 - Built on Ansible Flow Designer 0.86.0.
+- Clearer pages: every approval waiting for you is tinted on Home, waiting is amber on the approvals pages too and Reject reads clearly beside Approve; the day's line on Home says how many runs failed and wait, not only how many went well; New branch, Make a token and Add a directory sit at the head of their sections; Keep as start values, To the output and a file's Download are buttons; a launch configuration's notification fields are Notify when and Recipients; the commit message field of a flow being edited is labelled; an empty library says how a project becomes one; an empty reason in the notifications log shows a dash.
 
 ### Fixed
 
@@ -118,3 +120,7 @@ Nothing is released yet.
 - The ansible-builder file of an execution environment follows its saved spec: collections added since the last build are in it, given as the spec writes them; collections the last build installed stay pinned to that version while it still meets the spec. With changes not saved, the page's link reads Save and get ansible-builder file and saves them first.
 - Show Terminal on a run's canvas goes to the run's output without loading the page again, and outlines it for a moment; from elsewhere it opens the run's page at its output. The output is headed Terminal output and shows Ansible's colours and bold text; All of it as text and agents still get plain text.
 - The suggestions for host lists and Whom show: they keep what is already typed in the field, so a field that starts filled (`all`, `olga`) offers the rest after it. A host list also shows the inventory's groups as buttons under the field, read when the Launch tab opens; a button adds its group or takes it out.
+- Approvers see the runs of the workspaces and flows they approve in run lists (Runs, Home, a project's recent runs, the canvas's earlier runs); before, only one run at a time could be opened.
+- The Add project form no longer stays open over a workspace's other tabs, and the search box empties when another page opens.
+- A workspace's Access tab and the administration pages say they are for administrators to someone else, instead of an empty page or Nothing here.
+- Pages line up: the dot between items of a status line is no longer underlined with the link after it, a page head's buttons and links are centred, filter choices are as tall as the box beside them, the e-mail settings' two buttons sit side by side, the audit log's Since and Until stay together, API rows that do not open line up with those that do, and the sign-in title does not leave one word alone.

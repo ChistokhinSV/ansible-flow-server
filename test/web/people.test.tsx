@@ -399,7 +399,7 @@ describe('People and groups', () => {
   it('is not there for someone who is not an administrator', async () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     open('/admin/people');
-    await screen.findByRole('heading', { name: 'Nothing here' });
+    await screen.findByRole('heading', { name: 'For administrators' });
     expect(asked.some((a) => a.key === 'GET /users')).toBe(false);
   });
 });

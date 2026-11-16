@@ -106,7 +106,7 @@ function Endpoint({ method, path, op }: { method: string; path: string; op: Oper
       <span className="muted">· {op.description.replace(/^Who: |\.$/g, '')}</span>
     </>
   );
-  if (!more) return <li className="endpoint">{head}</li>;
+  if (!more) return <li className="endpoint plain">{head}</li>;
   return (
     <li className="endpoint">
       <details>

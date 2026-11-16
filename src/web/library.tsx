@@ -51,7 +51,8 @@ export function LibraryPage() {
       {listed.data && !subflows.length && (
         <p className="empty">
           No library yet, or none you may read. An administrator makes a project a library on its
-          page; its flows' subflows are then offered here.
+          Settings tab (Library, Make it a library); its flows' subflows are then offered here, to
+          every project.
         </p>
       )}
       {byProject(subflows).map(([project, list]) => {

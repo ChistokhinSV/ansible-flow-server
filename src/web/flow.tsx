@@ -331,6 +331,8 @@ function DraftBar({
         </p>
       ) : null}
       <div className="draft-actions">
+        {/* AFS-102: what the field is for, seen and not only read out. */}
+        <span className="muted small">Commit message</span>
         <input
           aria-label="What changed (the commit's message)"
           placeholder={`Edit ${draft.file}`}

@@ -625,7 +625,9 @@ export function FilesPage({
               onChange={onArchive}
               aria-label="Archive to unpack"
             />
-            <p className="muted small">into {here ? <code>{here}/</code> : 'the top folder'}</p>
+            <p className="muted small">
+              Added to {here ? <code>{here}/</code> : 'the top folder of the project'}
+            </p>
             {asking === 'new' && (
               <PathForm
                 label="New file"
@@ -713,6 +715,7 @@ export function FilesPage({
                   {commit && file.state !== 'new' && original && (
                     <>
                       <a
+                        className="button"
                         href={`/api/v1/projects/${encodeURIComponent(project.id)}/files/content?commit=${commit}&path=${encodeURIComponent(original)}&download=true`}
                         download
                       >

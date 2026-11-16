@@ -802,7 +802,6 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         <div className="actions">
           <button
             type="button"
-            className="link"
             onClick={() => {
               // The output is the last thing on a long page: go there, and read on from there.
               toOutput();

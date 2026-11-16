@@ -282,7 +282,7 @@ export function Workspace({
         )}
       </PageHead>
       <Loading state={space.error ? space : projects} />
-      {adding && (
+      {adding && tab === '' && (
         <section className="panel sheet" aria-label="Add project">
           <Form
             submit="Add"
@@ -415,6 +415,11 @@ export function Workspace({
       )}
       {space.data && tab === '-/credentials' && (
         <WorkspaceCredentials workspace={space.data.key} admin={me.admin} />
+      )}
+      {!me.admin && tab === '-/access' && (
+        <p className="empty">
+          Who can do what in this workspace is for administrators to see and change.
+        </p>
       )}
       {me.admin && space.data && tab === '-/access' && (
         <>
@@ -741,7 +746,15 @@ function BranchesPanel({
   };
   return (
     <section className="panel" aria-labelledby="branches">
-      <h2 id="branches">Branches</h2>
+      {/* AFS-102: the section's action at its head, as on the other pages. */}
+      <div className="section-head">
+        <h2 id="branches">Branches</h2>
+        {mayChange && branches.length > 0 && !adding && (
+          <button type="button" onClick={() => setAdding(true)}>
+            New branch
+          </button>
+        )}
+      </div>
       {error && (
         <p className="notice error" role="alert">
           {error}
@@ -809,11 +822,6 @@ function BranchesPanel({
             </tbody>
           </table>
         </div>
-      )}
-      {mayChange && branches.length > 0 && !adding && (
-        <button type="button" onClick={() => setAdding(true)}>
-          New branch
-        </button>
       )}
       {adding && (
         <Form
@@ -1316,6 +1324,18 @@ export function NotBuilt({ title, what }: { title: string; what: string }) {
     <>
       <PageHead title={title} />
       <p className="empty">{what} This part of the server is not built yet.</p>
+    </>
+  );
+}
+
+/** AFS-102: an administration page, asked for by someone who is not an administrator. */
+export function AdminOnly() {
+  return (
+    <>
+      <PageHead title="For administrators" />
+      <p className="empty">
+        This page is for administrators of the server. <Link to="/">Go home.</Link>
+      </p>
     </>
   );
 }
