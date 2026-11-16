@@ -21,6 +21,13 @@ export interface Config {
   /** The address people use for the server (`https://flows.example.net`). */
   publicUrl?: string;
   /**
+   * AFS-116: the address runs reach the server at (AFS_RUN_URL); unset: the public address. A
+   * run's containers get it with a token of the run, for the Ansible collection.
+   */
+  runUrl?: string;
+  /** AFS-116: runs check the server's certificate (AFS_RUN_VERIFY_TLS); unset: unless self-signed. */
+  runVerifyTls?: boolean;
+  /**
    * Without HTTPS: the proxies whose word is taken for who asked and over what (addresses or
    * networks). Empty: nobody's.
    */
@@ -237,6 +244,23 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const level = (text('AFS_LOG_LEVEL') ?? 'info').toLowerCase();
   if (!(LOG_LEVELS as readonly string[]).includes(level))
     problems.push(`AFS_LOG_LEVEL is "${level}": use one of ${LOG_LEVELS.join(', ')}`);
+  let runUrl: string | undefined;
+  const runText = text('AFS_RUN_URL');
+  if (runText) {
+    try {
+      const u = new URL(runText);
+      if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('scheme');
+      if (u.username || u.password || u.search || u.hash) throw new Error('parts');
+      runUrl = u.toString().replace(/\/$/, '');
+    } catch {
+      problems.push(
+        `AFS_RUN_URL is "${runText}": use the address runs reach the server at, like https://flows.example.net`,
+      );
+    }
+  }
+  const verifyText = text('AFS_RUN_VERIFY_TLS')?.toLowerCase();
+  if (verifyText && !['true', 'false'].includes(verifyText))
+    problems.push(`AFS_RUN_VERIFY_TLS is "${verifyText}": use true or false`);
   const format = (text('AFS_LOG_FORMAT') ?? 'text').toLowerCase();
   if (format !== 'text' && format !== 'json')
     problems.push(`AFS_LOG_FORMAT is "${format}": use text or json`);
@@ -248,6 +272,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     tls,
     ...(httpPort ? { httpPort } : {}),
     ...(publicUrl ? { publicUrl } : {}),
+    ...(runUrl ? { runUrl } : {}),
+    ...(verifyText ? { runVerifyTls: verifyText === 'true' } : {}),
     trustedProxies,
     ...(caFile ? { caFile: resolve(caFile) } : {}),
     ...(masterKey ? { masterKey } : {}),

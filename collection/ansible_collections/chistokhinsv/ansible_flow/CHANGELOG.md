@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.2
+
+### Added
+
+- `run_cancel` stops a run, and can wait until it has stopped; a run that ended or was asked to
+  stop already is left as it is.
+- `run_relaunch` runs a run again (same commit, flow, mode, inputs and credentials), and can wait
+  for the new run and fail when it fails.
+- In a flow on Ansible Flow Server the collection needs no settings: the server gives each run the
+  collection, its address and a token of the run.
+
 ## 0.0.1
 
 ### Added

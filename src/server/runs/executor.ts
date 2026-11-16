@@ -6,9 +6,9 @@
 // credentials, start the run, keep the lease alive (and stop when someone cancels, the lease is
 // lost or the run takes too long), say how it ended, clean up.
 import { execFile } from 'node:child_process';
-import { createWriteStream, type WriteStream } from 'node:fs';
+import { createWriteStream, existsSync, type WriteStream } from 'node:fs';
 import { chown, cp, mkdir, readFile, rm } from 'node:fs/promises';
-import { join, posix } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { engineFor } from '@ansible-flow/core/engine/engines';
 import { parseFlow } from '@ansible-flow/core/flow/document';
@@ -31,6 +31,7 @@ import {
 } from '@ansible-flow/node/run/segments';
 import type { Kysely } from 'kysely';
 import { approvalsOf, gatesOf, lastGate, openGate } from '../approvals/gates';
+import { createRunToken, revokeRunTokens } from '../auth/tokens';
 import type { Schema } from '../db/schema';
 import { schemaIssues } from '../flows';
 import type { Logger } from '../log';
@@ -60,6 +61,11 @@ export const DEFAULT_IMAGE = 'ghcr.io/ansible/community-ansible-dev-tools:latest
 
 export type Engine = 'docker' | 'podman';
 
+/** AFS-116: the collection's folder, under a collections path, and where runs find it. */
+const COLLECTION_PATH = ['ansible_collections', 'chistokhinsv', 'ansible_flow'];
+const COLLECTION_DEST =
+  '/usr/share/ansible/collections/ansible_collections/chistokhinsv/ansible_flow';
+
 export interface ExecutorOptions {
   dataDir: string;
   /** The container engine; `auto` finds docker, else podman; `off` runs nothing. */
@@ -81,6 +87,16 @@ export interface ExecutorOptions {
   /** Tests: how often the lease is kept alive. */
   heartbeatMs?: number;
   pollMs?: number;
+  /**
+   * AFS-116: where runs reach this server, asked for each run (the certificate may change); none:
+   * runs get no address and no token.
+   */
+  server?: () => { url: string; verifyTls: boolean } | undefined;
+  /**
+   * AFS-116: the Ansible collection chistokhinsv.ansible_flow this server carries (dist/collection);
+   * it is mounted into every run. Default: beside the server's bundle; missing: not mounted.
+   */
+  collectionDir?: string;
 }
 
 export interface ExecutorDeps {
@@ -165,6 +181,8 @@ export class Executor {
   private readonly probes: InventoryProbes;
   /** AFS-35: a path of the data folder as the engine's machine has it (found at start). */
   private toHost: ToHost = sameAs;
+  /** AFS-116: the Ansible collection in the data folder (where run containers can mount it). */
+  private collection?: Promise<string | undefined>;
   /** The user each image runs as, found once. */
   private readonly owners = new Map<string, Promise<{ uid: number; gid: number } | undefined>>();
 
@@ -194,6 +212,28 @@ export class Executor {
       secretsDir: join(options.dataDir, 'secrets-tmp'),
       log: deps.log,
     });
+  }
+
+  /**
+   * AFS-116: the collection this server carries, copied once per start into the data folder: the
+   * engine mounts paths of the data folder (a sibling container sees the host's), not the
+   * server's own files. Missing (a development build): runs get none.
+   */
+  private collectionMount(): Promise<string | undefined> {
+    this.collection ??= (async () => {
+      const from =
+        this.options.collectionDir ??
+        join(dirname(fileURLToPath(import.meta.url)), 'collection', ...COLLECTION_PATH);
+      if (!existsSync(join(from, 'galaxy.yml'))) return undefined;
+      const to = join(this.options.dataDir, 'collection', ...COLLECTION_PATH);
+      await rm(to, { recursive: true, force: true });
+      await cp(from, to, { recursive: true });
+      return to;
+    })().catch((e) => {
+      this.deps.log.warn({ err: e }, 'The Ansible collection could not be readied for runs');
+      return undefined;
+    });
+    return this.collection;
   }
 
   /** AFS-76: the module catalog of an image (the server's default without one). */
@@ -508,6 +548,27 @@ export class Executor {
       ];
       for (const note of creds.notes) line(`Credential: ${note}`);
 
+      // AFS-116: the Ansible collection chistokhinsv.ansible_flow, and this server's address with a
+      // token of this run (as whoever launched it, on this workspace, deciding no approval), so a
+      // flow can launch or wait for another flow with no settings. Gone when the run stops.
+      const collection = this.options.runner ? undefined : await this.collectionMount();
+      const server = this.options.server?.();
+      const serverEnv: Record<string, string> = {};
+      if (server) {
+        const token = await createRunToken(
+          this.deps.db,
+          { id: r.id, number: r.number, by: r.requestedBy.id, workspace: project.workspace },
+          new Date(Date.now() + this.options.timeoutMs + 15 * 60_000),
+        );
+        serverEnv.AFS_URL = server.url;
+        serverEnv.AFS_TOKEN = token;
+        serverEnv.AFS_VALIDATE_CERTS = server.verifyTls ? 'true' : 'false';
+        hidden.push(token);
+        line(
+          `Server for the Ansible collection: ${server.url}${server.verifyTls ? '' : ' (certificate not checked)'}, with a token of this run`,
+        );
+      }
+
       const engine = this.engine as Engine;
       const env: Environment = {
         kind: 'container',
@@ -519,9 +580,13 @@ export class Executor {
           '--label',
           `afs.run=${r.id}`,
           ...creds.options,
+          ...Object.keys(serverEnv).flatMap((name) => ['-e', name]),
           ...(await this.usernsOf(image)),
         ],
-        mounts: creds.mounts,
+        mounts: [
+          ...creds.mounts,
+          ...(collection ? [{ src: collection, dest: COLLECTION_DEST, options: 'ro' }] : []),
+        ],
         source: 'afd',
         label: `${image} (${engine})`,
       };
@@ -592,7 +657,7 @@ export class Executor {
               };
               return startProcess(
                 { ...spec, args: rewriteMounts(spec.args, this.toHost) },
-                { ...processEnv, ...creds.processEnv },
+                { ...processEnv, ...creds.processEnv, ...serverEnv },
                 said,
               );
             },
@@ -758,6 +823,8 @@ export class Executor {
     } finally {
       clearInterval(heartbeat);
       clearTimeout(timeout);
+      // AFS-116: the run's token ends with this turn (a run waiting for a person gets a new one).
+      await revokeRunTokens(this.deps.db, r.id).catch(() => undefined);
       await cleanup?.().catch(() => undefined);
       await workdir?.release().catch(() => undefined);
       await new Promise<void>((resolve) => (output ? output.end(resolve) : resolve()));

@@ -81,6 +81,7 @@ export async function createToken(
     .selectFrom('api_token')
     .select((eb) => eb.fn.countAll().as('n'))
     .where('user_id', '=', userId)
+    .where('run_id', 'is', null)
     .executeTakeFirstOrThrow();
   if (Number(count.n) >= TOKEN_LIMIT)
     throw new UserError('invalid', `A person has at most ${TOKEN_LIMIT} tokens: revoke one first`);
@@ -94,6 +95,7 @@ export async function createToken(
     read_only: input.readOnly ? 1 : 0,
     workspace_id: input.workspace ?? null,
     mcp_approve: input.mcpApprovals ? 1 : 0,
+    run_id: null,
     created_at: now.toISOString(),
     last_used_at: null,
     expires_at: new Date(now.getTime() + days * DAY_MS).toISOString(),
@@ -107,6 +109,8 @@ export async function listTokens(db: Db, userId: string): Promise<TokenInfo[]> {
     .selectFrom('api_token')
     .selectAll()
     .where('user_id', '=', userId)
+    // AFS-116: runs' own tokens are the server's, not something the person made.
+    .where('run_id', 'is', null)
     .orderBy('created_at')
     .execute();
   return rows.map(infoOf);
@@ -143,6 +147,7 @@ export async function tokenUser(
       'api_token.read_only',
       'api_token.workspace_id',
       'api_token.mcp_approve',
+      'api_token.run_id',
       'api_token.expires_at',
       'api_token.last_used_at',
       'user_account.id',
@@ -172,8 +177,47 @@ export async function tokenUser(
       readOnly: row.read_only === 1,
       ...(row.workspace_id ? { workspace: row.workspace_id } : {}),
       ...(row.mcp_approve === 1 ? { mcpApprovals: true } : {}),
+      ...(row.run_id ? { run: row.run_id } : {}),
     },
   };
+}
+
+/**
+ * AFS-116: a token for one run, acting as whoever launched it, on the run's workspace only, for the
+ * Ansible collection in the run (AFS_URL, AFS_TOKEN). It decides no approval, is in no person's
+ * list, ends at `until` at the latest, and is removed when the run stops (revokeRunTokens).
+ */
+export async function createRunToken(
+  db: Db,
+  run: { id: string; number: number; by: string; workspace: string },
+  until: Date,
+  now = new Date(),
+): Promise<string> {
+  const token = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
+  await db
+    .insertInto('api_token')
+    .values({
+      id: randomUUID(),
+      user_id: run.by,
+      name: `Run ${run.number}`,
+      token_hash: hashOf(token),
+      hint: token.slice(-4),
+      read_only: 0,
+      workspace_id: run.workspace,
+      mcp_approve: 0,
+      run_id: run.id,
+      created_at: now.toISOString(),
+      last_used_at: null,
+      expires_at: until.toISOString(),
+    })
+    .execute();
+  return token;
+}
+
+/** AFS-116: removes a run's tokens (the run stopped, or waits for a person). */
+export async function revokeRunTokens(db: Db, runId: string): Promise<number> {
+  const done = await db.deleteFrom('api_token').where('run_id', '=', runId).executeTakeFirst();
+  return Number(done.numDeletedRows);
 }
 
 /**

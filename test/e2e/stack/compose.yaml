@@ -14,6 +14,9 @@ services:
       AFS_HOST: 0.0.0.0
       AFS_PORT: "8443"
       AFS_PUBLIC_URL: https://127.0.0.1:${AFS_E2E_PORT:-18443}
+      # AFS-116: runs (sibling containers) reach the server through the host's published port;
+      # host.docker.internal is Docker Desktop's name for the host (set AFS_E2E_RUN_URL elsewhere).
+      AFS_RUN_URL: ${AFS_E2E_RUN_URL:-https://host.docker.internal:18443}
       AFS_DATA_DIR: /var/lib/afs
       AFS_DATABASE_URL: postgres://afs:e2e-only@postgres:5432/afs
       AFS_EE_IMAGE: ${AFS_E2E_EE_IMAGE:-afd-ee:2.19}

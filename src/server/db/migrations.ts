@@ -8,6 +8,12 @@ import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-116: a run's own token (the Ansible collection in the run calls the server as its launcher).
+  '0025_run_token': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('api_token').addColumn('run_id', 'text').execute();
+    },
+  },
   // AFS-79: a library project offers its flows' subflows to every project on the server.
   '0024_project_library': {
     async up(db: Kysely<unknown>) {
