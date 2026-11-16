@@ -2479,3 +2479,59 @@ fieldset.name-chips {
 .more-menu-list button:hover {
   background: var(--button-hover);
 }
+
+/* AFS-114: the canvas and what opens over it; the stage is what goes full screen. */
+.flow-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.flow-stage:fullscreen {
+  border-radius: 0;
+}
+.library-pick {
+  position: absolute;
+  z-index: 5;
+  top: 3rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(34rem, calc(100% - 2rem));
+  max-height: calc(100% - 4.5rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: var(--menu-shadow);
+}
+.library-pick-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.library-pick h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.library-pick p,
+.library-pick ul {
+  margin: 0;
+}
+/* AFS-114: library copies, a line each, between the head and the canvas. */
+.library-copies {
+  margin: -0.25rem 0 0.6rem;
+}
+.library-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 0.25rem;
+  color: var(--fg2);
+}

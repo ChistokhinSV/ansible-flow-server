@@ -255,4 +255,29 @@ describe('the files of a project', () => {
     expect((await files()).json().commit).toBe(project.commit);
     expect((await files('nope')).statusCode).toBe(404);
   });
+
+  it('makes the first commit of an empty hosted project (AFS-113)', async () => {
+    const empty = (
+      await call(dana, 'POST', '/api/v1/workspaces/net/projects', { key: 'empty', name: 'Empty' })
+    ).json();
+    expect(empty.commit ?? null).toBeNull();
+    const r = await call(omar, 'POST', `/api/v1/projects/${empty.id}/files`, {
+      branch: 'main',
+      message: 'Add the flow First',
+      changes: [{ op: 'write', path: 'flows/first.flow.yaml', text: 'flow: {}\n' }],
+    });
+    expect(r.statusCode, r.body).toBe(201);
+    const saved = r.json();
+    expect(saved.files).toEqual(['flows/first.flow.yaml']);
+    const there = (await call(lina, 'GET', `/api/v1/projects/${empty.id}/files`)).json();
+    expect(there.commit).toBe(saved.commit);
+    expect(there.files.map((f: { path: string }) => f.path)).toEqual(['flows/first.flow.yaml']);
+    const pushes = await listPushes(database.db, empty.id);
+    expect(pushes[0]).toMatchObject({ ref: 'main', to: saved.commit });
+    // From then on it is an ordinary save on top.
+    const next = await call(omar, 'POST', `/api/v1/projects/${empty.id}/files`, {
+      changes: [{ op: 'write', path: 'README.md', text: '# Empty\n' }],
+    });
+    expect(next.statusCode, next.body).toBe(201);
+  });
 });

@@ -62,8 +62,8 @@ export function FlowPage({
   const mayChangeFiles = !!access && (access.admin || access.workspace === 'rw');
   const here = `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(key)}`;
   const [editing, setEditing] = useState<Draft>();
-  // AFS-107: the canvas's frame, for Full screen.
-  const frame = useRef<HTMLIFrameElement>(null);
+  // AFS-107: the canvas, for Full screen; AFS-114: with what opens over it (the library picker).
+  const stage = useRef<HTMLDivElement>(null);
   // AFS-110: Copy or Delete, picked in the head's More menu.
   const [fileAction, setFileAction] = useState<'copy' | 'delete'>();
   const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
@@ -136,6 +136,47 @@ export function FlowPage({
       setSaid(messageOf(e));
     }
   };
+  // AFS-115: while editing, the branch moves (a push from VS Code, another save): who changed this
+  // flow since the draft began, so nobody's work is saved over unknowingly.
+  const [outside, setOutside] = useState<{ who: string; to: string; removed: boolean }>();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: per draft
+  useEffect(() => {
+    setOutside(undefined);
+    if (!editing || !project || typeof EventSource === 'undefined') return;
+    const base = editing.baseCommit;
+    const events = new EventSource(`/api/v1/projects/${encodeURIComponent(project.id)}/events`);
+    const moved = (to?: string) => {
+      if (!to || to === base) return;
+      void api
+        .changes(project.id, base, to)
+        .then((c) => {
+          const mine = c.flows.find((f) => f.file === file);
+          if (mine)
+            setOutside({
+              who: mine.authors.join(', ') || 'Someone',
+              to,
+              removed: mine.change === 'removed',
+            });
+        })
+        .catch(() => undefined);
+    };
+    // `commit` comes at once and after each reconnect: the branch may have moved meanwhile.
+    for (const kind of ['commit', 'moved'])
+      events.addEventListener(kind, (event) => {
+        const data = JSON.parse((event as MessageEvent).data) as { commit?: string; to?: string };
+        moved(data.to ?? data.commit);
+      });
+    return () => events.close();
+  }, [editing?.id, project?.id, file]);
+  // AFS-113: `?edit=1` (a flow just made) opens it for editing once, then leaves the address.
+  const asked = useRef(new URLSearchParams(window.location.search).get('edit') === '1');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when the project is known
+  useEffect(() => {
+    if (!asked.current || !project?.commit || access === undefined) return;
+    asked.current = false;
+    window.history.replaceState(null, '', window.location.pathname);
+    if (mayEdit && !editing) void edit();
+  }, [project?.commit, access]);
   return (
     <div className="flow-page">
       <div className="flow-head">
@@ -166,7 +207,7 @@ export function FlowPage({
               className="icon-button"
               aria-label="Full screen"
               title="Full screen (Esc to come back)"
-              onClick={() => void frame.current?.requestFullscreen?.()}
+              onClick={() => void stage.current?.requestFullscreen?.()}
             >
               <Icon name="fullscreen" />
             </button>
@@ -248,19 +289,14 @@ export function FlowPage({
           </p>
         ) : null}
         {editing ? (
-          <DraftBar draft={editing} people={people} edits={edits} onDone={stopEditing} />
-        ) : null}
-        {editing && inserting ? (
-          <InsertFromLibrary
+          <DraftBar
             draft={editing}
-            where={inserting}
-            onDone={(words) => {
-              setInserting(undefined);
-              if (words) {
-                setSaid(words);
-                setChanged((n) => n + 1);
-              }
-            }}
+            people={people}
+            edits={edits}
+            onDone={stopEditing}
+            {...(outside
+              ? { outside: { ...outside, branch: project?.gitRef ?? 'the branch' } }
+              : {})}
           />
         ) : null}
         {project?.commit ? (
@@ -277,14 +313,28 @@ export function FlowPage({
         )}
       </div>
       {viewer && project?.commit && (
-        <iframe
-          ref={frame}
-          // A new commit, theme or draft is a new page for the designer.
-          key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
-          className="flow-frame"
-          src={viewer}
-          title={`The flow ${title} on the designer's canvas`}
-        />
+        <div className="flow-stage" ref={stage}>
+          <iframe
+            // A new commit, theme or draft is a new page for the designer.
+            key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
+            className="flow-frame"
+            src={viewer}
+            title={`The flow ${title} on the designer's canvas`}
+          />
+          {editing && inserting ? (
+            <InsertFromLibrary
+              draft={editing}
+              where={inserting}
+              onDone={(words) => {
+                setInserting(undefined);
+                if (words) {
+                  setSaid(words);
+                  setChanged((n) => n + 1);
+                }
+              }}
+            />
+          ) : null}
+        </div>
       )}
     </div>
   );
@@ -300,11 +350,14 @@ function DraftBar({
   people,
   edits,
   onDone,
+  outside,
 }: {
   draft: Draft;
   people: { login: string; name: string }[];
   edits: { by: string; steps: string[]; at: string }[];
   onDone(words?: string): void;
+  /** AFS-115: the flow changed on the branch since the draft began. */
+  outside?: { who: string; to: string; removed: boolean; branch: string };
 }) {
   const [message, setMessage] = useState('');
   const [conflicts, setConflicts] = useState<{ id: string; label: string }[]>();
@@ -354,6 +407,17 @@ function DraftBar({
             </li>
           ))}
         </ul>
+      ) : null}
+      {outside && !conflicts ? (
+        <p className="notice warn" role="status">
+          <strong>
+            {outside.who} {outside.removed ? 'removed' : 'changed'} this flow on {outside.branch}
+          </strong>{' '}
+          since this draft began (now <code>{outside.to.slice(0, 12)}</code>).{' '}
+          {outside.removed
+            ? 'Saving puts it back with your edits.'
+            : 'Saving puts your edits on top of theirs step by step; where you both changed the same place, you choose which to keep.'}
+        </p>
       ) : null}
       {conflicts ? (
         // AFS-112: one compact row: what clashed, then the choices, apart from Save below.

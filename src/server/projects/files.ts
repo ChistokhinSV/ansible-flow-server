@@ -276,11 +276,16 @@ export async function saveFiles(
     // A project with a source: where its branch is now, so nothing is pushed over.
     if (project.gitUrl) await deps.sync.refresh(project.id);
     const head = await branchHead(deps, project, input.branch);
-    if (!head.commit)
+    if (!head.commit) {
+      // AFS-113: a hosted project with no commit at all (a new flow in an empty project): the
+      // change set is its first commit.
+      if (project.hosted && !project.gitUrl && !(await deps.git.branches(project.id)).length)
+        return await firstCommit(deps, project, head.branch, changes, input.message, by, limits);
       throw new FilesRefused(
         'not_found',
         `${head.branch} has no commit yet: start the project or push to it first`,
       );
+    }
     const entries = await deps.git.tree(project.id, head.commit);
     const tree = await planChanges(entries, changes, limits);
     const { writes, removes, touched } = diffTree(entries, tree);
@@ -346,6 +351,41 @@ export async function saveFiles(
     await deps.sync.refresh(project.id);
     return { branch: head.branch, commit, files: touched };
   });
+}
+
+/** AFS-113: the change set as the first commit of an empty hosted project. */
+async function firstCommit(
+  deps: FilesDeps,
+  project: Project,
+  branch: string,
+  changes: FileChange[],
+  message: string | undefined,
+  by: { id: string; login: string; name: string },
+  limits: { archiveMaxBytes: number },
+): Promise<{ branch: string; commit: string; files: string[] }> {
+  const { writes, touched } = diffTree([], await planChanges([], changes, limits));
+  if (!touched.length) throw new FilesRefused('invalid', 'There is nothing to save');
+  const files = new Map(
+    writes.map((w) => [
+      w.path,
+      { bytes: w.bytes ?? Buffer.alloc(0), ...(w.mode === '100755' ? { executable: true } : {}) },
+    ]),
+  );
+  const row = await deps.db
+    .selectFrom('user_account')
+    .select('email')
+    .where('id', '=', by.id)
+    .executeTakeFirst();
+  await deps.git.ensure(project.id, branch);
+  const subject =
+    message?.trim() || (touched.length === 1 ? `Add ${touched[0]}` : `Add ${touched.length} files`);
+  const commit = await deps.git.commitFirst(project.id, branch, files, {
+    author: { name: by.name, email: row?.email ?? `${by.login}@users.ansible-flow-server` },
+    message: `${subject}\n`,
+  });
+  await recordPushes(deps.db, project.id, by, [{ ref: branch, to: commit }]);
+  await deps.sync.refresh(project.id);
+  return { branch, commit, files: touched };
 }
 
 /** A file's bytes at a commit of the project, refused outside it. */

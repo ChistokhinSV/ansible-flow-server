@@ -708,7 +708,11 @@ Code. Everyone who edits the same flow edits one shared draft:
   `Co-authored-by` for everyone else who edited. For a project with an external repository the
   commit is pushed there first, only if the branch there has not moved. When the branch moved
   since the draft began, the draft is merged onto it step by step first; places both changed are
-  listed, and **Save with the draft's side** takes the draft's version of those.
+  listed, and **Save with the draft's side** takes the draft's version of those. While you edit,
+  a note says when someone changes or removes the flow on the branch (a push from VS Code, another
+  save), so nobody's work is saved over unknowingly.
+- **New flow** (a project's Flows) makes the file in one commit and opens it for editing. An empty
+  project the server hosts offers it too: the flow is the project's first commit.
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
   by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard** it. Runs take
   the flow from the branch, so a draft runs only once saved.
@@ -779,12 +783,12 @@ every project on the server, to people who may read the library's workspace (`ro
 
 - **Library** (the side menu) lists what the libraries offer: each subflow, its flow, version and
   commit.
-- While a flow is edited in the pages, **Insert Shared Subflow…** on the canvas opens the library:
-  the subflow picked is copied into the draft, pinned to the library flow's version and commit
+- While a flow is edited in the pages, **Insert Shared Subflow…** on the canvas opens a picker
+  over the canvas (in full screen too; Escape closes it): the subflow picked is copied into the draft, pinned to the library flow's version and commit
   (`ref.from: afs://<workspace>/<project>/<file>#<subflow>`). In VS Code, with this server set
   (`afd.runner.url`), the designer lists the library too.
 - The copy lives in the flow: runs read nothing from the library. A flow's page lists its library
-  copies under **From the library**: up to date, behind (the library has a newer version; **Update**
+  copies, a line each above the canvas (**From the library:**): up to date, behind (the library has a newer version; **Update**
   while the draft is edited copies it again), or no longer offered. The flow's problems on the canvas say the
   same.
 - A library flow's version is its `flow.version`: raise it when its subflows change, so the flows

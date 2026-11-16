@@ -1102,7 +1102,8 @@ export function ProjectPage({
             {/* AFS-109: a flow made in the pages, one commit on the branch. */}
             <div className="section-head">
               <h2 id="flows">Flows</h2>
-              {mayPush && project.commit && !newFlow && (
+              {/* AFS-113: also the first flow of an empty hosted project (its first commit). */}
+              {mayPush && (project.commit || project.hosted) && !newFlow && (
                 <button type="button" onClick={() => setNewFlow(true)}>
                   New flow
                 </button>
@@ -1121,7 +1122,9 @@ export function ProjectPage({
               <p className="muted">
                 {project.commit
                   ? 'No flow in this project: a flow is a file named *.flow.yaml.'
-                  : 'Nothing yet: the project has no commit.'}
+                  : project.hosted && mayPush
+                    ? 'Nothing yet: the project has no commit. Start it from a sample or an archive, or make a New flow.'
+                    : 'Nothing yet: the project has no commit.'}
               </p>
             )}
             <ul className="rows">

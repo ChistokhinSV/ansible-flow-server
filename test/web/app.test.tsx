@@ -531,12 +531,15 @@ describe('signed in', () => {
     );
     // Full screen and its own page are icon buttons with their names.
     const canvas = screen.getByTitle(/OS upgrade on the designer/) as HTMLIFrameElement;
+    // AFS-114: the canvas with what opens over it (the library picker) goes full screen.
+    const stage = canvas.parentElement as HTMLElement;
+    expect(stage.className).toBe('flow-stage');
     const asked: Element[] = [];
-    canvas.requestFullscreen = async function (this: Element) {
+    stage.requestFullscreen = async function (this: Element) {
       asked.push(this);
     } as never;
     fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
-    expect(asked).toEqual([canvas]);
+    expect(asked).toEqual([stage]);
     expect(screen.getByRole('link', { name: 'Open on its own page' }).getAttribute('href')).toMatch(
       /^\/viewer\.html\?project=p1&path=flows%2Fos-upgrade\.flow\.yaml/,
     );
