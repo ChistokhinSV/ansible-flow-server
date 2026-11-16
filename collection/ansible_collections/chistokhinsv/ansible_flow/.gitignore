@@ -1,0 +1,8 @@
+# Built collections and what ansible-test and pytest leave behind
+*.tar.gz
+tests/output/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/integration/inventory
+tests/integration/integration_config.yml

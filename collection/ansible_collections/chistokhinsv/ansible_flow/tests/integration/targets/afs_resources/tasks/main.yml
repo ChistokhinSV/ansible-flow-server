@@ -1,0 +1,281 @@
+---
+# Workspace, project, credential, launch configuration, schedule and grant: made, made again
+# (unchanged), changed, and removed. Needs an administrator's token.
+- name: Resources of a test workspace
+  module_defaults:
+    group/chistokhinsv.ansible_flow.afs:
+      url: "{{ afs_url }}"
+      token: "{{ afs_token }}"
+      validate_certs: "{{ afs_validate_certs }}"
+  block:
+    - name: Make the workspace (check mode)
+      chistokhinsv.ansible_flow.workspace:
+        key: "{{ afs_ws }}"
+        name: Integration {{ afs_ws }}
+      check_mode: true
+      register: ws_check
+
+    - name: Make the workspace
+      chistokhinsv.ansible_flow.workspace:
+        key: "{{ afs_ws }}"
+        name: Integration {{ afs_ws }}
+        description: Made by the collection's integration tests
+      register: ws
+
+    - name: Make it again
+      chistokhinsv.ansible_flow.workspace:
+        key: "{{ afs_ws }}"
+        name: Integration {{ afs_ws }}
+        description: Made by the collection's integration tests
+      register: ws_again
+
+    - name: Change one field
+      chistokhinsv.ansible_flow.workspace:
+        key: "{{ afs_ws }}"
+        self_approve: true
+      diff: true
+      register: ws_changed
+
+    - name: The workspace went as expected
+      ansible.builtin.assert:
+        that:
+          - ws_check is changed
+          - ws is changed
+          - ws.workspace.key == afs_ws
+          - ws_again is not changed
+          - ws_changed is changed
+          - ws_changed.workspace.selfApprove
+          - ws_changed.diff.after.selfApprove
+
+    - name: A hosted project from the hello sample
+      chistokhinsv.ansible_flow.project:
+        workspace: "{{ afs_ws }}"
+        key: "{{ afs_project }}"
+        name: Hello
+        sample: hello
+      register: project
+
+    - name: The project again, and a look at its source
+      chistokhinsv.ansible_flow.project:
+        workspace: "{{ afs_ws }}"
+        key: "{{ afs_project }}"
+        name: Hello
+        sync: true
+      register: project_again
+
+    - name: The project went as expected
+      ansible.builtin.assert:
+        that:
+          - project is changed
+          - project.project.hosted
+          - project.project.commit | length == 40
+          - project_again is not changed
+
+    - name: An env credential
+      chistokhinsv.ansible_flow.credential:
+        workspace: "{{ afs_ws }}"
+        name: greeting
+        kind: env
+        description: A variable for the runs
+        secret:
+          GREETING: hello
+      register: cred
+
+    - name: The credential again, with another value but on_create
+      chistokhinsv.ansible_flow.credential:
+        workspace: "{{ afs_ws }}"
+        name: greeting
+        kind: env
+        description: A variable for the runs
+        secret:
+          GREETING: hi
+      register: cred_again
+
+    - name: The credential with update_secret always
+      chistokhinsv.ansible_flow.credential:
+        workspace: "{{ afs_ws }}"
+        name: greeting
+        secret:
+          GREETING: hi
+        update_secret: always
+      diff: true
+      register: cred_always
+
+    - name: The credential went as expected
+      ansible.builtin.assert:
+        that:
+          - cred is changed
+          - cred.credential.has == ['GREETING']
+          - cred_again is not changed
+          - cred_always is changed
+          - "'hi' not in (cred_always.diff | to_json)"
+
+    - name: A launch configuration
+      chistokhinsv.ansible_flow.launch_config:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        name: Hello localhost
+        flow_file: "{{ afs_flow }}"
+        mode: check
+        inputs:
+          devices: [localhost]
+        credentials: [greeting]
+      register: config
+
+    - name: The launch configuration again
+      chistokhinsv.ansible_flow.launch_config:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        name: Hello localhost
+        flow_file: "{{ afs_flow }}"
+        mode: check
+        inputs:
+          devices: [localhost]
+        credentials: [greeting]
+      register: config_again
+
+    - name: Set a limit, then clear it
+      chistokhinsv.ansible_flow.launch_config:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        name: Hello localhost
+        limit: "{{ item }}"
+      loop: [localhost, ""]
+      register: config_limit
+
+    - name: The launch configuration went as expected
+      ansible.builtin.assert:
+        that:
+          - config is changed
+          - config.launch_config.credentials == [cred.credential.id]
+          - config_again is not changed
+          - config_limit.results[0] is changed
+          - config_limit.results[1] is changed
+          - config_limit.results[1].launch_config.limit is not defined
+
+    - name: A paused nightly schedule
+      chistokhinsv.ansible_flow.schedule:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        launch_config: Hello localhost
+        name: Nightly
+        kind: cron
+        cron: "0 3 * * *"
+        timezone: UTC
+        enabled: false
+      register: schedule
+
+    - name: The schedule again
+      chistokhinsv.ansible_flow.schedule:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        launch_config: Hello localhost
+        name: Nightly
+        kind: cron
+        cron: "0 3 * * *"
+        timezone: UTC
+        enabled: false
+      register: schedule_again
+
+    - name: The schedule went as expected
+      ansible.builtin.assert:
+        that:
+          - schedule is changed
+          - not schedule.schedule.enabled
+          - schedule_again is not changed
+
+    - name: Who the token belongs to
+      ansible.builtin.uri:
+        url: "{{ afs_url | regex_replace('/$', '') }}/api/v1/session"
+        headers:
+          Authorization: Bearer {{ afs_token }}
+        validate_certs: "{{ afs_validate_certs }}"
+      register: me
+      no_log: true
+
+    - name: Give that user ro, then operator on the flow
+      chistokhinsv.ansible_flow.grant:
+        workspace: "{{ afs_ws }}"
+        user: "{{ me.json.login }}"
+        level: "{{ item }}"
+        project: "{{ afs_project }}"
+        flow: "{{ afs_flow }}"
+      loop: [ro, ro, operator]
+      register: grants
+
+    - name: The grants went as expected
+      ansible.builtin.assert:
+        that:
+          - grants.results[0] is changed
+          - grants.results[1] is not changed
+          - grants.results[2] is changed
+          - grants.results[2].grant.level == 'operator'
+          - grants.results[2].removed | length == 1
+
+  always:
+    - name: Remove what was made
+      module_defaults:
+        group/chistokhinsv.ansible_flow.afs:
+          url: "{{ afs_url }}"
+          token: "{{ afs_token }}"
+          validate_certs: "{{ afs_validate_certs }}"
+      block:
+        - name: Take the grants back
+          chistokhinsv.ansible_flow.grant:
+            workspace: "{{ afs_ws }}"
+            user: "{{ me.json.login }}"
+            project: "{{ afs_project }}"
+            flow: "{{ afs_flow }}"
+            state: absent
+          when: me.json is defined
+          register: grants_gone
+
+        - name: Remove the schedule
+          chistokhinsv.ansible_flow.schedule:
+            workspace: "{{ afs_ws }}"
+            project: "{{ afs_project }}"
+            launch_config: Hello localhost
+            name: Nightly
+            state: absent
+          register: schedule_gone
+          ignore_errors: true
+
+        - name: Remove the launch configuration
+          chistokhinsv.ansible_flow.launch_config:
+            workspace: "{{ afs_ws }}"
+            project: "{{ afs_project }}"
+            name: Hello localhost
+            state: absent
+          ignore_errors: true
+
+        - name: Remove the credential
+          chistokhinsv.ansible_flow.credential:
+            workspace: "{{ afs_ws }}"
+            name: greeting
+            state: absent
+          ignore_errors: true
+
+        - name: Remove the project
+          chistokhinsv.ansible_flow.project:
+            workspace: "{{ afs_ws }}"
+            key: "{{ afs_project }}"
+            state: absent
+          ignore_errors: true
+
+        - name: Remove the workspace
+          chistokhinsv.ansible_flow.workspace:
+            key: "{{ afs_ws }}"
+            state: absent
+          register: ws_gone
+
+        - name: Remove it again
+          chistokhinsv.ansible_flow.workspace:
+            key: "{{ afs_ws }}"
+            state: absent
+          register: ws_gone_again
+
+        - name: Everything was removed
+          ansible.builtin.assert:
+            that:
+              - ws_gone is changed
+              - ws_gone_again is not changed

@@ -1615,6 +1615,36 @@ at,actor,token,source,action,object_type,object_id,object_name,result,status,ip,
 2026-11-13T08:59:13.077Z,omar,,git,git.push,project,,net/firewalls,refused,403,192.0.2.25,req-1x,
 ```
 
+## Ansible collection
+
+The collection [`chistokhinsv.ansible_flow`](https://galaxy.ansible.com/ui/repo/published/chistokhinsv/ansible_flow/)
+drives the server from playbooks through the API: launch a run and gate on it (CI, or a flow
+that launches another), decide an approval, and keep workspaces, projects, launch
+configurations, credentials, schedules and grants as code.
+
+```bash
+ansible-galaxy collection install chistokhinsv.ansible_flow
+```
+
+```yaml
+- hosts: localhost
+  module_defaults:
+    group/chistokhinsv.ansible_flow.afs:
+      url: https://afs.example.net
+      token: "{{ afs_token }}"
+  tasks:
+    - name: Patch the edge switches and wait for the run
+      chistokhinsv.ansible_flow.run:
+        workspace: network
+        project: edge
+        launch_config: Patch edge
+        mode: real
+        wait: true
+```
+
+Its modules, options and tests: [collection/ansible_collections/chistokhinsv/ansible_flow](collection/ansible_collections/chistokhinsv/ansible_flow/README.md).
+It is published to Ansible Galaxy by the Release workflow.
+
 ## Operations
 
 ### Metrics

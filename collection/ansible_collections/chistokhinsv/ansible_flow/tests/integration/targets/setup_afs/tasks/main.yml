@@ -1,0 +1,13 @@
+---
+- name: Need a server to test against
+  ansible.builtin.assert:
+    that:
+      - afs_url | length > 0
+      - afs_token | length > 0
+    fail_msg: Set AFS_URL and AFS_TOKEN (an administrator's token), or afs_url and afs_token in integration_config.yml
+
+- name: Fix the names of this run
+  ansible.builtin.set_fact:
+    afs_ws: "it-{{ afs_suffix }}"
+    afs_project: hello
+    afs_flow: flows/hello/hello.flow.yaml

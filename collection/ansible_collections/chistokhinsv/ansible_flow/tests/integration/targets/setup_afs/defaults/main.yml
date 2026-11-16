@@ -1,0 +1,7 @@
+---
+# The server to test against: from tests/integration/integration_config.yml, else the environment.
+afs_url: "{{ lookup('ansible.builtin.env', 'AFS_URL') }}"
+afs_token: "{{ lookup('ansible.builtin.env', 'AFS_TOKEN') }}"
+afs_validate_certs: "{{ lookup('ansible.builtin.env', 'AFS_VALIDATE_CERTS') | default('true', true) | bool }}"
+# Names stay unique per run, so runs side by side or after a failure do not collide.
+afs_suffix: "{{ '%m%d%H%M%S' | strftime }}{{ 999 | random }}"
