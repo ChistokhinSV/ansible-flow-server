@@ -71,7 +71,7 @@ const look = EditorView.theme({
   '.cm-scroller': {
     fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace',
     minHeight: '16rem',
-    // AFS-96: a file fills the window under the page's head, not a part of it.
+    // AFS-94: a file fills the window under the page's head, not a part of it.
     maxHeight: 'max(24rem, calc(100vh - 17rem))',
   },
   '.cm-gutters': {

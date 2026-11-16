@@ -186,7 +186,7 @@ export function LaunchConfigsSection({
                           className="button"
                           aria-label={`Launch ${c.name}`}
                         >
-                          {/* AFS-96: it opens the launch form (inputs, mode), it does not start a run. */}
+                          {/* AFS-94: it opens the launch form (inputs, mode), it does not start a run. */}
                           Launch…
                         </Link>
                       )}
@@ -794,7 +794,7 @@ export function LaunchConfigPage({
                   {saved}
                 </p>
               )}
-              {/* AFS-96: Launch is first and the only filled button; Enter in a field still asks
+              {/* AFS-94: Launch is first and the only filled button; Enter in a field still asks
                   what would run (the form's submit), which changes nothing. */}
               <div className="actions">
                 {mayLaunch && (
@@ -964,7 +964,7 @@ function ConfigForm({
   const [problem, setProblem] = useState<{ field?: string; message: string }>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  // AFS-96: the image is asked for only when "an image by name" is what runs get.
+  // AFS-94: the image is asked for only when "an image by name" is what runs get.
   const [byImage, setByImage] = useState(!existing?.environment && !!existing?.eeImage);
   const set = (key: keyof LaunchConfigInput, value: unknown) => {
     setSaved(false);
@@ -1036,7 +1036,7 @@ function ConfigForm({
 
   return (
     <form className="form wide" onSubmit={save}>
-      {/* AFS-96: fields that belong together share a row; what is chosen first comes first. */}
+      {/* AFS-94: fields that belong together share a row; what is chosen first comes first. */}
       <div className="pair">
         <Labelled label="Name" problem={at('name')}>
           {(props) => (

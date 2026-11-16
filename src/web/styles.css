@@ -352,7 +352,7 @@ code,
   max-width: none;
   padding-bottom: 0;
 }
-/* AFS-96: a page to work on (files, an environment's spec) takes the screen; one to read keeps
+/* AFS-94: a page to work on (files, an environment's spec) takes the screen; one to read keeps
    to a column. */
 .page.broad {
   max-width: 1760px;
@@ -496,7 +496,7 @@ button.link:hover:not(:disabled) {
   gap: 1rem;
   max-width: 480px;
 }
-/* AFS-96: a form of many fields has rows of several; a line of text in it still ends where it
+/* AFS-94: a form of many fields has rows of several; a line of text in it still ends where it
    reads well. */
 .form.wide {
   max-width: 56rem;
@@ -507,7 +507,7 @@ button.link:hover:not(:disabled) {
 .field {
   display: grid;
   gap: 0.35rem;
-  /* AFS-96: beside a field whose hint wraps, the rows keep their height: the controls of both
+  /* AFS-94: beside a field whose hint wraps, the rows keep their height: the controls of both
      stay on one line. */
   align-content: start;
 }
@@ -1084,7 +1084,7 @@ ul.plain {
 /* AFS-78: the files of a project. */
 .files {
   display: grid;
-  /* AFS-96: the tree keeps a width that fits names; the file gets the rest of the screen. */
+  /* AFS-94: the tree keeps a width that fits names; the file gets the rest of the screen. */
   grid-template-columns: minmax(15rem, 21rem) minmax(0, 1fr);
   gap: 1rem 2.5rem;
   align-items: start;
@@ -1950,7 +1950,7 @@ section + .columns,
   margin: -0.5rem 0 0.6rem;
 }
 
-/* AFS-96: an execution environment: what runs get now beside its spec, the spec the wider. */
+/* AFS-94: an execution environment: what runs get now beside its spec, the spec the wider. */
 .env {
   display: grid;
   grid-template-columns: minmax(17rem, 1fr) minmax(0, 2.2fr);
@@ -2017,7 +2017,7 @@ section + .columns,
   max-width: none;
 }
 
-/* AFS-96: many choices (a configuration's credentials) fill columns, not one long list. */
+/* AFS-94: many choices (a configuration's credentials) fill columns, not one long list. */
 .choices.grid {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   column-gap: 1.5rem;
@@ -2028,14 +2028,14 @@ section + .columns,
   grid-column: 1 / -1;
 }
 
-/* AFS-96: two or three choices of a wide form (check or real) are one line. */
+/* AFS-94: two or three choices of a wide form (check or real) are one line. */
 .form.wide fieldset.choices:not(.grid) {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 1.75rem;
 }
 
-/* AFS-96: a field alone in a row of two keeps to its half: a chooser does not span the form. */
+/* AFS-94: a field alone in a row of two keeps to its half: a chooser does not span the form. */
 @media (min-width: 641px) {
   .form.wide .pair > :only-child {
     max-width: calc(50% - 0.75rem);

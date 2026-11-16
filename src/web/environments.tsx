@@ -249,7 +249,7 @@ function SpecForm({
           hint="Older builds' images are removed from the engine."
         />
       </div>
-      {/* AFS-96: collections are a table (one line of headings, a row each), with what adds a row
+      {/* AFS-94: collections are a table (one line of headings, a row each), with what adds a row
           under it. */}
       <fieldset className="spec-collections">
         <legend>Collections</legend>
@@ -686,7 +686,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
         <Loading state={builds} />
         {builds.data && <Builds env={env} builds={builds.data} reload={reload} />}
       </section>
-      {/* AFS-96: what cannot be undone is last on the page, away from Build. */}
+      {/* AFS-94: what cannot be undone is last on the page, away from Build. */}
       {mayManage && (
         <section className="panel" aria-labelledby="delete">
           <h2 id="delete">Delete</h2>
