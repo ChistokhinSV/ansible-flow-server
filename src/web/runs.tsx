@@ -17,7 +17,7 @@ import {
 import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
-import { ago, Loading, PageHead, span, Time, useLoad } from './ui';
+import { ago, Breadcrumb, Loading, PageHead, span, Time, useLoad } from './ui';
 
 const ACTIVE = ['queued', 'running', 'waiting'];
 /** How many runs the list asks for at once. */
@@ -743,7 +743,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     <>
       <header className="run-head">
         <div>
-          <nav aria-label="Breadcrumb" className="crumbs">
+          <Breadcrumb>
             {where ? (
               <>
                 <Link to="/workspaces">Workspaces</Link> /{' '}
@@ -765,7 +765,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               </>
             )}
             <span aria-current="page">run {run.number}</span>
-          </nav>
+          </Breadcrumb>
           <h1>{title}</h1>
           <p>
             <StateBadge state={run.state} /> {standing(run)} · started by {by} ·{' '}

@@ -104,11 +104,13 @@ Nothing is released yet.
 - Running a flow from its canvas: the choice of launch configuration also offers New configuration…, which opens the page that adds one for this flow (also when the flow has none yet). The canvas's launch dialog has Save as Launch Configuration…: a new configuration like the one chosen, with the dialog's mode and inputs (secret inputs are never kept). On a launch configuration's Launch tab, host lists suggest the inventory's groups; under Settings, Whom suggests the server's people and groups.
 - Administrators delete a project on its Settings tab and a workspace on its Access tab, after typing its key; what goes with it is said first, and a refusal (a run going, a workspace not empty) is shown.
 - My account has a Password section: change your own password (your other sessions are signed out).
+- Flows are made, copied and deleted in the pages: New flow on a project's Flows (the designer's starting flow, opened on its page), Copy… and Delete… on a flow's page (the copy gets its own id and key; Delete says which launch configurations run it). Each is one commit on the project's branch, for people with rw on the workspace.
 
 ### Changed
 
 - Built on Ansible Flow Designer 0.86.0.
 - Clearer pages: every approval waiting for you is tinted on Home, waiting is amber on the approvals pages too and Reject reads clearly beside Approve; the day's line on Home says how many runs failed and wait, not only how many went well; New branch, Make a token and Add a directory sit at the head of their sections; Keep as start values, To the output and a file's Download are buttons; a launch configuration's notification fields are Notify when and Recipients; the commit message field of a flow being edited is labelled; an empty library says how a project becomes one; an empty reason in the notifications log shows a dash.
+- The top bar is as wide as the page under it, so the search box ends where the page does, and a page's breadcrumbs sit in the bar beside it instead of a row of their own. On a flow's page, Full screen (the canvas, viewing or editing) and Open on its own page (with the draft while editing) are icon buttons beside Edit.
 
 ### Fixed
 
@@ -124,3 +126,4 @@ Nothing is released yet.
 - The Add project form no longer stays open over a workspace's other tabs, and the search box empties when another page opens.
 - A workspace's Access tab and the administration pages say they are for administrators to someone else, instead of an empty page or Nothing here.
 - Pages line up: the dot between items of a status line is no longer underlined with the link after it, a page head's buttons and links are centred, filter choices are as tall as the box beside them, the e-mail settings' two buttons sit side by side, the audit log's Since and Until stay together, API rows that do not open line up with those that do, and the sign-in title does not leave one word alone.
+- A project's page no longer draws two lines with nothing between them where one section ends and the next begins.

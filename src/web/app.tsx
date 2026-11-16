@@ -24,7 +24,7 @@ import { RunPage, RunsPage } from './runs';
 import { SearchBox } from './search';
 import { SignInPage } from './signin';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
-import { useLoad } from './ui';
+import { BarSlot, useLoad } from './ui';
 
 type Session =
   | { state: 'loading' }
@@ -299,6 +299,8 @@ export function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+  // AFS-107: the top bar's place for a page's breadcrumbs.
+  const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
 
   const signedIn = (user: User) => {
     // /signin is only the page a refused provider sign-in comes back to: nothing is there once in.
@@ -364,12 +366,16 @@ export function App() {
           }}
         />
         <div className="main-col">
-          <div className="bar">
+          {/* AFS-107: the bar is as wide as the page under it, and holds the page's breadcrumbs. */}
+          <div className={`bar ${kind.replace('page', 'bar-of')}`}>
+            <div className="bar-crumbs" ref={setBarSlot} />
             <SearchBox me={me} />
           </div>
           <main id="main" className={kind}>
             {me.admin && <CertificateBanner path={path} />}
-            <Page path={path} me={me} theme={theme} />
+            <BarSlot.Provider value={barSlot}>
+              <Page path={path} me={me} theme={theme} />
+            </BarSlot.Provider>
           </main>
         </div>
       </div>

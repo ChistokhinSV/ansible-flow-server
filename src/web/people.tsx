@@ -8,7 +8,7 @@ import { useEffect, useId, useState } from 'react';
 import { api, type Group, type User } from './api';
 import { Link, navigate } from './router';
 import { TokensPanel } from './tokens';
-import { Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import { Breadcrumb, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 type Kind = 'person' | 'admin' | 'service';
 
@@ -552,10 +552,10 @@ export function UserPage({ id, me }: { id: string; me: User }) {
   const name = user ? user.name || user.login : undefined;
   return (
     <>
-      <nav aria-label="Breadcrumb" className="crumbs">
+      <Breadcrumb>
         <Link to="/admin/people">People and groups</Link> /{' '}
         <span aria-current="page">{name ?? 'person'}</span>
-      </nav>
+      </Breadcrumb>
       <Loading state={load} />
       {user && name && (
         <>
@@ -788,10 +788,10 @@ export function GroupPage({ id }: { id: string }) {
   useEffect(() => setGroup(load.data), [load.data]);
   return (
     <>
-      <nav aria-label="Breadcrumb" className="crumbs">
+      <Breadcrumb>
         <Link to="/admin/groups">People and groups</Link> /{' '}
         <span aria-current="page">{group?.name ?? 'group'}</span>
-      </nav>
+      </Breadcrumb>
       <Loading state={load} />
       {group && (
         <>

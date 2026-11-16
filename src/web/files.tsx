@@ -8,7 +8,7 @@ import type { Editor } from './codeEditor';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
-import { Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import { Breadcrumb, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 const FLOW = /\.flow\.ya?ml$/;
 /** Text the page edits; a bigger file is downloaded (the server takes 1 MB per edited file). */
@@ -451,10 +451,10 @@ export function FilesPage({
   };
 
   const crumbs = (
-    <nav aria-label="Breadcrumb" className="crumbs">
+    <Breadcrumb>
       <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">Files</span>
-    </nav>
+    </Breadcrumb>
   );
   if (!project)
     return (

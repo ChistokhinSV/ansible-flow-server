@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { flowLevel, useProjectAccess } from './access';
 import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run } from './api';
+import { FlowFileActions } from './flowFiles';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
 import { RunWords } from './runs';
 import type { ThemeChoice } from './theme';
-import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 /**
  * One flow on the designer's canvas, read-only. The designer is a page of its own
@@ -57,8 +58,12 @@ export function FlowPage({
   );
   // As on the project's page: rw on the flow adds a configuration for it.
   const mayAdd = !!access && flowLevel(access, file) === 'rw';
+  // AFS-109: copying and deleting the file is a change of the project's files (rw on the workspace).
+  const mayChangeFiles = !!access && (access.admin || access.workspace === 'rw');
   const here = `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(key)}`;
   const [editing, setEditing] = useState<Draft>();
+  // AFS-107: the canvas's frame, for Full screen.
+  const frame = useRef<HTMLIFrameElement>(null);
   const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
   const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
   const [said, setSaid] = useState<string>();
@@ -132,11 +137,11 @@ export function FlowPage({
   return (
     <div className="flow-page">
       <div className="flow-head">
-        <nav aria-label="Breadcrumb" className="crumbs">
+        <Breadcrumb>
           <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link>{' '}
           / <Link to={`/w/${workspace}/${key}`}>{key}</Link> /{' '}
           <span aria-current="page">{file}</span>
-        </nav>
+        </Breadcrumb>
         <PageHead
           title={title}
           // Shown, the flow's facts are in the line under the title: the canvas gets the room.
@@ -151,12 +156,42 @@ export function FlowPage({
               {waiting ? 'Open the draft' : 'Edit'}
             </button>
           ) : null}
-          {viewer && !editing && (
-            <a href={viewer} target="_blank" rel="noreferrer">
-              Open on its own page
+          {/* AFS-107: the canvas the whole screen (viewing or editing), or on a page of its own
+              (with the draft while editing); icons, so the head takes little room. */}
+          {viewer && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Full screen"
+              title="Full screen (Esc to come back)"
+              onClick={() => void frame.current?.requestFullscreen?.()}
+            >
+              <Icon name="fullscreen" />
+            </button>
+          )}
+          {viewer && (
+            <a
+              href={viewer}
+              target="_blank"
+              rel="noreferrer"
+              className="button icon-button"
+              aria-label="Open on its own page"
+              title={editing ? 'Open the draft on its own page' : 'Open on its own page'}
+            >
+              <Icon name="external" />
             </a>
           )}
         </PageHead>
+        {project && !editing && mayChangeFiles && commit && (
+          <FlowFileActions
+            workspace={workspace}
+            project={project}
+            file={file}
+            name={title}
+            commit={commit}
+            usedBy={(configs.data ?? []).map((c) => c.name)}
+          />
+        )}
         {project && !editing ? (
           <p className="statusline flow-line">
             {commit && (
@@ -236,6 +271,7 @@ export function FlowPage({
       </div>
       {viewer && project?.commit && (
         <iframe
+          ref={frame}
           // A new commit, theme or draft is a new page for the designer.
           key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
           className="flow-frame"

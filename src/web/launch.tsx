@@ -25,7 +25,7 @@ import { EnvironmentCheck, environmentAddress } from './environments';
 import { Link, navigate } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
-import { ago, Fold, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import { ago, Breadcrumb, Fold, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 type LaunchField = LaunchForm['fields'][number];
 /** The kinds of credential a run can be given (a git token is for a repository). */
@@ -223,7 +223,7 @@ function Crumbs({
   config?: { id: string; name: string };
 }) {
   return (
-    <nav aria-label="Breadcrumb" className="crumbs">
+    <Breadcrumb>
       <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <Link to={base(workspace, project)}>{project}</Link> /{' '}
       {config && (
@@ -232,7 +232,7 @@ function Crumbs({
         </>
       )}
       <span aria-current="page">{last}</span>
-    </nav>
+    </Breadcrumb>
   );
 }
 
