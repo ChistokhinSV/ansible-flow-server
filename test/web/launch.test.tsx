@@ -5,7 +5,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, Run, User } from '../../src/web/api';
 import { App } from '../../src/web/app';
-import { LaunchConfigPage, LaunchConfigsSection, type LaunchTab } from '../../src/web/launch';
+import {
+  LaunchConfigPage,
+  LaunchConfigsSection,
+  type LaunchTab,
+  listSuggestions,
+  toggleName,
+} from '../../src/web/launch';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -472,11 +478,14 @@ describe('the launch form', () => {
     expect(screen.getByText('Production-looking: prod')).toBeTruthy();
     // The same request as the check.
     const check = asked.find((a) => a.key === 'POST /launch-configs/c1/check');
-    const facts = asked.find((a) => a.key === 'POST /launch-configs/c1/facts');
+    // The one for the check (the groups were asked for when the tab opened, AFS-99).
+    const facts = asked.find(
+      (a) => a.key === 'POST /launch-configs/c1/facts' && !(a.body as { groups?: boolean }).groups,
+    );
     expect(facts?.body).toEqual(check?.body);
   });
 
-  it('a host list suggests the inventory groups, read once when it is first used (AFS-97)', async () => {
+  it('a host list offers the inventory groups as buttons and while typing, read once (AFS-97, AFS-99)', async () => {
     routes = {
       ...common(dana),
       'POST /launch-configs/c1/facts': () => ({
@@ -486,20 +495,28 @@ describe('the launch form', () => {
     window.history.replaceState(null, '', '/w/net/core/launch/c1');
     render(<App />);
     const devices = (await screen.findByLabelText(/devices/)) as HTMLInputElement;
-    expect(asked.some((a) => a.key === 'POST /launch-configs/c1/facts')).toBe(false);
-    fireEvent.focus(devices);
-    await waitFor(() => expect(devices.getAttribute('list')).toBeTruthy());
+    // Read when the tab opens, as the canvas's dialog reads them when it opens.
+    const groups = await screen.findByRole('group', { name: 'Groups for devices' });
     expect(asked.find((a) => a.key === 'POST /launch-configs/c1/facts')?.body).toMatchObject({
       groups: true,
     });
-    fireEvent.change(devices, { target: { value: 'edge, l' } });
+    // A button adds its group to what is there, and takes it out again.
+    expect(devices.value).toBe('fw-edge-01');
+    fireEvent.click(within(groups).getByRole('button', { name: 'lab' }));
+    expect(devices.value).toBe('fw-edge-01, lab');
+    expect(within(groups).getByRole('button', { name: 'lab' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    fireEvent.click(within(groups).getByRole('button', { name: 'lab' }));
+    expect(devices.value).toBe('fw-edge-01');
+    // Suggestions start with what is typed (a browser shows only those).
     const options = () =>
       [...(document.getElementById(devices.getAttribute('list') ?? '')?.children ?? [])].map(
         (o) => (o as HTMLOptionElement).value,
       );
-    // What is typed stays; the names not in it yet come after it.
-    expect(options()).toEqual(['edge, lab', 'edge, prod']);
-    fireEvent.focus(devices);
+    expect(options()).toEqual(['fw-edge-01, edge', 'fw-edge-01, lab', 'fw-edge-01, prod']);
+    fireEvent.change(devices, { target: { value: 'edge, l' } });
+    expect(options()).toEqual(['edge, lab']);
     expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
   });
 
@@ -623,5 +640,21 @@ describe('adding a launch configuration', () => {
       credentials: ['k1'],
       mode: 'check',
     });
+  });
+});
+
+describe('suggestions for a list of names (AFS-99)', () => {
+  const names = ['change-board', 'andre', 'olga'];
+  it('start with what is typed: a whole last name gets the others after it, a part is completed', () => {
+    expect(listSuggestions('', names)).toEqual(names);
+    expect(listSuggestions('olga', names)).toEqual(['olga, change-board', 'olga, andre']);
+    expect(listSuggestions('olga, and', names)).toEqual(['olga, andre']);
+    expect(listSuggestions('olga, ', names)).toEqual(['olga, change-board', 'olga, andre']);
+    expect(listSuggestions('["olga"]', names)).toEqual([]);
+  });
+  it('a name is added to the list, or taken out of it', () => {
+    expect(toggleName('', 'web')).toBe('web');
+    expect(toggleName('db,  web', 'web')).toBe('db');
+    expect(toggleName('db', 'web')).toBe('db, web');
   });
 });
