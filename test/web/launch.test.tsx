@@ -476,6 +476,60 @@ describe('the launch form', () => {
     expect(facts?.body).toEqual(check?.body);
   });
 
+  it('a host list suggests the inventory groups, read once when it is first used (AFS-97)', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/facts': () => ({
+        body: { groups: ['edge', 'lab', 'prod'], environment: 'ee:1 (docker)', commit: COMMIT },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const devices = (await screen.findByLabelText(/devices/)) as HTMLInputElement;
+    expect(asked.some((a) => a.key === 'POST /launch-configs/c1/facts')).toBe(false);
+    fireEvent.focus(devices);
+    await waitFor(() => expect(devices.getAttribute('list')).toBeTruthy());
+    expect(asked.find((a) => a.key === 'POST /launch-configs/c1/facts')?.body).toMatchObject({
+      groups: true,
+    });
+    fireEvent.change(devices, { target: { value: 'edge, l' } });
+    const options = () =>
+      [...(document.getElementById(devices.getAttribute('list') ?? '')?.children ?? [])].map(
+        (o) => (o as HTMLOptionElement).value,
+      );
+    // What is typed stays; the names not in it yet come after it.
+    expect(options()).toEqual(['edge, lab', 'edge, prod']);
+    fireEvent.focus(devices);
+    expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
+  });
+
+  it('Whom suggests the people and groups of the server (AFS-97)', async () => {
+    routes = {
+      ...common(dana),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
+      'GET /workspaces/net/credentials': () => ({ body: [] }),
+      'GET /workspaces/net/environments': () => ({ body: [] }),
+      'GET /workspaces/net/recipients': () => ({
+        body: [
+          { name: 'network-oncall', kind: 'group' },
+          { name: 'dana', kind: 'user', label: 'Dana Admin' },
+          { name: 'omar', kind: 'user', label: 'Omar Operator' },
+        ],
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1/settings');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('Tell'), { target: { value: 'failed' } });
+    const whom = screen.getByLabelText(/^Whom/) as HTMLInputElement;
+    fireEvent.change(whom, { target: { value: 'dana, ' } });
+    await waitFor(() => expect(whom.getAttribute('list')).toBeTruthy());
+    const options = [...(document.getElementById(whom.getAttribute('list') ?? '')?.children ?? [])];
+    expect(options.map((o) => (o as HTMLOptionElement).value)).toEqual([
+      'dana, network-oncall',
+      'dana, omar',
+    ]);
+  });
+
   it('an administrator launches (and goes to the run), and keeps start values without secrets', async () => {
     routes = {
       ...common(dana),

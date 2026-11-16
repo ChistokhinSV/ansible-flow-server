@@ -433,6 +433,20 @@ for (const [name, config] of databases) {
       expect(await status('nina', 'GET', '/api/v1/workspaces/net')).toBe(404);
     });
 
+    it('whom a launch configuration can tell: names for rw on the workspace, no addresses (AFS-97)', async () => {
+      const got = await app.inject({
+        method: 'GET',
+        url: '/api/v1/workspaces/net/recipients',
+        headers: { authorization: `Bearer ${token.gary}` },
+      });
+      expect(got.statusCode).toBe(200);
+      const names = got.json() as { name: string; kind: string; label?: string }[];
+      expect(names.find((n) => n.name === 'april')).toMatchObject({ kind: 'user' });
+      expect(names.some((n) => n.kind === 'group')).toBe(true);
+      expect(JSON.stringify(names)).not.toMatch(/@|https?:/);
+      expect(await status('april', 'GET', '/api/v1/workspaces/net/recipients')).toBe(403);
+    });
+
     it('no route that reaches a workspace is open to anyone merely signed in', () => {
       const open = Object.entries(ROUTES)
         .filter(([, doc]) => typeof doc.reach === 'object' && doc.who === 'signed in')

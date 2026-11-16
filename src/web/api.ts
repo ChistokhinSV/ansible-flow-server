@@ -369,6 +369,12 @@ export const api = {
 
   credentials: (workspace: string) =>
     call<Credential[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/credentials`),
+  /** AFS-97: whom a launch configuration can tell (rw on the workspace). */
+  recipients: (workspace: string) =>
+    call<{ name: string; kind: 'user' | 'group'; label?: string }[]>(
+      'GET',
+      `/workspaces/${encodeURIComponent(workspace)}/recipients`,
+    ),
   addCredential: (
     workspace: string,
     input: {

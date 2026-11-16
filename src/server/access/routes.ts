@@ -91,6 +91,26 @@ export function registerAccess(app: FastifyInstance, deps: { db: Kysely<Schema> 
     return reply.code(204).send();
   });
 
+  // AFS-97: whom a launch configuration can tell, for the Whom field's suggestions: logins and
+  // display names of people (not disabled, not service accounts) and group names. No addresses.
+  // rw on the workspace (the catalog), as for changing a configuration.
+  app.get<WithId>('/api/v1/workspaces/:id/recipients', { schema: ID }, async (request, reply) => {
+    const workspace = await getWorkspace(db, request.params.id);
+    if (!workspace) return reply.code(404).send(NO_WORKSPACE);
+    const people = await db
+      .selectFrom('user_account')
+      .select(['login', 'name'])
+      .where('disabled', '=', 0)
+      .where('service', '=', 0)
+      .orderBy('login')
+      .execute();
+    const groups = await db.selectFrom('user_group').select('name').orderBy('name').execute();
+    return [
+      ...groups.map((g) => ({ name: g.name, kind: 'group' as const })),
+      ...people.map((p) => ({ name: p.login, kind: 'user' as const, label: p.name })),
+    ];
+  });
+
   app.get<WithId>('/api/v1/workspaces/:id/access', { schema: ID }, async (request, reply) => {
     if (!administrator(request, reply)) return reply;
     const workspace = await getWorkspace(db, request.params.id);

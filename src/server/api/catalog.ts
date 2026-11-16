@@ -472,6 +472,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     W,
   )('Who can do what in a workspace, as their grants and groups come out'),
+  'GET /api/v1/workspaces/:id/recipients': S(
+    'Launch configurations',
+    'signed in',
+    W,
+  )('Whom a launch configuration can tell: logins (with names) and group names, no addresses'),
   'GET /api/v1/projects/:id/access': S(
     'Access',
     'signed in',
@@ -826,6 +831,7 @@ const NEEDS: Record<string, Who> = {
   'POST /git/:workspace/:repo/git-upload-pack': 'ro on the workspace',
   'POST /git/:workspace/:repo/git-receive-pack': 'rw on the workspace',
   'GET /api/v1/workspaces/:id/credentials': 'ro on the workspace',
+  'GET /api/v1/workspaces/:id/recipients': 'rw on the workspace',
   'GET /api/v1/credentials/:id': 'ro on the workspace',
   'GET /api/v1/projects/:id/launch-configs': 'can see',
   // The flow is in the body: the handler asks for rw on it.

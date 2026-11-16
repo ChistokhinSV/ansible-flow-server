@@ -3,7 +3,7 @@
 // hosts again; Run launches and shows the run; a refusal opens the dialog again with why.
 import type { HostMessage } from '@ansible-flow/core/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type ConfigChoice, chooseConfig, launcher } from '../../src/web/viewerLaunch';
+import { askName, type ConfigChoice, chooseConfig, launcher } from '../../src/web/viewerLaunch';
 
 const FIELDS = [
   { name: 'devices', type: 'host_list', required: true, secret: false, text: 'fw-edge-01' },
@@ -38,9 +38,14 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const setUp = (configs: object[], choose = vi.fn()) => {
+const setUp = (
+  configs: object[],
+  choose = vi.fn(),
+  askName = vi.fn(async (_s: string): Promise<string | undefined> => undefined),
+) => {
   const sent: HostMessage[] = [];
   const launched: string[] = [];
+  const went: string[] = [];
   routes = {
     'GET /projects/p1/launch-configs': () => ({ body: configs }),
     'GET /launch-configs/c1/form?mode=real': () => ({
@@ -61,8 +66,10 @@ const setUp = (configs: object[], choose = vi.fn()) => {
     send: (m) => sent.push(m),
     launched: (id) => launched.push(id),
     choose,
+    askName,
+    go: (to) => went.push(to),
   });
-  return { l, sent, launched };
+  return { l, sent, launched, went };
 };
 const config = (id: string, name: string, flowFile = 'flows/hello.flow.yaml') => ({
   id,
@@ -72,12 +79,74 @@ const config = (id: string, name: string, flowFile = 'flows/hello.flow.yaml') =>
 });
 
 describe('Run on the canvas', () => {
-  it('without a configuration of the flow, says where to add one', async () => {
-    const { l, sent } = setUp([config('c9', 'Other', 'flows/other.flow.yaml')]);
+  it('without a configuration of the flow, offers a new one: its page, for this flow (AFS-97)', async () => {
+    const choose = vi.fn(async () => 'new' as const);
+    const { l, sent, went } = setUp([config('c9', 'Other', 'flows/other.flow.yaml')], choose);
+    routes['GET /projects/p1'] = () => ({ body: { id: 'p1', key: 'edge', workspace: 'w1' } });
+    routes['GET /workspaces/w1'] = () => ({ body: { id: 'w1', key: 'netops' } });
     await l.run('check');
-    expect(sent).toEqual([
-      expect.objectContaining({ type: 'notify', text: expect.stringMatching(/add one/) }),
-    ]);
+    expect(choose).toHaveBeenCalledWith([]);
+    expect(sent).toEqual([]);
+    expect(went).toEqual(['/w/netops/edge/launch/new?flow=flows%2Fhello.flow.yaml']);
+  });
+
+  it('Save as Launch Configuration: a copy of the chosen one with the mode and inputs (AFS-97)', async () => {
+    const askName = vi.fn(async (_s: string) => 'Edge, core only' as string | undefined);
+    const { l, sent } = setUp([config('c1', 'Edge')], vi.fn(), askName);
+    routes['GET /launch-configs/c1'] = () => ({
+      body: {
+        id: 'c1',
+        name: 'Edge',
+        project: 'p1',
+        flowFile: 'flows/hello.flow.yaml',
+        inventory: 'inventory/prod/hosts.yaml',
+        environment: 'e1',
+        credentials: ['k1'],
+        notify: { when: 'failed', to: ['network-oncall'] },
+        mode: 'check',
+        inputs: {},
+      },
+    });
+    routes['POST /projects/p1/launch-configs'] = () => ({ status: 201, body: { id: 'c2' } });
+    await l.run('real');
+    const plan = (sent.find((m) => m.type === 'launch') as Extract<HostMessage, { type: 'launch' }>)
+      .plan;
+    expect(plan).toMatchObject({ canSave: true });
+    await l.save(plan?.token as string, { devices: ['core'] });
+    expect(askName).toHaveBeenCalledWith('Edge (copy)');
+    expect(asked.at(-1)).toEqual({
+      key: 'POST /projects/p1/launch-configs',
+      body: {
+        name: 'Edge, core only',
+        flowFile: 'flows/hello.flow.yaml',
+        gitRef: null,
+        commit: null,
+        inventory: 'inventory/prod/hosts.yaml',
+        eeImage: null,
+        environment: 'e1',
+        limit: null,
+        credentials: ['k1'],
+        notify: { when: 'failed', to: ['network-oncall'] },
+        mode: 'real',
+        inputs: { devices: ['core'] },
+      },
+    });
+    expect(sent.at(-1)).toMatchObject({
+      level: 'info',
+      text: expect.stringMatching(/Edge, core only/),
+    });
+    // Refused (a name taken): said, and the dialog stays as it is.
+    routes['POST /projects/p1/launch-configs'] = () => ({
+      status: 409,
+      body: { message: 'A launch configuration named Edge, core only is there already' },
+    });
+    await l.save(plan?.token as string, { devices: ['core'] });
+    expect(sent.at(-1)).toMatchObject({ level: 'error', text: expect.stringMatching(/already/) });
+    // Cancelled: nothing is asked of the server.
+    askName.mockResolvedValueOnce(undefined);
+    const before = asked.length;
+    await l.save(plan?.token as string, {});
+    expect(asked.slice(before).map((a) => a.key)).toEqual(['GET /launch-configs/c1']);
   });
 
   it("opens the designer's dialog, asks for hosts as typed, launches, and says a refusal", async () => {
@@ -155,9 +224,33 @@ describe('Run on the canvas', () => {
 
     const picker = chooseConfig([config('c0', 'Lab') as ConfigChoice]);
     const buttons = [...document.querySelectorAll('[role=dialog] button')];
-    expect(buttons.map((b) => b.textContent)).toEqual(['Lab (check)', 'Cancel']);
-    (buttons[1] as HTMLButtonElement).click();
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      'Lab (check)',
+      'New configuration…',
+      'Cancel',
+    ]);
+    (buttons[2] as HTMLButtonElement).click();
     expect(await picker).toBeUndefined();
     expect(document.querySelector('[role=dialog]')).toBeNull();
+    const fresh = chooseConfig([]);
+    expect(document.querySelector('[role=dialog]')?.textContent).toMatch(
+      /no launch configuration yet/,
+    );
+    (document.querySelector('.afs-choose-new') as HTMLButtonElement).click();
+    expect(await fresh).toBe('new');
+  });
+
+  it('asks a name for the copy; Escape cancels', async () => {
+    const asked1 = askName('Edge (copy)');
+    const input = document.querySelector('#afs-ask-name') as HTMLInputElement;
+    expect(input.value).toBe('Edge (copy)');
+    input.value = '  Edge, core only ';
+    (document.querySelector('[role=dialog]') as HTMLFormElement).requestSubmit();
+    expect(await asked1).toBe('Edge, core only');
+    const asked2 = askName('x');
+    document
+      .querySelector('[role=dialog]')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(await asked2).toBeUndefined();
   });
 });
