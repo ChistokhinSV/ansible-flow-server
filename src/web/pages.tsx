@@ -99,6 +99,54 @@ function SyncBadge({ project }: { project: Project }) {
   return <span className="badge">{project.hosted ? 'empty' : 'not read yet'}</span>;
 }
 
+/**
+ * AFS-84: the project's state in one line; what it is set up with is on Settings. It is on every
+ * tab of the project, Files too (AFS-96), so the tabs stay where they are.
+ */
+export function ProjectStatus({ project, me, base }: { project: Project; me: User; base: string }) {
+  return (
+    <p className="statusline">
+      <SyncBadge project={project} />
+      <span>
+        runs <code>{project.gitRef}</code>
+      </span>
+      <span>
+        {project.commit ? (
+          <>
+            at <code>{project.commit.slice(0, 12)}</code>
+          </>
+        ) : (
+          'no commit yet'
+        )}
+      </span>
+      {project.sync.at && (
+        <span className="muted">
+          looked at <Time at={project.sync.at} />
+        </span>
+      )}
+      {project.library && <span className="badge">library</span>}
+      {project.sync.error && (
+        <span className="bad-text">
+          {project.sync.error}
+          {needsSignIn(project.sync.error) && (
+            <>
+              {' '}
+              The repository asks for a sign-in
+              {me.admin ? (
+                <>
+                  : <Link to={`${base}/settings`}>choose what the project signs in with</Link>.
+                </>
+              ) : (
+                '.'
+              )}
+            </>
+          )}
+        </span>
+      )}
+    </p>
+  );
+}
+
 /** AFS-58: why the archive a project was made with was refused, for its page to say. */
 let startRefusal: string | undefined;
 
@@ -226,7 +274,8 @@ export function Workspace({
         <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
       </nav>
       <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
-        {me.admin && space.data && !adding && (
+        {/* AFS-96: the head's action is the tab's own: the other tabs have theirs. */}
+        {me.admin && space.data && !adding && tab === '' && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
             Add project
           </button>
@@ -922,46 +971,7 @@ export function ProjectPage({
           </button>
         )}
       </PageHead>
-      {/* AFS-84: the project's state in one line; what it is set up with is on Settings. */}
-      <p className="statusline">
-        <SyncBadge project={project} />
-        <span>
-          runs <code>{project.gitRef}</code>
-        </span>
-        <span>
-          {project.commit ? (
-            <>
-              at <code>{project.commit.slice(0, 12)}</code>
-            </>
-          ) : (
-            'no commit yet'
-          )}
-        </span>
-        {project.sync.at && (
-          <span className="muted">
-            looked at <Time at={project.sync.at} />
-          </span>
-        )}
-        {project.library && <span className="badge">library</span>}
-        {project.sync.error && (
-          <span className="bad-text">
-            {project.sync.error}
-            {needsSignIn(project.sync.error) && (
-              <>
-                {' '}
-                The repository asks for a sign-in
-                {me.admin ? (
-                  <>
-                    : <Link to={`${base}/settings`}>choose what the project signs in with</Link>.
-                  </>
-                ) : (
-                  '.'
-                )}
-              </>
-            )}
-          </span>
-        )}
-      </p>
+      <ProjectStatus project={project} me={me} base={base} />
       <Tabs
         label="Project"
         base={base}

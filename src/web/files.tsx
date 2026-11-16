@@ -5,9 +5,10 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { atLeast, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
+import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
-import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 const FLOW = /\.flow\.ya?ml$/;
 /** Text the page edits; a bigger file is downloaded (the server takes 1 MB per edited file). */
@@ -195,7 +196,7 @@ function FolderView({
             {f.path.split('/').pop()}
           </button>{' '}
           {f.state && <span className={`tag ${f.state}`}>{f.state}</span>}
-          <span className="muted small"> {sizeWords(f.size)}</span>
+          <span className="muted small size">{sizeWords(f.size)}</span>
         </li>
       ))}
     </ul>
@@ -341,7 +342,13 @@ export function FilesPage({
     () => applyChanges(listing.data?.files ?? [], set.changes),
     [listing.data, set.changes],
   );
-  const selected = params.get('path') ?? undefined;
+  // AFS-96: with no file asked for, the page opens the one read first (README, else the first
+  // file of the top folder) instead of an empty half.
+  const first = useMemo(() => {
+    const top = shown.filter((f) => !f.path.includes('/'));
+    return (top.find((f) => /^readme(\.|$)/i.test(f.path)) ?? top[0])?.path;
+  }, [shown]);
+  const selected = params.get('path') ?? first;
   const select = (path: string) => {
     const q = new URLSearchParams(window.location.search);
     q.set('path', path);
@@ -470,28 +477,27 @@ export function FilesPage({
     <>
       {crumbs}
       <PageHead
-        title={`Files of ${project.name}`}
-        lead="Templates, files, variables and roles of the project"
-      >
-        <label>
-          Branch{' '}
-          <select
-            value={branch}
-            onChange={(e) => {
-              const q = new URLSearchParams();
-              if (e.target.value !== project.gitRef) q.set('branch', e.target.value);
-              navigate(`${window.location.pathname}${q.size ? `?${q}` : ''}`);
-            }}
-          >
-            {[...new Set([branch, ...(branches.data ?? [])])].map((b) => (
-              <option key={b} value={b}>
-                {b}
-                {b === project.gitRef ? ' (runs)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-      </PageHead>
+        title={project.name}
+        lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+      />
+      <ProjectStatus project={project} me={me} base={`/w/${workspace}/${key}`} />
+      {/* AFS-96: Files is one of the project's tabs: the others stay a click away. */}
+      <Tabs
+        label="Project"
+        base={`/w/${workspace}/${key}`}
+        current="files"
+        tabs={[
+          { key: '', label: 'Overview' },
+          { key: 'runs', label: 'Runs' },
+          { key: 'files', label: 'Files' },
+          {
+            key: 'branches',
+            label: 'Branches',
+            ...(branches.data ? { count: branches.data.length } : {}),
+          },
+          { key: 'settings', label: 'Settings' },
+        ]}
+      />
 
       {said?.ok && (
         <p className="notice ok" role="status">
@@ -571,56 +577,81 @@ export function FilesPage({
         </section>
       )}
 
+      {/* AFS-96: what adds files is a bar over the tree and the file, not a pile in the tree's
+          column. */}
+      <div className="file-actions">
+        <label>
+          Branch{' '}
+          <select
+            value={branch}
+            onChange={(e) => {
+              const q = new URLSearchParams();
+              if (e.target.value !== project.gitRef) q.set('branch', e.target.value);
+              navigate(`${window.location.pathname}${q.size ? `?${q}` : ''}`);
+            }}
+          >
+            {[...new Set([branch, ...(branches.data ?? [])])].map((b) => (
+              <option key={b} value={b}>
+                {b}
+                {b === project.gitRef ? ' (runs)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        {canEdit && (
+          <>
+            <button type="button" onClick={() => setAsking('new')}>
+              New file
+            </button>{' '}
+            <button type="button" onClick={() => uploads.current?.click()}>
+              Upload files
+            </button>{' '}
+            <button type="button" onClick={() => archive.current?.click()}>
+              Upload a folder (zip)
+            </button>
+            <input
+              ref={uploads}
+              type="file"
+              multiple
+              hidden
+              onChange={onUpload}
+              aria-label="Files to upload"
+            />
+            <input
+              ref={archive}
+              type="file"
+              accept=".zip,.tar.gz,.tgz"
+              hidden
+              onChange={onArchive}
+              aria-label="Archive to unpack"
+            />
+            <p className="muted small">into {here ? <code>{here}/</code> : 'the top folder'}</p>
+            {asking === 'new' && (
+              <PathForm
+                label="New file"
+                start={here ? `${here}/` : ''}
+                onDone={(path) => {
+                  setAsking(undefined);
+                  if (path) {
+                    change({ op: 'write', path, text: '' });
+                    select(path);
+                  }
+                }}
+              />
+            )}
+          </>
+        )}
+      </div>
       <div className="files">
         <section className="panel files-tree" aria-labelledby="tree">
           <div className="panel-head">
-            <h2 id="tree">
-              {listing.data?.commit ? `At ${listing.data.commit.slice(0, 12)}` : 'Files'}
-            </h2>
+            <h2 id="tree">Files</h2>
+            {listing.data?.commit && (
+              <span className="muted small">
+                at <code>{listing.data.commit.slice(0, 12)}</code>
+              </span>
+            )}
           </div>
-          {canEdit && (
-            <div className="file-actions">
-              <button type="button" onClick={() => setAsking('new')}>
-                New file
-              </button>{' '}
-              <button type="button" onClick={() => uploads.current?.click()}>
-                Upload files
-              </button>{' '}
-              <button type="button" onClick={() => archive.current?.click()}>
-                Upload a folder (zip)
-              </button>
-              <input
-                ref={uploads}
-                type="file"
-                multiple
-                hidden
-                onChange={onUpload}
-                aria-label="Files to upload"
-              />
-              <input
-                ref={archive}
-                type="file"
-                accept=".zip,.tar.gz,.tgz"
-                hidden
-                onChange={onArchive}
-                aria-label="Archive to unpack"
-              />
-              <p className="muted small">Into {here ? <code>{here}/</code> : 'the top folder'}</p>
-              {asking === 'new' && (
-                <PathForm
-                  label="New file"
-                  start={here ? `${here}/` : ''}
-                  onDone={(path) => {
-                    setAsking(undefined);
-                    if (path) {
-                      change({ op: 'write', path, text: '' });
-                      select(path);
-                    }
-                  }}
-                />
-              )}
-            </div>
-          )}
           <Loading state={listing} />
           {listing.data && !shown.length && <p className="empty">The branch has no files yet.</p>}
           <FolderView
@@ -633,7 +664,12 @@ export function FilesPage({
         </section>
 
         <section className="panel files-view" aria-labelledby="file">
-          {!selected && <p className="muted">Pick a file to read it.</p>}
+          {!selected && (
+            <p className="empty">
+              Pick a file to read it{canEdit ? ' or change it' : ''}.
+              {canEdit && ' New files and uploads go into the folder picked last.'}
+            </p>
+          )}
           {selected && !file && listing.data && !folder && (
             <p className="muted">
               There is no {selected} on {branch}.
@@ -662,9 +698,44 @@ export function FilesPage({
           )}
           {file && (
             <>
-              <h2 id="file">
-                <code>{file.path}</code>
-              </h2>
+              <div className="panel-head file-head">
+                <h2 id="file">
+                  <code>{file.path}</code>
+                </h2>
+                <p className="actions">
+                  {FLOW.test(file.path) && file.state !== 'new' && (
+                    <>
+                      <Link to={`/w/${workspace}/${key}/flow/${file.path}`}>
+                        Open in the flow editor
+                      </Link>{' '}
+                    </>
+                  )}
+                  {commit && file.state !== 'new' && original && (
+                    <>
+                      <a
+                        href={`/api/v1/projects/${encodeURIComponent(project.id)}/files/content?commit=${commit}&path=${encodeURIComponent(original)}&download=true`}
+                        download
+                      >
+                        Download
+                      </a>{' '}
+                    </>
+                  )}
+                  {canEdit && (
+                    <>
+                      <button type="button" onClick={() => setAsking('move')}>
+                        Rename or move
+                      </button>{' '}
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => change({ op: 'delete', path: file.path })}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </p>
+              </div>
               <p className="muted">
                 {sizeWords(file.size)}
                 {file.executable ? ' · program' : ''}
@@ -675,39 +746,6 @@ export function FilesPage({
                     {' · last changed by '}
                     {history.data[0].author}, <Time at={history.data[0].at} />:{' '}
                     {history.data[0].subject}
-                  </>
-                )}
-              </p>
-              <p className="actions">
-                {FLOW.test(file.path) && file.state !== 'new' && (
-                  <>
-                    <Link to={`/w/${workspace}/${key}/flow/${file.path}`}>
-                      Open in the flow editor
-                    </Link>{' '}
-                  </>
-                )}
-                {commit && file.state !== 'new' && original && (
-                  <>
-                    <a
-                      href={`/api/v1/projects/${encodeURIComponent(project.id)}/files/content?commit=${commit}&path=${encodeURIComponent(original)}&download=true`}
-                      download
-                    >
-                      Download
-                    </a>{' '}
-                  </>
-                )}
-                {canEdit && (
-                  <>
-                    <button type="button" onClick={() => setAsking('move')}>
-                      Rename or move
-                    </button>{' '}
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => change({ op: 'delete', path: file.path })}
-                    >
-                      Delete
-                    </button>
                   </>
                 )}
               </p>

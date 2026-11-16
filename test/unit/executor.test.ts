@@ -233,6 +233,11 @@ describe('a run', () => {
   it("gets the commit's files, the flow's code fresh, its inputs and credentials, and ends", async () => {
     const { ex, seen } = executor(async (_request, hooks) => {
       hooks.log?.('TASK [hello] ok: [fw-edge-01] token=input-S3CR3T vault=vault-S3CR3T');
+      // Colours are kept for the run page; a line with a secret is kept plain, the secret hidden
+      // even when a colour code splits it.
+      const esc = String.fromCharCode(27);
+      hooks.log?.(`${esc}[0;32mok: [fw-edge-02]${esc}[0m`);
+      hooks.log?.(`${esc}[0;31mbad: input-S3${esc}[1mCR3T${esc}[0m`);
       return {
         rc: 0,
         summary: {
@@ -307,6 +312,8 @@ describe('a run', () => {
     // The output is kept, with every secret hidden.
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
     expect(output).toContain('TASK [hello] ok: [fw-edge-01]');
+    expect(output).toContain(`${String.fromCharCode(27)}[0;32mok: [fw-edge-02]`);
+    expect(output).toMatch(/^bad: \*+/m);
     expect(output).toContain('Credential: SSH key "key" as netops');
     expect(output).not.toContain('S3CR3T');
     expect(lines.join('\n')).not.toContain('S3CR3T');

@@ -8,10 +8,11 @@
 //   GET  /api/v1/runs/:id/view         how it went, as the designer shows it
 //   GET  /api/v1/runs/:id/events       all of that, live (server-sent events)
 //   GET  /api/v1/runs/:id/hosts/:node/:host   what one host did in one step
-import { createReadStream, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { open, readFile, stat } from 'node:fs/promises';
 import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { stripAnsi } from '@ansible-flow/core/run/ansi';
 import { hostOutput } from '@ansible-flow/core/run/events';
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -78,7 +79,9 @@ export function registerRuns(
       const file = outputFile?.(run.id);
       reply.header('content-type', 'text/plain; charset=utf-8').header('cache-control', 'no-store');
       if (!file || !existsSync(file)) return reply.send('');
-      return reply.send(createReadStream(file));
+      // Kept with Ansible's colour codes for the run page (AFS-96); as text, plain. The file is
+      // bounded (MAX_OUTPUT), so it is read whole.
+      return reply.send(stripAnsi(await readFile(file, 'utf8')));
     },
   );
 

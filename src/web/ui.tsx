@@ -84,11 +84,14 @@ export function Form({
   children,
   onCancel,
   quiet,
+  wide,
 }: {
   onSubmit: () => Promise<void>;
   submit: string;
   children: ReactNode;
   onCancel?: () => void;
+  /** AFS-96: a form of many fields, laid out in rows of several: it is not kept to one column. */
+  wide?: boolean;
   /** The submit button is not the page's main action (another way is offered first). */
   quiet?: boolean;
 }) {
@@ -108,7 +111,7 @@ export function Form({
     }
   };
   return (
-    <form onSubmit={send} className="form">
+    <form onSubmit={send} className={wide ? 'form wide' : 'form'}>
       {children}
       {error && (
         <p className="notice error" role="alert">

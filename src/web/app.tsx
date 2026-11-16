@@ -338,7 +338,17 @@ export function App() {
       </>
     );
 
-  const kind = /\/flow\//.test(path) ? 'page wide' : match('/runs/:id', path) ? 'page run' : 'page';
+  // AFS-96: pages to work on (a project's files, an environment's spec) take the screen's width;
+  // pages to read (lists, forms) keep to a column.
+  const kind = /\/flow\//.test(path)
+    ? 'page wide'
+    : match('/runs/:id', path)
+      ? 'page run'
+      : match('/w/:workspace/:project/files', path)
+        ? 'page full'
+        : match('/w/:workspace/environments/:id', path)
+          ? 'page broad'
+          : 'page';
   return (
     <>
       {skip}

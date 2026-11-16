@@ -400,8 +400,12 @@ export class Executor {
     const line = (text: string) => {
       if (!output) return;
       if (written > MAX_OUTPUT) return;
-      // Plain text: colours are for a terminal, and the page shows its own.
-      const shown = `${hide(stripAnsi(text), hidden)}\n`;
+      // Ansible's colours are kept for the run page's terminal (AFS-96); the text download and
+      // agents get plain text. A line with a secret in it is kept plain, so that no colour code
+      // splitting the secret can let it through.
+      const plain = stripAnsi(text);
+      const safe = hide(plain, hidden);
+      const shown = `${safe === plain ? text : safe}\n`;
       written += shown.length;
       const kept = written > MAX_OUTPUT ? '… the output is longer than is kept\n' : shown;
       output.write(kept);

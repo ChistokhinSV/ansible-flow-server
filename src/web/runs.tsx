@@ -4,6 +4,7 @@
 import type { RunView } from '@ansible-flow/core/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { atLeast, flowLevel, useProjectAccess } from './access';
+import { AnsiText } from './ansi';
 import {
   api,
   type Project,
@@ -61,19 +62,28 @@ export function RunList({
   me?: User;
   showConfig?: boolean;
 }) {
+  // AFS-95: runs are read down a column (which failed, whose, when), so each fact has its own;
+  // where there is no room for columns (a phone, a narrow pane) a run is two lines again.
   return (
-    <ul className="list">
-      {runs.map((run) => (
-        <li key={run.id}>
-          <Link to={`/runs/${run.id}`}>
-            <span className="two">
+    <div className="runs-box">
+      <ul className={showConfig ? 'list runs' : 'list runs no-config'}>
+        <li className="runs-head" aria-hidden="true">
+          <span>State</span>
+          <span>Run</span>
+          {showConfig && <span>Configuration</span>}
+          <span>Mode</span>
+          <span>By</span>
+          <span>Started</span>
+          <span>Commit</span>
+        </li>
+        {runs.map((run) => (
+          <li key={run.id}>
+            <Link to={`/runs/${run.id}`}>
+              <span className="c-state">
+                <RunWords state={run.state} />
+              </span>
               <span className="title">
                 {run.flow.name} <span className="muted">#{run.number}</span>
-              </span>
-              <span className="sub">
-                {run.requestedBy.login === me?.login ? 'you' : run.requestedBy.login} ·{' '}
-                {ago(run.startedAt ?? run.createdAt)} · {run.mode === 'real' ? 'real' : 'check'}
-                {showConfig && run.config && <> · {run.config.name}</>}
                 {run.dev && (
                   <>
                     {' '}
@@ -91,15 +101,22 @@ export function RunList({
                   </>
                 )}
               </span>
-            </span>
-            <span className="end">
-              <RunWords state={run.state} />
-              <span className="mono small muted">{run.commit.slice(0, 8)}</span>
-            </span>
-          </Link>
-        </li>
-      ))}
-    </ul>
+              {/* The facts are cells of the row; with no room for columns they are one line
+                  under the run. */}
+              <span className="c-facts">
+                {showConfig && <span className="c-fact">{run.config?.name ?? ''}</span>}
+                <span className="c-fact">{run.mode === 'real' ? 'real' : 'check'}</span>
+                <span className="c-fact">
+                  {run.requestedBy.login === me?.login ? 'you' : run.requestedBy.login}
+                </span>
+                <span className="c-fact">{ago(run.startedAt ?? run.createdAt)}</span>
+                <span className="c-fact mono">{run.commit.slice(0, 8)}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -614,7 +631,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
       const { text } = JSON.parse((event as MessageEvent).data) as { text: string };
       setOutput((before) => {
         const all = before + text;
-        return all.length > KEEP_OUTPUT ? all.slice(all.length - KEEP_OUTPUT) : all;
+        if (all.length <= KEEP_OUTPUT) return all;
+        // Cut at a line's start, so no colour code is cut in two.
+        const cut = all.indexOf(String.fromCharCode(10), all.length - KEEP_OUTPUT);
+        return cut < 0 ? all.slice(all.length - KEEP_OUTPUT) : all.slice(cut + 1);
       });
     });
     stream.addEventListener('end', () => stream.close());
@@ -647,6 +667,36 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     const el = pre.current;
     if (el && follow.current) el.scrollTop = el.scrollHeight;
   }, [output]);
+
+  // AFS-96: Show Terminal on the canvas of this page scrolls to the output (the canvas asks, in its
+  // frame); from elsewhere it opens this page at #output. The output is marked for a moment, so it
+  // is plain where the eye should go.
+  const [shownOutput, setShownOutput] = useState(0);
+  const toOutput = () => {
+    below.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    below.current?.focus({ preventScroll: true });
+    setShownOutput((n) => n + 1);
+  };
+  const toOutputRef = useRef(toOutput);
+  toOutputRef.current = toOutput;
+  useEffect(() => {
+    const heard = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { type?: string; run?: string } | undefined;
+      if (data?.type === 'afs-show-output' && data.run === id) toOutputRef.current();
+    };
+    window.addEventListener('message', heard);
+    return () => window.removeEventListener('message', heard);
+  }, [id]);
+  const loaded = !!run;
+  useEffect(() => {
+    if (loaded && window.location.hash === '#output') toOutputRef.current();
+  }, [loaded]);
+  useEffect(() => {
+    if (!shownOutput) return;
+    const timer = setTimeout(() => setShownOutput(0), 1600);
+    return () => clearTimeout(timer);
+  }, [shownOutput]);
 
   const title = run ? `${run.flow.name} · run ${run.number}` : 'Run';
   useEffect(() => {
@@ -755,8 +805,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             className="link"
             onClick={() => {
               // The output is the last thing on a long page: go there, and read on from there.
-              below.current?.scrollIntoView?.({ block: 'start' });
-              below.current?.focus({ preventScroll: true });
+              toOutput();
             }}
           >
             To the output
@@ -874,9 +923,15 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           </section>
         </aside>
       </div>
-      <section ref={below} tabIndex={-1} className="run-below" aria-labelledby="output">
+      <section
+        ref={below}
+        tabIndex={-1}
+        id="output"
+        className={`run-below run-output${shownOutput ? ' run-output-shown' : ''}`}
+        aria-labelledby="output-head"
+      >
         <div className="section-head">
-          <h2 id="output">Output</h2>
+          <h2 id="output-head">Terminal output</h2>
           <a href={`/api/v1/runs/${run.id}/output`} target="_blank" rel="noreferrer">
             All of it as text
           </a>
@@ -890,7 +945,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               follow.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
             }}
           >
-            {output}
+            <AnsiText text={output} />
           </pre>
         ) : (
           <p className="muted">{going ? 'Nothing yet.' : 'No output.'}</p>
