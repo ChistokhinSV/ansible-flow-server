@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { flowLevel, useProjectAccess } from './access';
 import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run } from './api';
+import { FlowFileActions } from './flowFiles';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
 import { RunWords } from './runs';
@@ -57,6 +58,8 @@ export function FlowPage({
   );
   // As on the project's page: rw on the flow adds a configuration for it.
   const mayAdd = !!access && flowLevel(access, file) === 'rw';
+  // AFS-109: copying and deleting the file is a change of the project's files (rw on the workspace).
+  const mayChangeFiles = !!access && (access.admin || access.workspace === 'rw');
   const here = `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(key)}`;
   const [editing, setEditing] = useState<Draft>();
   // AFS-107: the canvas's frame, for Full screen.
@@ -179,6 +182,16 @@ export function FlowPage({
             </a>
           )}
         </PageHead>
+        {project && !editing && mayChangeFiles && commit && (
+          <FlowFileActions
+            workspace={workspace}
+            project={project}
+            file={file}
+            name={title}
+            commit={commit}
+            usedBy={(configs.data ?? []).map((c) => c.name)}
+          />
+        )}
         {project && !editing ? (
           <p className="statusline flow-line">
             {commit && (

@@ -319,6 +319,15 @@ export const api = {
       input,
     ),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
+  /** AFS-109: a file's text at a commit (a flow to copy). */
+  fileText: async (id: string, path: string, commit: string): Promise<string> => {
+    const reply = await fetch(
+      `/api/v1/projects/${encodeURIComponent(id)}/files/content?commit=${commit}&path=${encodeURIComponent(path)}`,
+      { credentials: 'same-origin' },
+    );
+    if (!reply.ok) throw new Error(`The file could not be read (${reply.status})`);
+    return reply.text();
+  },
   /** AFS-76: the project's drafts (flows being edited in the pages). */
   drafts: (id: string) => call<Draft[]>('GET', `/projects/${id}/drafts`),
   /** AFS-76: the flow's draft, started from the project's commit when there is none. */
