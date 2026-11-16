@@ -84,7 +84,8 @@ export function NewFlowForm({
               { op: 'write', path: file, text: newFlowText(name.trim(), key, createIdFactory()) },
             ],
           });
-          navigate(flowPage(workspace, project.key, file));
+          // AFS-113: a new flow opens for editing.
+          navigate(`${flowPage(workspace, project.key, file)}?edit=1`);
         }}
       >
         <Field
@@ -101,7 +102,7 @@ export function NewFlowForm({
           onChange={(e) => setPath(e.target.value)}
           required
           spellCheck={false}
-          hint={`One commit on ${project.gitRef}. It starts with Start wired to Done and a host list input; edit it on its page.`}
+          hint={`One commit on ${project.gitRef}${project.commit ? '' : ', the first of the project'}. It starts with Start wired to Done and a host list input, and opens for editing.`}
         />
       </Form>
     </section>

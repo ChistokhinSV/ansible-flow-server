@@ -108,6 +108,8 @@ Nothing is released yet.
 
 ### Changed
 
+- Insert Shared Subflow… opens a small picker over the canvas, also in full screen, closed with Cancel or Escape; with no library yet it says how a project becomes one. A flow's library copies are a line each above the canvas.
+- New flow opens the new flow for editing, and an empty project the server hosts offers New flow too (its first commit).
 - A check (skeleton) run passes its approvals by itself, as a skeleton run in VS Code does, and notifies nobody; only real runs wait for the approvers.
 - Built on Ansible Flow Designer 0.86.0.
 - Clearer pages: every approval waiting for you is tinted on Home, waiting is amber on the approvals pages too and Reject reads clearly beside Approve; the day's line on Home says how many runs failed and wait, not only how many went well; New branch, Make a token and Add a directory sit at the head of their sections; Keep as start values, To the output and a file's Download are buttons; a launch configuration's notification fields are Notify when and Recipients; the commit message field of a flow being edited is labelled; an empty library says how a project becomes one; an empty reason in the notifications log shows a dash.
@@ -115,6 +117,7 @@ Nothing is released yet.
 
 ### Fixed
 
+- While you edit a flow in the pages, a note says when someone changes or removes it on the branch (a push from VS Code, another save), and what Save will do with both.
 - When saving a draft finds the branch changed the same places, the notice is one short row with its choices, apart from the Save row under it, and can be closed with Not now.
 - Stopping a run that waits for approval ends it on its canvas too: the run says who stopped it instead of waiting, and the approval says who cancelled it.
 - Fields side by side stay on one line when the hint under one of them wraps.

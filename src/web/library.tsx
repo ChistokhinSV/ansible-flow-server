@@ -139,53 +139,50 @@ export function LibraryCopies({
       setBusy(undefined);
     }
   };
+  // AFS-114: a line per copy, so the canvas keeps the room; the address is in the tooltip.
   return (
-    <section className="panel library-copies" aria-labelledby="library-copies">
-      <h2 id="library-copies">From the library</h2>
+    <section className="library-copies" aria-label="From the library">
+      {copies.map((copy) => {
+        const ref = copy.ref as NonNullable<FlowNodeLike['ref']>;
+        const now = offered.get(ref.from);
+        const behind = !!now && now.version > ref.version;
+        return (
+          <p key={copy.id} className="library-copy">
+            <span className="muted">From the library:</span>{' '}
+            <strong title={ref.from}>{copy.title}</strong>{' '}
+            <span className="muted">
+              version {ref.version}
+              {ref.commit ? ` at ${ref.commit.slice(0, 12)}` : ''}
+            </span>{' '}
+            {library.loading ? null : !now ? (
+              <span className="tag gone">not offered now</span>
+            ) : behind ? (
+              <>
+                <span className="tag behind">library has version {now.version}</span>{' '}
+                {editing ? (
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() => void update(copy)}
+                    disabled={busy === copy.id}
+                  >
+                    {busy === copy.id ? 'Updating…' : 'Update'}
+                  </button>
+                ) : (
+                  <span className="muted small">Edit the flow to update it.</span>
+                )}
+              </>
+            ) : (
+              <span className="tag current">up to date</span>
+            )}
+          </p>
+        );
+      })}
       {said && (
-        <p className="notice" role="status">
+        <p className="library-copy" role="status">
           {said}
         </p>
       )}
-      <ul className="rows">
-        {copies.map((copy) => {
-          const ref = copy.ref as NonNullable<FlowNodeLike['ref']>;
-          const now = offered.get(ref.from);
-          const behind = !!now && now.version > ref.version;
-          return (
-            <li key={copy.id}>
-              <strong>{copy.title}</strong>{' '}
-              <span className="muted">
-                version {ref.version}
-                {ref.commit ? ` at ${ref.commit.slice(0, 12)}` : ''}
-              </span>{' '}
-              {library.loading ? null : !now ? (
-                <span className="tag gone">not offered now</span>
-              ) : behind ? (
-                <>
-                  <span className="tag behind">library has version {now.version}</span>{' '}
-                  {editing ? (
-                    <button
-                      type="button"
-                      onClick={() => void update(copy)}
-                      disabled={busy === copy.id}
-                    >
-                      {busy === copy.id ? 'Updating…' : 'Update'}
-                    </button>
-                  ) : (
-                    <span className="muted small">Edit the flow to update it.</span>
-                  )}
-                </>
-              ) : (
-                <span className="tag current">up to date</span>
-              )}
-              <div>
-                <code className="small">{ref.from}</code>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
     </section>
   );
 }
@@ -228,8 +225,15 @@ export function InsertFromLibrary({
     }
   };
   return (
-    <section className="panel library-pick" aria-labelledby="library-pick">
-      <div className="panel-head">
+    // AFS-114: a card over the canvas (in full screen too), closed with Cancel or Escape.
+    <section
+      className="library-pick"
+      aria-labelledby="library-pick"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onDone();
+      }}
+    >
+      <div className="library-pick-head">
         <h2 id="library-pick">Insert a subflow from the library</h2>
         <button type="button" className="link" onClick={() => onDone()}>
           Cancel
@@ -250,10 +254,11 @@ export function InsertFromLibrary({
       )}
       <Loading state={listed} />
       {listed.data && !shown.length && (
-        <p className="empty">
+        <p className="muted small">
           {listed.data.subflows.length
             ? 'Nothing matches.'
-            : 'The library offers nothing you may read.'}
+            : // AFS-114: how a library comes to be, where the person looks for one.
+              "No library subflow you may read yet. A library is a project whose flows' subflows are offered to every project: an administrator turns it on in the project's Settings (Library), and each subflow of its flows is offered here."}
         </p>
       )}
       <ul className="rows">
