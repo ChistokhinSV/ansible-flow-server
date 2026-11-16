@@ -147,12 +147,15 @@ export function AuditPage() {
             ))}
           </select>
         </label>
-        <label className="inline">
-          Since <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className="inline">
-          Until <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
+        {/* AFS-101: the dates of one range stay on one line when the row wraps. */}
+        <span className="range">
+          <label className="inline">
+            Since <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="inline">
+            Until <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </span>
         <button type="submit">Show</button>
       </form>
       {!state.loading && !state.error && entries.length === 0 && (

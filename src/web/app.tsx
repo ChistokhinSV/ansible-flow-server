@@ -17,7 +17,7 @@ import { Home } from './home';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { LibraryPage } from './library';
 import { NotificationsPage } from './notifications';
-import { NotFound, ProjectPage, Workspace, Workspaces } from './pages';
+import { AdminOnly, NotFound, ProjectPage, Workspace, Workspaces } from './pages';
 import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, navigate, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
@@ -63,20 +63,20 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/library') return <LibraryPage />;
   // AFS-87: the side menu lists the administration's pages; its own address opens the first.
-  if (path === '/admin') return me.admin ? <PeoplePage tab="people" /> : <NotFound />;
-  if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
+  if (path === '/admin') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
+  if (path === '/admin/audit') return me.admin ? <AuditPage /> : <AdminOnly />;
   if (path === '/admin/notifications')
-    return me.admin ? <NotificationsPage tab="log" /> : <NotFound />;
+    return me.admin ? <NotificationsPage tab="log" /> : <AdminOnly />;
   if (path === '/admin/notifications/settings')
-    return me.admin ? <NotificationsPage tab="settings" /> : <NotFound />;
-  if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <NotFound />;
-  if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <NotFound />;
-  if (path === '/admin/people') return me.admin ? <PeoplePage tab="people" /> : <NotFound />;
-  if (path === '/admin/groups') return me.admin ? <PeoplePage tab="groups" /> : <NotFound />;
+    return me.admin ? <NotificationsPage tab="settings" /> : <AdminOnly />;
+  if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <AdminOnly />;
+  if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <AdminOnly />;
+  if (path === '/admin/people') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
+  if (path === '/admin/groups') return me.admin ? <PeoplePage tab="groups" /> : <AdminOnly />;
   const person = match('/admin/people/:id', path);
-  if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <NotFound />;
+  if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <AdminOnly />;
   const group = match('/admin/groups/:id', path);
-  if (group?.id) return me.admin ? <GroupPage id={group.id} /> : <NotFound />;
+  if (group?.id) return me.admin ? <GroupPage id={group.id} /> : <AdminOnly />;
   const environment = match('/w/:workspace/environments/:id', path);
   if (environment?.workspace && environment.id)
     return <EnvironmentPage workspace={environment.workspace} id={environment.id} />;

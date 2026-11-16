@@ -4,7 +4,7 @@
 // with a list of options, as a screen reader expects one.
 import { useEffect, useId, useRef, useState } from 'react';
 import { api, type SearchHit, type User } from './api';
-import { navigate } from './router';
+import { navigate, usePath } from './router';
 
 /** The pages that are always there, found by their words. */
 const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
@@ -78,6 +78,13 @@ export function SearchBox({ me }: { me: User }) {
   const [active, setActive] = useState(-1);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // AFS-102: another page, by the menu or a link: the box is empty again.
+  const path = usePath();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the page changes
+  useEffect(() => {
+    setQ('');
+    setOpen(false);
+  }, [path]);
   /** The list closes a moment after the field loses focus; coming back keeps it. */
   const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
   const list = useId();

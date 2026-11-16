@@ -932,12 +932,8 @@ export function LaunchConfigPage({
                   {busy === 'check' ? 'Looking…' : 'What would run'}
                 </button>
                 {mayManage && (
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => void keep()}
-                    disabled={!!busy || !form.data}
-                  >
+                  // AFS-102: it changes the configuration: a button, not a link.
+                  <button type="button" onClick={() => void keep()} disabled={!!busy || !form.data}>
                     Keep as start values
                   </button>
                 )}
@@ -1367,7 +1363,7 @@ function ConfigForm({
         {at('credentials') && <small className="bad-text">{at('credentials')}</small>}
       </fieldset>
       <div className="pair">
-        <Labelled label="Tell">
+        <Labelled label="Notify when">
           {(props) => (
             <select
               {...props}
@@ -1384,7 +1380,7 @@ function ConfigForm({
           )}
         </Labelled>
         <Labelled
-          label="Whom"
+          label="Recipients"
           hint="Logins and groups, separated by commas."
           problem={at('notify')}
         >

@@ -165,10 +165,18 @@ export class Access {
   /** What a list of runs or flows is narrowed to; undefined: everything. */
   visible(): { workspaces: string[]; flows: [string, string][] } | undefined {
     if (this.admin) return undefined;
-    return {
-      workspaces: [...this.workspaces].filter(([, r]) => r > 0).map(([w]) => w),
-      flows: this.flowPairs,
-    };
+    // AFS-103: `approve` counts as `ro` (ADR-0020), in lists too: an approver of a workspace or a
+    // flow sees its runs, as onFlow already lets them open each one.
+    const workspaces = new Set([
+      ...[...this.workspaces].filter(([, r]) => r > 0).map(([w]) => w),
+      ...this.approveWorkspaces,
+    ]);
+    const flows = new Map(this.flowPairs.map((p) => [flowKey(p[0], p[1]), p]));
+    for (const key of this.approveFlows) {
+      const [project, file] = key.split('\u0000') as [string, string];
+      flows.set(key, [project, file]);
+    }
+    return { workspaces: [...workspaces], flows: [...flows.values()] };
   }
 }
 

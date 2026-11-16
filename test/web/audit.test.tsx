@@ -111,7 +111,7 @@ describe('the audit log', () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
-    await screen.findByRole('heading', { name: 'Nothing here' });
+    await screen.findByRole('heading', { name: 'For administrators' });
     expect(asked.some((a) => a.includes('/audit'))).toBe(false);
   });
 });

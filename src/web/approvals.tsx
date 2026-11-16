@@ -58,7 +58,8 @@ function DecideForm({
 }
 
 const STATUS_TONE: Record<string, string> = {
-  waiting: 'busy',
+  // AFS-101: waiting is amber everywhere (a person must act), not the accent of something going.
+  waiting: 'warn',
   approved: 'ok',
   rejected: 'bad',
   'timed out': 'bad',

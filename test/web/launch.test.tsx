@@ -520,7 +520,7 @@ describe('the launch form', () => {
     expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
   });
 
-  it('Whom suggests the people and groups of the server (AFS-97)', async () => {
+  it('Recipients suggests the people and groups of the server (AFS-97)', async () => {
     routes = {
       ...common(dana),
       'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
@@ -536,8 +536,8 @@ describe('the launch form', () => {
     };
     window.history.replaceState(null, '', '/w/net/core/launch/c1/settings');
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('Tell'), { target: { value: 'failed' } });
-    const whom = screen.getByLabelText(/^Whom/) as HTMLInputElement;
+    fireEvent.change(await screen.findByLabelText('Notify when'), { target: { value: 'failed' } });
+    const whom = screen.getByLabelText(/^Recipients/) as HTMLInputElement;
     fireEvent.change(whom, { target: { value: 'dana, ' } });
     await waitFor(() => expect(whom.getAttribute('list')).toBeTruthy());
     const options = [...(document.getElementById(whom.getAttribute('list') ?? '')?.children ?? [])];

@@ -388,6 +388,10 @@ for (const [name, config] of databases) {
       ]);
       expect((await list('nina', '/api/v1/runs')).length).toBe(0);
       expect((await list('fiona', '/api/v1/runs')).length).toBeGreaterThan(0);
+      // AFS-103: approve counts as ro in lists too: an approver of the workspace sees its runs.
+      expect((await list('april', '/api/v1/runs')).length).toBe(
+        (await list('rita', '/api/v1/runs')).length,
+      );
       expect(await list('fiona', `/api/v1/projects/${core.id}/access`)).toMatchObject({
         admin: false,
         workspace: null,

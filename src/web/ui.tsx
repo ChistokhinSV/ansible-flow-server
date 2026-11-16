@@ -85,6 +85,7 @@ export function Form({
   onCancel,
   quiet,
   wide,
+  more,
 }: {
   onSubmit: () => Promise<void>;
   submit: string;
@@ -94,6 +95,8 @@ export function Form({
   wide?: boolean;
   /** The submit button is not the page's main action (another way is offered first). */
   quiet?: boolean;
+  /** AFS-101: other buttons in the same row as the submit button. */
+  more?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -127,6 +130,7 @@ export function Form({
             Cancel
           </button>
         )}
+        {more}
       </div>
     </form>
   );

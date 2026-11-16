@@ -26,7 +26,9 @@ function Profile({ me, onSaved }: { me: User; onSaved(changed: User): void }) {
   const [saved, setSaved] = useState(false);
   return (
     <section className="panel" aria-labelledby="profile">
-      <h2 id="profile">Profile</h2>
+      <h2 id="profile" className="sr-only">
+        Profile
+      </h2>
       <p className="muted">
         Notifications for you (approvals that wait for you, how your runs' approvals were decided)
         go to your email address{me.admin ? ' and your webhook' : ''}.
@@ -122,8 +124,83 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
           }
         />
       ) : (
-        <Profile me={mine} onSaved={setMine} />
+        <>
+          <Profile me={mine} onSaved={setMine} />
+          {!mine.service && <PasswordForm />}
+        </>
       )}
     </>
+  );
+}
+
+/**
+ * AFS-104: your own password (people an administrator was told can change it here). Directory and
+ * organisation sign-ins change theirs where they come from.
+ */
+function PasswordForm() {
+  const [current, setCurrent] = useState('');
+  const [password, setPassword] = useState('');
+  const [again, setAgain] = useState('');
+  const [done, setDone] = useState(false);
+  const [mismatch, setMismatch] = useState(false);
+  return (
+    <section className="panel" aria-labelledby="password">
+      <h2 id="password">Password</h2>
+      <p className="muted">
+        Your other sessions end when it changes. If you sign in with your directory or your
+        organisation's sign-in, change your password there.
+      </p>
+      <Form
+        submit="Change the password"
+        onSubmit={async () => {
+          setDone(false);
+          setMismatch(password !== again);
+          if (password !== again) return;
+          await api.changePassword(current, password);
+          setCurrent('');
+          setPassword('');
+          setAgain('');
+          setDone(true);
+        }}
+      >
+        <Field
+          label="Current password"
+          type="password"
+          autoComplete="current-password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          required
+        />
+        <Field
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => {
+            setDone(false);
+            setPassword(e.target.value);
+          }}
+          required
+        />
+        <Field
+          label="New password again"
+          type="password"
+          autoComplete="new-password"
+          value={again}
+          onChange={(e) => setAgain(e.target.value)}
+          required
+        />
+        {mismatch && (
+          <p className="notice error" role="alert">
+            The two new passwords are not the same
+          </p>
+        )}
+        {done && (
+          <p className="notice ok" role="status">
+            Changed. Your other sessions are signed out.
+          </p>
+        )}
+      </Form>
+    </section>
   );
 }

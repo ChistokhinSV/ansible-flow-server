@@ -80,7 +80,9 @@ describe('home', () => {
     };
     render(<App />);
     await screen.findByRole('heading', { name: /, Dana$/ });
-    await screen.findByText('3 runs today, 1 went well. 1 approval is waiting for you.');
+    await screen.findByText(
+      '3 runs today: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
+    );
     // Only what this person may decide waits for them.
     const waiting = screen
       .getByRole('heading', { name: 'Waiting for you' })

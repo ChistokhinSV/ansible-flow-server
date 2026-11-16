@@ -287,7 +287,15 @@ export function DirectoriesSection({ groups }: { groups: Group[] }) {
   const groupName = (id?: string) => groups.find((g) => g.id === id)?.name ?? 'a removed group';
   return (
     <section className="panel" aria-labelledby="directories">
-      <h2 id="directories">Directories (LDAP, Active Directory)</h2>
+      {/* AFS-102: the section's action at its head, as Add a provider is at the page's. */}
+      <div className="section-head">
+        <h2 id="directories">Directories (LDAP, Active Directory)</h2>
+        {!editing && (
+          <button type="button" onClick={() => setEditing({ ...EMPTY })}>
+            Add a directory
+          </button>
+        )}
+      </div>
       <p className="muted">
         People type their directory login and password in the sign-in form. An account here with a
         password signs in here; any other login is tried with these directories, in this order.
@@ -296,11 +304,6 @@ export function DirectoriesSection({ groups }: { groups: Group[] }) {
         <p className="notice error" role="alert">
           {error}
         </p>
-      )}
-      {!editing && (
-        <button type="button" onClick={() => setEditing({ ...EMPTY })}>
-          Add a directory
-        </button>
       )}
       {editing && (
         <DirectoryForm

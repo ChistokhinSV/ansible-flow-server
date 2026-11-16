@@ -250,7 +250,8 @@ describe('signed in', () => {
     routes = signedInAs(omar);
     window.history.replaceState(null, '', '/admin');
     render(<App />);
-    await screen.findByRole('heading', { name: 'Nothing here' });
+    // AFS-102: an administration page says it is for administrators.
+    await screen.findByRole('heading', { name: 'For administrators' });
     expect(screen.queryByRole('link', { name: 'Audit log' })).toBeNull();
     navigate('/workspaces');
     await screen.findByRole('heading', { name: 'Workspaces' });
@@ -360,6 +361,41 @@ describe('signed in', () => {
     fireEvent.click(button);
     await waitFor(() => expect(window.location.pathname).toBe('/w/network'));
     expect(calls.filter((c) => c === 'DELETE /projects/p1')).toHaveLength(2);
+  });
+
+  it('My account changes the password; the two new ones must agree (AFS-104)', async () => {
+    routes = {
+      ...signedInAs(omar),
+      'PUT /session/password': () => ({ status: 204 }),
+    };
+    window.history.replaceState(null, '', '/account');
+    render(<App />);
+    const section = (await screen.findByRole('heading', { name: 'Password' })).closest(
+      'section',
+    ) as HTMLElement;
+    const fill = (label: string, value: string) =>
+      fireEvent.change(within(section).getByLabelText(label), { target: { value } });
+    fill('Current password', 'old-secret-1');
+    fill('New password', 'new-secret-22');
+    fill('New password again', 'new-secret-23');
+    fireEvent.click(within(section).getByRole('button', { name: 'Change the password' }));
+    expect((await within(section).findByRole('alert')).textContent).toBe(
+      'The two new passwords are not the same',
+    );
+    expect(calls).not.toContain('PUT /session/password');
+    fill('New password again', 'new-secret-22');
+    fireEvent.click(within(section).getByRole('button', { name: 'Change the password' }));
+    await within(section).findByText(/Changed\./);
+    expect(calls).toContain('PUT /session/password');
+    // The tab says Profile; the profile's own heading is for screen readers only.
+    expect(screen.getByRole('heading', { name: 'Profile' }).className).toBe('sr-only');
+  });
+
+  it("a workspace's Access tab says it is for administrators to someone else (AFS-102)", async () => {
+    routes = signedInAs(omar);
+    window.history.replaceState(null, '', '/w/network/-/access');
+    render(<App />);
+    expect(await screen.findByText(/for administrators to see and change/)).toBeTruthy();
   });
 
   it('someone who is not an administrator is not offered Delete (AFS-100)', async () => {

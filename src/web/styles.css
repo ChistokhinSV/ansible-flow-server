@@ -1454,7 +1454,8 @@ textarea.code {
 .waiting a:hover {
   background: var(--panel);
 }
-.waiting li:first-child a {
+/* AFS-101: every approval waiting for you is tinted: each needs you. */
+.waiting li a {
   background: var(--warn-bg);
 }
 .waiting .what {
@@ -1474,7 +1475,7 @@ textarea.code {
   font-size: 13px;
   color: var(--muted);
 }
-.waiting li:first-child .since {
+.waiting li .since {
   color: var(--warn);
 }
 .list {
@@ -1638,8 +1639,11 @@ textarea.code {
 .decision .actions button {
   flex: 1;
 }
+/* AFS-101: Reject reads as the other answer, not as a muddy button on the tinted card. */
 .decision .actions button:not(.primary) {
-  background: var(--warn-button);
+  background: transparent;
+  color: var(--bad);
+  box-shadow: inset 0 0 0 1px var(--bad);
 }
 .decision .gate + .gate {
   border-top-color: var(--warn-badge);
@@ -2047,6 +2051,12 @@ section + .columns,
   margin-right: 14px;
   color: var(--muted);
 }
+/* AFS-101: the dot before a link is not part of it (inline-block: no underline of the link). */
+.statusline > a + *::before,
+.statusline > * + a::before {
+  display: inline-block;
+  text-decoration: none;
+}
 
 /* AFS-95: the runs list as columns: state first (what is looked for), then the run, and a column
    for each fact, the same in every row. */
@@ -2331,4 +2341,30 @@ fieldset.name-chips {
   border: 0;
   padding: 0;
   min-width: 0;
+}
+
+/* AFS-101: a date range of a filter row stays together when the row wraps. */
+.range {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+/* AFS-101: an API row that does not open lines up with the ones that do (the disclosure mark). */
+.endpoint.plain {
+  padding-left: 1.05em;
+}
+/* AFS-101: the sign-in title breaks evenly, not leaving one word alone. */
+.entry-card h1 {
+  text-wrap: balance;
+}
+/* AFS-101: a page head's buttons and links sit on one line, centred. */
+.page-head > .actions {
+  align-items: center;
+}
+/* AFS-101: the choices of a filter row as tall as the select or search box beside them. */
+.run-filters .chip,
+.filter-row .chip {
+  min-height: 2.5rem;
+  padding-block: 0;
 }

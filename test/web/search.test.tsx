@@ -106,3 +106,15 @@ describe('the search field', () => {
     expect(asked.some((a) => a === 'GET /search?q=h')).toBe(false);
   });
 });
+
+describe('the search field and the page (AFS-102)', () => {
+  it('what was typed goes when another page opens by the menu', async () => {
+    open(dana);
+    const field = (await screen.findByRole('combobox', { name: 'Search' })) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'hello' } });
+    await screen.findByRole('listbox', { name: 'Search results' });
+    fireEvent.click(screen.getByRole('link', { name: 'Runs' }));
+    await waitFor(() => expect(field.value).toBe(''));
+    expect(screen.queryByRole('listbox', { name: 'Search results' })).toBeNull();
+  });
+});
