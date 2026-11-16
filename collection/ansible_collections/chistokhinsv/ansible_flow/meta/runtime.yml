@@ -1,0 +1,13 @@
+---
+requires_ansible: ">=2.17.0"
+action_groups:
+  afs:
+    - approval
+    - credential
+    - grant
+    - launch_config
+    - project
+    - run
+    - run_info
+    - schedule
+    - workspace

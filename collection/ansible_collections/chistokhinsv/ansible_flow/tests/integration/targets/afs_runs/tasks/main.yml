@@ -1,0 +1,126 @@
+---
+# A check run of the hello sample on localhost: launched, waited for, read and listed. Needs an
+# administrator's token and a server whose runs can start (an executor and its image).
+- name: Runs of a test workspace
+  module_defaults:
+    group/chistokhinsv.ansible_flow.afs:
+      url: "{{ afs_url }}"
+      token: "{{ afs_token }}"
+      validate_certs: "{{ afs_validate_certs }}"
+  block:
+    - name: A workspace
+      chistokhinsv.ansible_flow.workspace:
+        key: "{{ afs_ws }}"
+        name: Integration {{ afs_ws }}
+
+    - name: A hosted project from the hello sample
+      chistokhinsv.ansible_flow.project:
+        workspace: "{{ afs_ws }}"
+        key: "{{ afs_project }}"
+        name: Hello
+        sample: hello
+
+    - name: A launch configuration
+      chistokhinsv.ansible_flow.launch_config:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        name: Hello localhost
+        flow_file: "{{ afs_flow }}"
+        mode: check
+
+    - name: Launch in Ansible check mode launches nothing
+      chistokhinsv.ansible_flow.run:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        launch_config: Hello localhost
+        inputs:
+          devices: [localhost]
+      check_mode: true
+      register: run_check
+
+    - name: Launch a check run and wait for it
+      chistokhinsv.ansible_flow.run:
+        workspace: "{{ afs_ws }}"
+        project: "{{ afs_project }}"
+        launch_config: Hello localhost
+        inputs:
+          devices: [localhost]
+        wait: true
+        wait_timeout: 900
+        poll_interval: 3
+      register: run
+
+    - name: Read the run with its output
+      chistokhinsv.ansible_flow.run_info:
+        run_id: "{{ run.id }}"
+        output_lines: 20
+      register: info
+
+    - name: List the runs of the project
+      ansible.builtin.set_fact:
+        listed: "{{ query('chistokhinsv.ansible_flow.runs', url=afs_url, token=afs_token,
+          validate_certs=afs_validate_certs, workspace=afs_ws, project=afs_project,
+          config='Hello localhost', state='succeeded', limit=5) }}"
+      no_log: true
+
+    - name: Launch by the configuration's id without waiting
+      chistokhinsv.ansible_flow.run:
+        launch_config: "{{ run.launch_config.id }}"
+        inputs:
+          devices: localhost
+      register: run_nowait
+
+    - name: The runs went as expected
+      ansible.builtin.assert:
+        that:
+          - run_check is changed
+          - run_check.id is not defined
+          - run is changed
+          - run.state == 'succeeded'
+          - run.url.endswith('/runs/' ~ run.id)
+          - run.hosts.localhost.status == 'ok'
+          - info is not changed
+          - info.finished
+          - info.number == run.number
+          - info.output | length > 0
+          - listed | map(attribute='id') | list | first == run.id
+          - run_nowait.state in ['queued', 'running', 'succeeded']
+
+  always:
+    - name: Remove what was made
+      module_defaults:
+        group/chistokhinsv.ansible_flow.afs:
+          url: "{{ afs_url }}"
+          token: "{{ afs_token }}"
+          validate_certs: "{{ afs_validate_certs }}"
+      block:
+        # A project with a run still going is not deleted: wait for it, whatever failed above.
+        - name: Wait for the second run to end before cleaning up
+          chistokhinsv.ansible_flow.run_info:
+            run_id: "{{ run_nowait.id }}"
+          register: second
+          until: second.finished
+          retries: 90
+          delay: 5
+          when: run_nowait.id is defined
+          ignore_errors: true
+
+        - name: Remove the launch configuration
+          chistokhinsv.ansible_flow.launch_config:
+            workspace: "{{ afs_ws }}"
+            project: "{{ afs_project }}"
+            name: Hello localhost
+            state: absent
+          ignore_errors: true
+
+        - name: Remove the project
+          chistokhinsv.ansible_flow.project:
+            workspace: "{{ afs_ws }}"
+            key: "{{ afs_project }}"
+            state: absent
+          ignore_errors: true
+
+        - name: Remove the workspace
+          chistokhinsv.ansible_flow.workspace:
+            key: "{{ afs_ws }}"
+            state: absent

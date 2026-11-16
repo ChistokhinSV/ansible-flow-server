@@ -2,12 +2,17 @@
 # section, and it carries the native install bundles (scripts/bundle.sh) for linux-x64 and
 # linux-arm64, each with its SHA-256. The container image is image.yml's.
 #
-# Runs while the repository variable AFD_PACKAGES_ON_NPM is "true", as CI.
+# The bundles run while the repository variable AFD_PACKAGES_ON_NPM is "true", as CI.
+#
+# AFS-98: the Ansible collection chistokhinsv.ansible_flow (collection/) goes to Ansible Galaxy on
+# a version tag too, and on a collection tag (collection-v1.2.3) while the server has no release
+# of its own. Its galaxy.yml version must match the tag; a version Galaxy has already is skipped.
+# The secret ANSIBLE_GALAXY_TOKEN is the Galaxy API key.
 name: Release
 
 on:
   push:
-    tags: ["v*.*.*"]
+    tags: ["v*.*.*", "collection-v*.*.*"]
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ concurrency:
 
 jobs:
   bundle:
-    if: vars.AFD_PACKAGES_ON_NPM == 'true'
+    if: startsWith(github.ref_name, 'v') && vars.AFD_PACKAGES_ON_NPM == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -83,3 +88,62 @@ jobs:
             gh release create "$TAG" out/bundle/* --title "Ansible Flow Server $VERSION" \
               --notes-file "$RUNNER_TEMP/notes.md"
           fi
+
+  galaxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: collection/ansible_collections/chistokhinsv/ansible_flow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Ansible
+        run: pip install --quiet "ansible-core==2.22.*" pytest
+
+      - name: Version matches the tag
+        id: version
+        run: |
+          WANT=${GITHUB_REF_NAME#collection-}
+          WANT=${WANT#v}
+          HAVE=$(python -c "import yaml; print(yaml.safe_load(open('galaxy.yml'))['version'])")
+          if [ "$WANT" != "$HAVE" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the collection's version $HAVE (galaxy.yml)"
+            exit 1
+          fi
+          echo "version=$HAVE" >> "$GITHUB_OUTPUT"
+
+      - name: Sanity and unit tests
+        run: |
+          ansible-test sanity --python 3.12 --requirements
+          ansible-test units --python 3.12 --requirements
+
+      - name: Build
+        run: ansible-galaxy collection build --output-path "$RUNNER_TEMP/dist"
+
+      - name: Already on Galaxy?
+        id: galaxy
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BASE=https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/chistokhinsv/ansible_flow/versions/$VERSION/")
+          echo "published=$([ "$CODE" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        if: steps.galaxy.outputs.published != 'true'
+        env:
+          ANSIBLE_GALAXY_TOKEN: ${{ secrets.ANSIBLE_GALAXY_TOKEN }}
+        run: ansible-galaxy collection publish "$RUNNER_TEMP"/dist/*.tar.gz --api-key "$ANSIBLE_GALAXY_TOKEN"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collection
+          path: ${{ runner.temp }}/dist
+          if-no-files-found: error

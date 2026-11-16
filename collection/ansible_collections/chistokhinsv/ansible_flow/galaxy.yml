@@ -1,0 +1,32 @@
+namespace: chistokhinsv
+name: ansible_flow
+version: 0.0.1
+readme: README.md
+authors:
+  - Sergei Chistokhin (@ChistokhinSV)
+description: >-
+  Drive Ansible Flow Server from playbooks: launch runs and gate on them, decide approvals,
+  and keep workspaces, projects, launch configurations, credentials, schedules and grants as code.
+license:
+  - MIT
+tags:
+  - ansible_flow
+  - automation
+  - workflow
+  - approvals
+  - tools
+dependencies: {}
+repository: https://github.com/ChistokhinSV/ansible-flow-server
+documentation: https://github.com/ChistokhinSV/ansible-flow-server/tree/main/collection/ansible_collections/chistokhinsv/ansible_flow
+homepage: https://github.com/ChistokhinSV/ansible-flow-server
+issues: https://github.com/ChistokhinSV/ansible-flow-server/issues
+build_ignore:
+  - .gitignore
+  - "*.tar.gz"
+  - tests/output
+  - "**/__pycache__"
+  - "**/*.pyc"
+  - .pytest_cache
+  - "**/.pytest_cache"
+  - tests/integration/inventory
+  - tests/integration/integration_config.yml
