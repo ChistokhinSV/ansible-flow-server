@@ -135,6 +135,13 @@ describe('execution environments', () => {
     expect(within(now).getByText(IMAGE)).toBeTruthy();
     expect(within(now).getByText('2.19.4')).toBeTruthy();
     expect(within(now).getByText('ansible.netcommon')).toBeTruthy();
+    // The newest build's outcome is said at the top, not only in the history.
+    const status = screen
+      .getAllByRole('status')
+      .find((e) => /Built: build 1/.test(e.textContent ?? ''));
+    expect(status?.textContent).toMatch(
+      /is the image runs get now.*newest versions the spec allows/,
+    );
 
     const spec = screen.getByRole('heading', { name: 'Spec' }).closest('section') as HTMLElement;
     fireEvent.click(within(spec).getByRole('button', { name: 'Add a collection' }));
@@ -160,9 +167,12 @@ describe('execution environments', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Log' }));
     expect(await screen.findByText(/cisco\.ios latest -> 11\.7\.0/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Build now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Build again' }));
     expect(await screen.findByRole('button', { name: 'Building…' })).toBeTruthy();
     expect(screen.getByText('waiting')).toBeTruthy();
+    expect(
+      screen.getByText(/Build 2 is waiting to start. Runs get the previous image/),
+    ).toBeTruthy();
   });
 
   it('ro reads and changes nothing', async () => {
@@ -174,7 +184,7 @@ describe('execution environments', () => {
     };
     open('/w/net/environments/e1');
     await screen.findByRole('heading', { name: 'Spec' });
-    expect(screen.queryByRole('button', { name: 'Build now' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Build/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save the spec' })).toBeNull();
     expect(screen.getByRole('link', { name: 'ansible-builder file' })).toBeTruthy();

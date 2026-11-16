@@ -397,6 +397,59 @@ function Builds({
   );
 }
 
+/**
+ * The newest build's outcome under the page's title, so the Build button coming back after a build
+ * does not read as "nothing happened" (AFS-91): built and in use, failed (and what runs get
+ * meanwhile), still going, or not built; and what building again would change.
+ */
+function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBuild }) {
+  if (!newest)
+    return (
+      <p className="notice" role="status">
+        Not built yet: runs cannot use this environment until a build is done.
+      </p>
+    );
+  // `latest`, a range or `2.19` may settle on newer versions at the next build; exact ones do not.
+  const exact = (v: string) => /^(==)?\d+\.\d+\.\d+$/.test(v.trim());
+  const floating =
+    env.kind === 'spec' &&
+    !!env.spec &&
+    (!exact(env.spec.ansibleCore) || env.spec.collections.some((c) => !exact(c.version)));
+  const changed = env.kind === 'spec' && env.updatedAt > newest.createdAt;
+  if (newest.state === 'queued' || newest.state === 'building')
+    return (
+      <p className="notice" role="status">
+        Build {newest.number} is {newest.state === 'queued' ? 'waiting to start' : 'building'}
+        {newest.startedAt && (
+          <>
+            {' '}
+            (started <Time at={newest.startedAt} />)
+          </>
+        )}
+        . Runs get {env.current ? 'the previous image' : 'no image'} until it is done.
+      </p>
+    );
+  if (newest.state === 'failed')
+    return (
+      <p className="notice error" role="status">
+        Build {newest.number} failed <Time at={newest.endedAt ?? newest.createdAt} />
+        {newest.error ? `: ${newest.error}` : ''}.{' '}
+        {env.current ? 'Runs still get the image of an earlier build.' : 'Runs get no image yet.'}
+      </p>
+    );
+  return (
+    <p className={`notice ${changed ? 'warn' : 'ok'}`} role="status">
+      Built: build {newest.number}, <Time at={newest.endedAt ?? newest.createdAt} />
+      {newest.image === env.current ? ', is the image runs get now' : ''}.{' '}
+      {changed
+        ? 'The spec changed after this build: build again to use the change.'
+        : floating
+          ? 'Building again takes the newest versions the spec allows, and makes a new image only if they changed.'
+          : 'The spec has not changed since: building again gives the same versions.'}
+    </p>
+  );
+}
+
 export function EnvironmentPage({ workspace, id }: { workspace: string; id: string }) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
   const load = useLoad(() => api.environment(id), [id]);
@@ -427,6 +480,10 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
       </>
     );
   const going = builds.data?.some((b) => b.state === 'queued' || b.state === 'building');
+  const newest = builds.data?.reduce<EnvironmentBuild | undefined>(
+    (a, b) => (!a || b.number > a.number ? b : a),
+    undefined,
+  );
   return (
     <>
       {crumbs}
@@ -449,7 +506,15 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
               }
             }}
           >
-            {going ? 'Building…' : env.kind === 'spec' ? 'Build now' : 'Pull and read it'}
+            {going
+              ? 'Building…'
+              : env.kind === 'spec'
+                ? newest
+                  ? 'Build again'
+                  : 'Build now'
+                : newest
+                  ? 'Pull and read it again'
+                  : 'Pull and read it'}
           </button>
         )}
         {env.kind === 'spec' && (
@@ -488,6 +553,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
           {error}
         </p>
       )}
+      {builds.data && <BuildStatus env={env} newest={newest} />}
       <div className="columns">
         <section className="panel" aria-labelledby="now">
           <h2 id="now">What runs get now</h2>
