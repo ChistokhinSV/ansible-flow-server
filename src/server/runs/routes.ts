@@ -323,7 +323,7 @@ export function registerRuns(
       const run = await queue.cancel(request.params.id, me.login);
       if (!run) return reply.code(404).send(NONE);
       // AFS-28: a run stopped while it waits for approval asks nobody any more.
-      if (run.state === 'cancelled' && db) await closeGates(db, run.id);
+      if (run.state === 'cancelled' && db) await closeGates(db, run.id, me.login);
       hub?.publish(run.id, { kind: 'state' });
       request.log.info(
         { by: me.login, run: run.id, number: run.number, state: run.state },

@@ -1,8 +1,15 @@
 // AFS-109: a flow made, copied or deleted in the pages, each one commit (the files save).
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../src/web/api';
-import { copiedFlowText, FlowFileActions, keyOf, NewFlowForm } from '../../src/web/flowFiles';
+import {
+  copiedFlowText,
+  FlowFileActions,
+  FlowFileMenu,
+  keyOf,
+  NewFlowForm,
+} from '../../src/web/flowFiles';
 
 const project = {
   id: 'p1',
@@ -26,6 +33,28 @@ nodes:
   key: start
   type: start
 `;
+
+/** The flow page's part: the menu, and the form it opens. */
+function Page() {
+  const [doing, setDoing] = useState<'copy' | 'delete'>();
+  return (
+    <>
+      <FlowFileMenu onPick={setDoing} />
+      {doing && (
+        <FlowFileActions
+          workspace="net"
+          project={project}
+          file="flows/patch-web.flow.yaml"
+          name="Patch web servers"
+          commit={project.commit as string}
+          usedBy={['Nightly patch']}
+          doing={doing}
+          onDone={() => setDoing(undefined)}
+        />
+      )}
+    </>
+  );
+}
 
 let saved: unknown[];
 beforeEach(() => {
@@ -82,17 +111,10 @@ describe('flows in the pages', () => {
   });
 
   it('Copy writes the copy beside it; Delete says who runs it and deletes the file', async () => {
-    render(
-      <FlowFileActions
-        workspace="net"
-        project={project}
-        file="flows/patch-web.flow.yaml"
-        name="Patch web servers"
-        commit={project.commit as string}
-        usedBy={['Nightly patch']}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Copy…' }));
+    render(<Page />);
+    // AFS-110: Copy and Delete are in the head's More menu.
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy the flow…' }));
     const copy = screen.getByRole('region', { name: 'Copy the flow' });
     fireEvent.change(within(copy).getByLabelText('Name'), {
       target: { value: 'Patch db servers' },
@@ -106,7 +128,8 @@ describe('flows in the pages', () => {
       changes: [{ op: 'write', path: 'flows/patch-db-servers.flow.yaml' }],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete the flow…' }));
     const del = screen.getByRole('region', { name: 'Delete the flow' });
     expect(del.textContent).toContain('Nightly patch');
     fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
