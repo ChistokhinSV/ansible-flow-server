@@ -1,7 +1,7 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
 import type { RunView } from '@ansible-flow/core/protocol';
-import type { Grant, GrantLevel, Level } from '../server/access/types';
+import type { Grant, GrantLevel, GroupGrant, Level, UserReach } from '../server/access/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { Directory, DirectoryInput, DirectoryTest } from '../server/auth/ldap/types';
@@ -35,12 +35,15 @@ import type { FileChange, FileEntry } from '../server/projects/files';
 import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { LibrarySubflow } from '../server/projects/library';
 import type { Project, Push, Workspace } from '../server/projects/store';
+import type { LastRun } from '../server/runs/cursor';
 import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
 import type { SearchHit } from '../server/search/types';
 import type { Credential } from '../server/secrets/credentials';
 import type { CertificateInfo, CertificateState } from '../server/tls/types';
 
+/** Where a list of runs goes on after a run: what `before` takes for the next page. */
+export { runCursor } from '../server/runs/cursor';
 export type {
   AuditEntry,
   AuditFilter,
@@ -62,6 +65,8 @@ export type {
   Grant,
   GrantLevel,
   Group,
+  GroupGrant,
+  LastRun,
   LaunchConfig,
   LaunchConfigInput,
   LaunchForm,
@@ -82,6 +87,7 @@ export type {
   SmtpSettings,
   TokenInfo,
   User,
+  UserReach,
   WaitingApproval,
   Workspace,
 };
@@ -205,6 +211,20 @@ export interface WhoCan {
   approve: boolean;
   flows: { project: string; file: string; level: Level | null }[];
   through: string[];
+}
+
+/** What a list of runs is narrowed to. */
+export interface RunsFilter {
+  state?: string;
+  project?: string;
+  flow?: string;
+  /** A launch configuration's id: its runs. */
+  config?: string;
+  /** A login: the runs that person asked for. */
+  by?: string;
+  limit?: number;
+  /** The next page: `runCursor` of the last run shown (a time, a run's `createdAt`, works too). */
+  before?: string;
 }
 
 export const api = {
@@ -331,7 +351,7 @@ export const api = {
   changes: (id: string, from: string, to?: string) =>
     call<FlowChanges>('GET', `/projects/${id}/changes?from=${from}${to ? `&to=${to}` : ''}`),
 
-  runs: (filter: { project?: string; state?: string; limit?: number } = {}) =>
+  runs: (filter: RunsFilter = {}) =>
     call<Run[]>(
       'GET',
       `/runs?${new URLSearchParams(
@@ -482,6 +502,11 @@ export const api = {
   removeGrant: (id: string) => call<void>('DELETE', `/grants/${encodeURIComponent(id)}`),
   whoCan: (workspace: string) =>
     call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
+  /** What one person reaches, workspace by workspace (administrators). */
+  userAccess: (id: string) => call<UserReach>('GET', `/users/${encodeURIComponent(id)}/access`),
+  /** The grants that name a group, in every workspace (administrators). */
+  groupGrants: (id: string) =>
+    call<GroupGrant[]>('GET', `/groups/${encodeURIComponent(id)}/grants`),
   users: () => call<User[]>('GET', '/users'),
   groups: () => call<Group[]>('GET', '/groups'),
 

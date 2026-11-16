@@ -19,7 +19,6 @@ const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
     to: '/account',
   },
   { title: 'API reference', words: 'api reference openapi docs', to: '/docs/api' },
-  { title: 'Administration', words: 'administration admin settings', to: '/admin', admin: true },
   {
     title: 'People and groups',
     words: 'people users groups accounts service',

@@ -94,7 +94,8 @@ afterEach(() => {
 
 describe("a workspace's access", () => {
   it('lists grants, gives one on a flow, takes one back, and says who can do what', async () => {
-    window.history.replaceState(null, '', '/w/network');
+    // AFS-84: access is a tab of the workspace.
+    window.history.replaceState(null, '', '/w/network/-/access');
     render(<App />);
     const panel = (await screen.findByRole('heading', { name: 'Access' })).closest(
       'section',
@@ -102,6 +103,8 @@ describe("a workspace's access", () => {
     expect(await within(panel).findByRole('cell', { name: 'the whole workspace' })).toBeTruthy();
     expect(await within(panel).findByText('group:net-ops, user:omar')).toBeTruthy();
 
+    // Giving access is opened when wanted.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Give access' }));
     fireEvent.change(within(panel).getByLabelText('Who'), { target: { value: 'user:u2' } });
     fireEvent.click(within(panel).getByLabelText(/^ro:/));
     fireEvent.change(within(panel).getByLabelText('On'), { target: { value: 'p1' } });

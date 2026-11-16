@@ -1,13 +1,11 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useProjectAccess, WorkspaceAccess } from './access';
 import {
-  ApiError,
   api,
   type Branch,
-  type Draft,
   type FlowChanges,
   type FlowList,
   type FlowSummary,
@@ -17,12 +15,9 @@ import {
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
-import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link, navigate } from './router';
-import { RunList } from './runs';
-import type { ThemeChoice } from './theme';
-import { TokensPanel } from './tokens';
-import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { RunList, RunWords } from './runs';
+import { Copyable, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 // --- workspaces
 
@@ -198,7 +193,18 @@ function StartChoice({
   );
 }
 
-export function Workspace({ me, workspace }: { me: User; workspace: string }) {
+/** AFS-84: a workspace's tabs, by the end of their address. */
+export type WorkspaceTab = '' | '-/environments' | '-/credentials' | '-/access';
+
+export function Workspace({
+  me,
+  workspace,
+  tab = '',
+}: {
+  me: User;
+  workspace: string;
+  tab?: WorkspaceTab;
+}) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
   const projects = useLoad(() => api.projects(workspace), [workspace]);
   const [adding, setAdding] = useState(false);
@@ -313,28 +319,55 @@ export function Workspace({ me, workspace }: { me: User; workspace: string }) {
           </Form>
         </section>
       )}
-      {projects.data?.length === 0 && <p className="empty">No project in this workspace yet.</p>}
-      <ul className="cards">
-        {projects.data?.map((p) => (
-          <li key={p.id}>
-            <Link to={`/w/${workspace}/${p.key}`} className="card">
-              <strong>{p.name}</strong>
-              <span className="muted">
-                {p.key} · {p.hosted ? 'kept by this server' : 'external repository'} · {p.gitRef}
-              </span>
-              <SyncBadge project={p} />
-            </Link>
-          </li>
-        ))}
-      </ul>
       {space.data && (
+        <Tabs
+          label="Workspace"
+          base={`/w/${workspace}`}
+          current={tab}
+          tabs={[
+            {
+              key: '',
+              label: 'Projects',
+              ...(projects.data ? { count: projects.data.length } : {}),
+            },
+            { key: '-/environments', label: 'Execution environments' },
+            { key: '-/credentials', label: 'Credentials' },
+            // Grants are an administrator's: the others do not get the tab.
+            ...(me.admin ? [{ key: '-/access', label: 'Access' }] : []),
+          ]}
+        />
+      )}
+      {tab === '' && (
+        <>
+          {projects.data?.length === 0 && (
+            <p className="empty">No project in this workspace yet.</p>
+          )}
+          <ul className="cards">
+            {projects.data?.map((p) => (
+              <li key={p.id}>
+                <Link to={`/w/${workspace}/${p.key}`} className="card">
+                  <strong>{p.name}</strong>
+                  <span className="muted">
+                    {p.key} · {p.hosted ? 'kept by this server' : 'external repository'} ·{' '}
+                    {p.gitRef}
+                  </span>
+                  <SyncBadge project={p} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {space.data && tab === '-/environments' && (
         <WorkspaceEnvironments
           workspace={space.data.key}
           mayManage={space.data.level === 'admin' || space.data.level === 'rw'}
         />
       )}
-      {space.data && <WorkspaceCredentials workspace={space.data.key} admin={me.admin} />}
-      {me.admin && space.data && (
+      {space.data && tab === '-/credentials' && (
+        <WorkspaceCredentials workspace={space.data.key} admin={me.admin} />
+      )}
+      {me.admin && space.data && tab === '-/access' && (
         <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />
       )}
     </>
@@ -801,14 +834,22 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
   );
 }
 
+/** AFS-84: a project's tabs, by the end of their address (Files is a page of its own). */
+export type ProjectTab = '' | 'runs' | 'branches' | 'settings';
+
+/** How many runs a project's page asks for: its Runs tab lists them, Overview the newest few. */
+const RUNS_SHOWN = 100;
+
 export function ProjectPage({
   me,
   workspace,
   project: key,
+  tab = '',
 }: {
   me: User;
   workspace: string;
   project: string;
+  tab?: ProjectTab;
 }) {
   const found = useLoad(
     async () => (await api.projects(workspace)).find((p) => p.key === key),
@@ -819,7 +860,7 @@ export function ProjectPage({
   const access = useProjectAccess(id).data;
   const branchList = useLoad(async () => (id ? await api.branches(id) : undefined), [id]);
   const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
-  const runs = useLoad(async () => (id ? api.runs({ project: id, limit: 10 }) : []), [id]);
+  const runs = useLoad(async () => (id ? api.runs({ project: id, limit: RUNS_SHOWN }) : []), [id]);
   const flows = useLoad(
     async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),
     [id, project?.commit],
@@ -866,6 +907,8 @@ export function ProjectPage({
       </>
     );
   const address = `${window.location.origin}${project.gitPath}`;
+  const mayPush = me.admin || access?.workspace === 'rw';
+  const base = `/w/${workspace}/${key}`;
   return (
     <>
       {crumbs}
@@ -873,36 +916,232 @@ export function ProjectPage({
         title={project.name}
         lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
       >
-        {(me.admin || access?.workspace === 'rw') && !project.hosted && (
+        {mayPush && !project.hosted && (
           <button type="button" onClick={look} disabled={looking}>
             {looking ? 'Looking…' : 'Look at the source now'}
           </button>
         )}
       </PageHead>
-
-      <section className="panel" aria-labelledby="state">
-        <h2 id="state">State</h2>
-        <dl className="facts">
-          <dt>Source</dt>
-          <dd>
-            <SyncBadge project={project} />{' '}
-            {project.sync.error && <span className="bad-text">{project.sync.error}</span>}
+      {/* AFS-84: the project's state in one line; what it is set up with is on Settings. */}
+      <p className="statusline">
+        <SyncBadge project={project} />
+        <span>
+          runs <code>{project.gitRef}</code>
+        </span>
+        <span>
+          {project.commit ? (
+            <>
+              at <code>{project.commit.slice(0, 12)}</code>
+            </>
+          ) : (
+            'no commit yet'
+          )}
+        </span>
+        {project.sync.at && (
+          <span className="muted">
+            looked at <Time at={project.sync.at} />
+          </span>
+        )}
+        {project.library && <span className="badge">library</span>}
+        {project.sync.error && (
+          <span className="bad-text">
+            {project.sync.error}
             {needsSignIn(project.sync.error) && (
-              <div className="muted">
+              <>
+                {' '}
                 The repository asks for a sign-in
-                {me.admin ? ': choose what the project signs in with below.' : '.'}
+                {me.admin ? (
+                  <>
+                    : <Link to={`${base}/settings`}>choose what the project signs in with</Link>.
+                  </>
+                ) : (
+                  '.'
+                )}
+              </>
+            )}
+          </span>
+        )}
+      </p>
+      <Tabs
+        label="Project"
+        base={base}
+        current={tab}
+        tabs={[
+          { key: '', label: 'Overview' },
+          { key: 'runs', label: 'Runs' },
+          // Everything else in the repository (AFS-78) is a page of its own.
+          ...(project.commit ? [{ key: 'files', label: 'Files' }] : []),
+          {
+            key: 'branches',
+            label: 'Branches',
+            ...(branchList.data?.details ? { count: branchList.data.details.length } : {}),
+          },
+          { key: 'settings', label: 'Settings' },
+        ]}
+      />
+
+      {tab === '' && (
+        <>
+          {project.hosted && !project.commit && mayPush && (
+            <StartPanel project={project} onStarted={found.reload} />
+          )}
+
+          <LaunchConfigsSection me={me} workspace={workspace} project={project} />
+
+          <section className="panel" aria-labelledby="flows">
+            <h2 id="flows">Flows</h2>
+            {news && <FlowNews news={news} onDismiss={() => setNews(undefined)} />}
+            <Loading state={flows} />
+            {flows.data?.flows.length === 0 && (
+              <p className="muted">
+                {project.commit
+                  ? 'No flow in this project: a flow is a file named *.flow.yaml.'
+                  : 'Nothing yet: the project has no commit.'}
+              </p>
+            )}
+            <ul className="rows">
+              {flows.data?.flows.map((flow) => (
+                <li key={flow.file}>
+                  <FlowRow flow={flow} to={flowAddress(workspace, key, flow.file)} />
+                </li>
+              ))}
+            </ul>
+            {flows.data?.more && <p className="muted">There are more flows than are listed.</p>}
+          </section>
+
+          <section className="panel" aria-labelledby="runs">
+            <div className="panel-head">
+              <h2 id="runs">Recent runs</h2>
+              {!!runs.data?.length && <Link to={`${base}/runs`}>All runs of the project</Link>}
+            </div>
+            <Loading state={runs} />
+            {runs.data?.length === 0 && <p className="muted">None yet.</p>}
+            {!!runs.data?.length && <RunList runs={runs.data.slice(0, 5)} me={me} />}
+          </section>
+        </>
+      )}
+
+      {tab === 'runs' && (
+        <section aria-label="Runs of the project">
+          <Loading state={runs} />
+          {runs.data?.length === 0 && (
+            <p className="empty">No run yet. Runs start from a launch configuration.</p>
+          )}
+          {!!runs.data?.length && <RunList runs={runs.data} me={me} />}
+          {runs.data?.length === RUNS_SHOWN && (
+            <p className="muted">
+              The newest {RUNS_SHOWN} are listed. <Link to="/runs">All runs</Link> has the rest.
+            </p>
+          )}
+        </section>
+      )}
+
+      {tab === 'branches' && (
+        <>
+          <Loading state={branchList} />
+          {branchList.data && (
+            <BranchesPanel
+              project={project}
+              branches={branchList.data.details ?? []}
+              mayChange={mayPush}
+              admin={me.admin}
+              onChanged={() => {
+                branchList.reload();
+                found.reload();
+                pushes.reload();
+              }}
+            />
+          )}
+
+          <section className="panel" aria-labelledby="pushes">
+            <h2 id="pushes">Pushes through this server</h2>
+            <Loading state={pushes} />
+            {pushes.data?.length === 0 && <p className="muted">None yet.</p>}
+            {!!pushes.data?.length && (
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">When</th>
+                      <th scope="col">Who</th>
+                      <th scope="col">Branch</th>
+                      <th scope="col">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pushes.data.map((p) => (
+                      <tr key={p.id}>
+                        <td>
+                          <Time at={p.at} />
+                        </td>
+                        <td>{p.login}</td>
+                        <td>
+                          <code>{p.ref}</code>
+                        </td>
+                        <td>
+                          <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
+                          <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-          </dd>
-          <dt>Branch that runs</dt>
-          <dd>
-            <code>{project.gitRef}</code>
-          </dd>
-          <dt>Library</dt>
-          <dd>
-            {project.library
-              ? "Its flows' subflows are offered to every project (the Library page)."
-              : 'No'}{' '}
+          </section>
+        </>
+      )}
+
+      {tab === 'settings' && (
+        <>
+          {/* The repository holds every flow: it is for who has a level on the workspace. */}
+          {(me.admin || access?.workspace) && (
+            <section className="panel" aria-labelledby="git">
+              <h2 id="git">Work on it with git</h2>
+              <p>
+                <Copyable text={`git clone ${address}`} label="the clone command" />
+              </p>
+              <p className="muted">
+                The password is an <Link to="/account/tokens">access token</Link>; any user name
+                will do.
+                {project.hosted &&
+                  !project.commit &&
+                  ` The repository is empty: push a first commit to ${project.gitRef}.`}
+              </p>
+            </section>
+          )}
+
+          {!project.hosted && (
+            <section className="panel" aria-labelledby="source">
+              <h2 id="source">Source</h2>
+              <dl className="facts">
+                <dt>Repository</dt>
+                <dd>
+                  <code>{project.gitUrl}</code>
+                </dd>
+                <dt>Last look</dt>
+                <dd>
+                  <SyncBadge project={project} /> {project.sync.at && <Time at={project.sync.at} />}
+                </dd>
+              </dl>
+              {sshUrl(project.gitUrl) && (
+                <HostKey project={project} admin={me.admin} onChanged={found.reload} />
+              )}
+              {me.admin && signsIn(project.gitUrl) && (
+                <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
+              )}
+            </section>
+          )}
+
+          {me.admin && !project.hosted && <PushHook project={project} onChanged={found.reload} />}
+
+          <section className="panel" aria-labelledby="library">
+            <h2 id="library">Library</h2>
+            <p>
+              {project.library
+                ? "Its flows' subflows are offered to every project (the Library page)."
+                : 'Not a library: its subflows are offered to no other project.'}
+            </p>
             {me.admin && (
               <button
                 type="button"
@@ -911,134 +1150,9 @@ export function ProjectPage({
                 {project.library ? 'Stop offering' : 'Make it a library'}
               </button>
             )}
-          </dd>
-          <dt>Commit</dt>
-          <dd>
-            {project.commit ? <code>{project.commit.slice(0, 12)}</code> : 'none yet'}
-            {project.sync.at && (
-              <span className="muted">
-                {' '}
-                · looked at <Time at={project.sync.at} />
-              </span>
-            )}
-          </dd>
-        </dl>
-        {!project.hosted && sshUrl(project.gitUrl) && (
-          <HostKey project={project} admin={me.admin} onChanged={found.reload} />
-        )}
-        {me.admin && !project.hosted && signsIn(project.gitUrl) && (
-          <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
-        )}
-      </section>
-
-      {me.admin && !project.hosted && <PushHook project={project} onChanged={found.reload} />}
-
-      {project.hosted && !project.commit && (me.admin || access?.workspace === 'rw') && (
-        <StartPanel project={project} onStarted={found.reload} />
+          </section>
+        </>
       )}
-
-      {/* The repository holds every flow: it is for who has a level on the workspace. */}
-      {(me.admin || access?.workspace) && (
-        <section className="panel" aria-labelledby="git">
-          <h2 id="git">Work on it with git</h2>
-          <p>
-            <Copyable text={`git clone ${address}`} label="the clone command" />
-          </p>
-          <p className="muted">
-            The password is an <Link to="/account">access token</Link>; any user name will do.
-            {project.hosted &&
-              !project.commit &&
-              ` The repository is empty: push a first commit to ${project.gitRef}.`}
-          </p>
-        </section>
-      )}
-
-      <section className="panel" aria-labelledby="flows">
-        <div className="panel-head">
-          <h2 id="flows">Flows</h2>
-          {project.commit && (
-            // AFS-78: everything else in the repository.
-            <Link to={`/w/${workspace}/${key}/files`}>Files of the project</Link>
-          )}
-        </div>
-        {news && <FlowNews news={news} onDismiss={() => setNews(undefined)} />}
-        <Loading state={flows} />
-        {flows.data?.flows.length === 0 && (
-          <p className="muted">
-            {project.commit
-              ? 'No flow in this project: a flow is a file named *.flow.yaml.'
-              : 'Nothing yet: the project has no commit.'}
-          </p>
-        )}
-        <ul className="rows">
-          {flows.data?.flows.map((flow) => (
-            <li key={flow.file}>
-              <FlowRow flow={flow} to={flowAddress(workspace, key, flow.file)} />
-            </li>
-          ))}
-        </ul>
-        {flows.data?.more && <p className="muted">There are more flows than are listed.</p>}
-      </section>
-
-      <LaunchConfigsSection me={me} workspace={workspace} project={project} />
-
-      <section className="panel" aria-labelledby="runs">
-        <h2 id="runs">Recent runs</h2>
-        <Loading state={runs} />
-        {runs.data?.length === 0 && <p className="muted">None yet.</p>}
-        {!!runs.data?.length && <RunList runs={runs.data} me={me} />}
-      </section>
-
-      {branchList.data && (
-        <BranchesPanel
-          project={project}
-          branches={branchList.data.details ?? []}
-          mayChange={me.admin || access?.workspace === 'rw'}
-          admin={me.admin}
-          onChanged={() => {
-            branchList.reload();
-            found.reload();
-            pushes.reload();
-          }}
-        />
-      )}
-
-      <section className="panel" aria-labelledby="pushes">
-        <h2 id="pushes">Pushes through this server</h2>
-        <Loading state={pushes} />
-        {pushes.data?.length === 0 && <p className="muted">None yet.</p>}
-        {!!pushes.data?.length && (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Who</th>
-                  <th scope="col">Branch</th>
-                  <th scope="col">Change</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pushes.data.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      <Time at={p.at} />
-                    </td>
-                    <td>{p.login}</td>
-                    <td>
-                      <code>{p.ref}</code>
-                    </td>
-                    <td>
-                      <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
-                      <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
     </>
   );
 }
@@ -1061,9 +1175,11 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
         <span className="bad-text">{flow.problem}</span>
       </div>
     );
+  // The row leads to the flow; how its last run went leads to that run, so the row is not one
+  // link around everything.
   return (
-    <Link to={to} className="row">
-      <span>
+    <div className="row">
+      <Link to={to} className="row-main">
         <strong>{flow.name ?? flow.key ?? flow.file}</strong>
         <span className="muted">
           {' '}
@@ -1071,8 +1187,13 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
           {flow.version !== undefined && ` · version ${flow.version}`} · {flow.steps ?? 0}{' '}
           {flow.steps === 1 ? 'step' : 'steps'}
         </span>
-      </span>
+      </Link>
       <span className="badges">
+        {flow.lastRun && (
+          <Link to={`/runs/${flow.lastRun.id}`} className="last-run">
+            <span className="muted">last run</span> <RunWords state={flow.lastRun.state} />
+          </Link>
+        )}
         {flow.errors > 0 && (
           <span className="badge bad">
             {flow.errors} {flow.errors === 1 ? 'error' : 'errors'}
@@ -1085,405 +1206,7 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
         )}
         {flow.errors === 0 && flow.warnings === 0 && <span className="badge ok">no findings</span>}
       </span>
-    </Link>
-  );
-}
-
-// --- a flow
-
-/**
- * One flow on the designer's canvas, read-only. The designer is a page of its own
- * (viewer.html), shown here in a frame under the application's bar.
- */
-export function FlowPage({
-  workspace,
-  project: key,
-  file,
-  theme,
-}: {
-  workspace: string;
-  project: string;
-  file: string;
-  theme: ThemeChoice;
-}) {
-  const found = useLoad(
-    async () => (await api.projects(workspace)).find((p) => p.key === key),
-    [workspace, key],
-  );
-  const project = found.data;
-  const flows = useLoad(
-    async () => (project ? api.flows(project.id) : ({ flows: [] } as FlowList)),
-    [project?.id, project?.commit],
-  );
-  const flow = flows.data?.flows.find((f) => f.file === file);
-  const title = flow?.name ?? file.split('/').at(-1) ?? file;
-  // AFS-76: editing the flow's draft (rw on the flow), and the drafts there are.
-  const access = useProjectAccess(project?.id).data;
-  const mayEdit = !!access && (access.admin || access.flows?.[file] === 'rw');
-  const drafts = useLoad(
-    async () => (project ? api.drafts(project.id) : ([] as Draft[])),
-    [project?.id, project?.commit],
-  );
-  const waiting = drafts.data?.find((d) => d.file === file);
-  const [editing, setEditing] = useState<Draft>();
-  const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
-  const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
-  const [said, setSaid] = useState<string>();
-  const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
-  // AFS-79: the draft changed (an insert here, an edit by anyone): the library copies are read again.
-  const [changed, setChanged] = useState(0);
-  const reloadAll = useRef<() => void>(() => undefined);
-  reloadAll.current = () => {
-    found.reload();
-    drafts.reload();
-  };
-  const stopEditing = (words?: string) => {
-    setEditing(undefined);
-    setPeople([]);
-    setEdits([]);
-    setSaid(words);
-    reloadAll.current();
-  };
-  const stop = useRef(stopEditing);
-  stop.current = stopEditing;
-  // AFS-75: the designer's frame says which commit it shows after an Update.
-  const [shown, setShown] = useState<string>();
-  useEffect(() => {
-    const heard = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as {
-        type?: string;
-        commit?: string;
-        by?: string;
-        people?: { login: string; name: string }[];
-        steps?: string[];
-        level?: string;
-        at?: { x: number; y: number };
-      } | null;
-      if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
-      if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
-      if (data?.type === 'afs-draft-edit' && data.by) {
-        const by = data.by;
-        const steps = data.steps ?? [];
-        setEdits((e) => [{ by, steps, at: new Date().toISOString() }, ...e].slice(0, 5));
-        setChanged((n) => n + 1);
-      }
-      if (data?.type === 'afs-draft-saved')
-        stop.current(
-          `${data.by ?? 'Someone'} saved the draft${data.commit ? ` as ${data.commit.slice(0, 12)}` : ''}.`,
-        );
-      if (data?.type === 'afs-draft-gone')
-        stop.current(`${data.by ?? 'Someone'} discarded the draft.`);
-      // AFS-79: Insert Shared Subflow… on the canvas picks from the library here.
-      if (data?.type === 'afs-draft-insert-shared')
-        setInserting({ level: data.level ?? 'root', ...(data.at ? { at: data.at } : {}) });
-    };
-    window.addEventListener('message', heard);
-    return () => window.removeEventListener('message', heard);
-  }, []);
-  const commit = shown ?? project?.commit;
-  const viewer =
-    project &&
-    `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}${
-      editing ? `&draft=${encodeURIComponent(editing.id)}` : ''
-    }&theme=${theme === 'system' ? 'auto' : theme}`;
-  const edit = async () => {
-    if (!project) return;
-    setSaid(undefined);
-    try {
-      setEditing(await api.openDraft(project.id, file));
-    } catch (e) {
-      setSaid(messageOf(e));
-    }
-  };
-  return (
-    <div className="flow-page">
-      <div className="flow-head">
-        <nav aria-label="Breadcrumb" className="crumbs">
-          <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link>{' '}
-          / <Link to={`/w/${workspace}/${key}`}>{key}</Link> /{' '}
-          <span aria-current="page">{file}</span>
-        </nav>
-        <PageHead
-          title={title}
-          lead={
-            project && editing
-              ? `Editing a draft of ${project.gitRef} at ${editing.baseCommit.slice(0, 12)} · Save makes one commit`
-              : project && commit
-                ? `${project.gitRef} at ${commit.slice(0, 12)} · shown, not changed`
-                : undefined
-          }
-        >
-          {mayEdit && !editing && project?.commit ? (
-            <button type="button" onClick={() => void edit()}>
-              {waiting ? 'Open the draft' : 'Edit'}
-            </button>
-          ) : null}
-          {viewer && !editing && (
-            <a href={viewer} target="_blank" rel="noreferrer">
-              Open on its own page
-            </a>
-          )}
-        </PageHead>
-        {said ? (
-          <p className="notice" role="status">
-            {said}
-          </p>
-        ) : null}
-        {!editing && waiting ? (
-          <p className="notice" role="status">
-            Unsaved edits in the pages by{' '}
-            {waiting.editors.length ? waiting.editors.map((e) => e.name).join(', ') : 'nobody yet'}{' '}
-            (a draft since <Time at={waiting.createdAt} />
-            ).
-          </p>
-        ) : null}
-        {editing ? (
-          <DraftBar draft={editing} people={people} edits={edits} onDone={stopEditing} />
-        ) : null}
-        {editing && inserting ? (
-          <InsertFromLibrary
-            draft={editing}
-            where={inserting}
-            onDone={(words) => {
-              setInserting(undefined);
-              if (words) {
-                setSaid(words);
-                setChanged((n) => n + 1);
-              }
-            }}
-          />
-        ) : null}
-        {project?.commit ? (
-          <LibraryCopies
-            project={project}
-            file={file}
-            changed={changed}
-            {...(editing ? { editing } : {})}
-          />
-        ) : null}
-        <Loading state={found} />
-        {!found.loading && !found.error && !project && (
-          <p className="empty">There is no such project.</p>
-        )}
-      </div>
-      {viewer && project?.commit && (
-        <iframe
-          // A new commit, theme or draft is a new page for the designer.
-          key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
-          className="flow-frame"
-          src={viewer}
-          title={`The flow ${title} on the designer's canvas`}
-        />
-      )}
     </div>
-  );
-}
-
-/**
- * AFS-76: while a flow's draft is being edited: who is here, what the others changed lately,
- * Save (one commit, with a message) and Discard. A Save the branch's changes stand in the way of
- * lists the conflicts and offers to save with the draft's side.
- */
-function DraftBar({
-  draft,
-  people,
-  edits,
-  onDone,
-}: {
-  draft: Draft;
-  people: { login: string; name: string }[];
-  edits: { by: string; steps: string[]; at: string }[];
-  onDone(words?: string): void;
-}) {
-  const [message, setMessage] = useState('');
-  const [conflicts, setConflicts] = useState<{ id: string; label: string }[]>();
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const save = async (force = false) => {
-    setBusy(true);
-    setError(undefined);
-    try {
-      const done = await api.saveDraft(draft.id, {
-        ...(message.trim() ? { message: message.trim() } : {}),
-        ...(force ? { force } : {}),
-      });
-      onDone(
-        done.unchanged
-          ? 'Nothing to save: the flow is as the branch has it.'
-          : `Saved as ${done.commit.slice(0, 12)}.`,
-      );
-    } catch (e) {
-      if (e instanceof ApiError && e.details.conflicts) setConflicts(e.details.conflicts);
-      else setError(messageOf(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const discard = async () => {
-    if (!window.confirm("Discard the draft? Everyone's unsaved edits go.")) return;
-    try {
-      await api.discardDraft(draft.id);
-      onDone('The draft is discarded.');
-    } catch (e) {
-      setError(messageOf(e));
-    }
-  };
-  return (
-    <section className="panel draft-bar" aria-label="Editing">
-      <p>
-        <strong>Editing</strong> · here now:{' '}
-        {people.length ? people.map((p) => p.name).join(', ') : 'only you'}. Edits are shared at
-        once; Ctrl+Z takes back your own last one.
-      </p>
-      {edits.length ? (
-        <ul className="muted draft-edits">
-          {edits.map((e) => (
-            <li key={`${e.at}${e.by}`}>
-              {e.by} changed {e.steps.length ? e.steps.join(', ') : 'the flow'} (<Time at={e.at} />)
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {conflicts ? (
-        <div className="notice error" role="alert">
-          <p>The branch changed the same places since this draft began:</p>
-          <ul>
-            {conflicts.map((c) => (
-              <li key={c.id}>{c.label}</li>
-            ))}
-          </ul>
-          <button type="button" disabled={busy} onClick={() => void save(true)}>
-            Save with the draft's side
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <p className="notice error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <div className="draft-actions">
-        <input
-          aria-label="What changed (the commit's message)"
-          placeholder={`Edit ${draft.file}`}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
-        <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
-          Save
-        </button>
-        <button type="button" disabled={busy} onClick={() => onDone()}>
-          Stop editing
-        </button>
-        <button type="button" className="danger" disabled={busy} onClick={() => void discard()}>
-          Discard
-        </button>
-      </div>
-    </section>
-  );
-}
-
-// --- my account
-
-/** A webhook's address as a page shows it to someone who may not change it: its host only. */
-const hookHost = (url: string) => {
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}/…`;
-  } catch {
-    return 'set';
-  }
-};
-
-/**
- * Name and email address, which anyone changes for themself; the webhook, which only an
- * administrator sets (the server calls the address it is given). AFS-29.
- */
-function Profile({ me }: { me: User }) {
-  const [name, setName] = useState(me.name);
-  const [email, setEmail] = useState(me.email ?? '');
-  const [webhook, setWebhook] = useState(me.webhookUrl ?? '');
-  const [saved, setSaved] = useState(false);
-  return (
-    <section className="panel" aria-labelledby="profile">
-      <h2 id="profile">Profile</h2>
-      <p className="muted">
-        Notifications for you (approvals that wait for you, how your runs' approvals were decided)
-        go to your email address{me.admin ? ' and your webhook' : ''}.
-      </p>
-      <Form
-        submit="Save"
-        onSubmit={async () => {
-          setSaved(false);
-          const changed = await api.changeMe({
-            name: name.trim(),
-            email: email.trim() || null,
-            ...(me.admin ? { webhookUrl: webhook.trim() || null } : {}),
-          });
-          setName(changed.name);
-          setEmail(changed.email ?? '');
-          setWebhook(changed.webhookUrl ?? '');
-          setSaved(true);
-        }}
-      >
-        <Field
-          label="Display name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <Field
-          label="Email address"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        {me.admin ? (
-          <Field
-            label="Webhook"
-            type="url"
-            value={webhook}
-            onChange={(e) => setWebhook(e.target.value)}
-            hint="The event as JSON, with a text line chat tools show."
-          />
-        ) : (
-          <p>
-            <span className="muted">Webhook:</span>{' '}
-            {me.webhookUrl ? hookHost(me.webhookUrl) : 'none'}{' '}
-            <span className="muted">(set by an administrator)</span>
-          </p>
-        )}
-        {saved && (
-          <p className="notice ok" role="status">
-            Saved.
-          </p>
-        )}
-      </Form>
-    </section>
-  );
-}
-
-export function Account({ me }: { me: User }) {
-  return (
-    <>
-      <PageHead title="My account" lead={`${me.name} (${me.login})`} />
-      <Profile me={me} />
-      <TokensPanel
-        load={api.tokens}
-        add={api.addToken}
-        revoke={api.revokeToken}
-        none="You have no token."
-        intro={
-          <p className="muted">
-            A program signs in with a token instead of your password: git, the VS Code extension, a
-            script. A token acts as you. What a program can ask is in the{' '}
-            <Link to="/docs/api">API reference</Link>.
-          </p>
-        }
-      />
-    </>
   );
 }
 

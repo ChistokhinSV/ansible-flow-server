@@ -1,12 +1,14 @@
-// People and groups, for administrators (AFS-56): the list of accounts and groups with forms to
-// add them, a person's page (profile, administrator, disabled, password, groups, tokens, delete)
-// and a group's page (name, contacts, members, delete). The server keeps the rules (the last
-// administrator stays one, no one deletes themself); a refusal is shown as the server words it.
+// People and groups, for administrators (AFS-56): the accounts and the groups, a person's page
+// and a group's page. The server keeps the rules (the last administrator stays one, no one deletes
+// themself); a refusal is shown as the server words it.
+// AFS-87: people and groups are two tabs, each a table first with its add form behind a button; a
+// person's page starts with what they reach and ends with disable and delete; a group's page
+// starts with its members and the workspaces that name it.
 import { useEffect, useId, useState } from 'react';
 import { api, type Group, type User } from './api';
 import { Link, navigate } from './router';
 import { TokensPanel } from './tokens';
-import { Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 type Kind = 'person' | 'admin' | 'service';
 
@@ -24,7 +26,7 @@ const hookHost = (url?: string) => {
   }
 };
 
-function AddPerson({ onAdded }: { onAdded(): void }) {
+function AddPerson({ onAdded, onCancel }: { onAdded(user: User): void; onCancel(): void }) {
   const [input, setInput] = useState({
     login: '',
     name: '',
@@ -38,18 +40,18 @@ function AddPerson({ onAdded }: { onAdded(): void }) {
   return (
     <Form
       submit="Add"
+      onCancel={onCancel}
       onSubmit={async () => {
-        const user = await api.addUser({
-          login: input.login.trim(),
-          name: input.name.trim(),
-          ...(input.kind === 'admin' ? { admin: true } : {}),
-          ...(input.kind === 'service' ? { service: true } : {}),
-          ...(input.kind !== 'service' && input.password ? { password: input.password } : {}),
-          ...(input.email.trim() ? { email: input.email.trim() } : {}),
-        });
-        setInput({ login: '', name: '', kind: input.kind, password: '', email: '' });
-        onAdded();
-        navigate(`/admin/people/${user.id}`);
+        onAdded(
+          await api.addUser({
+            login: input.login.trim(),
+            name: input.name.trim(),
+            ...(input.kind === 'admin' ? { admin: true } : {}),
+            ...(input.kind === 'service' ? { service: true } : {}),
+            ...(input.kind !== 'service' && input.password ? { password: input.password } : {}),
+            ...(input.email.trim() ? { email: input.email.trim() } : {}),
+          }),
+        );
       }}
     >
       <Field
@@ -59,6 +61,7 @@ function AddPerson({ onAdded }: { onAdded(): void }) {
         required
         maxLength={64}
         autoComplete="off"
+        autoFocus
       />
       <Field label="Display name" value={input.name} onChange={set('name')} maxLength={200} />
       <div className="field">
@@ -94,17 +97,13 @@ function AddPerson({ onAdded }: { onAdded(): void }) {
   );
 }
 
-function AddGroup({ onAdded }: { onAdded(): void }) {
+function AddGroup({ onAdded, onCancel }: { onAdded(group: Group): void; onCancel(): void }) {
   const [name, setName] = useState('');
   return (
     <Form
       submit="Add group"
-      onSubmit={async () => {
-        const group = await api.addGroup({ name: name.trim() });
-        setName('');
-        onAdded();
-        navigate(`/admin/groups/${group.id}`);
-      }}
+      onCancel={onCancel}
+      onSubmit={async () => onAdded(await api.addGroup({ name: name.trim() }))}
     >
       <Field
         label="Group name"
@@ -112,104 +111,215 @@ function AddGroup({ onAdded }: { onAdded(): void }) {
         onChange={(e) => setName(e.target.value)}
         required
         maxLength={64}
+        autoFocus
       />
     </Form>
   );
 }
 
-export function PeoplePage() {
+/** Which accounts the people table shows. */
+type Show = '' | 'person' | 'admin' | 'service' | 'disabled';
+const SHOWS: [Show, string][] = [
+  ['', 'All'],
+  ['person', 'People'],
+  ['admin', 'Administrators'],
+  ['service', 'Service accounts'],
+  ['disabled', 'Disabled'],
+];
+const showsUser = (u: User, show: Show) =>
+  show === ''
+    ? true
+    : show === 'disabled'
+      ? u.disabled
+      : show === 'service'
+        ? u.service
+        : show === 'admin'
+          ? u.admin && !u.service
+          : !u.admin && !u.service;
+
+function PeopleTable({ users }: { users: User[] }) {
+  const [find, setFind] = useState('');
+  const [show, setShow] = useState<Show>('');
+  const words = find.trim().toLowerCase();
+  const rows = users.filter(
+    (u) => showsUser(u, show) && `${u.login} ${u.name}`.toLowerCase().includes(words),
+  );
+  return (
+    <>
+      <div className="filter-row">
+        <Field
+          label="Find"
+          type="search"
+          placeholder="Name or login"
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+        />
+        <fieldset className="chips">
+          <legend className="sr-only">Show</legend>
+          {SHOWS.map(([key, label]) => (
+            <label key={key || 'all'} className={show === key ? 'chip on' : 'chip'}>
+              <input
+                type="radio"
+                name="people-show"
+                value={key}
+                checked={show === key}
+                onChange={() => setShow(key)}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      </div>
+      {rows.length === 0 ? (
+        <p className="empty" role="status">
+          No one matches.
+        </p>
+      ) : (
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Kind</th>
+                <th scope="col">State</th>
+                <th scope="col">Groups</th>
+                <th scope="col">Last sign-in</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((u) => (
+                <tr key={u.id}>
+                  <td>
+                    <Link to={`/admin/people/${u.id}`}>{u.name || u.login}</Link>
+                    <div className="muted">{u.login}</div>
+                  </td>
+                  <td>{kindOf(u)}</td>
+                  <td>
+                    <span className={`badge ${u.disabled ? 'bad' : 'ok'}`}>
+                      {u.disabled ? 'disabled' : 'active'}
+                    </span>
+                  </td>
+                  <td>{u.groups.join(', ')}</td>
+                  <td>
+                    {u.service ? (
+                      <span className="muted">tokens only</span>
+                    ) : (
+                      <Time at={u.lastLoginAt} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function GroupsTable({ groups }: { groups: Group[] }) {
+  return (
+    <div className="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Group</th>
+            <th scope="col">Members</th>
+            <th scope="col">Email</th>
+            <th scope="col">Webhook</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr key={g.id}>
+              <td>
+                <Link to={`/admin/groups/${g.id}`}>{g.name}</Link>
+              </td>
+              <td>{g.members.length}</td>
+              <td>{g.email}</td>
+              <td>{hookHost(g.webhookUrl)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
+  // Both are read on either tab: the tabs show how many each holds.
   const users = useLoad(api.users, []);
   const groups = useLoad(api.groups, []);
+  // The tab whose add form is open; going to the other tab leaves it closed there.
+  const [adding, setAdding] = useState<'people' | 'groups'>();
+  const [added, setAdded] = useState<{ to: string; name: string }>();
+  const open = adding === tab;
+  const done = (to: string, name: string, reload: () => void) => {
+    setAdding(undefined);
+    setAdded({ to, name });
+    reload();
+  };
   return (
     <>
       <PageHead
         title="People and groups"
         lead="Who can sign in, who are administrators, and the groups that access levels and approvals name."
+      >
+        {!open && (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setAdded(undefined);
+              setAdding(tab);
+            }}
+          >
+            {tab === 'people' ? 'Add a person' : 'Add a group'}
+          </button>
+        )}
+      </PageHead>
+      <Tabs
+        label="People and groups"
+        base="/admin"
+        current={tab}
+        tabs={[
+          { key: 'people', label: 'People', count: users.data?.length },
+          { key: 'groups', label: 'Groups', count: groups.data?.length },
+        ]}
       />
-      <section aria-labelledby="people">
-        <h2 id="people">People</h2>
-        <Loading state={users} />
-        {!!users.data?.length && (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Kind</th>
-                  <th scope="col">State</th>
-                  <th scope="col">Groups</th>
-                  <th scope="col">Last sign-in</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.data.map((u) => (
-                  <tr key={u.id}>
-                    <td>
-                      <Link to={`/admin/people/${u.id}`}>{u.name || u.login}</Link>
-                      <div className="muted">{u.login}</div>
-                    </td>
-                    <td>{kindOf(u)}</td>
-                    <td>
-                      <span className={`badge ${u.disabled ? 'bad' : 'ok'}`}>
-                        {u.disabled ? 'disabled' : 'active'}
-                      </span>
-                    </td>
-                    <td>{u.groups.join(', ')}</td>
-                    <td>
-                      {u.service ? (
-                        <span className="muted">tokens only</span>
-                      ) : (
-                        <Time at={u.lastLoginAt} />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-      <div className="columns">
-        <section className="panel" aria-labelledby="add-person">
-          <h2 id="add-person">Add a person or service account</h2>
-          <AddPerson onAdded={users.reload} />
+      {open && tab === 'people' && (
+        <section className="panel sheet" aria-label="Add a person or service account">
+          <AddPerson
+            onCancel={() => setAdding(undefined)}
+            onAdded={(u) => done(`/admin/people/${u.id}`, u.name || u.login, users.reload)}
+          />
         </section>
-        <section className="panel" aria-labelledby="add-group">
-          <h2 id="add-group">Add a group</h2>
-          <AddGroup onAdded={groups.reload} />
+      )}
+      {open && tab === 'groups' && (
+        <section className="panel sheet" aria-label="Add a group">
+          <AddGroup
+            onCancel={() => setAdding(undefined)}
+            onAdded={(g) => done(`/admin/groups/${g.id}`, g.name, groups.reload)}
+          />
         </section>
-      </div>
-      <section aria-labelledby="groups">
-        <h2 id="groups">Groups</h2>
-        <Loading state={groups} />
-        {groups.data?.length === 0 && <p className="empty">No group yet.</p>}
-        {!!groups.data?.length && (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Group</th>
-                  <th scope="col">Members</th>
-                  <th scope="col">Email</th>
-                  <th scope="col">Webhook</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.data.map((g) => (
-                  <tr key={g.id}>
-                    <td>
-                      <Link to={`/admin/groups/${g.id}`}>{g.name}</Link>
-                    </td>
-                    <td>{g.members.length}</td>
-                    <td>{g.email}</td>
-                    <td>{hookHost(g.webhookUrl)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      )}
+      {added && (
+        <p className="notice ok" role="status">
+          Added <Link to={added.to}>{added.name}</Link>.
+        </p>
+      )}
+      {tab === 'people' ? (
+        <section aria-label="People">
+          <Loading state={users} />
+          {users.data && <PeopleTable users={users.data} />}
+        </section>
+      ) : (
+        <section aria-label="Groups">
+          <Loading state={groups} />
+          {groups.data?.length === 0 && <p className="empty">No group yet.</p>}
+          {!!groups.data?.length && <GroupsTable groups={groups.data} />}
+        </section>
+      )}
     </>
   );
 }
@@ -377,39 +487,114 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
   );
 }
 
+/** A grant's holder as the overview names it (`user:omar`, `group:netops`), in words. */
+const throughWords = (through: string) =>
+  through.startsWith('group:') ? `group ${through.slice(6)}` : 'their own grant';
+
+/**
+ * What a person reaches: their row of each workspace's "Who can do what", in one answer of the
+ * server. An administrator's answer is known without asking.
+ */
+function Reach({ user }: { user: User }) {
+  const load = useLoad(
+    () => api.userAccess(user.id),
+    // Their groups decide it too: a change of them is read again.
+    [user.id, user.groups.join(',')],
+  );
+  const rows = load.data?.workspaces ?? [];
+  return (
+    <>
+      <Loading state={load} />
+      {load.data && rows.length === 0 && <p className="muted">No access to any workspace.</p>}
+      {rows.length > 0 && (
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Workspace</th>
+                <th scope="col">Level</th>
+                <th scope="col">Flows of their own</th>
+                <th scope="col">Approves</th>
+                <th scope="col">Through</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ workspace, ...who }) => (
+                <tr key={workspace.id}>
+                  <td>
+                    <Link to={`/w/${workspace.key}`}>{workspace.name || workspace.key}</Link>
+                  </td>
+                  <td>{who.level && <span className="badge">{who.level}</span>}</td>
+                  <td>
+                    {who.flows.map((f) => (
+                      <div key={`${f.project}/${f.file}`}>
+                        <code>{f.file}</code>: {f.level}{' '}
+                        <span className="muted">in {f.project}</span>
+                      </div>
+                    ))}
+                  </td>
+                  <td>{who.approve ? 'yes' : ''}</td>
+                  <td className="muted">{who.through.map(throughWords).join(', ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function UserPage({ id, me }: { id: string; me: User }) {
   const load = useLoad(() => api.user(id), [id]);
   const [user, setUser] = useState<User>();
   useEffect(() => setUser(load.data), [load.data]);
+  const name = user ? user.name || user.login : undefined;
   return (
     <>
-      <p>
-        <Link to="/admin/people">People and groups</Link>
-      </p>
+      <nav aria-label="Breadcrumb" className="crumbs">
+        <Link to="/admin/people">People and groups</Link> /{' '}
+        <span aria-current="page">{name ?? 'person'}</span>
+      </nav>
       <Loading state={load} />
-      {user && (
+      {user && name && (
         <>
-          <PageHead
-            title={user.name || user.login}
-            lead={`${user.login} · ${kindOf(user)}${user.disabled ? ' · disabled' : ''}`}
-          />
+          <PageHead title={name} lead={user.login === name ? undefined : user.login} />
+          <p className="statusline">
+            <span>{kindOf(user)}</span>
+            <span className={`badge ${user.disabled ? 'bad' : 'ok'}`}>
+              {user.disabled ? 'disabled' : 'active'}
+            </span>
+            {user.service ? (
+              <span>signs in with tokens only</span>
+            ) : (
+              <span>
+                last sign-in <Time at={user.lastLoginAt} />
+              </span>
+            )}
+          </p>
+          <section className="panel" aria-labelledby="member-of">
+            <h2 id="member-of">Groups</h2>
+            {user.groups.length === 0 ? (
+              <p className="muted">In no group. Members are chosen on a group's page.</p>
+            ) : (
+              <p>
+                {user.groups.join(', ')}{' '}
+                <span className="muted">· members are chosen on a group's page</span>
+              </p>
+            )}
+          </section>
+          <section className="panel" aria-labelledby="reach">
+            <h2 id="reach">What they reach</h2>
+            {user.admin ? (
+              <p>Administrators may do everything.</p>
+            ) : (
+              <Reach key={`r-${user.id}`} user={user} />
+            )}
+          </section>
           <div className="columns">
             <UserProfile key={`p-${user.id}`} user={user} me={me} onSaved={setUser} />
-            <Standing user={user} me={me} onChanged={setUser} />
             {!user.service && <SetPassword user={user} />}
-            <section className="panel" aria-labelledby="member-of">
-              <h2 id="member-of">Groups</h2>
-              {user.groups.length === 0 ? (
-                <p className="muted">In no group.</p>
-              ) : (
-                <ul>
-                  {user.groups.map((g) => (
-                    <li key={g}>{g}</li>
-                  ))}
-                </ul>
-              )}
-              <p className="muted">Members are chosen on a group's page.</p>
-            </section>
           </div>
           <TokensPanel
             key={`t-${user.id}`}
@@ -425,6 +610,8 @@ export function UserPage({ id, me }: { id: string; me: User }) {
               </p>
             }
           />
+          {/* Last on the page: the part that takes access away. */}
+          <Standing user={user} me={me} onChanged={setUser} />
         </>
       )}
     </>
@@ -544,6 +731,56 @@ function Members({ group, onSaved }: { group: Group; onSaved(g: Group): void }) 
   );
 }
 
+/** The workspaces whose grants name the group, with the level and what it is on. */
+function NamedIn({ group }: { group: Group }) {
+  const load = useLoad(() => api.groupGrants(group.id), [group.id]);
+  const rows = load.data ?? [];
+  return (
+    <section className="panel" aria-labelledby="named-in">
+      <h2 id="named-in">Where it is named</h2>
+      <Loading state={load} />
+      {load.data && rows.length === 0 && (
+        <p className="muted">No workspace gives this group a level.</p>
+      )}
+      {rows.length > 0 && (
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Workspace</th>
+                <th scope="col">Level</th>
+                <th scope="col">On</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ workspace, ...grant }) => (
+                <tr key={grant.id}>
+                  <td>
+                    <Link to={`/w/${workspace.key}`}>{workspace.name || workspace.key}</Link>
+                  </td>
+                  <td>
+                    <span className="badge">{grant.level}</span>
+                  </td>
+                  <td>
+                    {grant.flow ? (
+                      <>
+                        <code>{grant.flow.file}</code>{' '}
+                        <span className="muted">in {grant.flow.projectKey}</span>
+                      </>
+                    ) : (
+                      'the whole workspace'
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function GroupPage({ id }: { id: string }) {
   const load = useLoad(() => api.group(id), [id]);
   const [group, setGroup] = useState<Group>();
@@ -551,9 +788,10 @@ export function GroupPage({ id }: { id: string }) {
   useEffect(() => setGroup(load.data), [load.data]);
   return (
     <>
-      <p>
-        <Link to="/admin/people">People and groups</Link>
-      </p>
+      <nav aria-label="Breadcrumb" className="crumbs">
+        <Link to="/admin/groups">People and groups</Link> /{' '}
+        <span aria-current="page">{group?.name ?? 'group'}</span>
+      </nav>
       <Loading state={load} />
       {group && (
         <>
@@ -573,7 +811,7 @@ export function GroupPage({ id }: { id: string }) {
                   return;
                 try {
                   await api.deleteGroup(group.id);
-                  navigate('/admin/people');
+                  navigate('/admin/groups');
                 } catch (e) {
                   setError(messageOf(e));
                 }
@@ -588,9 +826,10 @@ export function GroupPage({ id }: { id: string }) {
             </p>
           )}
           <div className="columns">
-            <GroupProfile key={`g-${group.id}`} group={group} onSaved={setGroup} />
             <Members key={`m-${group.id}`} group={group} onSaved={setGroup} />
+            <NamedIn key={`n-${group.id}`} group={group} />
           </div>
+          <GroupProfile key={`g-${group.id}`} group={group} onSaved={setGroup} />
         </>
       )}
     </>

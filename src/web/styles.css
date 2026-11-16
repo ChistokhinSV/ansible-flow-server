@@ -684,6 +684,9 @@ section + .panel {
 }
 .scroll {
   overflow-x: auto;
+  /* A hidden label in a wide table (sr-only is absolute) stays inside the scroller, so the page
+     itself does not scroll sideways at phone width. */
+  position: relative;
 }
 table {
   border-collapse: collapse;
@@ -732,6 +735,20 @@ th {
 }
 a.row:hover strong {
   color: var(--link);
+}
+/* A row whose name leads one way and something at its end another: the name takes the room. */
+.row-main {
+  flex: 1 1 16rem;
+  color: var(--fg);
+  text-decoration: none;
+}
+a.row-main:hover strong {
+  color: var(--link);
+}
+.last-run {
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
 }
 .badges {
   display: flex;
@@ -1472,8 +1489,16 @@ textarea.code {
 .run-side .facts {
   font-size: 14px;
 }
+/* AFS-86: a host's name stays whole on one line (.mono breaks anywhere, which left it a letter
+   wide beside long words); a name longer than the column is cut with an ellipsis. */
 .hosts .mono {
   font-size: 13px;
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .why pre {
   margin: 0;
@@ -1671,4 +1696,169 @@ section + .columns,
   border-top: 0;
   padding-top: 0;
   margin-bottom: 0;
+}
+
+/* AFS-84: the parts of a page as tabs; each is an address. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--fg2);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tabs a:hover {
+  color: var(--fg);
+}
+.tabs a[aria-current="page"] {
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.tab-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.tab-alert {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bad);
+}
+
+/* AFS-84: something opened when needed: an add form, rarely used fields. */
+.fold {
+  margin: 0.75rem 0;
+}
+.fold > summary {
+  display: inline-block;
+  color: var(--fg2);
+  font-size: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+.fold > summary::before {
+  content: "▸ ";
+}
+.fold[open] > summary::before {
+  content: "▾ ";
+}
+.fold > summary:hover {
+  color: var(--fg);
+}
+.fold-body {
+  margin-top: 0.75rem;
+}
+
+/* AFS-84: a page's state in one line under its title: facts divided by dots. */
+.statusline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: -0.75rem 0 1.25rem;
+  color: var(--fg2);
+  font-size: 14px;
+}
+.statusline .bad-text {
+  flex-basis: 100%;
+}
+
+/* AFS-87: the filter above a list: a search box and its row of choices on one line. */
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+  margin: 0 0 1.25rem;
+}
+.filter-row .field {
+  flex: 0 1 16rem;
+}
+.filter-row .chips {
+  margin: 0;
+}
+
+/* AFS-88: choices under a section's heading, not under the page's title. */
+.chips.inset {
+  margin-top: 0;
+}
+
+/* AFS-86: a run's hosts: the words take the room beside the name, and go under it when the
+   name leaves too little. */
+.hosts .list > li > .item {
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+}
+.hosts .list .end {
+  display: block;
+  flex: 1 1 9rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* AFS-86: the links beside a run's actions (to the output, to all runs). */
+.run-head .actions {
+  align-items: center;
+}
+.run-link {
+  padding: 0.3rem 0.2rem;
+  font-size: 14px;
+  text-decoration: none;
+}
+/* AFS-86: the runs list: its choices on one line, and the way to older runs under it. */
+.run-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin: -0.5rem 0 1.25rem;
+}
+.run-filters .chips {
+  margin: 0;
+}
+.run-filters > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg2);
+  font-size: 13px;
+}
+.run-project {
+  max-width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 13px;
+}
+.run-more {
+  margin: 1rem 0 0;
+}
+
+/* AFS-85: a flow's page: a small head and one line of facts under it, so the canvas gets the room. */
+.flow-head .page-head {
+  align-items: center;
+  margin-bottom: 0.9rem;
+}
+.flow-head .page-head h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+.flow-head .flow-line {
+  margin: -0.5rem 0 0.6rem;
 }

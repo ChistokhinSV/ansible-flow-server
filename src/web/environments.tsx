@@ -155,7 +155,39 @@ const lines = (text: string) =>
     .map((l) => l.trim())
     .filter(Boolean);
 
-function SpecForm({ env, onSaved }: { env: Environment; onSaved(e: Environment): void }) {
+/** What saving the spec form sends; also what the saved spec would send, to tell unsaved changes. */
+function specBody(
+  keep: number,
+  spec: Omit<EnvironmentSpec, 'caCertificates'> & { caCertificates?: string },
+) {
+  return {
+    keep,
+    spec: {
+      baseImage: spec.baseImage,
+      ansibleCore: spec.ansibleCore,
+      collections: spec.collections
+        .filter((c) => c.name.trim())
+        .map((c) => ({ name: c.name, version: c.version })),
+      python: spec.python,
+      system: spec.system,
+      ...(spec.caCertificates?.trim() ? { caCertificates: spec.caCertificates } : {}),
+    },
+  };
+}
+
+/** Saves the spec form's changes; given to the page while there are unsaved ones (AFS-92). */
+export type SaveSpec = () => Promise<Environment>;
+
+function SpecForm({
+  env,
+  onSaved,
+  onDraft,
+}: {
+  env: Environment;
+  onSaved(e: Environment): void;
+  /** Told whether the form holds changes not saved, with how to save them. */
+  onDraft(save: SaveSpec | undefined): void;
+}) {
   const spec = env.spec as EnvironmentSpec;
   const [base, setBase] = useState(spec.baseImage);
   const [core, setCore] = useState(spec.ansibleCore);
@@ -170,24 +202,30 @@ function SpecForm({ env, onSaved }: { env: Environment; onSaved(e: Environment):
   const ids = { python: useId(), system: useId(), ca: useId() };
   const set = (i: number, part: 'name' | 'version', v: string) =>
     setCollections(collections.map((c, j) => (j === i ? { ...c, [part]: v } : c)));
+  const body = specBody(keep, {
+    baseImage: base,
+    ansibleCore: core,
+    collections,
+    python: lines(python),
+    system: lines(system),
+    caCertificates: ca,
+  });
+  const draft = JSON.stringify(body);
+  const dirty = draft !== JSON.stringify(specBody(env.keep, spec));
+  const save = async () => {
+    const changed = await api.changeEnvironment(env.id, body);
+    onSaved(changed);
+    return changed;
+  };
+  // The page's Build button builds the saved spec; while the form differs it offers to save first.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `save` is new each render; `draft` says when it changes
+  useEffect(() => onDraft(dirty ? save : undefined), [dirty, draft, onDraft]);
   return (
     <Form
       submit="Save the spec"
       onSubmit={async () => {
         setSaved(false);
-        onSaved(
-          await api.changeEnvironment(env.id, {
-            keep,
-            spec: {
-              baseImage: base,
-              ansibleCore: core,
-              collections: collections.filter((c) => c.name.trim()),
-              python: lines(python),
-              system: lines(system),
-              ...(ca.trim() ? { caCertificates: ca } : {}),
-            },
-          }),
-        );
+        await save();
         setSaved(true);
       }}
     >
@@ -397,6 +435,59 @@ function Builds({
   );
 }
 
+/**
+ * The newest build's outcome under the page's title, so the Build button coming back after a build
+ * does not read as "nothing happened" (AFS-91): built and in use, failed (and what runs get
+ * meanwhile), still going, or not built; and what building again would change.
+ */
+function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBuild }) {
+  if (!newest)
+    return (
+      <p className="notice" role="status">
+        Not built yet: runs cannot use this environment until a build is done.
+      </p>
+    );
+  // `latest`, a range or `2.19` may settle on newer versions at the next build; exact ones do not.
+  const exact = (v: string) => /^(==)?\d+\.\d+\.\d+$/.test(v.trim());
+  const floating =
+    env.kind === 'spec' &&
+    !!env.spec &&
+    (!exact(env.spec.ansibleCore) || env.spec.collections.some((c) => !exact(c.version)));
+  const changed = env.kind === 'spec' && env.updatedAt > newest.createdAt;
+  if (newest.state === 'queued' || newest.state === 'building')
+    return (
+      <p className="notice" role="status">
+        Build {newest.number} is {newest.state === 'queued' ? 'waiting to start' : 'building'}
+        {newest.startedAt && (
+          <>
+            {' '}
+            (started <Time at={newest.startedAt} />)
+          </>
+        )}
+        . Runs get {env.current ? 'the previous image' : 'no image'} until it is done.
+      </p>
+    );
+  if (newest.state === 'failed')
+    return (
+      <p className="notice error" role="status">
+        Build {newest.number} failed <Time at={newest.endedAt ?? newest.createdAt} />
+        {newest.error ? `: ${newest.error}` : ''}.{' '}
+        {env.current ? 'Runs still get the image of an earlier build.' : 'Runs get no image yet.'}
+      </p>
+    );
+  return (
+    <p className={`notice ${changed ? 'warn' : 'ok'}`} role="status">
+      Built: build {newest.number}, <Time at={newest.endedAt ?? newest.createdAt} />
+      {newest.image === env.current ? ', is the image runs get now' : ''}.{' '}
+      {changed
+        ? 'The spec changed after this build: build again to use the change.'
+        : floating
+          ? 'Building again takes the newest versions the spec allows, and makes a new image only if they changed.'
+          : 'The spec has not changed since: building again gives the same versions.'}
+    </p>
+  );
+}
+
 export function EnvironmentPage({ workspace, id }: { workspace: string; id: string }) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
   const load = useLoad(() => api.environment(id), [id]);
@@ -412,6 +503,9 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
     reloadEnv();
     reloadBuilds();
   }, [reloadEnv, reloadBuilds]);
+  // Set while the spec form holds changes not saved: Build then saves them first.
+  const [unsaved, setUnsaved] = useState<SaveSpec>();
+  const onDraft = useCallback((save: SaveSpec | undefined) => setUnsaved(() => save), []);
   const crumbs = (
     <nav aria-label="Breadcrumb" className="crumbs">
       <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
@@ -427,6 +521,10 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
       </>
     );
   const going = builds.data?.some((b) => b.state === 'queued' || b.state === 'building');
+  const newest = builds.data?.reduce<EnvironmentBuild | undefined>(
+    (a, b) => (!a || b.number > a.number ? b : a),
+    undefined,
+  );
   return (
     <>
       {crumbs}
@@ -442,6 +540,8 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
             onClick={async () => {
               setError(undefined);
               try {
+                // A build takes the saved spec: changes still in the form are saved first.
+                if (unsaved) await unsaved();
                 await api.buildEnvironment(env.id);
                 reload();
               } catch (e) {
@@ -449,7 +549,17 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
               }
             }}
           >
-            {going ? 'Building…' : env.kind === 'spec' ? 'Build now' : 'Pull and read it'}
+            {going
+              ? 'Building…'
+              : unsaved
+                ? 'Save and build'
+                : env.kind === 'spec'
+                  ? newest
+                    ? 'Build again'
+                    : 'Build now'
+                  : newest
+                    ? 'Pull and read it again'
+                    : 'Pull and read it'}
           </button>
         )}
         {env.kind === 'spec' && (
@@ -488,6 +598,13 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
           {error}
         </p>
       )}
+      {unsaved && !going && (
+        <p className="notice warn" role="status">
+          The spec has changes that are not saved. A build uses the saved spec: Save and build saves
+          them first.
+        </p>
+      )}
+      {builds.data && <BuildStatus env={env} newest={newest} />}
       <div className="columns">
         <section className="panel" aria-labelledby="now">
           <h2 id="now">What runs get now</h2>
@@ -532,7 +649,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
           <section className="panel" aria-labelledby="spec">
             <h2 id="spec">Spec</h2>
             {mayManage ? (
-              <SpecForm key={env.id} env={env} onSaved={setEnv} />
+              <SpecForm key={env.id} env={env} onSaved={setEnv} onDraft={onDraft} />
             ) : (
               <dl className="facts">
                 <dt>ansible-core</dt>

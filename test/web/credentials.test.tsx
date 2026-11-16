@@ -87,7 +87,7 @@ describe("a workspace's credentials", () => {
         },
       }),
     };
-    open('/w/network');
+    open('/w/network/-/credentials');
     const section = await panel();
     expect(await within(section).findByText('user name netops · private key')).toBeTruthy();
     expect(within(section).getByText('SSH key')).toBeTruthy();
@@ -135,7 +135,7 @@ describe("a workspace's credentials", () => {
       'GET /workspaces/network/projects': () => ({ body: [] }),
       'GET /workspaces/network/credentials': () => ({ body: [sshKey] }),
     };
-    open('/w/network');
+    open('/w/network/-/credentials');
     const section = await panel();
     await within(section).findByText('edge-ssh');
     expect(within(section).queryByRole('button')).toBeNull();
@@ -167,8 +167,8 @@ describe("a project's git credential", () => {
         return { body: edge };
       },
     };
-    open('/w/network/edge');
-    await screen.findByText(/The repository asks for a sign-in: choose/);
+    open('/w/network/edge/settings');
+    await screen.findByText(/The repository asks for a sign-in/);
     const choice = (await screen.findByLabelText('Signs in with')) as HTMLSelectElement;
     // Only what a git source can sign in with is offered.
     await waitFor(() =>
@@ -212,7 +212,7 @@ describe('an ssh source (AFS-60)', () => {
         return { body: edge };
       },
     };
-    open('/w/network/edge');
+    open('/w/network/edge/settings');
     await screen.findByText('ED25519 SHA256:ZmljdGlvbmFsIGhvc3Qga2V5');
     expect(screen.getByText(/another key than the one trusted/)).toBeTruthy();
     const choice = (await screen.findByLabelText('Signs in with')) as HTMLSelectElement;
@@ -261,7 +261,7 @@ describe('the push hook (AFS-61)', () => {
         };
       },
     };
-    open('/w/network/edge');
+    open('/w/network/edge/settings');
     const panel = (await screen.findByRole('heading', { name: 'Push hook' })).closest(
       'section',
     ) as HTMLElement;

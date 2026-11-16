@@ -1,6 +1,6 @@
 // Access tokens: a person's own on My account, and a service account's on its page (AFS-56). A
 // token is shown once, when it is made; the list shows its name, its last characters and what it
-// may do.
+// may do. The list comes first: making a token is behind a button (AFS-88).
 import { type ReactNode, useId, useState } from 'react';
 import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
 import { Copyable, Field, Form, Loading, Time, useLoad } from './ui';
@@ -11,6 +11,7 @@ export function TokensPanel({
   revoke,
   intro,
   none,
+  onChanged,
 }: {
   load: () => Promise<TokenInfo[]>;
   /** Absent: tokens are only seen and revoked here (another person makes their own). */
@@ -24,6 +25,8 @@ export function TokensPanel({
   revoke: (id: string) => Promise<void>;
   intro: ReactNode;
   none: string;
+  /** A token was made or revoked: a page that counts them counts again. */
+  onChanged?: () => void;
 }) {
   const list = useLoad(load, []);
   const workspaces = useLoad(api.workspaces, []);
@@ -37,6 +40,7 @@ export function TokensPanel({
   const workspaceName = (id?: string) =>
     id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
+  const [adding, setAdding] = useState(false);
   return (
     <section className="panel" aria-labelledby="tokens">
       <h2 id="tokens">Access tokens</h2>
@@ -100,6 +104,7 @@ export function TokensPanel({
                           return;
                         await revoke(t.id).catch(() => undefined);
                         list.reload();
+                        onChanged?.();
                       }}
                     >
                       Revoke
@@ -111,11 +116,18 @@ export function TokensPanel({
           </table>
         </div>
       )}
-      {add && (
-        <>
-          <h3>Make a token</h3>
+      {add && !adding && (
+        <div className="actions">
+          <button type="button" onClick={() => setAdding(true)}>
+            Make a token
+          </button>
+        </div>
+      )}
+      {add && adding && (
+        <section className="panel sheet" aria-label="Make a token">
           <Form
             submit="Make token"
+            onCancel={() => setAdding(false)}
             onSubmit={async () => {
               setMade(
                 await add({
@@ -127,7 +139,10 @@ export function TokensPanel({
                 }),
               );
               setInput({ ...input, name: '' });
+              // The form closes: what is left to look at is the token, shown this once.
+              setAdding(false);
               list.reload();
+              onChanged?.();
             }}
           >
             <Field
@@ -135,6 +150,7 @@ export function TokensPanel({
               value={input.name}
               onChange={(e) => setInput({ ...input, name: e.target.value })}
               required
+              autoFocus
               maxLength={100}
               placeholder="laptop git"
               hint="What will use it, so you know which one to revoke."
@@ -172,7 +188,7 @@ export function TokensPanel({
               onChange={(workspace) => setInput({ ...input, workspace })}
             />
           </Form>
-        </>
+        </section>
       )}
     </section>
   );

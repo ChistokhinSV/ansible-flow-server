@@ -12,7 +12,16 @@ import type { FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 
-import { type Grant, type GrantLevel, LEVELS, type Level } from './types';
+import {
+  type Grant,
+  type GrantLevel,
+  type GroupGrant,
+  LEVELS,
+  type Level,
+  type Reach,
+  type UserReach,
+  type WorkspaceName,
+} from './types';
 
 export { type Grant, type GrantLevel, LEVELS, type Level };
 
@@ -180,8 +189,11 @@ export const atLeast = (have: Level | undefined, need: Level) => !!have && RANK[
 
 // --- the grants themselves (administrators)
 
-export async function listGrants(db: Db, workspace: string): Promise<Grant[]> {
-  const rows = await db
+/** Whose grants, or where: of one workspace, or the ones that name one of these principals. */
+type GrantsOf = { workspace: string } | { principals: { type: 'user' | 'group'; ids: string[] }[] };
+
+async function readGrants(db: Db, of: GrantsOf): Promise<Grant[]> {
+  let query = db
     .selectFrom('access_grant')
     .leftJoin('user_account', (j) =>
       j
@@ -208,9 +220,25 @@ export async function listGrants(db: Db, workspace: string): Promise<Grant[]> {
       'user_group.name as group_name',
       'project.key as project_key',
     ])
-    .where('access_grant.workspace_id', '=', workspace)
     .orderBy('access_grant.created_at')
-    .execute();
+    // Grants given in the same moment come in the same order each time they are read.
+    .orderBy('access_grant.id');
+  if ('workspace' in of) query = query.where('access_grant.workspace_id', '=', of.workspace);
+  else {
+    const named = of.principals.filter((p) => p.ids.length);
+    if (!named.length) return [];
+    query = query.where((eb) =>
+      eb.or(
+        named.map((p) =>
+          eb.and([
+            eb('access_grant.principal_type', '=', p.type),
+            eb('access_grant.principal_id', 'in', p.ids),
+          ]),
+        ),
+      ),
+    );
+  }
+  const rows = await query.execute();
   return rows.map((r) => ({
     id: r.id,
     principal: {
@@ -226,6 +254,31 @@ export async function listGrants(db: Db, workspace: string): Promise<Grant[]> {
     createdAt: r.created_at,
     createdBy: r.created_by,
   }));
+}
+
+export const listGrants = (db: Db, workspace: string): Promise<Grant[]> =>
+  readGrants(db, { workspace });
+
+async function workspaceNames(db: Db, ids: string[]): Promise<Map<string, WorkspaceName>> {
+  if (!ids.length) return new Map();
+  const rows = await db
+    .selectFrom('workspace')
+    .select(['id', 'key', 'name'])
+    .where('id', 'in', ids)
+    .execute();
+  return new Map(rows.map((w) => [w.id, w]));
+}
+
+/** The grants that name a group, in every workspace, by the workspace's name. */
+export async function groupGrants(db: Db, group: string): Promise<GroupGrant[]> {
+  const grants = await readGrants(db, { principals: [{ type: 'group', ids: [group] }] });
+  const names = await workspaceNames(db, [...new Set(grants.map((g) => g.workspace))]);
+  return grants
+    .flatMap(({ principal: _principal, workspace, ...grant }) => {
+      const named = names.get(workspace);
+      return named ? [{ ...grant, workspace: named }] : [];
+    })
+    .sort((a, b) => a.workspace.name.localeCompare(b.workspace.name));
 }
 
 export interface NewGrant {
@@ -339,25 +392,79 @@ export async function whoCan(db: Db, workspace: string) {
     );
     if (!mine.length && user.is_admin !== 1) continue;
     const access = await Access.of(db, { id: user.id, admin: user.is_admin === 1 });
-    const flows = [
-      ...new Map(
-        mine.filter((g) => g.flow).map((g) => [`${g.flow?.project}/${g.flow?.file}`, g.flow]),
-      ).values(),
-    ].map((f) => ({
-      project: f?.projectKey as string,
-      file: f?.file as string,
-      level: access.onFlow(workspace, f?.project as string, f?.file as string) ?? null,
-    }));
+    const { level, ...reached } = reachIn(access, workspace, mine);
     out.push({
       user: { id: user.id, login: user.login, name: user.name },
       admin: user.is_admin === 1,
       disabled: user.disabled === 1,
       service: user.service === 1,
-      workspace: access.onWorkspace(workspace) ?? null,
-      approve: access.approves(workspace),
-      flows,
-      through: [...new Set(mine.map((g) => `${g.principal.type}:${g.principal.name}`))],
+      workspace: level,
+      ...reached,
     });
   }
   return out;
+}
+
+/**
+ * What a person reaches in one workspace, as their grants there (`mine`: their own and their
+ * groups') come out: the level on the workspace, the flows with a grant of their own, whether
+ * they approve, and whose grants gave it.
+ */
+function reachIn(access: Access, workspace: string, mine: Grant[]): Reach {
+  const flows = [
+    ...new Map(
+      mine.filter((g) => g.flow).map((g) => [`${g.flow?.project}/${g.flow?.file}`, g.flow]),
+    ).values(),
+  ].map((f) => ({
+    project: f?.projectKey as string,
+    file: f?.file as string,
+    level: access.onFlow(workspace, f?.project as string, f?.file as string) ?? null,
+  }));
+  return {
+    level: access.onWorkspace(workspace) ?? null,
+    approve: access.approves(workspace),
+    flows,
+    through: [...new Set(mine.map((g) => `${g.principal.type}:${g.principal.name}`))],
+  };
+}
+
+/**
+ * What one person reaches, workspace by workspace: only the workspaces where a grant names them
+ * or one of their groups. An administrator reaches everything: said with a flag, without rows.
+ * Undefined: no such user.
+ */
+export async function reachOf(db: Db, userId: string): Promise<UserReach | undefined> {
+  const user = await db
+    .selectFrom('user_account')
+    .select(['id', 'is_admin'])
+    .where('id', '=', userId)
+    .executeTakeFirst();
+  if (!user) return undefined;
+  if (user.is_admin === 1) return { admin: true, workspaces: [] };
+  const groups = await db
+    .selectFrom('group_member')
+    .select('group_id')
+    .where('user_id', '=', user.id)
+    .execute();
+  const grants = await readGrants(db, {
+    principals: [
+      { type: 'user', ids: [user.id] },
+      { type: 'group', ids: groups.map((g) => g.group_id) },
+    ],
+  });
+  const access = await Access.of(db, { id: user.id, admin: false });
+  const names = await workspaceNames(db, [...new Set(grants.map((g) => g.workspace))]);
+  return {
+    admin: false,
+    workspaces: [...names.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((workspace) => ({
+        workspace,
+        ...reachIn(
+          access,
+          workspace.id,
+          grants.filter((g) => g.workspace === workspace.id),
+        ),
+      })),
+  };
 }

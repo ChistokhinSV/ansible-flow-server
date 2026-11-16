@@ -89,7 +89,7 @@ describe('execution environments', () => {
       'GET /environments/e2': () => ({ body: { ...env, id: 'e2', name: 'awx' } }),
       'GET /environments/e2/builds': () => ({ body: [] }),
     };
-    open('/w/net');
+    open('/w/net/-/environments');
     const section = (
       await screen.findByRole('heading', { name: 'Execution environments' })
     ).closest('section') as HTMLElement;
@@ -135,6 +135,13 @@ describe('execution environments', () => {
     expect(within(now).getByText(IMAGE)).toBeTruthy();
     expect(within(now).getByText('2.19.4')).toBeTruthy();
     expect(within(now).getByText('ansible.netcommon')).toBeTruthy();
+    // The newest build's outcome is said at the top, not only in the history.
+    const status = screen
+      .getAllByRole('status')
+      .find((e) => /Built: build 1/.test(e.textContent ?? ''));
+    expect(status?.textContent).toMatch(
+      /is the image runs get now.*newest versions the spec allows/,
+    );
 
     const spec = screen.getByRole('heading', { name: 'Spec' }).closest('section') as HTMLElement;
     fireEvent.click(within(spec).getByRole('button', { name: 'Add a collection' }));
@@ -160,9 +167,49 @@ describe('execution environments', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Log' }));
     expect(await screen.findByText(/cisco\.ios latest -> 11\.7\.0/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Build now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Build again' }));
     expect(await screen.findByRole('button', { name: 'Building…' })).toBeTruthy();
     expect(screen.getByText('waiting')).toBeTruthy();
+    expect(
+      screen.getByText(/Build 2 is waiting to start. Runs get the previous image/),
+    ).toBeTruthy();
+  });
+
+  it('a build with spec changes not saved says so, and Save and build saves them first', async () => {
+    let builds = [env.latest];
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'rw' } }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: builds }),
+      'PATCH /environments/e1': (body) => ({
+        body: { ...env, ...(body as object), updatedAt: '2026-11-14T09:00:00.000Z' },
+      }),
+      'POST /environments/e1/builds': () => {
+        builds = [
+          { ...env.latest, id: 'b2', number: 2, state: 'queued', image: undefined } as never,
+          ...builds,
+        ];
+        return { status: 201, body: builds[0] };
+      },
+    };
+    open('/w/net/environments/e1');
+    const spec = (await screen.findByRole('heading', { name: 'Spec' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(screen.getByRole('button', { name: 'Build again' })).toBeTruthy();
+    fireEvent.change(within(spec).getByLabelText('Collection 1'), {
+      target: { value: 'fortinet.fortios' },
+    });
+    expect(await screen.findByText(/changes that are not saved/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save and build' }));
+    expect(await screen.findByRole('button', { name: 'Building…' })).toBeTruthy();
+    const order = asked.map((a) => a.key).filter((k) => /^(PATCH|POST) /.test(k));
+    expect(order).toEqual(['PATCH /environments/e1', 'POST /environments/e1/builds']);
+    expect(sent('PATCH /environments/e1')[0]).toMatchObject({
+      spec: { collections: [{ name: 'fortinet.fortios', version: 'latest' }] },
+    });
+    expect(screen.queryByText(/changes that are not saved/)).toBeNull();
   });
 
   it('ro reads and changes nothing', async () => {
@@ -174,7 +221,7 @@ describe('execution environments', () => {
     };
     open('/w/net/environments/e1');
     await screen.findByRole('heading', { name: 'Spec' });
-    expect(screen.queryByRole('button', { name: 'Build now' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Build/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save the spec' })).toBeNull();
     expect(screen.getByRole('link', { name: 'ansible-builder file' })).toBeTruthy();

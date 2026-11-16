@@ -126,6 +126,12 @@ for (const [name, config] of databases) {
         'workspace',
       ]);
       expect(doc.paths['/api/v1/meta'].get.security).toEqual([]);
+      // The filters of a list are its parameters.
+      expect(
+        doc.paths['/api/v1/runs'].get.parameters.map((p: { name: string }) => p.name).sort(),
+      ).toEqual(['before', 'by', 'config', 'flow', 'limit', 'project', 'state']);
+      expect(doc.paths['/api/v1/users/{id}/access'].get.description).toBe('Who: administrators.');
+      expect(doc.paths['/api/v1/groups/{id}/grants'].get.description).toBe('Who: administrators.');
       // Each described route is one the server has, and the other way round.
       let count = 0;
       for (const route of Object.keys(ROUTES)) {

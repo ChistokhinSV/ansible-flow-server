@@ -3,7 +3,9 @@
 // with a certificate and key), make a new self-signed one, roll back; the history. A refused
 // certificate is shown with every reason. And the banner every administrator sees while the
 // certificate has 30 days or fewer left.
-import { useEffect, useState } from 'react';
+// AFS-88: what is, then what happened, then what can be done: the certificate in use, the history,
+// and the ways to replace it, one form at a time.
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ApiError, api, type CertificateInfo, type CertificateState } from './api';
 import { Link } from './router';
 import { Field, Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -138,31 +140,25 @@ function PemField({
   );
 }
 
-function RequestPanel({
+function RequestForm({
   state,
   onDone,
+  onCancel,
 }: {
   state: CertificateState;
   onDone(s: CertificateState): void;
+  onCancel(): void;
 }) {
   const [names, setNames] = useState(state.host ?? state.defaultNames[0] ?? '');
   const [organization, setOrganization] = useState('');
   const action = useAction(onDone);
   return (
-    <section className="panel" aria-labelledby="request">
-      <h2 id="request">Request a certificate</h2>
+    <>
       <p className="muted">
         The server makes a new key, which never leaves it, and a request for your certificate
-        authority to sign. Install the signed certificate below; the request's key goes with it.
+        authority to sign. Install the signed certificate afterwards; the request's key goes with
+        it.{state.request ? ' A new request replaces the one that waits.' : ''}
       </p>
-      {state.request && (
-        <p className="notice" role="status">
-          A request waits for its signed certificate.{' '}
-          <a href="/api/v1/admin/certificate/request.pem" download>
-            Download the request
-          </a>
-        </p>
-      )}
       <form
         className="form"
         onSubmit={(e) => {
@@ -192,9 +188,12 @@ function RequestPanel({
           <button type="submit" className="primary" disabled={action.busy}>
             {state.request ? 'Make a new request' : 'Make the request'}
           </button>
+          <button type="button" onClick={onCancel} disabled={action.busy}>
+            Cancel
+          </button>
         </div>
       </form>
-    </section>
+    </>
   );
 }
 
@@ -208,7 +207,7 @@ async function base64Of(file: File): Promise<string> {
 }
 
 /** AFS-55: a PFX (PKCS#12) file, as Windows certificate authorities and appliances export them. */
-function PfxPanel({ onDone }: { onDone(s: CertificateState): void }) {
+function PfxForm({ onDone, onCancel }: { onDone(s: CertificateState): void; onCancel(): void }) {
   const [file, setFile] = useState<File>();
   const [passphrase, setPassphrase] = useState('');
   const [turn, setTurn] = useState(0);
@@ -219,8 +218,7 @@ function PfxPanel({ onDone }: { onDone(s: CertificateState): void }) {
     onDone(s);
   });
   return (
-    <section className="panel" aria-labelledby="install-pfx">
-      <h2 id="install-pfx">Install a PFX file</h2>
+    <>
       <p className="muted">
         A PFX (.pfx or .p12) holds the certificate, its chain and its key. They go through the same
         checks; the passphrase is used once and kept nowhere.
@@ -257,18 +255,23 @@ function PfxPanel({ onDone }: { onDone(s: CertificateState): void }) {
           <button type="submit" className="primary" disabled={action.busy || !file}>
             Install
           </button>
+          <button type="button" onClick={onCancel} disabled={action.busy}>
+            Cancel
+          </button>
         </div>
       </form>
-    </section>
+    </>
   );
 }
 
-function InstallPanel({
+function InstallForm({
   state,
   onDone,
+  onCancel,
 }: {
   state: CertificateState;
   onDone(s: CertificateState): void;
+  onCancel(): void;
 }) {
   const [certificate, setCertificate] = useState('');
   const [key, setKey] = useState('');
@@ -278,8 +281,7 @@ function InstallPanel({
     onDone(s);
   });
   return (
-    <section className="panel" aria-labelledby="install">
-      <h2 id="install">Install a certificate</h2>
+    <>
       <p className="muted">
         The signed certificate, its chain after it. Without a key it answers the waiting request
         {state.current ? ', or renews for the key in use' : ''}; with a key it replaces the
@@ -311,9 +313,12 @@ function InstallPanel({
           <button type="submit" className="primary" disabled={action.busy}>
             Install
           </button>
+          <button type="button" onClick={onCancel} disabled={action.busy}>
+            Cancel
+          </button>
         </div>
       </form>
-    </section>
+    </>
   );
 }
 
@@ -361,18 +366,78 @@ function History({ turn }: { turn: number }) {
   );
 }
 
+type Way = 'request' | 'install' | 'pfx';
+const WAYS: [Way, string][] = [
+  ['request', 'Request one from your certificate authority'],
+  ['install', 'Install a certificate (PEM)'],
+  ['pfx', 'Install a PFX file'],
+];
+
+/**
+ * The ways to replace the certificate: none chosen at first, so the page ends with three short
+ * choices and not three forms; the chosen one shows its form.
+ */
+function Replace({
+  way,
+  onWay,
+  children,
+}: {
+  way?: Way;
+  onWay(way: Way): void;
+  children: ReactNode;
+}) {
+  const label = WAYS.find(([key]) => key === way)?.[1];
+  return (
+    <section aria-labelledby="replace">
+      <h2 id="replace">Replace the certificate</h2>
+      <fieldset className="chips inset">
+        <legend className="sr-only">How</legend>
+        {WAYS.map(([key, text]) => (
+          <label key={key} className={way === key ? 'chip on' : 'chip'}>
+            <input
+              type="radio"
+              name="replace-way"
+              value={key}
+              checked={way === key}
+              onChange={() => onWay(key)}
+            />
+            {text}
+          </label>
+        ))}
+      </fieldset>
+      {label ? (
+        <section className="panel sheet" aria-label={label}>
+          {children}
+        </section>
+      ) : (
+        <p className="muted">Choose how. Nothing changes unless every check passes.</p>
+      )}
+    </section>
+  );
+}
+
 export function CertificatePage() {
   const load = useLoad(api.certificate, []);
   const [state, setState] = useState<CertificateState>();
   const [turn, setTurn] = useState(0);
   const [done, setDone] = useState<string>();
   useEffect(() => setState(load.data), [load.data]);
+  const [way, setWay] = useState<Way>();
+  const replace = useRef<HTMLDivElement>(null);
   const changed = (what: string) => (next: CertificateState) => {
     setState(next);
     setTurn((n) => n + 1);
     setDone(what);
   };
   const other = useAction(changed('Done. New connections get the certificate now.'));
+  // A form that did its work closes, and the page is shown from its top: what was done and the
+  // certificate in use are there.
+  const replaced = (what: string) => (next: CertificateState) => {
+    changed(what)(next);
+    setWay(undefined);
+    window.scrollTo?.(0, 0);
+  };
+  const cancel = () => setWay(undefined);
   return (
     <>
       <PageHead
@@ -440,18 +505,54 @@ export function CertificatePage() {
               </section>
             )}
           </div>
-          <div className="columns">
-            <RequestPanel
-              state={state}
-              onDone={changed('The request is made. Download it for your certificate authority.')}
-            />
-            <InstallPanel
-              state={state}
-              onDone={changed('Installed. New connections get the certificate now.')}
-            />
-            <PfxPanel onDone={changed('Installed. New connections get the certificate now.')} />
-          </div>
+          {state.request && (
+            <div className="notice" role="status">
+              <p>
+                A request waits for its signed certificate.{' '}
+                <a href="/api/v1/admin/certificate/request.pem" download>
+                  Download the request
+                </a>
+              </p>
+              <p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWay('install');
+                    replace.current?.scrollIntoView?.();
+                  }}
+                >
+                  Install the signed certificate
+                </button>
+              </p>
+            </div>
+          )}
           <History turn={turn} />
+          <div ref={replace}>
+            <Replace way={way} onWay={setWay}>
+              {way === 'request' && (
+                <RequestForm
+                  state={state}
+                  onCancel={cancel}
+                  onDone={replaced(
+                    'The request is made. Download it for your certificate authority.',
+                  )}
+                />
+              )}
+              {way === 'install' && (
+                <InstallForm
+                  state={state}
+                  onCancel={cancel}
+                  onDone={replaced('Installed. New connections get the certificate now.')}
+                />
+              )}
+              {way === 'pfx' && (
+                <PfxForm
+                  onCancel={cancel}
+                  onDone={replaced('Installed. New connections get the certificate now.')}
+                />
+              )}
+            </Replace>
+          </div>
         </>
       )}
     </>

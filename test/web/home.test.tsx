@@ -113,6 +113,58 @@ describe('home', () => {
     );
   });
 
+  it('offers to launch again what this person launched, newest first (AFS-85)', async () => {
+    const of = (n: number, id: string, more: object = {}) => ({
+      ...run(n, 'succeeded'),
+      config: { id, name: `Configuration ${id}` },
+      ...more,
+    });
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs?limit=100': () => ({
+        body: [
+          // Someone else's, a schedule's, and one whose configuration is gone: not offered.
+          of(9, 'c3', { requestedBy: { id: 'u2', login: 'omar' } }),
+          of(8, 'c4', { schedule: 's1' }),
+          of(7, 'c2'),
+          of(6, 'c1', { createdAt: minutesAgo(40) }),
+          of(5, 'c1', { createdAt: minutesAgo(90) }),
+          of(4, 'c5', { project: 'p7' }),
+          run(3, 'succeeded'),
+        ],
+      }),
+      'GET /approvals': () => ({ body: [gate('g1', 'Change approval', true)] }),
+      'GET /workspaces': () => ({
+        body: [{ id: 'w1', key: 'network', name: 'Network', projects: 1 }],
+      }),
+      'GET /workspaces/network/projects': () => ({
+        body: [{ id: 'p1', workspace: 'w1', key: 'core', name: 'Core' }],
+      }),
+      'GET /projects/p1/launch-configs': () => ({
+        body: [
+          { id: 'c1', project: 'p1', name: 'Nightly check' },
+          { id: 'c3', project: 'p1', name: 'Weekly real' },
+          { id: 'c4', project: 'p1', name: 'By the clock' },
+        ],
+      }),
+    };
+    render(<App />);
+    const again = (await screen.findByRole('heading', { name: 'Launch again' })).closest(
+      'section',
+    ) as HTMLElement;
+    const links = within(again).getAllByRole('link');
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/w/network/core/launch/c1']);
+    // The configuration as it is named now, its flow, and when it last ran.
+    expect(links[0]?.textContent).toContain('Nightly check');
+    expect(links[0]?.textContent).toContain('Firewall firmware upgrade · Core');
+    expect(links[0]?.textContent).toContain('last run 40 min ago');
+    // Between what waits and the latest runs.
+    const precedes = (a: Element, b: Element) =>
+      !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(precedes(screen.getByRole('heading', { name: 'Waiting for you' }), again)).toBe(true);
+    expect(precedes(again, screen.getByRole('heading', { name: 'Latest runs' }))).toBe(true);
+  });
+
   it('a quiet day says so', async () => {
     routes = {
       'GET /session': () => ({ body: dana }),
@@ -123,6 +175,7 @@ describe('home', () => {
     render(<App />);
     await screen.findByText('No run yet today. Nothing waits for you.');
     expect(screen.queryByRole('heading', { name: 'Waiting for you' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Launch again' })).toBeNull();
     expect(screen.getByText(/An administrator makes the first one/)).toBeTruthy();
   });
 });
