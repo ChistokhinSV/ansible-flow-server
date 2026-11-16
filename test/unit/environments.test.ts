@@ -322,6 +322,27 @@ for (const [name, config] of databases) {
       });
       expect(yml.body).toMatch(/Debian packages in the environment: iputils-ping/);
 
+      // The saved spec is what the file says, not the build's list: a collection added since is
+      // there as written, one whose wish moved past the build is no longer pinned to it.
+      await call('rita', 'PATCH', `/environments/${env.id}`, {
+        spec: {
+          ...env.spec,
+          collections: [
+            { name: 'cisco.ios', version: '>=12.0.0' },
+            { name: 'fortinet.fortios', version: '>=2.4' },
+          ],
+        },
+      });
+      const after = parse(
+        (await call('omar', 'GET', `/environments/${env.id}/execution-environment.yml`)).body,
+      );
+      expect(after.dependencies.galaxy.collections).toEqual(
+        expect.arrayContaining([
+          { name: 'cisco.ios', version: '>=12.0.0' },
+          { name: 'fortinet.fortios', version: '>=2.4' },
+        ]),
+      );
+
       const refused = await call('rita', 'DELETE', `/environments/${env.id}`);
       expect(refused.statusCode).toBe(409);
       expect(refused.json().message).toMatch(/launch configuration runs in it/);

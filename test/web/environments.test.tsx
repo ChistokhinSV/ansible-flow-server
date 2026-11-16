@@ -212,6 +212,39 @@ describe('execution environments', () => {
     expect(screen.queryByText(/changes that are not saved/)).toBeNull();
   });
 
+  it('the ansible-builder file with spec changes not saved saves them first', async () => {
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'rw' } }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: [env.latest] }),
+      'PATCH /environments/e1': (body) => ({
+        body: { ...env, ...(body as object), updatedAt: '2026-11-14T09:00:00.000Z' },
+      }),
+    };
+    const clicked: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push(this.getAttribute('href') ?? '');
+    });
+    open('/w/net/environments/e1');
+    const spec = (await screen.findByRole('heading', { name: 'Spec' })).closest(
+      'section',
+    ) as HTMLElement;
+    fireEvent.change(within(spec).getByLabelText('Collection 1'), {
+      target: { value: 'fortinet.fortios' },
+    });
+    fireEvent.click(await screen.findByRole('link', { name: 'Save and get ansible-builder file' }));
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    expect(new URL(clicked[0] ?? '', 'http://x').pathname).toBe(
+      '/api/v1/environments/e1/execution-environment.yml',
+    );
+    expect(sent('PATCH /environments/e1')).toHaveLength(1);
+    expect(await screen.findByRole('link', { name: 'ansible-builder file' })).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
   it('ro reads and changes nothing', async () => {
     routes = {
       'GET /session': () => ({ body: rita }),
@@ -224,6 +257,6 @@ describe('execution environments', () => {
     expect(screen.queryByRole('button', { name: /^Build/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save the spec' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'ansible-builder file' })).toBeTruthy();
+    expect(await screen.findByRole('link', { name: 'ansible-builder file' })).toBeTruthy();
   });
 });
