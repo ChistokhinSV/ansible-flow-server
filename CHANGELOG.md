@@ -108,6 +108,7 @@ Nothing is released yet.
 
 ### Changed
 
+- A check (skeleton) run passes its approvals by itself, as a skeleton run in VS Code does, and notifies nobody; only real runs wait for the approvers.
 - Built on Ansible Flow Designer 0.86.0.
 - Clearer pages: every approval waiting for you is tinted on Home, waiting is amber on the approvals pages too and Reject reads clearly beside Approve; the day's line on Home says how many runs failed and wait, not only how many went well; New branch, Make a token and Add a directory sit at the head of their sections; Keep as start values, To the output and a file's Download are buttons; a launch configuration's notification fields are Notify when and Recipients; the commit message field of a flow being edited is labelled; an empty library says how a project becomes one; an empty reason in the notifications log shows a dash.
 - The top bar is as wide as the page under it, so the search box ends where the page does, and a page's breadcrumbs sit in the bar beside it instead of a row of their own. On a flow's page, Full screen (the canvas, viewing or editing) and Open on its own page (with the draft while editing) are icon buttons beside Edit.

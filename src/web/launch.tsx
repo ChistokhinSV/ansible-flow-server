@@ -896,7 +896,9 @@ export function LaunchConfigPage({
                       checked={(mode ?? form.data?.mode ?? c.mode) === m}
                       onChange={() => setMode(m)}
                     />
-                    {m === 'check' ? 'Check: a skeleton run, nothing is changed' : 'Real'}
+                    {m === 'check'
+                      ? 'Check: a skeleton run, nothing is changed, approvals pass by themselves'
+                      : 'Real'}
                   </label>
                 ))}
               </fieldset>
