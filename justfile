@@ -59,6 +59,11 @@ web-dev:
 secrets *args: build
     node dist/server.js secrets {{ args }}
 
+# End-to-end suites against docker compose and the GNS3 lab (test/e2e/README.md):
+# `just e2e image`, `just e2e lab`, `just e2e browser`, `just e2e down`
+e2e what *args:
+    node test/e2e/run.mjs {{ what }} {{ args }}
+
 # Remove build output
 clean:
     node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })"

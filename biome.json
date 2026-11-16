@@ -6,7 +6,16 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!vendor", "!data", "!media/icons", "!design", "!test/fixtures"]
+    "includes": [
+      "**",
+      "!dist",
+      "!vendor",
+      "!data",
+      "!media/icons",
+      "!design",
+      "!test/fixtures",
+      "!test/e2e/repo"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -25,6 +34,9 @@
     "enabled": true,
     "rules": {
       "preset": "recommended"
+    },
+    "domains": {
+      "playwright": "none"
     }
   },
   "assist": {
@@ -33,5 +45,15 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["test/e2e/browser/**"],
+      "linter": {
+        "domains": {
+          "playwright": "recommended"
+        }
+      }
+    }
+  ]
 }

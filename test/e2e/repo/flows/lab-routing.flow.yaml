@@ -1,0 +1,146 @@
+schema_version: 2
+flow:
+  id: 01M7GVAT9CSSZRSS9J17VMCGVB
+  key: lab-routing
+  name: "Lab: route hosts by role"
+  version: 2
+  goal: Reach each lab host, then send web hosts and the others down different paths, so a run shows per-host routing.
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+nodes:
+  - id: 01M7GVAT9DX38F8RMVAS16R7K3
+    key: start
+    type: start
+    title: Start
+  - id: 01M7GVAT9DX38F8RMVAS16R7K4
+    key: done
+    type: end
+    title: Done
+    outcome: success
+  - id: 01M7GVB22N3Q8J1H9VT8TBXQ1V
+    key: reach
+    type: task
+    title: Reach the host
+    status: implemented
+    intent: Ansible reaches the host and runs Python there.
+    ports:
+      - unreachable
+    impl:
+      kind: module
+      ref: ansible.builtin.ping
+  - id: 01M7GVB22VMF16Q4FK9GXHNE4R
+    key: is-web
+    type: task
+    title: Is it a web host
+    status: implemented
+    intent: Web hosts pass; the others leave by failed_hosts to their own path.
+    impl:
+      kind: module
+      ref: ansible.builtin.assert
+      params:
+        that:
+          - inventory_hostname is match('web-')
+        quiet: true
+  - id: 01M7GVB231ZDH0RNHJJKT7G1XY
+    key: mark-web
+    type: task
+    title: Mark the web host
+    status: implemented
+    intent: Leave a file saying the run reached this host as a web host.
+    impl:
+      kind: module
+      ref: ansible.builtin.copy
+      params:
+        dest: /tmp/afs-e2e-route
+        content: "web\n"
+  - id: 01M7GVB237118NQS679SQ96R2Z
+    key: mark-other
+    type: task
+    title: Mark the other host
+    status: implemented
+    intent: Leave a file saying the run reached this host on the other path.
+    impl:
+      kind: module
+      ref: ansible.builtin.copy
+      params:
+        dest: /tmp/afs-e2e-route
+        content: "other\n"
+  - id: 01M7GVB23D4005S4385C8V4H62
+    key: other-done
+    type: end
+    title: Other done
+    outcome: success
+  - id: 01M7GVB23JNQT7DMP3J42BTJ02
+    key: not-reached
+    type: end
+    title: Not reached
+    outcome: failed
+edges:
+  - id: 01M7GVAT9DX38F8RMVAS16R7K5
+    from:
+      node: 01M7GVAT9DX38F8RMVAS16R7K3
+      port: ok_hosts
+    to:
+      node: 01M7GVB22N3Q8J1H9VT8TBXQ1V
+      port: in
+  - id: 01M7GVB22SZDYXVPN29FFWW5AX
+    from:
+      node: 01M7GVB22N3Q8J1H9VT8TBXQ1V
+      port: ok_hosts
+    to:
+      node: 01M7GVB22VMF16Q4FK9GXHNE4R
+      port: in
+  - id: 01M7GVB22ZF81XS5GMNEDFZGSM
+    from:
+      node: 01M7GVB22VMF16Q4FK9GXHNE4R
+      port: ok_hosts
+    to:
+      node: 01M7GVB231ZDH0RNHJJKT7G1XY
+      port: in
+  - id: 01M7GVB235SEP5380TRJYD6EYM
+    from:
+      node: 01M7GVB231ZDH0RNHJJKT7G1XY
+      port: ok_hosts
+    to:
+      node: 01M7GVAT9DX38F8RMVAS16R7K4
+      port: in
+  - id: 01M7GVB23B49ACBNHB155XFS47
+    from:
+      node: 01M7GVB22VMF16Q4FK9GXHNE4R
+      port: failed_hosts
+    to:
+      node: 01M7GVB237118NQS679SQ96R2Z
+      port: in
+  - id: 01M7GVB23FVA95096QQSW09WSS
+    from:
+      node: 01M7GVB237118NQS679SQ96R2Z
+      port: ok_hosts
+    to:
+      node: 01M7GVB23D4005S4385C8V4H62
+      port: in
+  - id: 01M7GVB23N1BG79NDZN77N9Y50
+    from:
+      node: 01M7GVB22N3Q8J1H9VT8TBXQ1V
+      port: unreachable
+    to:
+      node: 01M7GVB23JNQT7DMP3J42BTJ02
+      port: in
+decisions:
+  - kind: accepted
+    node: 01M7GVB22N3Q8J1H9VT8TBXQ1V
+    finding: port:failed_hosts
+    reason: A host that answers but cannot run Python fails the run.
+    by: Sergei Chistokhin
+  - kind: accepted
+    node: 01M7GVB231ZDH0RNHJJKT7G1XY
+    finding: port:failed_hosts
+    reason: "Test flow: a failure here fails the run."
+    by: Sergei Chistokhin
+  - kind: accepted
+    node: 01M7GVB237118NQS679SQ96R2Z
+    finding: port:failed_hosts
+    reason: "Test flow: a failure here fails the run."
+    by: Sergei Chistokhin

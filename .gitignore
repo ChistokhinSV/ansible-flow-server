@@ -17,3 +17,5 @@ Thumbs.db
 .claude/
 # Release bundles (scripts/bundle.sh)
 out/
+# What the end-to-end browser suite leaves after a failure (traces, screenshots)
+.e2e-results/

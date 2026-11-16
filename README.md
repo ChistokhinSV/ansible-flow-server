@@ -1671,20 +1671,21 @@ Backup written: /srv/backups/flows-2026-11-14.tar.gz
 
 ## Development
 
-| Command                    | Does                                                                                                                 |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `just install`             | Install exact dependencies from `package-lock.json`                                                                  |
-| `just afd-packages`        | Try an unreleased designer: pack its packages and install them from `vendor/`                                        |
-| `just check`               | Type-check (TypeScript) and lint and format check (Biome)                                                            |
-| `just fmt`                 | Apply formatting and safe lint fixes                                                                                 |
-| `just test [args]`         | Unit tests (Vitest; the pages in jsdom); with `AFS_TEST_POSTGRES_URL` set, the database tests also run on PostgreSQL |
-| `just build`               | Build the server and the web pages into `dist/`                                                                      |
-| `just web-dev`             | The pages with live reload (port 5180), against a server on port 8080 (`AFS_DEV_SERVER` to change)                   |
-| `just start`               | Build, then start the server                                                                                         |
-| `just check-flows <files>` | Build, then read the given flow files                                                                                |
-| `just cert <command>`      | Build, then run a certificate command                                                                                |
-| `just user <command>`      | Build, then run a user command                                                                                       |
-| `just secrets <command>`   | Build, then run a secrets command                                                                                    |
+| Command                    | Does                                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `just install`             | Install exact dependencies from `package-lock.json`                                                                              |
+| `just afd-packages`        | Try an unreleased designer: pack its packages and install them from `vendor/`                                                    |
+| `just check`               | Type-check (TypeScript) and lint and format check (Biome)                                                                        |
+| `just fmt`                 | Apply formatting and safe lint fixes                                                                                             |
+| `just test [args]`         | Unit tests (Vitest; the pages in jsdom); with `AFS_TEST_POSTGRES_URL` set, the database tests also run on PostgreSQL             |
+| `just build`               | Build the server and the web pages into `dist/`                                                                                  |
+| `just web-dev`             | The pages with live reload (port 5180), against a server on port 8080 (`AFS_DEV_SERVER` to change)                               |
+| `just start`               | Build, then start the server                                                                                                     |
+| `just check-flows <files>` | Build, then read the given flow files                                                                                            |
+| `just cert <command>`      | Build, then run a certificate command                                                                                            |
+| `just user <command>`      | Build, then run a user command                                                                                                   |
+| `just secrets <command>`   | Build, then run a secrets command                                                                                                |
+| `just e2e <suite>`         | End-to-end suites (`image`, `lab`, `browser`, `down`): the image in docker compose, flows on lab hosts; see `test/e2e/README.md` |
 
 Layout:
 
@@ -1694,6 +1695,7 @@ Layout:
 | `src/web/`     | The web pages (React, built by Vite into `dist/web`)            |
 | `test/web/`    | Tests of the web pages                                          |
 | `test/unit/`   | Unit tests; `test/fixtures/` has sample flows from the designer |
+| `test/e2e/`    | End-to-end suites: docker compose, a GNS3 lab, a browser        |
 | `scripts/`     | Build and package scripts                                       |
 | `CHANGELOG.md` | What changed, for people who use the server                     |
 | `docs/adr/`    | Architecture decisions, one file each                           |
