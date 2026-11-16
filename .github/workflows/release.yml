@@ -102,7 +102,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Ansible
         run: pip install --quiet "ansible-core==2.22.*" pytest
@@ -121,8 +121,8 @@ jobs:
 
       - name: Sanity and unit tests
         run: |
-          ansible-test sanity --python 3.12 --requirements
-          ansible-test units --python 3.12 --requirements
+          ansible-test sanity --python 3.13 --requirements
+          ansible-test units --python 3.13 --requirements
 
       - name: Build
         run: ansible-galaxy collection build --output-path "$RUNNER_TEMP/dist"
