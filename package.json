@@ -13,9 +13,9 @@
     "url": "https://github.com/ChistokhinSV/ansible-flow-server.git"
   },
   "dependencies": {
-    "@ansible-flow/assets": "0.91.0",
-    "@ansible-flow/core": "0.91.0",
-    "@ansible-flow/node": "0.91.0",
+    "@ansible-flow/assets": "0.92.0",
+    "@ansible-flow/core": "0.92.0",
+    "@ansible-flow/node": "0.92.0",
     "@modelcontextprotocol/server": "2.4.0",
     "@peculiar/x509": "3.1.0",
     "@prometheus-io/client": "0.16.1",
@@ -33,7 +33,7 @@
     "tar-stream": "3.2.2"
   },
   "devDependencies": {
-    "@ansible-flow/designer": "0.91.0",
+    "@ansible-flow/designer": "0.92.0",
     "@biomejs/biome": "2.6.7",
     "@codemirror/commands": "6.11.1",
     "@codemirror/lang-json": "6.0.2",
