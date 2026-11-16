@@ -407,6 +407,9 @@ export const api = {
     call<LaunchConfig>('PATCH', `/launch-configs/${encodeURIComponent(id)}`, input),
   deleteLaunchConfig: (id: string) =>
     call<void>('DELETE', `/launch-configs/${encodeURIComponent(id)}`),
+  /** AFS-100: administrators delete a project (refused while its runs go) or an empty workspace. */
+  deleteProject: (id: string) => call<void>('DELETE', `/projects/${encodeURIComponent(id)}`),
+  deleteWorkspace: (id: string) => call<void>('DELETE', `/workspaces/${encodeURIComponent(id)}`),
   launchForm: (id: string, query: { mode?: string; ref?: string; commit?: string } = {}) =>
     call<LaunchForm>('GET', `/launch-configs/${encodeURIComponent(id)}/form?${queryOf(query)}`),
   checkLaunch: (id: string, request: LaunchRequest) =>
