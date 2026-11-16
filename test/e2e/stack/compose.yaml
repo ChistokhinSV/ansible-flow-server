@@ -1,0 +1,55 @@
+# The stack the end-to-end suites run against (AFS-38): the server as its image (built from this
+# repository), PostgreSQL, Mailpit to catch email and a webhook catcher. Runs go in sibling
+# containers through the engine's socket, as in deploy/compose. Started and stopped by
+# test/e2e/stack.mjs; see test/e2e/README.md.
+name: afs-e2e
+
+services:
+  server:
+    image: ${AFS_E2E_IMAGE:-ansible-flow-server:e2e}
+    init: true
+    ports:
+      - "${AFS_E2E_PORT:-18443}:8443"
+    environment:
+      AFS_HOST: 0.0.0.0
+      AFS_PORT: "8443"
+      AFS_PUBLIC_URL: https://127.0.0.1:${AFS_E2E_PORT:-18443}
+      AFS_DATA_DIR: /var/lib/afs
+      AFS_DATABASE_URL: postgres://afs:e2e-only@postgres:5432/afs
+      AFS_EE_IMAGE: ${AFS_E2E_EE_IMAGE:-afd-ee:2.19}
+      AFS_LOG_LEVEL: info
+      AFS_MAX_RUNS_PER_PROJECT: "4"
+    volumes:
+      - afs-data:/var/lib/afs
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: afs
+      POSTGRES_DB: afs
+      POSTGRES_PASSWORD: e2e-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afs -d afs"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    ports:
+      - "${AFS_E2E_MAIL_PORT:-18025}:8025"
+
+  catcher:
+    image: node:24-trixie-slim
+    command: ["node", "/catcher.mjs"]
+    volumes:
+      - ./catcher.mjs:/catcher.mjs:ro
+    ports:
+      - "${AFS_E2E_CATCHER_PORT:-18090}:8080"
+
+volumes:
+  afs-data:

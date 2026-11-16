@@ -39,6 +39,17 @@ export default defineConfig({
         plugins: [react()],
         test: { name: 'web', environment: 'jsdom', include: ['test/web/**/*.test.tsx'] },
       },
+      {
+        // AFS-38: against the compose stack and the GNS3 lab; skipped unless AFS_E2E=1.
+        extends: true,
+        test: {
+          name: 'e2e',
+          environment: 'node',
+          include: ['test/e2e/**/*.test.ts'],
+          testTimeout: 600_000,
+          hookTimeout: 900_000,
+        },
+      },
     ],
   },
 });

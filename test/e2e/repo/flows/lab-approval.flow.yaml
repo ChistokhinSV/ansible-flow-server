@@ -1,0 +1,104 @@
+schema_version: 2
+flow:
+  id: 01M7GVB4F5GNKYH0C8V2BTN8BV
+  key: lab-approval
+  name: "Lab: change after approval"
+  version: 2
+  goal: Check the hosts, wait for the change board to approve, then make the change; a rejection stops it.
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+nodes:
+  - id: 01M7GVB4F5GNKYH0C8V2BTN8BW
+    key: start
+    type: start
+    title: Start
+  - id: 01M7GVB4F5GNKYH0C8V2BTN8BX
+    key: done
+    type: end
+    title: Done
+    outcome: success
+  - id: 01M7GVB9C1JBGTH0ZPN28NRECX
+    key: check
+    type: task
+    title: Check the host
+    status: implemented
+    intent: The host answers and runs Python.
+    impl:
+      kind: module
+      ref: ansible.builtin.ping
+  - id: 01M7GVB9C62V12GMY7VVX14W2J
+    key: approve
+    type: approval
+    title: Approve the change
+    status: implemented
+    approval:
+      approvers:
+        - change-board
+      message: Check the change ticket before you approve.
+  - id: 01M7GVB9CCAPB2ZY0KN8FS9MMV
+    key: change
+    type: task
+    title: Make the change
+    status: implemented
+    intent: Write the approved change marker on the host.
+    impl:
+      kind: module
+      ref: ansible.builtin.copy
+      params:
+        dest: /tmp/afs-e2e-change
+        content: "approved\n"
+  - id: 01M7GVB9CH21J8YTJYK52KZD5X
+    key: rejected
+    type: end
+    title: Rejected
+    outcome: failed
+edges:
+  - id: 01M7GVB4F5GNKYH0C8V2BTN8BY
+    from:
+      node: 01M7GVB4F5GNKYH0C8V2BTN8BW
+      port: ok_hosts
+    to:
+      node: 01M7GVB9C1JBGTH0ZPN28NRECX
+      port: in
+  - id: 01M7GVB9C5XPXJZDVPJK6Q5QSW
+    from:
+      node: 01M7GVB9C1JBGTH0ZPN28NRECX
+      port: ok_hosts
+    to:
+      node: 01M7GVB9C62V12GMY7VVX14W2J
+      port: in
+  - id: 01M7GVB9C8GCS6S1KVH3D7QWHC
+    from:
+      node: 01M7GVB9C62V12GMY7VVX14W2J
+      port: approved
+    to:
+      node: 01M7GVB9CCAPB2ZY0KN8FS9MMV
+      port: in
+  - id: 01M7GVB9CGXN8D0K8MDXRJPNEA
+    from:
+      node: 01M7GVB9CCAPB2ZY0KN8FS9MMV
+      port: ok_hosts
+    to:
+      node: 01M7GVB4F5GNKYH0C8V2BTN8BX
+      port: in
+  - id: 01M7GVB9CKGS4GEK0R8C5EEAXM
+    from:
+      node: 01M7GVB9C62V12GMY7VVX14W2J
+      port: rejected
+    to:
+      node: 01M7GVB9CH21J8YTJYK52KZD5X
+      port: in
+decisions:
+  - kind: accepted
+    node: 01M7GVB9C1JBGTH0ZPN28NRECX
+    finding: port:failed_hosts
+    reason: "Test flow: a host that fails the check fails the run."
+    by: Sergei Chistokhin
+  - kind: accepted
+    node: 01M7GVB9CCAPB2ZY0KN8FS9MMV
+    finding: port:failed_hosts
+    reason: "Test flow: a failure here fails the run."
+    by: Sergei Chistokhin
