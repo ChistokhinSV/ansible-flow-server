@@ -108,3 +108,4 @@ Nothing is released yet.
 
 - Finding a collection for an execution environment lists the collection named by the words first, and finds a full name such as `fortinet.fortios`, which found nothing before.
 - An execution environment's page says under its title how the newest build went: built and whether runs get its image, failed and what runs get meanwhile, or still going; whether the spec changed since, and whether building again can bring newer versions. The button reads Build again once built.
+- Building an execution environment while its spec has changes not saved no longer builds the old spec without a word: the page says the changes are not saved, and the button reads Save and build, which saves them first.

@@ -175,6 +175,43 @@ describe('execution environments', () => {
     ).toBeTruthy();
   });
 
+  it('a build with spec changes not saved says so, and Save and build saves them first', async () => {
+    let builds = [env.latest];
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'rw' } }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: builds }),
+      'PATCH /environments/e1': (body) => ({
+        body: { ...env, ...(body as object), updatedAt: '2026-11-14T09:00:00.000Z' },
+      }),
+      'POST /environments/e1/builds': () => {
+        builds = [
+          { ...env.latest, id: 'b2', number: 2, state: 'queued', image: undefined } as never,
+          ...builds,
+        ];
+        return { status: 201, body: builds[0] };
+      },
+    };
+    open('/w/net/environments/e1');
+    const spec = (await screen.findByRole('heading', { name: 'Spec' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(screen.getByRole('button', { name: 'Build again' })).toBeTruthy();
+    fireEvent.change(within(spec).getByLabelText('Collection 1'), {
+      target: { value: 'fortinet.fortios' },
+    });
+    expect(await screen.findByText(/changes that are not saved/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save and build' }));
+    expect(await screen.findByRole('button', { name: 'Building…' })).toBeTruthy();
+    const order = asked.map((a) => a.key).filter((k) => /^(PATCH|POST) /.test(k));
+    expect(order).toEqual(['PATCH /environments/e1', 'POST /environments/e1/builds']);
+    expect(sent('PATCH /environments/e1')[0]).toMatchObject({
+      spec: { collections: [{ name: 'fortinet.fortios', version: 'latest' }] },
+    });
+    expect(screen.queryByText(/changes that are not saved/)).toBeNull();
+  });
+
   it('ro reads and changes nothing', async () => {
     routes = {
       'GET /session': () => ({ body: rita }),
