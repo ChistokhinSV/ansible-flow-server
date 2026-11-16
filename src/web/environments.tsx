@@ -567,8 +567,24 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
             className="button"
             href={`/api/v1/environments/${encodeURIComponent(env.id)}/execution-environment.yml`}
             download
+            onClick={async (e) => {
+              // The file is made from the saved spec: changes still in the form are saved first.
+              if (!unsaved) return;
+              e.preventDefault();
+              const link = e.currentTarget;
+              setError(undefined);
+              try {
+                await unsaved();
+                const again = document.createElement('a');
+                again.href = link.href;
+                again.download = 'execution-environment.yml';
+                again.click();
+              } catch (err) {
+                setError(messageOf(err));
+              }
+            }}
           >
-            ansible-builder file
+            {unsaved ? 'Save and get ansible-builder file' : 'ansible-builder file'}
           </a>
         )}
         {mayManage && (
@@ -600,8 +616,8 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
       )}
       {unsaved && !going && (
         <p className="notice warn" role="status">
-          The spec has changes that are not saved. A build uses the saved spec: Save and build saves
-          them first.
+          The spec has changes that are not saved. A build and the ansible-builder file use the
+          saved spec: Save and build, or Save and get ansible-builder file, saves them first.
         </p>
       )}
       {builds.data && <BuildStatus env={env} newest={newest} />}

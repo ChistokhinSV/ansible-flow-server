@@ -17,6 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { satisfies } from '@ansible-flow/core/lens/requirements';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
@@ -32,7 +33,7 @@ import {
   specHash,
   specProblems,
 } from './dockerfile';
-import { type Galaxy, GalaxyError, resolveVersion } from './galaxy';
+import { exactVersion, type Galaxy, GalaxyError, resolveVersion } from './galaxy';
 import type {
   BuildState,
   Environment,
@@ -687,7 +688,13 @@ export class Environments {
     }
   }
 
-  /** The environment as ansible-builder v3 reads it: the newest good build's lock, else its spec. */
+  /**
+   * The environment as ansible-builder v3 reads it (AFS-93): its saved spec, never an older build's
+   * list. A collection (and ansible-core) is pinned to the version the newest good build installed
+   * when that version still meets the spec's wish; a collection the build did not have, or whose
+   * wish changed past it, is given as the spec writes it (`latest`, a range). Collections the build
+   * pulled in as dependencies are left to ansible-builder to resolve.
+   */
   async builderFile(id: string): Promise<string> {
     const [row] = await this.rows({ id });
     if (!row) throw new EnvironmentError('not_found', 'No such environment');
@@ -698,11 +705,24 @@ export class Environments {
     const lock = good?.lock_json
       ? (JSON.parse(good.lock_json) as { collections: Record<string, string>; ansibleCore: string })
       : undefined;
+    const meets = (has: string | undefined, want: string) => {
+      const wish = want.trim() || 'latest';
+      if (!has) return false;
+      if (wish === 'latest' || wish === '*') return true;
+      return exactVersion(wish) ? has === wish.replace(/^==/, '') : satisfies(has, wish);
+    };
+    const core = spec.ansibleCore.trim();
+    const coreFits =
+      !!lock && (lock.ansibleCore === core || lock.ansibleCore.startsWith(`${core}.`));
     return builderFile({
       baseImage: spec.baseImage,
-      ansibleCore: lock?.ansibleCore ?? spec.ansibleCore,
-      collections:
-        lock?.collections ?? Object.fromEntries(spec.collections.map((c) => [c.name, c.version])),
+      ansibleCore: coreFits && lock ? lock.ansibleCore : spec.ansibleCore,
+      collections: Object.fromEntries(
+        spec.collections.map((c) => {
+          const has = lock?.collections[c.name];
+          return [c.name, has && meets(has, c.version) ? has : c.version];
+        }),
+      ),
       python: spec.python,
       system: spec.system,
       ...(spec.caCertificates ? { caCertificates: spec.caCertificates } : {}),
