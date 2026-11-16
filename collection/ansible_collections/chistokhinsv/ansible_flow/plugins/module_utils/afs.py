@@ -474,6 +474,8 @@ def run_result(client, run, with_view=True):
         url=client.run_url(run_id),
         hosts=host_outcomes(view),
         summary=(view or {}).get("summary"),
+        # What the run gave back (its flow's outputs), per host.
+        outputs=((view or {}).get("summary") or {}).get("outputs") or {},
         approvals=client.run_approvals(run_id) if run.get("state") == "waiting" else [],
     )
     if run.get("error"):

@@ -186,6 +186,13 @@ hosts:
     edge-r2:
       status: failed
       reason: "open port fail of [backup]"
+outputs:
+  description:
+    - What the run gave back, per host - the flow's outputs (the designer's Run outputs) - once it ended. A host
+      without a value is left out; empty while the run goes on, and for a flow that gives nothing back.
+  returned: success
+  type: dict
+  sample: {edge-r1: {backup_file: /backups/edge-r1-2026-11-16.cfg}}
 summary:
   description: The run's summary as the server keeps it (per step and port, the hosts that left through it).
   returned: success, not in check mode

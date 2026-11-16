@@ -99,6 +99,13 @@ hosts:
   returned: success
   type: dict
   sample: {edge-r1: {status: ok}}
+outputs:
+  description:
+    - What the run gave back, per host - the flow's outputs (the designer's Run outputs) - once it ended. A host
+      without a value is left out; empty while the run goes on, and for a flow that gives nothing back.
+  returned: success
+  type: dict
+  sample: {edge-r1: {backup_file: /backups/edge-r1-2026-11-16.cfg}}
 summary:
   description: The run's summary from its view; null before the run started.
   returned: success
