@@ -1395,9 +1395,9 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/x-git-b
 
 ### Approvals
 
-A flow with **approval** steps on its top level runs in segments: the server runs it until hosts
-wait at an approval, records what waits and lets the run go (it takes no place among the runs
-going and holds no container). Someone allowed decides; the run then goes back to the queue and
+A **real** run of a flow with **approval** steps on its top level runs in segments: the server
+runs it until hosts wait at an approval, records what waits and lets the run go (it takes no
+place among the runs going and holds no container). Someone allowed decides; the run then goes back to the queue and
 continues with the hosts that waited, through the approval's `approved` or `rejected` port. A
 server that stops and starts again keeps the run waiting.
 
@@ -1411,6 +1411,8 @@ server that stops and starts again keeps the run waiting.
 - **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
   hosts take the approval's `timeout` port (or `rejected` when it has none).
 - **A stopped run** asks nobody any more.
+- **A check run** (skeleton) asks nobody: its approvals pass by themselves, as a skeleton run in
+  VS Code does, and nobody is notified. Launch a real run to have approvers decide.
 - The approval's `message` is shown to whoever decides and sent with the request to decide;
   `notify` names others who are told (see [Notifications](#notifications)).
 - Approvals inside subflows, or two that can wait at once, cannot be split: such a flow does not

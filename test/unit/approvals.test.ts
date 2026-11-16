@@ -90,6 +90,8 @@ beforeAll(async () => {
       flowFile: 'flows/change.flow.yaml',
       inventory: 'inventory/hosts.yaml',
       inputs: { devices: ['fw-edge-01'] },
+      // AFS-111: real runs wait for a person; check runs approve by themselves.
+      mode: 'real',
     })
   ).id;
   twoGates = (
@@ -98,6 +100,8 @@ beforeAll(async () => {
       flowFile: 'flows/two-gates.flow.yaml',
       inventory: 'inventory/hosts.yaml',
       inputs: { devices: ['fw-edge-01'] },
+      // AFS-111: real runs wait for a person; check runs approve by themselves.
+      mode: 'real',
     })
   ).id;
   // dana launches (an administrator); omar approves for the change board; gary may approve,
@@ -201,6 +205,28 @@ const call = (who: string, method: string, url: string, payload?: object) =>
 const segmentOf = (playbook: string) => /seg_([a-z-]+)\.yml$/.exec(playbook)?.[1];
 
 describe('a run of a flow with an approval', () => {
+  it('in check mode approves by itself, as a skeleton run in VS Code does (AFS-111)', async () => {
+    const ex = executor(join(root, 'data-check'));
+    ran.length = 0;
+    const c = (await new LaunchConfigs(database.db, git).get(config)) as NonNullable<
+      Awaited<ReturnType<LaunchConfigs['get']>>
+    >;
+    const prepared = await prepareLaunch({ db: database.db, git, sync }, c, { mode: 'check' });
+    if (!prepared.ok) throw new Error(JSON.stringify(prepared.problems));
+    const run = await queue.enqueue(
+      prepared.launch,
+      withoutSecrets(prepared.launch, prepared.form.fields).inputs,
+      { id: ids.dana as string, login: 'dana' },
+      'Change',
+    );
+    await ex.start();
+    await stateIs(run.id, 'succeeded');
+    await ex.stop();
+    // The whole playbook, once: no segment, no gate, nobody asked.
+    expect(ran.map((r) => segmentOf(r.playbook))).toEqual([undefined]);
+    expect(await gatesOf(database.db, run.id)).toEqual([]);
+  });
+
   it('waits at it, holding no worker; the right person approves, and it goes on', async () => {
     const ex = executor(join(root, 'data-1'));
     ran.length = 0;

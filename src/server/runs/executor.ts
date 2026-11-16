@@ -617,10 +617,15 @@ export class Executor {
         return await finish('failed', view.error ?? 'The run could not be started', view);
       };
 
-      const segments = code.segments ?? [];
+      // AFS-111: a check (skeleton) run changes nothing, so it asks nobody: the whole playbook
+      // runs once and its approvals pass by themselves, as a skeleton run in VS Code does.
+      const check = r.mode === 'check';
+      if (check && hasApproval(doc.nodes))
+        line('Check run: approvals pass by themselves; a real run waits for the approvers');
+      const segments = check ? [] : (code.segments ?? []);
       // A flow with approvals that cannot be split would run with every approval passed by
       // itself, as a local run does: here a person must decide, so it does not run.
-      if (segments.length === 0 && hasApproval(doc.nodes)) {
+      if (!check && segments.length === 0 && hasApproval(doc.nodes)) {
         const why = code.findings.find((f) => f.code === 'codegen-segments');
         return await finish(
           'failed',
