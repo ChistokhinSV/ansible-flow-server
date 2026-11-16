@@ -237,9 +237,20 @@ function Crumbs({
 }
 
 /** One input of the flow, as text, the way its type is typed. */
+/** The names of a comma-separated list as typed; a JSON list is not split here. */
+export const listNames = (typed: string): string[] =>
+  typed.trimStart().startsWith('[')
+    ? []
+    : typed
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean);
+
 /**
- * AFS-97: suggestions for a comma-separated list being typed: what is already in it stays, and each
- * name not yet in it is offered after it, so the browser's list completes the last name.
+ * AFS-97, AFS-99: suggestions for a comma-separated list being typed, for a datalist. A browser
+ * shows only options that contain what is typed, so every option starts with the whole text: the
+ * last name completed (`web-01, d` → `web-01, db`), and, when the last name is whole, each name not
+ * in the list yet added after it (`olga` → `olga, change-board`).
  */
 export function listSuggestions(typed: string, names: readonly string[]): string[] {
   if (typed.trimStart().startsWith('[')) return [];
@@ -248,9 +259,23 @@ export function listSuggestions(typed: string, names: readonly string[]): string
     .slice(0, -1)
     .map((p) => p.trim())
     .filter(Boolean);
-  const used = new Set(before);
+  const last = (parts.at(-1) ?? '').trim();
+  const used = new Set([...before, last]);
   const head = before.length ? `${before.join(', ')}, ` : '';
-  return names.filter((n) => !used.has(n)).map((n) => `${head}${n}`);
+  const free = names.filter((n) => !used.has(n));
+  if (!last) return free.map((n) => `${head}${n}`);
+  const out = names
+    .filter((n) => n !== last && n.toLowerCase().includes(last.toLowerCase()))
+    .filter((n) => !before.includes(n))
+    .map((n) => `${head}${n}`);
+  if (names.includes(last) || !out.length) out.push(...free.map((n) => `${head}${last}, ${n}`));
+  return [...new Set(out)];
+}
+
+/** AFS-99: a name added to or taken out of a comma-separated list. */
+export function toggleName(typed: string, name: string): string {
+  const names = listNames(typed);
+  return (names.includes(name) ? names.filter((n) => n !== name) : [...names, name]).join(', ');
 }
 
 /** A datalist of these suggestions, for an input's `list`. */
@@ -270,19 +295,21 @@ function InputField({
   problem,
   onChange,
   groups,
-  onWantGroups,
 }: {
   field: LaunchField;
   value: string;
   problem?: string;
   onChange: (text: string) => void;
-  /** AFS-97: the inventory's groups, suggested for a host list (as the canvas's dialog does). */
-  groups?: string[];
-  /** The groups are read when a host list is first used: that starts a container. */
-  onWantGroups?(): void;
+  /**
+   * AFS-97/99: the inventory's groups for a host list, as the canvas's dialog offers them: a button
+   * each under the field (adds or takes out the group) and suggestions while typing.
+   */
+  groups?: string[] | 'reading';
 }) {
   const listId = useId();
-  const suggest = field.targets && groups?.length ? listSuggestions(value, groups) : [];
+  const known = field.targets && Array.isArray(groups) ? groups : [];
+  const suggest = known.length ? listSuggestions(value, known) : [];
+  const chosen = new Set(listNames(value));
   const label = (
     <>
       {field.name}
@@ -324,11 +351,28 @@ function InputField({
               spellCheck={false}
               value={value}
               onChange={(e) => onChange(e.target.value)}
-              onFocus={field.targets ? onWantGroups : undefined}
               required={field.required}
               {...(suggest.length ? { list: listId } : {})}
             />
             {suggest.length > 0 && <Suggestions id={listId} values={suggest} />}
+            {field.targets && groups === 'reading' && (
+              <small className="muted">Reading the inventory's groups…</small>
+            )}
+            {known.length > 0 && (
+              <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
+                {known.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    className={`chip${chosen.has(g) ? ' on' : ''}`}
+                    aria-pressed={chosen.has(g)}
+                    onClick={() => onChange(toggleName(value, g))}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </fieldset>
+            )}
           </>
         )
       }
@@ -600,8 +644,41 @@ export function LaunchConfigPage({
   const [saved, setSaved] = useState<string>();
   /** The fold of rarely typed fields, once the person opened or closed it themselves. */
   const [folded, setFolded] = useState<boolean>();
-  /** AFS-97: the inventory's groups for host lists: read once, when a host list is first used. */
+  /**
+   * AFS-97/99: the inventory's groups for host lists, read once when the Launch tab shows a host
+   * list, as the canvas's dialog reads them when it opens. Reading starts a container in the
+   * launch's image, so only for who may launch.
+   */
   const [groups, setGroups] = useState<string[] | 'reading'>();
+  const configId = config.data?.id;
+  const flowFile = config.data?.flowFile;
+  const formFields = form.data?.fields;
+  const mayRead =
+    !!flowFile && (me.admin || (!!access && atLeast(flowLevel(access, flowFile), 'operator')));
+  useEffect(() => {
+    if (
+      (tab && tab !== 'launch') ||
+      groups ||
+      !configId ||
+      !mayRead ||
+      !formFields?.some((f) => f.targets)
+    )
+      return;
+    setGroups('reading');
+    const start = Object.fromEntries(
+      formFields.filter((f) => !f.secret).map((f) => [f.name, f.text]),
+    );
+    api
+      .launchFacts(configId, {
+        ...(mode ? { mode } : {}),
+        inputs: start,
+        groups: true,
+      } as LaunchRequest)
+      .then(
+        (r) => setGroups(r.groups ?? []),
+        () => setGroups([]),
+      );
+  }, [tab, groups, configId, mayRead, formFields, mode]);
 
   const c = config.data;
   if (!c || !project.data)
@@ -805,17 +882,7 @@ export function LaunchConfigPage({
                   value={texts[f.name] ?? f.text}
                   problem={problemOf(f.name)}
                   onChange={(text) => setTexts((t) => ({ ...t, [f.name]: text }))}
-                  groups={Array.isArray(groups) ? groups : undefined}
-                  onWantGroups={() => {
-                    // Reading the inventory starts a container in the launch's image: once, and
-                    // only for who may launch (as the hosts after Check).
-                    if (groups || !mayLaunch) return;
-                    setGroups('reading');
-                    api.launchFacts(c.id, { ...request(), groups: true } as LaunchRequest).then(
-                      (r) => setGroups(r.groups ?? []),
-                      () => setGroups([]),
-                    );
-                  }}
+                  groups={groups}
                 />
               ))}
               <fieldset className="choices">

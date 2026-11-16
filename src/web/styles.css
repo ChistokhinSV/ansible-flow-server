@@ -2314,3 +2314,21 @@ section + .columns,
     transition: none;
   }
 }
+
+/* AFS-99: the inventory's groups under a host list, as buttons (as the canvas's launch dialog). */
+.name-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.name-chips .chip {
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+}
+fieldset.name-chips {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
