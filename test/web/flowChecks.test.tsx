@@ -174,7 +174,7 @@ describe('what a flow needs', () => {
     const spec = (await screen.findByRole('heading', { name: 'Spec' })).closest(
       'section',
     ) as HTMLElement;
-    fireEvent.change(within(spec).getByLabelText('Find a collection'), {
+    fireEvent.change(within(spec).getByLabelText('Add a collection'), {
       target: { value: 'ios' },
     });
     fireEvent.click(within(spec).getByRole('button', { name: 'Search' }));

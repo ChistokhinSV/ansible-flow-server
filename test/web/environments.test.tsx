@@ -144,7 +144,7 @@ describe('execution environments', () => {
     );
 
     const spec = screen.getByRole('heading', { name: 'Spec' }).closest('section') as HTMLElement;
-    fireEvent.click(within(spec).getByRole('button', { name: 'Add a collection' }));
+    fireEvent.click(within(spec).getByRole('button', { name: 'Add an empty row' }));
     fireEvent.change(within(spec).getByLabelText('Collection 2'), {
       target: { value: 'ansible.utils' },
     });

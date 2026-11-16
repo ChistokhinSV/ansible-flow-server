@@ -92,14 +92,17 @@ describe('home', () => {
     const recent = screen
       .getByRole('heading', { name: 'Latest runs' })
       .closest('section') as HTMLElement;
-    expect([...recent.querySelectorAll('.end > :first-child')].map((e) => e.textContent)).toEqual([
+    expect([...recent.querySelectorAll('.c-state')].map((e) => e.textContent)).toEqual([
       'waiting for a decision',
       'went well',
       'failed',
     ]);
-    const rows = [...recent.querySelectorAll('li')].map((li) => li.textContent);
-    expect(rows[0]).toContain('omar · 3 min ago · real');
-    expect(rows[1]).toContain('you · 3 min ago');
+    // Each fact of a run is a column of its own (AFS-95): mode, who, when.
+    const rows = [...recent.querySelectorAll('li:not(.runs-head)')].map((li) =>
+      [...li.querySelectorAll('.c-fact')].map((c) => c.textContent),
+    );
+    expect(rows[0]).toEqual(expect.arrayContaining(['real', 'omar', '3 min ago']));
+    expect(rows[1]).toEqual(expect.arrayContaining(['you', '3 min ago']));
     // The side menu: the count of approvals for this person, and the workspaces.
     const menu = screen.getByRole('navigation', { name: 'Main' });
     expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals1');

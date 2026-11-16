@@ -58,6 +58,9 @@ function Takes({ config, project }: { config: LaunchConfig; project?: Project })
 }
 
 /** A field of a form, with its problem said under it and to a screen reader. */
+/** The choice of the environment chooser that asks for an image's name instead. */
+const IMAGE_BY_NAME = ':image';
+
 function Labelled({
   label,
   hint,
@@ -183,7 +186,8 @@ export function LaunchConfigsSection({
                           className="button"
                           aria-label={`Launch ${c.name}`}
                         >
-                          Launch
+                          {/* AFS-96: it opens the launch form (inputs, mode), it does not start a run. */}
+                          Launch…
                         </Link>
                       )}
                     </td>
@@ -790,10 +794,9 @@ export function LaunchConfigPage({
                   {saved}
                 </p>
               )}
+              {/* AFS-96: Launch is first and the only filled button; Enter in a field still asks
+                  what would run (the form's submit), which changes nothing. */}
               <div className="actions">
-                <button type="submit" disabled={!!busy || !form.data}>
-                  {busy === 'check' ? 'Looking…' : 'What would run'}
-                </button>
                 {mayLaunch && (
                   <button
                     type="button"
@@ -804,8 +807,16 @@ export function LaunchConfigPage({
                     {busy === 'launch' ? 'Launching…' : 'Launch'}
                   </button>
                 )}
+                <button type="submit" disabled={!!busy || !form.data}>
+                  {busy === 'check' ? 'Looking…' : 'What would run'}
+                </button>
                 {mayManage && (
-                  <button type="button" onClick={() => void keep()} disabled={!!busy || !form.data}>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => void keep()}
+                    disabled={!!busy || !form.data}
+                  >
                     Keep as start values
                   </button>
                 )}
@@ -953,6 +964,8 @@ function ConfigForm({
   const [problem, setProblem] = useState<{ field?: string; message: string }>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  // AFS-96: the image is asked for only when "an image by name" is what runs get.
+  const [byImage, setByImage] = useState(!existing?.environment && !!existing?.eeImage);
   const set = (key: keyof LaunchConfigInput, value: unknown) => {
     setSaved(false);
     setInput((i) => ({ ...i, [key]: value }));
@@ -1022,18 +1035,41 @@ function ConfigForm({
       : undefined;
 
   return (
-    <form className="form" onSubmit={save}>
-      <Labelled label="Name" problem={at('name')}>
-        {(props) => (
-          <input
-            {...props}
-            value={input.name}
-            onChange={(e) => set('name', e.target.value)}
-            required
-            maxLength={100}
-          />
-        )}
-      </Labelled>
+    <form className="form wide" onSubmit={save}>
+      {/* AFS-96: fields that belong together share a row; what is chosen first comes first. */}
+      <div className="pair">
+        <Labelled label="Name" problem={at('name')}>
+          {(props) => (
+            <input
+              {...props}
+              value={input.name}
+              onChange={(e) => set('name', e.target.value)}
+              required
+              maxLength={100}
+            />
+          )}
+        </Labelled>
+        <Labelled label="Flow" problem={at('flowFile')} hint="A flow of the project's branch.">
+          {(props) => (
+            <select
+              {...props}
+              value={input.flowFile}
+              onChange={(e) => set('flowFile', e.target.value)}
+              required
+            >
+              <option value="">(choose a flow)</option>
+              {input.flowFile && !flows.data?.some((f) => f.file === input.flowFile) && (
+                <option value={input.flowFile}>{input.flowFile}</option>
+              )}
+              {flows.data?.map((f) => (
+                <option key={f.file} value={f.file}>
+                  {f.name ? `${f.name} (${f.file})` : f.file}
+                </option>
+              ))}
+            </select>
+          )}
+        </Labelled>
+      </div>
       <Labelled label="Description">
         {(props) => (
           <input
@@ -1042,26 +1078,6 @@ function ConfigForm({
             onChange={(e) => set('description', e.target.value)}
             maxLength={1000}
           />
-        )}
-      </Labelled>
-      <Labelled label="Flow" problem={at('flowFile')} hint="A flow of the project's branch.">
-        {(props) => (
-          <select
-            {...props}
-            value={input.flowFile}
-            onChange={(e) => set('flowFile', e.target.value)}
-            required
-          >
-            <option value="">(choose a flow)</option>
-            {input.flowFile && !flows.data?.some((f) => f.file === input.flowFile) && (
-              <option value={input.flowFile}>{input.flowFile}</option>
-            )}
-            {flows.data?.map((f) => (
-              <option key={f.file} value={f.file}>
-                {f.name ? `${f.name} (${f.file})` : f.file}
-              </option>
-            ))}
-          </select>
         )}
       </Labelled>
       <fieldset className="choices">
@@ -1121,68 +1137,82 @@ function ConfigForm({
           )}
         </Labelled>
       </div>
-      <Labelled
-        label="Inventory"
-        hint="A file or folder of the repository; empty: what its ansible.cfg names."
-        problem={at('inventory')}
-      >
-        {(props) => (
-          <input
-            {...props}
-            value={input.inventory ?? ''}
-            onChange={(e) => set('inventory', e.target.value)}
-            placeholder="inventory/hosts.yaml"
-            spellCheck={false}
-          />
-        )}
-      </Labelled>
-      <Labelled
-        label="Execution environment"
-        hint="Each launch gets its newest good build's image."
-        problem={at('environment')}
-      >
-        {(props) => (
-          <select
-            {...props}
-            value={input.environment ?? ''}
-            onChange={(e) => set('environment', e.target.value)}
+      <div className="pair">
+        <Labelled
+          label="Inventory"
+          hint="A file or folder of the repository; empty: what its ansible.cfg names."
+          problem={at('inventory')}
+        >
+          {(props) => (
+            <input
+              {...props}
+              value={input.inventory ?? ''}
+              onChange={(e) => set('inventory', e.target.value)}
+              placeholder="inventory/hosts.yaml"
+              spellCheck={false}
+            />
+          )}
+        </Labelled>
+        <Labelled label="Limit" hint="Ansible's --limit." problem={at('limit')}>
+          {(props) => (
+            <input
+              {...props}
+              value={input.limit ?? ''}
+              onChange={(e) => set('limit', e.target.value)}
+              spellCheck={false}
+            />
+          )}
+        </Labelled>
+      </div>
+      <div className="pair">
+        <Labelled
+          label="Execution environment"
+          hint="An environment gives each launch its newest good build's image."
+          problem={at('environment')}
+        >
+          {(props) => (
+            <select
+              {...props}
+              value={input.environment || (byImage ? IMAGE_BY_NAME : '')}
+              onChange={(e) => {
+                const picked = e.target.value;
+                setByImage(picked === IMAGE_BY_NAME);
+                set('environment', picked === IMAGE_BY_NAME ? '' : picked);
+                // An image by name is kept only while that is what is chosen.
+                if (picked !== IMAGE_BY_NAME) set('eeImage', '');
+              }}
+            >
+              <option value="">the server's default image</option>
+              {environments.data?.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                  {e.current ? '' : ' (not built yet)'}
+                </option>
+              ))}
+              <option value={IMAGE_BY_NAME}>an image by name…</option>
+            </select>
+          )}
+        </Labelled>
+        {byImage && !input.environment && (
+          <Labelled
+            label="Image"
+            hint="As the container engine pulls it: a registry, a name and a tag."
+            problem={at('eeImage')}
           >
-            <option value="">none: the image below, else the server's default</option>
-            {environments.data?.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-                {e.current ? '' : ' (not built yet)'}
-              </option>
-            ))}
-          </select>
+            {(props) => (
+              <input
+                {...props}
+                value={input.eeImage ?? ''}
+                onChange={(e) => set('eeImage', e.target.value)}
+                placeholder="registry.example.net/ee/network:2.19"
+                spellCheck={false}
+                required
+              />
+            )}
+          </Labelled>
         )}
-      </Labelled>
-      <Labelled
-        label="Execution environment image"
-        hint="Used when no environment is chosen. Empty: the server's default."
-        problem={at('eeImage')}
-      >
-        {(props) => (
-          <input
-            {...props}
-            value={input.eeImage ?? ''}
-            onChange={(e) => set('eeImage', e.target.value)}
-            placeholder="registry.example.net/ee/network:2.19"
-            spellCheck={false}
-          />
-        )}
-      </Labelled>
-      <Labelled label="Limit" hint="Ansible's --limit." problem={at('limit')}>
-        {(props) => (
-          <input
-            {...props}
-            value={input.limit ?? ''}
-            onChange={(e) => set('limit', e.target.value)}
-            spellCheck={false}
-          />
-        )}
-      </Labelled>
-      <fieldset className="choices" aria-describedby="credentials-hint">
+      </div>
+      <fieldset className="choices grid" aria-describedby="credentials-hint">
         <legend>Credentials the run gets</legend>
         <Loading state={credentials} />
         {credentials.data?.length === 0 && (

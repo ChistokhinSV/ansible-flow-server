@@ -238,9 +238,18 @@ async function start(): Promise<void> {
           case 'showRun':
             showRun(message.id, true);
             return;
-          case 'showRunOutput':
-            if (shown) go(`/runs/${encodeURIComponent(shown)}`);
+          case 'showRunOutput': {
+            if (!shown) return;
+            // AFS-96: on the run's own page, that page scrolls to its output; loading it again
+            // flashed the page empty and left the output out of sight. Elsewhere, the run's page
+            // opens at its output.
+            const page = `/runs/${encodeURIComponent(shown)}`;
+            const host = window.parent !== window ? window.parent : undefined;
+            if (host && host.location.pathname === page)
+              host.postMessage({ type: 'afs-show-output', run: shown }, window.location.origin);
+            else go(`${page}#output`);
             return;
+          }
           case 'stopRun':
             if (shown)
               void fetch(`/api/v1/runs/${encodeURIComponent(shown)}/cancel`, {

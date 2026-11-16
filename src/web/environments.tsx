@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { api, type Environment, type EnvironmentBuild, type EnvironmentSpec } from './api';
 import { Link, navigate } from './router';
-import { Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Field, Fold, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 const STATE_TONE: Record<string, string> = {
   done: 'ok',
@@ -124,7 +124,7 @@ export function WorkspaceEnvironments({
                     <Link to={environmentAddress(workspace, e.id)}>{e.name}</Link>
                     <div className="muted">
                       {e.kind === 'spec'
-                        ? `${e.spec?.collections.length ?? 0} collections`
+                        ? `${e.spec?.collections.length ?? 0} collection${e.spec?.collections.length === 1 ? '' : 's'}`
                         : 'existing image'}
                     </div>
                   </td>
@@ -199,6 +199,7 @@ function SpecForm({
   const [ca, setCa] = useState(spec.caCertificates ?? '');
   const [keep, setKeep] = useState(env.keep);
   const [saved, setSaved] = useState(false);
+  const [more, setMore] = useState(!!spec.caCertificates);
   const ids = { python: useId(), system: useId(), ca: useId() };
   const set = (i: number, part: 'name' | 'version', v: string) =>
     setCollections(collections.map((c, j) => (j === i ? { ...c, [part]: v } : c)));
@@ -222,6 +223,7 @@ function SpecForm({
   useEffect(() => onDraft(dirty ? save : undefined), [dirty, draft, onDraft]);
   return (
     <Form
+      wide
       submit="Save the spec"
       onSubmit={async () => {
         setSaved(false);
@@ -229,47 +231,64 @@ function SpecForm({
         setSaved(true);
       }}
     >
-      <Field
-        label="ansible-core"
-        value={core}
-        onChange={(e) => setCore(e.target.value)}
-        required
-        hint="2.19 is the newest 2.19.x; 2.19.3 exactly."
-      />
-      <fieldset>
+      <div className="pair">
+        <Field
+          label="ansible-core"
+          value={core}
+          onChange={(e) => setCore(e.target.value)}
+          required
+          hint="2.19 is the newest 2.19.x; 2.19.3 exactly."
+        />
+        <Field
+          label="Images kept"
+          type="number"
+          min={1}
+          max={50}
+          value={keep}
+          onChange={(e) => setKeep(Number(e.target.value))}
+          hint="Older builds' images are removed from the engine."
+        />
+      </div>
+      {/* AFS-96: collections are a table (one line of headings, a row each), with what adds a row
+          under it. */}
+      <fieldset className="spec-collections">
         <legend>Collections</legend>
-        {collections.map((c, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity but their place
-          <div key={i} className="row">
-            <Field
-              label={`Collection ${i + 1}`}
-              value={c.name}
-              onChange={(e) => set(i, 'name', e.target.value)}
-              placeholder="cisco.ios"
-              spellCheck={false}
-            />
-            <Field
-              label={`Version ${i + 1}`}
-              value={c.version}
-              onChange={(e) => set(i, 'version', e.target.value)}
-              placeholder="latest"
-              spellCheck={false}
-            />
-            <button
-              type="button"
-              aria-label={`Remove collection ${i + 1}`}
-              onClick={() => setCollections(collections.filter((_, j) => j !== i))}
-            >
-              Remove
-            </button>
+        {collections.length > 0 && (
+          <div className="spec-rows">
+            <div className="spec-row spec-head" aria-hidden="true">
+              <span>Name</span>
+              <span>Version</span>
+              <span />
+            </div>
+            {collections.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity but their place
+              <div key={i} className="spec-row">
+                <input
+                  aria-label={`Collection ${i + 1}`}
+                  value={c.name}
+                  onChange={(e) => set(i, 'name', e.target.value)}
+                  placeholder="cisco.ios"
+                  spellCheck={false}
+                />
+                <input
+                  aria-label={`Version ${i + 1}`}
+                  value={c.version}
+                  onChange={(e) => set(i, 'version', e.target.value)}
+                  placeholder="latest"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Remove collection ${i + 1}`}
+                  onClick={() => setCollections(collections.filter((_, j) => j !== i))}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
           </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => setCollections([...collections, { name: '', version: 'latest' }])}
-        >
-          Add a collection
-        </button>
+        )}
         <CollectionSearch
           onAdd={(name) =>
             setCollections((now) =>
@@ -278,69 +297,69 @@ function SpecForm({
                 : [...now.filter((c) => c.name.trim()), { name, version: 'latest' }],
             )
           }
-        />
-        <p className="muted">
-          A version (11.6.0), a range as requirements.yml writes it (&gt;=11.0.0,&lt;12), or latest:
-          settled at each build.
-        </p>
-      </fieldset>
-      <div className="field">
-        <label htmlFor={ids.python}>Python packages</label>
-        <textarea
-          id={ids.python}
-          rows={3}
-          className="mono"
-          value={python}
-          onChange={(e) => setPython(e.target.value)}
-          spellCheck={false}
-          placeholder="netaddr>=1.3"
-        />
-        <small className="muted">One per line, as pip reads them: a name and versions.</small>
-      </div>
-      <div className="field">
-        <label htmlFor={ids.system}>Debian packages</label>
-        <textarea
-          id={ids.system}
-          rows={2}
-          className="mono"
-          value={system}
-          onChange={(e) => setSystem(e.target.value)}
-          spellCheck={false}
-          placeholder="iputils-ping"
-        />
-      </div>
-      <div className="field">
-        <label htmlFor={ids.ca}>Extra certificate authorities</label>
-        <textarea
-          id={ids.ca}
-          rows={3}
-          className="mono"
-          value={ca}
-          onChange={(e) => setCa(e.target.value)}
-          spellCheck={false}
-          placeholder="-----BEGIN CERTIFICATE-----"
+          onBlank={() => setCollections([...collections, { name: '', version: 'latest' }])}
         />
         <small className="muted">
-          PEM. Trusted in the image: by pip, ansible-galaxy and the hosts runs reach.
+          A version (11.6.0), a range as requirements.yml writes it (&gt;=11.0.0,&lt;12), or latest:
+          settled at each build.
         </small>
+      </fieldset>
+      <div className="pair">
+        <div className="field">
+          <label htmlFor={ids.python}>Python packages</label>
+          <textarea
+            id={ids.python}
+            rows={4}
+            className="mono"
+            value={python}
+            onChange={(e) => setPython(e.target.value)}
+            spellCheck={false}
+            placeholder="netaddr>=1.3"
+          />
+          <small className="muted">One per line, as pip reads them: a name and versions.</small>
+        </div>
+        <div className="field">
+          <label htmlFor={ids.system}>Debian packages</label>
+          <textarea
+            id={ids.system}
+            rows={4}
+            className="mono"
+            value={system}
+            onChange={(e) => setSystem(e.target.value)}
+            spellCheck={false}
+            placeholder="iputils-ping"
+          />
+          <small className="muted">One per line, as apt names them.</small>
+        </div>
       </div>
-      <Field
-        label="Base image"
-        value={base}
-        onChange={(e) => setBase(e.target.value)}
-        required
-        spellCheck={false}
-        hint="A Debian-based Python image; the default is the one afd-ee uses."
-      />
-      <Field
-        label="Images kept"
-        type="number"
-        min={1}
-        max={50}
-        value={keep}
-        onChange={(e) => setKeep(Number(e.target.value))}
-        hint="Older builds' images are removed from the engine."
-      />
+      {/* Rarely changed: folded until asked for, open when certificates are set. */}
+      <Fold summary="Base image and certificate authorities" open={more} onToggle={setMore}>
+        <div className="form wide">
+          <Field
+            label="Base image"
+            value={base}
+            onChange={(e) => setBase(e.target.value)}
+            required
+            spellCheck={false}
+            hint="A Debian-based Python image; the default is the one afd-ee uses."
+          />
+          <div className="field">
+            <label htmlFor={ids.ca}>Extra certificate authorities</label>
+            <textarea
+              id={ids.ca}
+              rows={4}
+              className="mono"
+              value={ca}
+              onChange={(e) => setCa(e.target.value)}
+              spellCheck={false}
+              placeholder="-----BEGIN CERTIFICATE-----"
+            />
+            <small className="muted">
+              PEM. Trusted in the image: by pip, ansible-galaxy and the hosts runs reach.
+            </small>
+          </div>
+        </div>
+      </Fold>
       {saved && (
         <p className="notice ok" role="status">
           Saved. Build to make an image from it.
@@ -587,27 +606,6 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
             {unsaved ? 'Save and get ansible-builder file' : 'ansible-builder file'}
           </a>
         )}
-        {mayManage && (
-          <button
-            type="button"
-            className="danger"
-            onClick={async () => {
-              if (
-                !window.confirm(`Delete the environment ${env.name}, its builds and their images?`)
-              )
-                return;
-              setError(undefined);
-              try {
-                await api.deleteEnvironment(env.id);
-                navigate(`/w/${workspace}`);
-              } catch (e) {
-                setError(messageOf(e));
-              }
-            }}
-          >
-            Delete
-          </button>
-        )}
       </PageHead>
       {error && (
         <p className="notice error" role="alert">
@@ -621,8 +619,8 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
         </p>
       )}
       {builds.data && <BuildStatus env={env} newest={newest} />}
-      <div className="columns">
-        <section className="panel" aria-labelledby="now">
+      <div className={env.kind === 'spec' ? 'env' : 'env one'}>
+        <section className="panel env-now" aria-labelledby="now">
           <h2 id="now">What runs get now</h2>
           <dl className="facts">
             <dt>Image</dt>
@@ -662,7 +660,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
           )}
         </section>
         {env.kind === 'spec' && env.spec && (
-          <section className="panel" aria-labelledby="spec">
+          <section className="panel env-spec" aria-labelledby="spec">
             <h2 id="spec">Spec</h2>
             {mayManage ? (
               <SpecForm key={env.id} env={env} onSaved={setEnv} onDraft={onDraft} />
@@ -688,6 +686,37 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
         <Loading state={builds} />
         {builds.data && <Builds env={env} builds={builds.data} reload={reload} />}
       </section>
+      {/* AFS-96: what cannot be undone is last on the page, away from Build. */}
+      {mayManage && (
+        <section className="panel" aria-labelledby="delete">
+          <h2 id="delete">Delete</h2>
+          <p className="muted">
+            Its builds and their images go with it.
+            {env.usedBy
+              ? ` ${env.usedBy} launch configuration${env.usedBy === 1 ? ' uses' : 's use'} it.`
+              : ''}
+          </p>
+          <button
+            type="button"
+            className="danger"
+            onClick={async () => {
+              if (
+                !window.confirm(`Delete the environment ${env.name}, its builds and their images?`)
+              )
+                return;
+              setError(undefined);
+              try {
+                await api.deleteEnvironment(env.id);
+                navigate(`/w/${workspace}`);
+              } catch (e) {
+                setError(messageOf(e));
+              }
+            }}
+          >
+            Delete the environment
+          </button>
+        </section>
+      )}
     </>
   );
 }
@@ -696,7 +725,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
  * Collections on the collection server (AFS-33), to add to a spec. When it cannot be reached, it
  * says so: a name and version can still be typed.
  */
-function CollectionSearch({ onAdd }: { onAdd(name: string): void }) {
+function CollectionSearch({ onAdd, onBlank }: { onAdd(name: string): void; onBlank(): void }) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState<{ name: string; version: string; description?: string }[]>();
   const [error, setError] = useState<string>();
@@ -717,8 +746,8 @@ function CollectionSearch({ onAdd }: { onAdd(name: string): void }) {
   };
   return (
     <div className="field">
-      <label htmlFor={id}>Find a collection</label>
-      <div className="row">
+      <label htmlFor={id}>Add a collection</label>
+      <div className="spec-add">
         <input
           id={id}
           type="search"
@@ -730,10 +759,13 @@ function CollectionSearch({ onAdd }: { onAdd(name: string): void }) {
               void search();
             }
           }}
-          placeholder="ios, netcommon, aws"
+          placeholder="Find on the collection server: ios, netcommon, aws"
         />
         <button type="button" onClick={() => void search()} disabled={busy}>
           {busy ? 'Looking…' : 'Search'}
+        </button>
+        <button type="button" onClick={onBlank}>
+          Add an empty row
         </button>
       </div>
       {error && (

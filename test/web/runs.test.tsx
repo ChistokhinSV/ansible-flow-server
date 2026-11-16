@@ -282,10 +282,13 @@ describe('a run', () => {
     });
 
     stream.emit('output', { text: 'PLAY [hello]\n', next: 13 });
-    stream.emit('output', { text: 'ok: [fw-edge-01]\n', next: 30 });
+    // Ansible's colours stay: the codes become styled text, not shown as they are.
+    const esc = String.fromCharCode(27);
+    stream.emit('output', { text: `${esc}[0;32mok: [fw-edge-01]${esc}[0m\n`, next: 30 });
     await waitFor(() =>
       expect(document.querySelector('pre')?.textContent).toBe('PLAY [hello]\nok: [fw-edge-01]\n'),
     );
+    expect(document.querySelector('pre .ansi-fg-2')?.textContent).toBe('ok: [fw-edge-01]');
     stream.emit('run', {
       ...run,
       state: 'failed',
@@ -419,9 +422,23 @@ describe('a run', () => {
     expect(screen.getByRole('link', { name: 'All runs' }).getAttribute('href')).toBe('/runs');
     // The output is far down: a button at the top goes to it.
     fireEvent.click(screen.getByRole('button', { name: 'To the output' }));
-    expect(document.activeElement).toBe(
-      screen.getByRole('heading', { name: 'Output' }).closest('section'),
+    const terminal = screen.getByRole('heading', { name: 'Terminal output' }).closest('section');
+    expect(document.activeElement).toBe(terminal);
+    expect(terminal?.className).toMatch(/run-output-shown/);
+    // Show Terminal on this page's canvas asks the page to go to its output, without loading it
+    // again.
+    (document.activeElement as HTMLElement).blur();
+    await waitFor(() => expect(terminal?.className).not.toMatch(/run-output-shown/), {
+      timeout: 3000,
+    });
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'afs-show-output', run: 'r1' },
+        origin: window.location.origin,
+      }),
     );
+    await waitFor(() => expect(terminal?.className).toMatch(/run-output-shown/));
+    expect(document.activeElement).toBe(terminal);
   });
 
   it('leaves out what it cannot place: a configuration that is gone, a project out of sight', async () => {
