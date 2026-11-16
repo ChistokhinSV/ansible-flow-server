@@ -90,7 +90,7 @@ export function Form({
   submit: string;
   children: ReactNode;
   onCancel?: () => void;
-  /** AFS-96: a form of many fields, laid out in rows of several: it is not kept to one column. */
+  /** AFS-94: a form of many fields, laid out in rows of several: it is not kept to one column. */
   wide?: boolean;
   /** The submit button is not the page's main action (another way is offered first). */
   quiet?: boolean;

@@ -342,7 +342,7 @@ export function FilesPage({
     () => applyChanges(listing.data?.files ?? [], set.changes),
     [listing.data, set.changes],
   );
-  // AFS-96: with no file asked for, the page opens the one read first (README, else the first
+  // AFS-94: with no file asked for, the page opens the one read first (README, else the first
   // file of the top folder) instead of an empty half.
   const first = useMemo(() => {
     const top = shown.filter((f) => !f.path.includes('/'));
@@ -481,7 +481,7 @@ export function FilesPage({
         lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
       />
       <ProjectStatus project={project} me={me} base={`/w/${workspace}/${key}`} />
-      {/* AFS-96: Files is one of the project's tabs: the others stay a click away. */}
+      {/* AFS-94: Files is one of the project's tabs: the others stay a click away. */}
       <Tabs
         label="Project"
         base={`/w/${workspace}/${key}`}
@@ -577,7 +577,7 @@ export function FilesPage({
         </section>
       )}
 
-      {/* AFS-96: what adds files is a bar over the tree and the file, not a pile in the tree's
+      {/* AFS-94: what adds files is a bar over the tree and the file, not a pile in the tree's
           column. */}
       <div className="file-actions">
         <label>

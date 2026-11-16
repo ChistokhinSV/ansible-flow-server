@@ -727,9 +727,10 @@ draft (designer AFD-285).
 
 ### Files of a project
 
-**Files of the project** (on a project's page, beside its flows) shows everything else in the
-repository: templates, files, `group_vars`, roles, `ansible.cfg`. Pick a branch, read any file,
-and download it. Text files (YAML, Jinja2, ini and cfg, Python, Markdown, JSON, shell) open in an
+The **Files** tab of a project shows everything else in the repository: templates, files,
+`group_vars`, roles, `ansible.cfg`. The page uses the width of the screen: the tree on the left,
+the file beside it; the README (or the first file) is open when you come. Pick a branch, read any
+file, and download it. Text files (YAML, Jinja2, ini and cfg, Python, Markdown, JSON, shell) open in an
 editor with highlighting; flows are read here and edited in the flow editor.
 
 With `rw` on the workspace you change files: edit text, **New file**, **Upload files** and
@@ -1313,8 +1314,10 @@ environment's image holds: the collections its steps run (a module or role named
 a step chosen from the designer's module catalog asks for at least the version it was made against)
 and the project's `collections/requirements.yml`, which wins. Each collection is in the image at a
 fitting version, at another, or missing. **Make an environment for this flow** adds one whose spec
-is exactly those needs and builds it. In a spec, **Find a collection** searches `AFS_GALAXY_URL`;
-when it cannot be reached, names and versions are typed.
+is exactly those needs and builds it. In a spec, the collections are a table of names and versions; **Add a collection** searches
+`AFS_GALAXY_URL`, and **Add an empty row** is for typing a name and version (also when the
+collection server cannot be reached). The base image and extra certificate authorities are folded
+under the packages. **Delete the environment** is the last section of the page.
 
 | Address (under `/api/v1`)                   | Does                                                                   | Who                                |
 | ------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |

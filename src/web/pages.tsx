@@ -101,7 +101,7 @@ function SyncBadge({ project }: { project: Project }) {
 
 /**
  * AFS-84: the project's state in one line; what it is set up with is on Settings. It is on every
- * tab of the project, Files too (AFS-96), so the tabs stay where they are.
+ * tab of the project, Files too (AFS-94), so the tabs stay where they are.
  */
 export function ProjectStatus({ project, me, base }: { project: Project; me: User; base: string }) {
   return (
@@ -274,7 +274,7 @@ export function Workspace({
         <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
       </nav>
       <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
-        {/* AFS-96: the head's action is the tab's own: the other tabs have theirs. */}
+        {/* AFS-94: the head's action is the tab's own: the other tabs have theirs. */}
         {me.admin && space.data && !adding && tab === '' && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
             Add project
