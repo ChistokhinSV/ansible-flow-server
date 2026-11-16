@@ -15,6 +15,7 @@ import {
   type LaunchConfig,
   type LaunchConfigInput,
   type LaunchForm,
+  type LaunchRequest,
   type PreparedLaunch,
   type Problem,
   type Project,
@@ -236,17 +237,52 @@ function Crumbs({
 }
 
 /** One input of the flow, as text, the way its type is typed. */
+/**
+ * AFS-97: suggestions for a comma-separated list being typed: what is already in it stays, and each
+ * name not yet in it is offered after it, so the browser's list completes the last name.
+ */
+export function listSuggestions(typed: string, names: readonly string[]): string[] {
+  if (typed.trimStart().startsWith('[')) return [];
+  const parts = typed.split(',');
+  const before = parts
+    .slice(0, -1)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const used = new Set(before);
+  const head = before.length ? `${before.join(', ')}, ` : '';
+  return names.filter((n) => !used.has(n)).map((n) => `${head}${n}`);
+}
+
+/** A datalist of these suggestions, for an input's `list`. */
+function Suggestions({ id, values }: { id: string; values: string[] }) {
+  return (
+    <datalist id={id}>
+      {values.map((v) => (
+        <option key={v} value={v} />
+      ))}
+    </datalist>
+  );
+}
+
 function InputField({
   field,
   value,
   problem,
   onChange,
+  groups,
+  onWantGroups,
 }: {
   field: LaunchField;
   value: string;
   problem?: string;
   onChange: (text: string) => void;
+  /** AFS-97: the inventory's groups, suggested for a host list (as the canvas's dialog does). */
+  groups?: string[];
+  /** The groups are read when a host list is first used: that starts a container. */
+  onWantGroups?(): void;
 }) {
+  const listId = useId();
+  const suggest = field.targets && groups?.length ? listSuggestions(value, groups) : [];
   const label = (
     <>
       {field.name}
@@ -280,15 +316,20 @@ function InputField({
             spellCheck={false}
           />
         ) : (
-          <input
-            {...props}
-            type={field.secret ? 'password' : 'text'}
-            autoComplete={field.secret ? 'new-password' : 'off'}
-            spellCheck={false}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            required={field.required}
-          />
+          <>
+            <input
+              {...props}
+              type={field.secret ? 'password' : 'text'}
+              autoComplete={field.secret ? 'new-password' : 'off'}
+              spellCheck={false}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onFocus={field.targets ? onWantGroups : undefined}
+              required={field.required}
+              {...(suggest.length ? { list: listId } : {})}
+            />
+            {suggest.length > 0 && <Suggestions id={listId} values={suggest} />}
+          </>
         )
       }
     </Labelled>
@@ -559,6 +600,8 @@ export function LaunchConfigPage({
   const [saved, setSaved] = useState<string>();
   /** The fold of rarely typed fields, once the person opened or closed it themselves. */
   const [folded, setFolded] = useState<boolean>();
+  /** AFS-97: the inventory's groups for host lists: read once, when a host list is first used. */
+  const [groups, setGroups] = useState<string[] | 'reading'>();
 
   const c = config.data;
   if (!c || !project.data)
@@ -762,6 +805,17 @@ export function LaunchConfigPage({
                   value={texts[f.name] ?? f.text}
                   problem={problemOf(f.name)}
                   onChange={(text) => setTexts((t) => ({ ...t, [f.name]: text }))}
+                  groups={Array.isArray(groups) ? groups : undefined}
+                  onWantGroups={() => {
+                    // Reading the inventory starts a container in the launch's image: once, and
+                    // only for who may launch (as the hosts after Check).
+                    if (groups || !mayLaunch) return;
+                    setGroups('reading');
+                    api.launchFacts(c.id, { ...request(), groups: true } as LaunchRequest).then(
+                      (r) => setGroups(r.groups ?? []),
+                      () => setGroups([]),
+                    );
+                  }}
                 />
               ))}
               <fieldset className="choices">
@@ -961,6 +1015,13 @@ function ConfigForm({
   // AFS-29: whom its runs tell, and when; typed as names separated by commas.
   const [tellWhen, setTellWhen] = useState<'' | 'failed' | 'ended'>(existing?.notify?.when ?? '');
   const [tellTo, setTellTo] = useState(existing?.notify?.to.join(', ') ?? '');
+  // AFS-97: the server's people and groups, suggested while Whom is typed.
+  const recipients = useLoad(() => api.recipients(workspace).catch(() => []), [workspace]);
+  const whomId = useId();
+  const whom = listSuggestions(
+    tellTo,
+    (recipients.data ?? []).map((r) => r.name),
+  );
   const [problem, setProblem] = useState<{ field?: string; message: string }>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1261,17 +1322,22 @@ function ConfigForm({
           problem={at('notify')}
         >
           {(props) => (
-            <input
-              {...props}
-              value={tellTo}
-              onChange={(e) => {
-                setSaved(false);
-                setTellTo(e.target.value);
-              }}
-              placeholder="network-oncall, dana"
-              spellCheck={false}
-              disabled={!tellWhen}
-            />
+            <>
+              <input
+                {...props}
+                value={tellTo}
+                onChange={(e) => {
+                  setSaved(false);
+                  setTellTo(e.target.value);
+                }}
+                placeholder="network-oncall, dana"
+                spellCheck={false}
+                autoComplete="off"
+                disabled={!tellWhen}
+                {...(whom.length ? { list: whomId } : {})}
+              />
+              {whom.length > 0 && <Suggestions id={whomId} values={whom} />}
+            </>
           )}
         </Labelled>
       </div>

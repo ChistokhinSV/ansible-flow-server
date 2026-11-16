@@ -15,7 +15,7 @@ import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
 import { followFlow } from './viewerChanges';
 import { editDraft } from './viewerDraft';
-import { chooseConfig, launcher } from './viewerLaunch';
+import { askName, chooseConfig, launcher } from './viewerLaunch';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? '';
@@ -172,6 +172,8 @@ async function start(): Promise<void> {
     path,
     send,
     choose: chooseConfig,
+    askName,
+    go,
     launched: (id) => {
       showRun(id, false);
       void runs();
@@ -200,6 +202,17 @@ async function start(): Promise<void> {
     transport: {
       hostName: 'Ansible Flow Server',
       post(message: WebviewMessage) {
+        // AFS-97: Save as Launch Configuration (designer AFD-300; typed loosely, so this builds
+        // against a designer that does not have it yet).
+        const saving = message as {
+          type: string;
+          token?: string;
+          inputs?: Record<string, unknown>;
+        };
+        if (saving.type === 'launchSave' && saving.token) {
+          void launch.save(saving.token, saving.inputs ?? {});
+          return;
+        }
         switch (message.type) {
           case 'ready':
             send({ type: 'config', testMode: false, viewer: true });
