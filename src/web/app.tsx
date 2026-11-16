@@ -3,19 +3,21 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
+import { Account } from './account';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { ApiDocs } from './apidocs';
 import { ApprovalsPage } from './approvals';
-import { AdminPage, AuditPage } from './audit';
+import { AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
 import { Entry, Setup, SignIn } from './entry';
 import { EnvironmentPage } from './environments';
 import { FilesPage } from './files';
+import { FlowPage } from './flow';
 import { Home } from './home';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { LibraryPage } from './library';
 import { NotificationsPage } from './notifications';
-import { Account, FlowPage, NotFound, ProjectPage, Workspace, Workspaces } from './pages';
+import { NotFound, ProjectPage, Workspace, Workspaces } from './pages';
 import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, navigate, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
@@ -55,16 +57,22 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/runs') return <RunsPage me={me} />;
   const one = match('/runs/:id', path);
   if (one?.id) return <RunPage id={one.id} me={me} theme={theme} />;
-  if (path === '/account') return <Account me={me} />;
+  if (path === '/account') return <Account me={me} tab="profile" />;
+  if (path === '/account/tokens') return <Account me={me} tab="tokens" />;
   if (path === '/docs/api') return <ApiDocs />;
   if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/library') return <LibraryPage />;
-  if (path === '/admin') return me.admin ? <AdminPage /> : <NotFound />;
+  // AFS-87: the side menu lists the administration's pages; its own address opens the first.
+  if (path === '/admin') return me.admin ? <PeoplePage tab="people" /> : <NotFound />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <NotFound />;
-  if (path === '/admin/notifications') return me.admin ? <NotificationsPage /> : <NotFound />;
+  if (path === '/admin/notifications')
+    return me.admin ? <NotificationsPage tab="log" /> : <NotFound />;
+  if (path === '/admin/notifications/settings')
+    return me.admin ? <NotificationsPage tab="settings" /> : <NotFound />;
   if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <NotFound />;
   if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <NotFound />;
-  if (path === '/admin/people') return me.admin ? <PeoplePage /> : <NotFound />;
+  if (path === '/admin/people') return me.admin ? <PeoplePage tab="people" /> : <NotFound />;
+  if (path === '/admin/groups') return me.admin ? <PeoplePage tab="groups" /> : <NotFound />;
   const person = match('/admin/people/:id', path);
   if (person?.id) return me.admin ? <UserPage id={person.id} me={me} /> : <NotFound />;
   const group = match('/admin/groups/:id', path);
@@ -82,19 +90,53 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
         workspace={config.workspace}
         project={config.project}
         id={config.id}
+        tab="launch"
       />
     );
-  const edit = match('/w/:workspace/:project/launch/:id/edit', path);
-  if (edit?.workspace && edit.project && edit.id)
-    return <LaunchConfigEdit workspace={edit.workspace} project={edit.project} id={edit.id} />;
+  // AFS-85: a launch configuration's tabs; `edit` is the old address of its settings.
+  const part = match('/w/:workspace/:project/launch/:id/:tab', path);
+  if (part?.workspace && part.project && part.id && part.tab) {
+    const tab = part.tab === 'edit' ? 'settings' : part.tab;
+    if (tab === 'runs' || tab === 'schedules' || tab === 'settings')
+      return (
+        <LaunchConfigPage
+          me={me}
+          workspace={part.workspace}
+          project={part.project}
+          id={part.id}
+          tab={tab}
+        />
+      );
+  }
   const files = match('/w/:workspace/:project/files', path);
   if (files?.workspace && files.project)
     return <FilesPage me={me} workspace={files.workspace} project={files.project} theme={theme} />;
   const workspace = match('/w/:workspace', path);
   if (workspace?.workspace) return <Workspace me={me} workspace={workspace.workspace} />;
+  // AFS-84: a workspace's tabs sit under `-`, which no project's key can be.
+  const inSpace = match('/w/:workspace/-/:tab', path);
+  if (
+    inSpace?.workspace &&
+    (inSpace.tab === 'environments' || inSpace.tab === 'credentials' || inSpace.tab === 'access')
+  )
+    return <Workspace me={me} workspace={inSpace.workspace} tab={`-/${inSpace.tab}`} />;
   const project = match('/w/:workspace/:project', path);
   if (project?.workspace && project.project)
     return <ProjectPage me={me} workspace={project.workspace} project={project.project} />;
+  const inProject = match('/w/:workspace/:project/:tab', path);
+  if (
+    inProject?.workspace &&
+    inProject.project &&
+    (inProject.tab === 'runs' || inProject.tab === 'branches' || inProject.tab === 'settings')
+  )
+    return (
+      <ProjectPage
+        me={me}
+        workspace={inProject.workspace}
+        project={inProject.project}
+        tab={inProject.tab}
+      />
+    );
   return <NotFound />;
 }
 
@@ -135,7 +177,9 @@ function Side({
   const at = (to: string) =>
     path === to ||
     (to === '/runs' && path.startsWith('/runs/')) ||
-    (to === '/admin' && path.startsWith('/admin/')) ||
+    // People and groups are one place of the administration, at several addresses.
+    (to === '/admin/people' && (path === '/admin' || path.startsWith('/admin/groups'))) ||
+    (to.startsWith('/admin/') && path.startsWith(`${to}/`)) ||
     (to !== '/' && to.startsWith('/w/') && path.startsWith(`${to}/`))
       ? 'page'
       : undefined;
@@ -176,11 +220,6 @@ function Side({
           <Link to="/library" aria-current={at('/library')}>
             Library
           </Link>
-          {me.admin && (
-            <Link to="/admin" aria-current={at('/admin')}>
-              Administration
-            </Link>
-          )}
         </nav>
         <nav aria-label="Workspaces" className="side-nav">
           <span className="side-label">
@@ -194,6 +233,27 @@ function Side({
             </Link>
           ))}
         </nav>
+        {me.admin && (
+          // AFS-87: the administration's pages are in the menu, not behind an index page.
+          <nav aria-label="Administration" className="side-nav">
+            <span className="side-label">Administration</span>
+            <Link to="/admin/people" aria-current={at('/admin/people')}>
+              People and groups
+            </Link>
+            <Link to="/admin/sign-in" aria-current={at('/admin/sign-in')}>
+              Sign-in
+            </Link>
+            <Link to="/admin/certificate" aria-current={at('/admin/certificate')}>
+              Server certificate
+            </Link>
+            <Link to="/admin/notifications" aria-current={at('/admin/notifications')}>
+              Notifications
+            </Link>
+            <Link to="/admin/audit" aria-current={at('/admin/audit')}>
+              Audit log
+            </Link>
+          </nav>
+        )}
         <div className="side-end">
           <Link to="/account" aria-current={at('/account')}>
             {me.name}

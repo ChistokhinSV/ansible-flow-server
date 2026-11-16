@@ -1,64 +1,9 @@
-// Administration: its index, and the audit log: who did what, newest first, filtered, a page at
+// The audit log: who did what, newest first, filtered, a page at
 // a time, and taken away as CSV or JSON with the same filter.
 import { type FormEvent, useEffect, useState } from 'react';
 import { type AuditEntry, type AuditFilter, api, auditExport } from './api';
 import { Link } from './router';
 import { Loading, messageOf, PageHead, Time } from './ui';
-
-export function AdminPage() {
-  return (
-    <>
-      <PageHead title="Administration" />
-      <ul className="cards">
-        <li>
-          <Link to="/admin/people" className="card">
-            <strong>People and groups</strong>
-            <span className="muted">
-              Accounts, administrators, service accounts and their tokens, passwords, and the groups
-              access levels and approvals name.
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link to="/admin/certificate" className="card">
-            <strong>Server certificate</strong>
-            <span className="muted">
-              The certificate in use and its days left; request one from your certificate authority,
-              install it, make a self-signed one, roll back.
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link to="/admin/sign-in" className="card">
-            <strong>Sign-in</strong>
-            <span className="muted">
-              Your organisation&apos;s sign-in (OIDC, LDAP, Active Directory), what its groups are
-              here, and who may still use a password.
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link to="/admin/audit" className="card">
-            <strong>Audit log</strong>
-            <span className="muted">
-              Who did what and when: sign-ins, launches, stops, pushes, changes to people, projects,
-              credentials and the certificate.
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link to="/admin/notifications" className="card">
-            <strong>Notifications</strong>
-            <span className="muted">
-              The mail server, the key webhooks are signed with, a test message, and what was sent
-              to whom.
-            </span>
-          </Link>
-        </li>
-      </ul>
-    </>
-  );
-}
 
 /** What an action is about, for the filter. */
 const OBJECTS = [

@@ -4,13 +4,23 @@
 import type { RunView } from '@ansible-flow/core/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { atLeast, flowLevel, useProjectAccess } from './access';
-import { api, type Run, type User } from './api';
+import {
+  api,
+  type Project,
+  type Run,
+  type RunsFilter,
+  runCursor,
+  type User,
+  type Workspace,
+} from './api';
 import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import { ago, Loading, PageHead, span, Time, useLoad } from './ui';
 
 const ACTIVE = ['queued', 'running', 'waiting'];
+/** How many runs the list asks for at once. */
+const PAGE = 100;
 /** The output a page keeps; the rest is in the run's output file. */
 const KEEP_OUTPUT = 2 * 1024 * 1024;
 
@@ -124,29 +134,272 @@ function StateChoices({ value, onChange }: { value: string; onChange(state: stri
   );
 }
 
-export function RunsPage({ me }: { me: User }) {
-  const [state, setState] = useState('');
-  const list = useLoad(() => api.runs({ ...(state ? { state } : {}), limit: 100 }), [state]);
-  const going = list.data?.some((r) => ACTIVE.includes(r.state));
+/** Every project the person can see, workspace by workspace. */
+interface Place {
+  workspace: Workspace;
+  projects: Project[];
+}
+const places = async (): Promise<Place[]> =>
+  Promise.all(
+    (await api.workspaces()).map(async (workspace) => ({
+      workspace,
+      // A workspace that does not answer is left out, not the reason for an empty list.
+      projects: await api.projects(workspace.key).catch(() => []),
+    })),
+  );
+
+const STATES = ['running', 'waiting', 'failed', 'succeeded', 'queued', 'cancelled', 'lost'];
+
+/** The choices the address holds (AFS-86), so that a reload or a shared link shows the same list. */
+interface Choices {
+  state: string;
+  project: string;
+  /** A launch configuration of the project chosen. */
+  config: string;
+  /** Only the runs the person asked for themself. */
+  mine: boolean;
+}
+function choicesInAddress(): Choices {
+  const query = new URLSearchParams(window.location.search);
+  const state = query.get('state') ?? '';
+  const project = query.get('project') ?? '';
+  return {
+    state: STATES.includes(state) ? state : '',
+    project,
+    // A configuration is one of a project's: without its project it is not a choice.
+    config: project ? (query.get('config') ?? '') : '',
+    mine: query.get('mine') === '1',
+  };
+}
+
+/**
+ * The newest page read again, over what is shown: older runs loaded with "Older runs" stay
+ * under it. When the newest page is not full there is nothing older, and it is the whole list.
+ */
+function merged(shown: Run[], newest: Run[]): Run[] {
+  const last = newest.at(-1);
+  if (!last || newest.length < PAGE) return newest;
+  const ids = new Set(newest.map((r) => r.id));
+  return [...newest, ...shown.filter((r) => !ids.has(r.id) && r.createdAt <= last.createdAt)];
+}
+
+/**
+ * The runs a filter gives, a page at a time: the newest page, read again while runs go, and
+ * older pages added under it when asked for. Rows carry the filter they answer: the list of the
+ * last filter stays until the new one is there (`fresh` says which it is), and nothing read for
+ * another filter is added to it.
+ */
+export function useRunPages(filter: RunsFilter) {
+  const key = JSON.stringify(filter);
+  const list = useLoad(
+    async () => ({ key, runs: await api.runs({ ...filter, limit: PAGE }) }),
+    [key],
+  );
+  const [shown, setShown] = useState<{ key: string; runs: Run[] }>();
+  // Older runs: none left once a page comes back short. Said of one filter, like the rows.
+  const [olderOf, setOlder] = useState<{
+    key: string;
+    busy?: boolean;
+    end?: boolean;
+    error?: string;
+  }>();
+  const older = olderOf?.key === key ? olderOf : undefined;
+  const current = useRef(key);
+  current.current = key;
+
+  const newest = list.data;
+  useEffect(() => {
+    if (newest)
+      setShown((before) => ({
+        key: newest.key,
+        runs: merged(before?.key === newest.key ? before.runs : [], newest.runs),
+      }));
+  }, [newest]);
+  const rows = shown?.runs;
+  const fresh = shown?.key === key;
+
+  const going = rows?.some((r) => ACTIVE.includes(r.state));
   // While runs go, the list keeps up with them.
   useEffect(() => {
     if (!going) return;
     const timer = setInterval(list.reload, 5000);
     return () => clearInterval(timer);
   }, [going, list.reload]);
+
+  const last = rows?.at(-1);
+  const more = fresh && !!last && !older?.end && (newest?.runs.length ?? 0) >= PAGE;
+  const loadOlder = async () => {
+    if (!last || older?.busy) return;
+    setOlder({ key, busy: true });
+    try {
+      // The next page starts after the last row: its time alone would skip the runs made in
+      // the same moment, so the server is told which run it was.
+      const page = await api.runs({ ...filter, limit: PAGE, before: runCursor(last) });
+      if (current.current !== key) return;
+      setShown((before) => {
+        if (before?.key !== key) return before;
+        const ids = new Set(before.runs.map((r) => r.id));
+        return { key, runs: [...before.runs, ...page.filter((r) => !ids.has(r.id))] };
+      });
+      setOlder({ key, end: page.length < PAGE });
+    } catch (e) {
+      if (current.current === key) setOlder({ key, error: (e as Error).message });
+    }
+  };
+  return {
+    list,
+    /** The rows shown; of the filter asked for when `fresh`. */
+    rows,
+    fresh,
+    more,
+    busy: !!older?.busy,
+    end: !!older?.end,
+    error: older?.error,
+    loadOlder,
+  };
+}
+
+/** Under a list of runs: the button for the next page, and what went wrong or that it ended. */
+export function OlderRuns({ pages }: { pages: ReturnType<typeof useRunPages> }) {
+  return (
+    <>
+      {pages.error && (
+        <p className="notice error" role="alert">
+          {pages.error}
+        </p>
+      )}
+      {pages.more && (
+        <p className="run-more">
+          <button type="button" disabled={pages.busy} onClick={pages.loadOlder}>
+            {pages.busy ? 'Loading…' : 'Older runs'}
+          </button>
+        </p>
+      )}
+      {pages.fresh && !!pages.rows?.length && pages.end && (
+        <p className="run-more muted small">No older runs.</p>
+      )}
+    </>
+  );
+}
+
+export function RunsPage({ me }: { me: User }) {
+  const [{ state, project, config, mine }, setChoices] = useState(choicesInAddress);
+  const filter: RunsFilter = {
+    ...(state ? { state } : {}),
+    ...(project ? { project } : {}),
+    ...(project && config ? { config } : {}),
+    // "Mine" is the runs this person asked for: the server is asked for their login's.
+    ...(mine ? { by: me.login } : {}),
+  };
+  const pages = useRunPages(filter);
+  const { list, rows, fresh } = pages;
+  const where = useLoad(places, []);
+  // The configurations of the project chosen, to narrow its runs to one.
+  const configs = useLoad(async () => (project ? api.launchConfigs(project) : []), [project]);
+
+  const choose = (next: Partial<Choices>) =>
+    setChoices((before) => ({
+      ...before,
+      ...next,
+      // Another project has other configurations.
+      ...(next.project !== undefined && next.project !== before.project ? { config: '' } : {}),
+    }));
+  // The router reads the path only, so the choices can live in the query.
+  useEffect(() => {
+    const query = new URLSearchParams({
+      ...(state ? { state } : {}),
+      ...(project ? { project } : {}),
+      ...(project && config ? { config } : {}),
+      ...(mine ? { mine: '1' } : {}),
+    }).toString();
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    );
+  }, [state, project, config, mine]);
+  // A project from the address that the person cannot see (or that is gone) is not a choice.
+  const known = where.data?.some((w) => w.projects.some((p) => p.id === project));
+  useEffect(() => {
+    if (project && where.data && !known)
+      setChoices((before) => ({ ...before, project: '', config: '' }));
+  }, [project, where.data, known]);
+  // Nor is a configuration the project does not have (any more).
+  const knownConfig = configs.data?.some((c) => c.id === config);
+  useEffect(() => {
+    if (config && configs.data && !knownConfig) setChoices((before) => ({ ...before, config: '' }));
+  }, [config, configs.data, knownConfig]);
+
+  const groups = where.data?.filter((w) => w.projects.length) ?? [];
+
   return (
     <>
       <PageHead title="Runs" lead="Every run you may see, the newest first." />
-      <StateChoices value={state} onChange={setState} />
-      <Loading state={list} />
-      {list.data?.length === 0 && (
+      <div className="run-filters">
+        <StateChoices value={state} onChange={(next) => choose({ state: next })} />
+        <div className="chips">
+          <label className={mine ? 'chip on' : 'chip'}>
+            <input
+              type="checkbox"
+              checked={mine}
+              onChange={(e) => choose({ mine: e.target.checked })}
+            />
+            Mine
+          </label>
+        </div>
+        <label>
+          Project
+          <select
+            className="run-project"
+            value={known ? project : ''}
+            onChange={(e) => choose({ project: e.target.value })}
+          >
+            <option value="">all projects</option>
+            {groups.map((w) => (
+              <optgroup key={w.workspace.id} label={w.workspace.name}>
+                {w.projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        {known && project && (
+          <label>
+            Launch configuration
+            <select
+              className="run-project"
+              value={knownConfig ? config : ''}
+              onChange={(e) => choose({ config: e.target.value })}
+            >
+              <option value="">all configurations</option>
+              {configs.data?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      {(!fresh || list.error) && <Loading state={list} />}
+      {fresh && rows?.length === 0 && (
         <p className="empty">
-          {state
-            ? 'No run in this state.'
-            : 'No run yet. Runs start from a launch configuration of a project.'}
+          {mine || config
+            ? 'No run for these choices.'
+            : state && project
+              ? 'No run of this project in this state.'
+              : state
+                ? 'No run in this state.'
+                : project
+                  ? 'No run of this project yet.'
+                  : 'No run yet. Runs start from a launch configuration of a project.'}
         </p>
       )}
-      {!!list.data?.length && <RunList runs={list.data} me={me} />}
+      {!!rows?.length && <RunList runs={rows} me={me} />}
+      <OlderRuns pages={pages} />
     </>
   );
 }
@@ -234,25 +487,47 @@ function hostLines(view: RunView): HostLine[] {
 
 const SHOWN_HOSTS = 8;
 
+/**
+ * The hosts beside the canvas (AFS-86). When some have a problem, those are what the list is
+ * read for: only they show until all are asked for. The canvas panel lists every host anyway.
+ */
 function Hosts({ lines }: { lines: HostLine[] }) {
   const [all, setAll] = useState(false);
   if (!lines.length) return null;
-  const shown = all ? lines : lines.slice(0, SHOWN_HOSTS);
+  const problems = lines.filter((l) => l.tone === 'bad-text');
+  const short = (problems.length ? problems : lines).slice(0, SHOWN_HOSTS);
+  const shown = all ? lines : short;
   return (
     <section className="hosts" aria-labelledby="hosts">
       <div className="section-head">
         <h2 id="hosts">Hosts</h2>
-        {lines.length > SHOWN_HOSTS && (
-          <button type="button" className="link small" onClick={() => setAll(!all)}>
-            {all ? 'Fewer' : `All ${lines.length}`}
+        {short.length < lines.length && (
+          <button
+            type="button"
+            className="link small"
+            aria-expanded={all}
+            onClick={() => setAll(!all)}
+          >
+            {all ? (problems.length ? 'Only with a problem' : 'Fewer') : `All ${lines.length}`}
           </button>
         )}
       </div>
+      {!all && problems.length > 0 && short.length < lines.length && (
+        <p className="muted small">
+          {short.length < problems.length
+            ? `The first ${short.length} of ${problems.length} with a problem.`
+            : problems.length === 1
+              ? 'The one with a problem.'
+              : `The ${problems.length} with a problem.`}
+        </p>
+      )}
       <ul className="list">
         {shown.map((line) => (
           <li key={line.host}>
             <span className="item">
-              <span className="mono">{line.host}</span>
+              <span className="mono" title={line.host}>
+                {line.host}
+              </span>
               <span className={`end ${line.tone}`}>{line.words}</span>
             </span>
           </li>
@@ -260,6 +535,52 @@ function Hosts({ lines }: { lines: HostLine[] }) {
       </ul>
     </section>
   );
+}
+
+/** Where a run belongs, as far as the person may see it: what its pages are addressed by. */
+interface Belongs {
+  workspace: string;
+  project: string;
+  /** The flow's page, when the project has the flow now. */
+  flow?: string;
+  /** The launch configuration's page, when it is still there. */
+  config?: string;
+}
+
+const part = encodeURIComponent;
+
+/**
+ * Finds a run's workspace and project (a run names its project by id; pages are addressed by
+ * keys), and whether its flow and launch configuration can be linked to. What is not found is
+ * left out: a dev run's flow may not be in the project, a configuration may be gone.
+ */
+async function belongs(project: string, file: string, config?: string): Promise<Belongs | null> {
+  for (const { workspace, projects } of await places()) {
+    const found = projects.find((p) => p.id === project);
+    if (!found) continue;
+    const base = `/w/${part(workspace.key)}/${part(found.key)}`;
+    const [flows, configs] = await Promise.all([
+      api.flows(found.id).then(
+        (l) => l.flows.map((f) => f.file),
+        () => [] as string[],
+      ),
+      config
+        ? api.launchConfigs(found.id).then(
+            (l) => l.map((c) => c.id),
+            () => [] as string[],
+          )
+        : ([] as string[]),
+    ]);
+    return {
+      workspace: workspace.key,
+      project: found.key,
+      ...(flows.includes(file)
+        ? { flow: `${base}/flow/${file.split('/').map(part).join('/')}` }
+        : {}),
+      ...(config && configs.includes(config) ? { config: `${base}/launch/${part(config)}` } : {}),
+    };
+  }
+  return null;
 }
 
 export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeChoice }) {
@@ -271,6 +592,14 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const [busy, setBusy] = useState(false);
   const pre = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
+  const below = useRef<HTMLElement>(null);
+  const projectId = run?.project;
+  const flowFile = run?.flow.file;
+  const configId = run?.config?.id;
+  const where = useLoad(
+    async () => (projectId && flowFile ? belongs(projectId, flowFile, configId) : null),
+    [projectId, flowFile, configId],
+  ).data;
 
   useEffect(() => {
     setRun(undefined);
@@ -365,7 +694,27 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
       <header className="run-head">
         <div>
           <nav aria-label="Breadcrumb" className="crumbs">
-            <Link to="/runs">Runs</Link> / <span aria-current="page">#{run.number}</span>
+            {where ? (
+              <>
+                <Link to="/workspaces">Workspaces</Link> /{' '}
+                <Link to={`/w/${part(where.workspace)}`}>{where.workspace}</Link> /{' '}
+                <Link to={`/w/${part(where.workspace)}/${part(where.project)}`}>
+                  {where.project}
+                </Link>{' '}
+                /{' '}
+                {where.config && run.config && (
+                  <>
+                    <Link to={where.config}>{run.config.name}</Link> /{' '}
+                  </>
+                )}
+              </>
+            ) : (
+              // Where it belongs is not known (yet, or not to this person): the list is the way back.
+              <>
+                <Link to="/runs">Runs</Link> /{' '}
+              </>
+            )}
+            <span aria-current="page">run {run.number}</span>
           </nav>
           <h1>{title}</h1>
           <p>
@@ -401,6 +750,20 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           </p>
         </div>
         <div className="actions">
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              // The output is the last thing on a long page: go there, and read on from there.
+              below.current?.scrollIntoView?.({ block: 'start' });
+              below.current?.focus({ preventScroll: true });
+            }}
+          >
+            To the output
+          </button>
+          <Link to="/runs" className="run-link">
+            All runs
+          </Link>
           {mayAct && going && (
             <button
               type="button"
@@ -465,7 +828,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             <dl className="facts">
               <dt>Flow</dt>
               <dd>
-                {run.flow.name}{' '}
+                {where?.flow ? <Link to={where.flow}>{run.flow.name}</Link> : run.flow.name}{' '}
                 <span className="muted">
                   ({run.flow.file}, version {run.flow.version})
                 </span>
@@ -478,7 +841,18 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               <dt>Launched</dt>
               <dd>
                 by {run.requestedBy.login}
-                {run.config && <> from “{run.config.name}”</>}, <Time at={run.createdAt} />
+                {run.config && (
+                  <>
+                    {' '}
+                    from{' '}
+                    {where?.config ? (
+                      <Link to={where.config}>{run.config.name}</Link>
+                    ) : (
+                      <>“{run.config.name}”</>
+                    )}
+                  </>
+                )}
+                , <Time at={run.createdAt} />
               </dd>
               <dt>Started</dt>
               <dd>
@@ -500,7 +874,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           </section>
         </aside>
       </div>
-      <section className="run-below" aria-labelledby="output">
+      <section ref={below} tabIndex={-1} className="run-below" aria-labelledby="output">
         <div className="section-head">
           <h2 id="output">Output</h2>
           <a href={`/api/v1/runs/${run.id}/output`} target="_blank" rel="noreferrer">

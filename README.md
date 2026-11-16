@@ -407,12 +407,20 @@ just user add dana --name "Dana Whitfield" --admin
 | `GET /users/:id/tokens`, `DELETE /users/:id/tokens/:token` | See and revoke someone's tokens                                     | administrators                    |
 | `/groups`, `/groups/:id`                                   | List, add, change, delete groups                                    | administrators                    |
 | `PUT /groups/:id/members`                                  | Set a group's members: `{"users":[ids]}`                            | administrators                    |
+| `GET /users/:id/access`                                    | What one person reaches, workspace by workspace (below)             | administrators                    |
+| `GET /groups/:id/grants`                                   | The grants that name a group, in every workspace (below)            | administrators                    |
 
 - A password has at least 12 characters and is kept only as an argon2id hash.
 - A session lasts 8 hours without use and 7 days at most. Its cookie is not readable by scripts
   and is sent over HTTPS only.
 - After five wrong passwords for a login in fifteen minutes, sign-in for it waits.
 - The last administrator cannot be demoted, disabled or deleted.
+- `GET /users/:id/access` answers `{"admin", "workspaces"}`: a row for each workspace where a
+  grant names the person or one of their groups, with the `workspace` (`id`, `key`, `name`),
+  their `level` there, `approve`, the `flows` with a grant of their own, and `through` (whose
+  grants gave it: `user:omar`, `group:netops`). For an administrator it is `"admin": true` and
+  no rows. `GET /groups/:id/grants` lists the grants that name the group: each with the
+  `workspace` (`id`, `key`, `name`), the `level`, and the `flow` when it is on one flow.
 - A person and a group each have an email address and a webhook address: where a notification
   for them goes (see [Notifications](#notifications)).
 
@@ -609,6 +617,10 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
 
 - Errors are JSON: `{"error": "<code>", "message": "<words fit to show>"}`, with the HTTP status.
 - A run is followed as server-sent events (`GET /api/v1/runs/<id>/events`), see [Runs](#runs).
+- The list of runs is narrowed with `project`, `flow`, `state`, `config` (a launch
+  configuration's id) and `by` (the login of who asked for the run), and read a page at a time
+  with `limit` and `before`, see [Runs](#runs). A list never shows more than you may see,
+  whatever it is asked for.
 - Each route is described in one list on the server (what it does, who may call it, which
   workspace it reaches); a route that is not in it stops the server from starting.
 
@@ -617,30 +629,39 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
 The server serves its own pages at its address. A new server shows the first-run setup (the
 setup code from its log); after that, sign-in: a card over a quiet picture of a flow, which says
 nothing about the server (the page is public). Signed in, a side menu leads to Home, Runs,
-Approvals (with how many wait for you), Library, Administration and each workspace; your name, the
-theme and Sign out are at its end. At phone width it folds into **Menu**.
+Approvals (with how many wait for you), Library, each workspace and, for administrators, the
+administration's pages; your name, the theme and Sign out are at its end. Long pages are split
+into tabs; each tab has its own address. At phone width it folds into **Menu**.
 
-| Page                                   | Shows                                                                                                                                                                                     |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                                    | Home: the day in a sentence, the approvals waiting for you, the latest runs, the workspaces                                                                                               |
-| `/workspaces`                          | The workspaces; administrators add one                                                                                                                                                    |
-| `/w/<workspace>`                       | Its projects; administrators add one, kept by the server or external (with what it signs in with); its credentials (administrators add, change, delete)                                   |
-| `/w/<workspace>/<project>`             | State, commit, branches, what an external source signs in with, its flows with their findings, the `git clone` command, who pushed                                                        |
-| `/w/<workspace>/<project>/flow/<file>` | One flow on the designer's canvas, read-only; "Open on its own page"                                                                                                                      |
-| `/w/<workspace>/<project>/launch/<id>` | A launch configuration and its launch form: what would run, Launch, keep start values                                                                                                     |
-| `/w/<workspace>/<project>/launch/new`  | Add a launch configuration (`rw` on its flow); `.../launch/<id>/edit` changes one                                                                                                         |
-| `/runs`                                | Every run you may see, the newest first, filtered by state (a row of choices)                                                                                                             |
-| `/runs/<id>`                           | One run: where it stands in a sentence, the run on the canvas, beside it the approval that waits, its hosts (problems first), why one failed and what ran; its output; Stop and Run again |
-| `/approvals`                           | What waits for a decision: yours each in a tinted box with the decision (and a comment), others' as rows with why not                                                                     |
-| `/docs/api`                            | The API reference, from the server's OpenAPI document                                                                                                                                     |
-| `/account`                             | Your profile (name, email address; webhook for administrators) and access tokens                                                                                                          |
-| `/admin`                               | Administration: the certificate, people and groups, the audit log, notifications                                                                                                          |
-| `/admin/certificate`                   | The server certificate: in use and its days left, the one before (roll back), request and download, install, new self-signed, history                                                     |
-| `/admin/people`                        | Everyone, with kind, state, groups and last sign-in; the groups; add a person, service account or group                                                                                   |
-| `/admin/people/<id>`                   | One account: profile, administrator, disable or enable, password, groups, tokens (made here for a service account), delete                                                                |
-| `/admin/groups/<id>`                   | One group: name, email address and webhook, members, delete                                                                                                                               |
-| `/admin/audit`                         | The audit log, filtered, older entries a page at a time; export as CSV or JSON                                                                                                            |
-| `/admin/notifications`                 | The mail server, the webhook signing key, a test message, the delivery log                                                                                                                |
+| Page                                              | Shows                                                                                                                                                                                                                                                              |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                                               | Home: the day in a sentence, the approvals waiting for you, the launch configurations you used lately (Launch again), the latest runs, the workspaces                                                                                                              |
+| `/workspaces`                                     | The workspaces; administrators add one                                                                                                                                                                                                                             |
+| `/w/<workspace>`                                  | A workspace in tabs. **Projects**: its projects; administrators add one, kept by the server or external (with what it signs in with)                                                                                                                               |
+| `/w/<workspace>/-/environments`                   | **Execution environments** of the workspace                                                                                                                                                                                                                        |
+| `/w/<workspace>/-/credentials`                    | **Credentials** of the workspace (administrators add, change, delete)                                                                                                                                                                                              |
+| `/w/<workspace>/-/access`                         | **Access** (administrators): who can do what, the grants, giving access, who decides a launcher's own approvals                                                                                                                                                    |
+| `/w/<workspace>/<project>`                        | A project in tabs, with its state in one line under the title (source, branch, commit). **Overview**: launch configurations with their last run and Launch, flows with their findings and how their last run went, the newest runs                                 |
+| `/w/<workspace>/<project>/runs`                   | **Runs** of the project                                                                                                                                                                                                                                            |
+| `/w/<workspace>/<project>/files`                  | **Files** of the project                                                                                                                                                                                                                                           |
+| `/w/<workspace>/<project>/branches`               | **Branches** and who pushed through the server                                                                                                                                                                                                                     |
+| `/w/<workspace>/<project>/settings`               | **Settings**: the `git clone` command, what an external source signs in with, its SSH host key, the push hook, library                                                                                                                                             |
+| `/w/<workspace>/<project>/flow/<file>`            | One flow on the designer's canvas; its launch configurations (Launch) and newest runs above it; "Open on its own page"                                                                                                                                             |
+| `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form with Launch on top, what would run, keep start values                                                                                                                                                         |
+| `.../launch/<id>/runs`, `/schedules`, `/settings` | Its **Runs** (older ones a page at a time), its **Schedules**, and its **Settings** (change, delete; `rw` on its flow)                                                                                                                                             |
+| `/w/<workspace>/<project>/launch/new`             | Add a launch configuration (`rw` on its flow)                                                                                                                                                                                                                      |
+| `/runs`                                           | Every run you may see, the newest first, filtered by state, by project and one of its launch configurations, and to your own (Mine); the choices are in the address; older runs a page at a time                                                                   |
+| `/runs/<id>`                                      | One run: where it belongs (workspace, project, launch configuration), where it stands in a sentence, the run on the canvas, beside it the approval that waits, its hosts (those with a problem first), why one failed and what ran; its output; Stop and Run again |
+| `/approvals`                                      | What waits for a decision: yours each in a tinted box with the decision (and a comment), others' as rows with why not                                                                                                                                              |
+| `/docs/api`                                       | The API reference, from the server's OpenAPI document                                                                                                                                                                                                              |
+| `/account`, `/account/tokens`                     | Your **Profile** (name, email address; webhook for administrators) and your **Access tokens**                                                                                                                                                                      |
+| `/admin/people`, `/admin/groups`                  | **People** (filtered by name and kind) and **Groups**, each a tab; add a person, service account or group                                                                                                                                                          |
+| `/admin/people/<id>`                              | One account: groups, what they reach in each workspace, profile, password, tokens (made here for a service account); disable and delete last                                                                                                                       |
+| `/admin/groups/<id>`                              | One group: members, the workspaces that name it, name, email address and webhook, delete                                                                                                                                                                           |
+| `/admin/sign-in`                                  | Sign-in providers, directories, who may use a password                                                                                                                                                                                                             |
+| `/admin/certificate`                              | The server certificate: in use and its days left, the one before (roll back), history; replace it by a request, a certificate or a PFX file; new self-signed                                                                                                       |
+| `/admin/notifications`                            | The delivery log; `/admin/notifications/settings`: the mail server, the webhook signing key, a test message                                                                                                                                                        |
+| `/admin/audit`                                    | The audit log, filtered, older entries a page at a time; export as CSV or JSON                                                                                                                                                                                     |
 
 - **Search** at the top of every page (`/` or Ctrl+K): as you type, the workspaces, projects, flows (by name,
   key or file), launch configurations, runs (by number, flow or configuration), environments and
@@ -666,7 +687,7 @@ theme and Sign out are at its end. At phone width it folds into **Menu**.
 - Administrators read the audit log at `/admin/audit` and export it.
 - A project's page lists its launch configurations; `rw` on a flow adds, changes and deletes
   them.
-- A workspace's page has its Access for administrators: grants, and who can do what.
+- A workspace's Access tab is for administrators: who can do what, and the grants.
 - Each page shows only what the person's level lets them do; the server decides either way.
 - Administrators manage people and groups at `/admin/people`. The server's rules stand there too
   (the last administrator stays one; nobody disables or deletes themself), and a refusal is shown
@@ -802,22 +823,22 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 }
 ```
 
-| Address (under `/api/v1`)             | Does                                                                                                                                | Who                                        |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `/workspaces`, `/workspaces/:id`      | List, add, change, delete (by id or key)                                                                                            | read: what you see; change: administrators |
-| `/workspaces/:id/projects`            | A workspace's projects; add one (its source is looked at at once)                                                                   | as above                                   |
-| `/projects/:id`                       | A project; change its name, source, branch, timer; delete                                                                           | as above                                   |
-| `POST /projects/:id/sync`             | Look at the source now                                                                                                              | `rw` on the workspace                      |
-| `GET /samples`                        | The sample projects a hosted project can start from                                                                                 | signed in                                  |
-| `POST /projects/:id/start`            | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                               | `rw` on the workspace                      |
-| `GET /projects/:id/branches`          | The branches: names, and each with its newest commit, commits not on the project's branch and the launch configurations that run it | signed in                                  |
-| `POST /projects/:id/branches`         | `{"name","from"}`: a branch from a branch or a commit                                                                               | `rw` on the workspace                      |
-| `DELETE /projects/:id/branches?name=` | Delete a branch; `&force=true` for one with commits not on the project's branch                                                     | `rw` on the workspace                      |
-| `GET /projects/:id/pushes`            | Who pushed what through the server, newest first                                                                                    | signed in                                  |
-| `GET /projects/:id/flows`             | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors and warnings, or why it cannot be read    | signed in                                  |
-| `GET /projects/:id/flows/view?path=`  | One flow as the designer shows it (the flow, findings, positions, generated plays)                                                  | signed in                                  |
-| `POST /projects/:id/hook`, `DELETE`   | Make a push hook (its token is shown once); remove it                                                                               | administrators                             |
-| `POST /hooks/projects/:id/push`       | Called by the git host with the hook's token                                                                                        | the token                                  |
+| Address (under `/api/v1`)             | Does                                                                                                                                        | Who                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `/workspaces`, `/workspaces/:id`      | List, add, change, delete (by id or key)                                                                                                    | read: what you see; change: administrators |
+| `/workspaces/:id/projects`            | A workspace's projects; add one (its source is looked at at once)                                                                           | as above                                   |
+| `/projects/:id`                       | A project; change its name, source, branch, timer; delete                                                                                   | as above                                   |
+| `POST /projects/:id/sync`             | Look at the source now                                                                                                                      | `rw` on the workspace                      |
+| `GET /samples`                        | The sample projects a hosted project can start from                                                                                         | signed in                                  |
+| `POST /projects/:id/start`            | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                                       | `rw` on the workspace                      |
+| `GET /projects/:id/branches`          | The branches: names, and each with its newest commit, commits not on the project's branch and the launch configurations that run it         | signed in                                  |
+| `POST /projects/:id/branches`         | `{"name","from"}`: a branch from a branch or a commit                                                                                       | `rw` on the workspace                      |
+| `DELETE /projects/:id/branches?name=` | Delete a branch; `&force=true` for one with commits not on the project's branch                                                             | `rw` on the workspace                      |
+| `GET /projects/:id/pushes`            | Who pushed what through the server, newest first                                                                                            | signed in                                  |
+| `GET /projects/:id/flows`             | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors, warnings and `lastRun`, or why it cannot be read | signed in                                  |
+| `GET /projects/:id/flows/view?path=`  | One flow as the designer shows it (the flow, findings, positions, generated plays)                                                          | signed in                                  |
+| `POST /projects/:id/hook`, `DELETE`   | Make a push hook (its token is shown once); remove it                                                                                       | administrators                             |
+| `POST /hooks/projects/:id/push`       | Called by the git host with the hook's token                                                                                                | the token                                  |
 
 - **The source** is `https://…`, `ssh://…` or `git@host:path`. An address with a password in it
   is refused. A folder of this machine is allowed only with `AFS_GIT_LOCAL=on`.
@@ -1063,12 +1084,16 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 
 | Address (under `/api/v1`)         | Does                                                       | Who                                  |
 | --------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
-| `/projects/:id/launch-configs`    | List; add                                                  | read: `ro`; change: `rw` on the flow |
-| `/launch-configs/:id`             | One; change; delete                                        | as above                             |
+| `/projects/:id/launch-configs`    | List, each with its `lastRun`; add                         | read: `ro`; change: `rw` on the flow |
+| `/launch-configs/:id`             | One, with its `lastRun`; change; delete                    | as above                             |
 | `GET /launch-configs/:id/form`    | The flow's inputs as a form, with the start values         | `ro`                                 |
 | `POST /launch-configs/:id/check`  | What a launch would run, or 422 with everything in its way | `ro`                                 |
 | `POST /launch-configs/:id/facts`  | The hosts it would touch, as the inventory has them        | `operator`                           |
 | `POST /launch-configs/:id/launch` | The same, and the run goes in the queue (201 with the run) | `operator`                           |
+
+`lastRun` is the configuration's newest run among the runs you may see: `id`, `number`, `state`,
+`createdAt`, and `endedAt` once it has ended. A configuration that has not run has none. A
+project's list of flows says the same of each flow.
 
 - **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
   value and each credential are checked; a refusal names the setting (`field`).
@@ -1169,12 +1194,20 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `succeeded`, `failed`, `cancelled` | How it ended                                                            |
 | `lost`                             | Its worker stopped answering after it started: what it did is not known |
 
-| Address (under `/api/v1`)                  | Does                                                         | Who          |
-| ------------------------------------------ | ------------------------------------------------------------ | ------------ |
-| `GET /runs?project=&state=&limit=&before=` | Runs, the newest first (`before`: the last `createdAt` seen) | what you see |
-| `GET /runs/:id`                            | One run                                                      | `ro`         |
-| `POST /runs/:id/cancel`                    | Stop it: at once when queued, else at the worker's next word | `operator`   |
+| Address (under `/api/v1`)                                    | Does                                                          | Who          |
+| ------------------------------------------------------------ | ------------------------------------------------------------- | ------------ |
+| `GET /runs?project=&flow=&state=&config=&by=&limit=&before=` | Runs, the newest first, narrowed and a page at a time (below) | what you see |
+| `GET /runs/:id`                                              | One run                                                       | `ro`         |
+| `POST /runs/:id/cancel`                                      | Stop it: at once when queued, else at the worker's next word  | `operator`   |
 
+- **Filters:** `project` (its id), `flow` (the flow's file), `state`, `config` (a launch
+  configuration's id) and `by` (the login of who asked for the run; your own for your runs).
+  They narrow what you may see and never add to it. A token made for one workspace names a
+  `project` or a `config` of that workspace.
+- **Pages:** `limit` runs at a time (50, at most 200). For the next page, pass the last run of
+  a page as `before=<createdAt>,<number>,<id>`: the list goes on after that run, also when
+  other runs were made in the same millisecond. A time alone (`before=<createdAt>`) still gives
+  the runs made before it.
 - **Limits:** `AFS_MAX_RUNS` runs at once on the server (4), `AFS_MAX_RUNS_PER_PROJECT` of one
   project (1). A run over a limit waits; another project's runs do not wait behind it.
 - **A worker that goes away:** a run it had not started goes back in the queue (lost after 3
@@ -1479,7 +1512,7 @@ the audit log with the source `mcp`.
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `flow_list`, `flow_describe`, `flow_validate`, `flow_reference` | The designer's flow tools, read-only, on the projects' flows (`net/edge/flows/upgrade.flow.yaml`) |
 | `project_list`                                                  | Workspaces and projects you may see: branch, commit, sync state                                   |
-| `launch_config_list`                                            | A project's launch configurations                                                                 |
+| `launch_config_list`                                            | A project's launch configurations, each with how its last run went (`lastRun`)                    |
 | `run_check`                                                     | What a launch would run (commit, inputs, hosts) or what is in its way                             |
 | `run_launch`                                                    | Queue a run of a launch configuration (`operator`)                                                |
 | `run_status`, `run_output`, `run_list`                          | How a run stands (state, approvals, hosts per step), its output, the runs                         |
@@ -1493,6 +1526,9 @@ the audit log with the source `mcp`.
   "An agent with this token may decide approvals over MCP" (on My account, or
   `"mcpApprovals": true` when making a token), and then only where its owner may decide.
 - A launch configuration is named by its id or as `<workspace>/<project>/<name>`.
+- `run_list` takes a `project`, a `config` (a launch configuration), `by` (a login) or `mine`
+  (the runs the token's owner asked for), and a `state`. When there are more runs, its answer
+  has `next`: pass it as `before` for the next page.
 
 Make a token on **My account** (for one workspace, if the agent needs no more), keep it in an
 environment variable (`AFS_TOKEN` below), and add the server to the agent:

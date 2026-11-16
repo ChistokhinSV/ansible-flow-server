@@ -6,7 +6,6 @@ import type { Mapping, Provider, ProviderInput, SignInMethods } from '../server/
 import type { Group } from '../server/auth/users';
 import { api } from './api';
 import { DirectoriesSection } from './directories';
-import { Link } from './router';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 /** The sign-in page's provider buttons, and why the last sign-in failed (?error=). */
@@ -291,7 +290,6 @@ export function SignInPage() {
             People sign in with a password here, with your organisation&apos;s sign-in (OIDC:
             Keycloak, Entra ID, Google, and others), or with their directory login (LDAP, Active
             Directory). Their groups there can be groups here.{' '}
-            <Link to="/admin">Administration</Link>
           </>
         }
       >

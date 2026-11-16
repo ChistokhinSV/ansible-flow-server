@@ -1,8 +1,11 @@
-// The Notifications page, with the server played by the test: the mail server form (the password
-// kept unless a new one is typed), a webhook key shown once, and the delivery log with a retry.
+// The Notifications page, with the server played by the test: the delivery log first, with a
+// retry, and on the Settings tab the mail server form (the password kept unless a new one is
+// typed) and a webhook key shown once (AFS-88). The tabs are shown as the page is given them:
+// which address is which tab is the application's.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
+import { NotificationsPage } from '../../src/web/notifications';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Reyes', admin: true, groups: [] };
 
@@ -70,6 +73,34 @@ describe('the Notifications page', () => {
     window.history.replaceState(null, '', '/admin/notifications');
     render(<App />);
 
+    // The log is what the page opens on: how sending stands in a line, then the messages.
+    const tabs = await screen.findByRole('navigation', { name: 'Notifications' });
+    const logTab = within(tabs).getByRole('link', { name: /Delivery log/ });
+    expect(logTab.getAttribute('href')).toBe('/admin/notifications');
+    expect(logTab.getAttribute('aria-current')).toBe('page');
+    expect(within(tabs).getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe(
+      '/admin/notifications/settings',
+    );
+    const standing = (await screen.findByText(/Email is not set up/)).closest('p') as HTMLElement;
+    expect(standing.textContent).toContain('Webhooks are not signed');
+    expect(within(standing).getByRole('link', { name: 'Set it up' }).getAttribute('href')).toBe(
+      '/admin/notifications/settings',
+    );
+    expect(screen.getByLabelText('Status')).toBeTruthy();
+    await screen.findByText('HTTP 503: Service Unavailable');
+    // A message given up on marks the tab.
+    expect(await within(logTab).findByRole('img', { name: 'needs a look' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Email' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send a test' })).toBeNull();
+
+    cleanup();
+    render(<NotificationsPage tab="settings" />);
+    expect(
+      within(screen.getByRole('navigation', { name: 'Notifications' }))
+        .getByRole('link', { name: 'Settings' })
+        .getAttribute('aria-current'),
+    ).toBe('page');
+    expect(screen.queryByLabelText('Status')).toBeNull();
     const mail = (await screen.findByRole('heading', { name: 'Email' })).closest(
       'section',
     ) as HTMLElement;
@@ -97,13 +128,21 @@ describe('the Notifications page', () => {
       .closest('section') as HTMLElement;
     fireEvent.click(within(hooks).getByRole('button', { name: 'Make a key' }));
     expect(await within(hooks).findByText('afs_whk_example-key')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send a test' })).toBeTruthy();
 
+    cleanup();
+    render(<NotificationsPage tab="log" />);
+    expect(await screen.findByText('Email goes through mail.example.net')).toBeTruthy();
+    expect(screen.getByText('Webhooks are signed')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Set it up' })).toBeNull();
     const row = (await screen.findByText('HTTP 503: Service Unavailable')).closest(
       'tr',
     ) as HTMLElement;
     expect(within(row).getByText('given up')).toBeTruthy();
     fireEvent.click(within(row).getByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(screen.getByText('being tried')).toBeTruthy());
+    await waitFor(() => expect(within(row).getByText('being tried')).toBeTruthy());
+    // Nothing is given up on any more: the mark goes.
+    await waitFor(() => expect(screen.queryByRole('img', { name: 'needs a look' })).toBeNull());
   });
 });
 

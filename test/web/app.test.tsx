@@ -1,6 +1,6 @@
 // The web application in a browser-like page, with the server's API played by the test: what
 // each kind of visitor sees, and that the pages say what the server said.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 import { match, navigate } from '../../src/web/router';
@@ -97,6 +97,13 @@ const signedInAs = (user: typeof dana) => ({
           steps: 12,
           errors: 0,
           warnings: 2,
+          lastRun: {
+            id: 'r41',
+            number: 41,
+            state: 'failed',
+            createdAt: '2026-11-13T11:00:00.000Z',
+            endedAt: '2026-11-13T11:03:00.000Z',
+          },
         },
         {
           file: 'old/broken.flow.yaml',
@@ -233,7 +240,8 @@ describe('signed in', () => {
     const first = render(<App />);
     await screen.findAllByRole('link', { name: /Network team/ });
     expect(screen.getByRole('button', { name: 'Add workspace' })).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Administration' })).toBeTruthy();
+    // AFS-87: the administration's pages are in the side menu.
+    expect(screen.getByRole('link', { name: 'Audit log' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Workspaces' }).getAttribute('aria-current')).toBe(
       'page',
     );
@@ -243,7 +251,7 @@ describe('signed in', () => {
     window.history.replaceState(null, '', '/admin');
     render(<App />);
     await screen.findByRole('heading', { name: 'Nothing here' });
-    expect(screen.queryByRole('link', { name: 'Administration' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Audit log' })).toBeNull();
     navigate('/workspaces');
     await screen.findByRole('heading', { name: 'Workspaces' });
     await screen.findAllByRole('link', { name: /Network team/ });
@@ -286,11 +294,19 @@ describe('signed in', () => {
     window.history.replaceState(null, '', '/w/network/edge');
     render(<App />);
     await screen.findByRole('heading', { name: 'Edge switches' });
-    expect(
-      screen.getByText(`git clone ${window.location.origin}/git/network/edge.git`),
-    ).toBeTruthy();
+    // AFS-84: the state is one line under the title on every tab; the rest is in tabs.
     expect(screen.getByText('up to date')).toBeTruthy();
     expect(screen.getByText('9f2c1e7ab3d4')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe(
+      'page',
+    );
+    expect(screen.queryByText(/^git clone/)).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+    expect(
+      await screen.findByText(`git clone ${window.location.origin}/git/network/edge.git`),
+    ).toBeTruthy();
+    expect(window.location.pathname).toBe('/w/network/edge/settings');
+    fireEvent.click(screen.getByRole('link', { name: /^Branches/ }));
     const branches = (await screen.findByRole('heading', { name: 'Branches' })).closest(
       'section',
     ) as HTMLElement;
@@ -327,7 +343,7 @@ describe('signed in', () => {
         return { body: { ...edge, gitRef: 'try/idea' } };
       },
     };
-    window.history.replaceState(null, '', '/w/network/edge');
+    window.history.replaceState(null, '', '/w/network/edge/branches');
     render(<App />);
     const panel = (await screen.findByRole('heading', { name: 'Branches' })).closest(
       'section',
@@ -362,7 +378,12 @@ describe('signed in', () => {
     const link = await screen.findByRole('link', { name: /OS upgrade/ });
     expect(link.textContent).toContain('version 7');
     expect(link.textContent).toContain('12 steps');
-    expect(link.textContent).toContain('2 warnings');
+    // Beside its findings, how its last run went, leading to that run.
+    const row = link.closest('li') as HTMLElement;
+    expect(row.textContent).toContain('2 warnings');
+    const last = within(row).getByRole('link', { name: /last run/ });
+    expect(last.textContent).toBe('last run failed');
+    expect(last.getAttribute('href')).toBe('/runs/r41');
     // A flow the server cannot read is listed with the reason, and is not a link.
     expect(screen.getByText(/Upgrade the server/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: /broken/ })).toBeNull();
@@ -378,7 +399,9 @@ describe('signed in', () => {
       path: 'flows/os-upgrade.flow.yaml',
       theme: 'dark',
     });
-    expect(screen.getByText(/main at 9f2c1e7ab3d4 · shown, not changed/)).toBeTruthy();
+    expect(document.querySelector('.flow-line')?.textContent).toContain(
+      'main at 9f2c1e7ab3d4 · shown, not changed',
+    );
     // The designer follows the theme the person chose.
     fireEvent.click(screen.getByRole('button', { name: 'Theme: dark' }));
     await waitFor(() =>
@@ -511,7 +534,7 @@ describe('signed in', () => {
         body: { admin: false, workspace: 'ro', approve: false, flows: {} },
       }),
     };
-    window.history.replaceState(null, '', '/w/network/lab');
+    window.history.replaceState(null, '', '/w/network/lab/settings');
     render(<App />);
     await screen.findByRole('heading', { name: 'Lab' });
     expect(
@@ -594,9 +617,11 @@ describe('signed in', () => {
         return { status: 201, body: { ...made, token: `afs_${'A'.repeat(43)}` } };
       },
     };
-    window.history.replaceState(null, '', '/account');
+    window.history.replaceState(null, '', '/account/tokens');
     render(<App />);
     await screen.findByText('You have no token.');
+    // AFS-88: the form is opened when wanted.
+    fireEvent.click(screen.getByRole('button', { name: 'Make a token' }));
     type('Name', 'laptop git');
     type('Days until it expires', '30');
     fireEvent.click(screen.getByLabelText(/Read only/));

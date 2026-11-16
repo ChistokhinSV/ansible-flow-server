@@ -19,6 +19,7 @@ import type { Schema } from '../db/schema';
 import { serverMeta } from '../meta';
 import { ProjectFlows } from '../projects/flows';
 import type { Git } from '../projects/git';
+import { type RunCursor, runCursor } from '../runs/cursor';
 import { READ_TOOLS, ServerFlowIO } from './flowIO';
 import { MCP_CALL, MCP_HEADER } from './mark';
 
@@ -72,7 +73,8 @@ export const SERVER_TOOLS: ServerTool[] = [
   {
     name: 'launch_config_list',
     title: 'List launch configurations',
-    description: "A project's launch configurations: what each runs (flow, mode, inventory)",
+    description:
+      "A project's launch configurations: what each runs (flow, mode, inventory) and how its last run went",
     readOnly: true,
     inputSchema: object({ project: str('<workspace>/<project>, or the project id') }, ['project']),
   },
@@ -127,15 +129,22 @@ export const SERVER_TOOLS: ServerTool[] = [
   {
     name: 'run_list',
     title: 'List runs',
-    description: 'Runs you may see, newest first',
+    description:
+      'Runs you may see, newest first; when there are more, the answer has next: pass it as before for the next page',
     readOnly: true,
     inputSchema: object({
       project: str('<workspace>/<project>, or the project id'),
+      config: str(
+        'Only runs of this launch configuration: its id, or <workspace>/<project>/<name> as launch_config_list shows it',
+      ),
+      by: str('Only runs this person asked for: their login'),
+      mine: { type: 'boolean', description: 'Only runs you asked for' },
       state: {
         type: 'string',
         enum: ['queued', 'running', 'waiting', 'succeeded', 'failed', 'cancelled', 'lost'],
       },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
+      before: str('Where the last page ended: the next of its answer'),
     }),
   },
   {
@@ -282,6 +291,7 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
             ...(c.commit ? { commit: c.commit } : {}),
             ...(c.limit ? { limit: c.limit } : {}),
             ...(c.description ? { description: c.description } : {}),
+            ...(c.lastRun ? { lastRun: c.lastRun } : {}),
           })),
         );
       },
@@ -360,29 +370,44 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
               : `Run ${after.number} is asked to stop (it is ${after.state})`,
         };
       },
-      run_list: async ({ project, state, limit }) => {
+      run_list: async ({ project, config, by, mine, state, limit, before }) => {
         const query = new URLSearchParams();
         if (project) {
           const id = await projectId(String(project));
           if (!id) return { text: `No project ${project}`, isError: true };
           query.set('project', id);
         }
+        if (config) {
+          const id = await configId(String(config));
+          if (!id) return { text: `No launch configuration ${config}`, isError: true };
+          query.set('config', id);
+        }
+        // "mine" is the token's owner; with a login beside it, the login is asked for.
+        const login = by ? String(by) : mine ? request.user?.login : undefined;
+        if (login) query.set('by', login);
         if (state) query.set('state', String(state));
-        query.set('limit', String(limit ?? 20));
+        const size = Number(limit ?? 20);
+        query.set('limit', String(size));
+        if (before) query.set('before', String(before));
         const r = await get(`/api/v1/runs?${query}`);
         if (r.status !== 200) return refused(r);
-        return json(
-          (r.json as Record<string, unknown>[]).map((x) => ({
+        const rows = r.json as Record<string, unknown>[];
+        const last = rows.at(-1) as RunCursor | undefined;
+        return json({
+          runs: rows.map((x) => ({
             id: x.id,
             number: x.number,
             flow: (x.flow as { name: string }).name,
+            ...(x.config ? { config: (x.config as { name: string }).name } : {}),
             state: x.state,
             mode: x.mode,
             by: (x.requestedBy as { login: string }).login,
             createdAt: x.createdAt,
             ...(x.endedAt ? { endedAt: x.endedAt } : {}),
           })),
-        );
+          // A full page may have more behind it: where to go on from.
+          ...(last && rows.length >= size ? { next: runCursor(last) } : {}),
+        });
       },
       approval_list: async () => {
         const r = await get('/api/v1/approvals');

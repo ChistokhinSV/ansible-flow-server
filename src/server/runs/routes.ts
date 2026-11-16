@@ -1,6 +1,6 @@
 // Runs over HTTP. Until access levels exist (AFS-27): everyone signed in sees runs;
 // administrators launch (launch/routes.ts), cancel and relaunch.
-//   GET  /api/v1/runs?project=&flow=&state=&limit=&before=
+//   GET  /api/v1/runs?project=&flow=&state=&config=&by=&limit=&before=
 //   GET  /api/v1/runs/:id
 //   POST /api/v1/runs/:id/cancel
 //   POST /api/v1/runs/:id/relaunch    the same run again, as a new run
@@ -19,6 +19,7 @@ import { accessOf } from '../access/grants';
 import { closeGates } from '../approvals/gates';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
+import { readBefore } from './cursor';
 import type { RunHub, RunNews } from './hub';
 import { ACTIVE, type RunQueue, type RunState, STATES } from './queue';
 
@@ -255,6 +256,8 @@ export function registerRuns(
       project?: string;
       flow?: string;
       state?: RunState;
+      config?: string;
+      by?: string;
       limit?: number;
       before?: string;
     };
@@ -269,15 +272,26 @@ export function registerRuns(
             project: text(64, 1),
             flow: text(500, 1),
             state: { type: 'string', enum: [...STATES] },
+            // A launch configuration's id: its runs.
+            config: text(64, 1),
+            // A login: the runs that person asked for.
+            by: text(200, 1),
             limit: { type: 'integer', minimum: 1, maximum: 200 },
-            before: text(40, 1),
+            // A time, or where the last page ended: `createdAt,number,id` of its last run.
+            before: text(120, 1),
           },
         },
       },
     },
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
-      // Only the runs of what this person may see.
+      if (request.query.before && !readBefore(request.query.before))
+        return reply.code(400).send({
+          error: 'invalid',
+          message: "before is a time, or the last run's createdAt,number,id",
+          field: 'before',
+        });
+      // Only the runs of what this person may see: the filters narrow that, never widen it.
       const visible = db ? (await accessOf(db, request))?.visible() : undefined;
       return queue.list({ ...request.query, ...(visible ? { visible } : {}) });
     },

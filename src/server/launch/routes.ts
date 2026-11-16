@@ -15,7 +15,7 @@ import { accessOf, atLeast } from '../access/grants';
 import { signedIn } from '../auth/guards';
 import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
-import type { RunQueue } from '../runs/queue';
+import { lastRuns, type RunQueue } from '../runs/queue';
 import { flowAt, type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
 import type { FactsReply, InventoryAnswer, InventoryQuestion } from './facts';
 
@@ -131,9 +131,15 @@ export function registerLaunch(
     if (!project) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
     // The configurations of the flows this person may see.
     const access = await accessOf(deps.db, request);
-    return (await configs.list(project.id)).filter((c) =>
-      access?.onFlow(project.workspace, project.id, c.flowFile),
-    );
+    const maySee = (file: string) => !!access?.onFlow(project.workspace, project.id, file);
+    // Each with its newest run, of the runs this person may see: read once for the project.
+    const last = await lastRuns(deps.db, project.id, 'config', maySee);
+    return (await configs.list(project.id))
+      .filter((c) => maySee(c.flowFile))
+      .map((c) => {
+        const lastRun = last.get(c.id);
+        return lastRun ? { ...c, lastRun } : c;
+      });
   });
 
   app.post<WithId & { Body: LaunchConfigInput }>(
@@ -165,7 +171,22 @@ export function registerLaunch(
 
   app.get<WithId>('/api/v1/launch-configs/:id', { schema: ID }, async (request, reply) => {
     if (!signedIn(request, reply)) return reply;
-    return (await configs.get(request.params.id)) ?? reply.code(404).send(NONE);
+    const config = await configs.get(request.params.id);
+    if (!config) return reply.code(404).send(NONE);
+    const project = await getProject(deps.db, config.project);
+    const access = await accessOf(deps.db, request);
+    const lastRun =
+      project &&
+      (
+        await lastRuns(
+          deps.db,
+          project.id,
+          'config',
+          (file) => !!access?.onFlow(project.workspace, project.id, file),
+          config.id,
+        )
+      ).get(config.id);
+    return lastRun ? { ...config, lastRun } : config;
   });
 
   app.patch<WithId & { Body: Partial<LaunchConfigInput> }>(

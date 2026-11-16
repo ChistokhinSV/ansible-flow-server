@@ -89,7 +89,7 @@ describe('execution environments', () => {
       'GET /environments/e2': () => ({ body: { ...env, id: 'e2', name: 'awx' } }),
       'GET /environments/e2/builds': () => ({ body: [] }),
     };
-    open('/w/net');
+    open('/w/net/-/environments');
     const section = (
       await screen.findByRole('heading', { name: 'Execution environments' })
     ).closest('section') as HTMLElement;

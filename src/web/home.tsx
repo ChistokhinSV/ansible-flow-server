@@ -1,7 +1,9 @@
 // Home (AFS-64): who is here, what waits for them, the latest runs, and the workspaces. Plain
 // sentences and short lists; the only tinted thing is the first approval that waits.
+// AFS-85: and what this person launched lately, one step from launching it again.
 import { useEffect } from 'react';
-import { api, type User } from './api';
+import { api, type Run, type User, type Workspace } from './api';
+import { launchAddress } from './launch';
 import { Link } from './router';
 import { RunList } from './runs';
 import { ago, Loading, PageHead, useLoad } from './ui';
@@ -16,6 +18,61 @@ const greeting = (hour: number) =>
         : 'Good evening';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** How many configurations "Launch again" offers. */
+const AGAIN = 5;
+
+interface Again {
+  to: string;
+  name: string;
+  flow: string;
+  project: string;
+  at: string;
+}
+
+/**
+ * The launch configurations of these runs, with their addresses. A run names its project and its
+ * configuration by id: the keys an address is made of are read from the workspaces' projects, and
+ * a configuration that is gone since, or whose project this person no longer sees, is left out.
+ */
+async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[]> {
+  if (!runs.length) return [];
+  const projects = (
+    await Promise.all(
+      workspaces.map((w) =>
+        api.projects(w.key).then(
+          (list) => list.map((p) => ({ id: p.id, key: p.key, name: p.name, workspace: w.key })),
+          () => [],
+        ),
+      ),
+    )
+  ).flat();
+  const configs = new Map<string, Promise<{ id: string; name: string }[]>>();
+  const configsOf = (project: string) => {
+    let asked = configs.get(project);
+    if (!asked) {
+      asked = api.launchConfigs(project).catch(() => []);
+      configs.set(project, asked);
+    }
+    return asked;
+  };
+  const rows = await Promise.all(
+    runs.map(async (run): Promise<Again | undefined> => {
+      const project = projects.find((p) => p.id === run.project);
+      if (!project || !run.config) return undefined;
+      const config = (await configsOf(project.id)).find((c) => c.id === run.config?.id);
+      if (!config) return undefined;
+      return {
+        to: launchAddress(project.workspace, project.key, config.id),
+        name: config.name,
+        flow: run.flow.name,
+        project: project.name,
+        at: run.startedAt ?? run.createdAt,
+      };
+    }),
+  );
+  return rows.filter((r): r is Again => !!r).slice(0, AGAIN);
+}
 
 export function Home({ me }: { me: User }) {
   const runs = useLoad(() => api.runs({ limit: 100 }), []);
@@ -43,6 +100,19 @@ export function Home({ me }: { me: User }) {
       : 'Nothing waits for you.',
   ].join(' ');
   const first = me.name.split(/\s+/)[0] || me.name;
+  // AFS-85: the newest run of each configuration this person launched themselves (a schedule's
+  // runs are its owner's, and not launched by hand). A few more than are shown, for the ones
+  // that are gone since.
+  const started: Run[] = [];
+  for (const run of runs.data ?? []) {
+    if (!run.config || run.schedule || run.requestedBy.login !== me.login) continue;
+    if (started.some((r) => r.config?.id === run.config?.id)) continue;
+    if (started.push(run) >= AGAIN + 3) break;
+  }
+  const again = useLoad(
+    () => launchAgain(started, workspaces.data ?? []),
+    [started.map((r) => `${r.config?.id}@${r.id}`).join(' '), workspaces.data],
+  );
 
   return (
     <div className="home">
@@ -75,6 +145,26 @@ export function Home({ me }: { me: User }) {
               <Link to="/approvals">All {mine.length} approvals</Link>
             </p>
           )}
+        </section>
+      )}
+      {!!again.data?.length && (
+        <section aria-labelledby="again">
+          <h2 id="again">Launch again</h2>
+          <ul className="list">
+            {again.data.map((a) => (
+              <li key={a.to}>
+                <Link to={a.to}>
+                  <span className="two">
+                    <span className="title">{a.name}</span>
+                    <span className="sub">
+                      {a.flow} · {a.project}
+                    </span>
+                  </span>
+                  <span className="end">last run {ago(a.at)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
       <div className="home-split">

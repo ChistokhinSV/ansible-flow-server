@@ -1,10 +1,15 @@
-// People and groups pages (AFS-56), with the server played by the test: the list, adding a
-// person (who then opens), a person's page (profile, a refusal worded by the server, disable,
-// password, revoking a token), a service account's page making a token shown once, and a group's
-// members chosen by login and sent by id. A person who is not an administrator gets no page.
+// People and groups pages (AFS-56, AFS-87), with the server played by the test: the two tabs with
+// their own table, adding from a button (the form closes, the list is read again), a person's
+// page (what they reach, profile, a refusal worded by the server, disable, password, revoking a
+// token), a service account's page making a token shown once, and a group's page (members chosen
+// by login and sent by id, the workspaces that name it). A person who is not an administrator
+// gets no page.
+// The list is rendered by itself (its tab is a prop the app's routes give); the other pages
+// through the app.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
+import { PeoplePage } from '../../src/web/people';
 
 const user = (id: string, login: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -51,41 +56,173 @@ const open = (path: string) => {
 };
 
 describe('People and groups', () => {
-  it('lists people and groups, and a person added opens on their page', async () => {
+  it('shows people and groups each on their own tab, and filters people', async () => {
     routes = {
-      'GET /session': () => ({ body: dana }),
-      'GET /users': () => ({ body: [dana, omar, ci] }),
+      'GET /users': () => ({ body: [dana, omar, ci, user('u5', 'lena', { disabled: true })] }),
       'GET /groups': () => ({ body: [netops] }),
-      'POST /users': (body) => ({
-        status: 201,
-        body: user('u4', (body as { login: string }).login),
-      }),
-      'GET /users/u4': () => ({ body: user('u4', 'rita') }),
-      'GET /users/u4/tokens': () => ({ body: [] }),
-      'GET /workspaces': () => ({ body: [] }),
     };
-    open('/admin/people');
-    const people = (await screen.findByRole('heading', { name: 'People' })).closest(
-      'section',
-    ) as HTMLElement;
-    await within(people).findByText('Omar Haddad');
-    expect(within(people).getByText('service account')).toBeTruthy();
-    expect(within(people).getByText('tokens only')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'netops' })).toBeTruthy();
+    render(<PeoplePage tab="people" />);
+    await screen.findByText('Omar Haddad');
+    expect(screen.getByText('tokens only')).toBeTruthy();
+    // The groups are on the other tab: here only how many there are.
+    expect(screen.queryByRole('link', { name: 'netops' })).toBeNull();
+    const tabs = screen.getByRole('navigation', { name: 'People and groups' });
+    expect(
+      within(tabs)
+        .getByRole('link', { name: /^People/ })
+        .getAttribute('aria-current'),
+    ).toBe('page');
+    const groupsTab = within(tabs).getByRole('link', { name: /^Groups/ });
+    expect(groupsTab.getAttribute('href')).toBe('/admin/groups');
+    expect(groupsTab.textContent).toBe('Groups1');
+    // No form until it is asked for.
+    expect(screen.queryByLabelText('Login')).toBeNull();
 
-    const add = screen
-      .getByRole('heading', { name: 'Add a person or service account' })
-      .closest('section') as HTMLElement;
-    fireEvent.change(within(add).getByLabelText('Login'), { target: { value: 'rita' } });
-    fireEvent.change(within(add).getByLabelText('Password'), {
+    fireEvent.click(screen.getByLabelText('Service accounts'));
+    expect(screen.queryByText('Omar Haddad')).toBeNull();
+    expect(screen.getByRole('link', { name: 'CI' })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Disabled'));
+    expect(screen.getByRole('link', { name: 'lena' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'CI' })).toBeNull();
+    fireEvent.click(screen.getByLabelText('All'));
+    fireEvent.change(screen.getByLabelText('Find'), { target: { value: 'OMAR' } });
+    expect(screen.getByRole('link', { name: 'Omar Haddad' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Dana Reyes' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Find'), { target: { value: 'nobody' } });
+    expect(screen.getByText('No one matches.')).toBeTruthy();
+
+    cleanup();
+    render(<PeoplePage tab="groups" />);
+    const group = await screen.findByRole('link', { name: 'netops' });
+    expect(group.getAttribute('href')).toBe('/admin/groups/g1');
+    expect(screen.queryByText('Omar Haddad')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add a group' })).toBeTruthy();
+  });
+
+  it('adds a person from the button: the form closes and the list is read again', async () => {
+    const people = [dana, omar];
+    routes = {
+      'GET /users': () => ({ body: [...people] }),
+      'GET /groups': () => ({ body: [netops] }),
+      'POST /users': (body) => {
+        const made = user('u4', (body as { login: string }).login);
+        people.push(made);
+        return { status: 201, body: made };
+      },
+    };
+    window.history.replaceState(null, '', '/admin/people');
+    render(<PeoplePage tab="people" />);
+    await screen.findByText('Omar Haddad');
+    fireEvent.click(screen.getByRole('button', { name: 'Add a person' }));
+    const add = screen.getByRole('region', { name: 'Add a person or service account' });
+    // Cancel closes it with nothing sent.
+    fireEvent.click(within(add).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Login')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a person' }));
+    fireEvent.change(screen.getByLabelText('Login'), { target: { value: 'rita' } });
+    fireEvent.change(screen.getByLabelText('Password'), {
       target: { value: 'a long enough secret' },
     });
-    fireEvent.click(within(add).getByRole('button', { name: 'Add' }));
-    await screen.findByRole('heading', { name: 'rita', level: 1 });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(screen.queryByLabelText('Login')).toBeNull());
     expect(sent('POST /users')).toEqual([
       { login: 'rita', name: '', password: 'a long enough secret' },
     ]);
-    expect(window.location.pathname).toBe('/admin/people/u4');
+    // They are in the list (and in the line that says so), and the page stays on it.
+    await waitFor(() => expect(screen.getAllByRole('link', { name: 'rita' })).toHaveLength(2));
+    expect(screen.getByRole('status').textContent).toBe('Added rita.');
+    expect(window.location.pathname).toBe('/admin/people');
+    expect(screen.getByRole('button', { name: 'Add a person' })).toBeTruthy();
+  });
+
+  it('adds a group from the button on the groups tab', async () => {
+    const all = [netops];
+    routes = {
+      'GET /users': () => ({ body: [dana, omar] }),
+      'GET /groups': () => ({ body: [...all] }),
+      'POST /groups': (body) => {
+        const made = { id: 'g2', name: (body as { name: string }).name, members: [] };
+        all.push(made);
+        return { status: 201, body: made };
+      },
+    };
+    render(<PeoplePage tab="groups" />);
+    await screen.findByRole('link', { name: 'netops' });
+    expect(screen.queryByLabelText('Group name')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a group' }));
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'approvers' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
+    await waitFor(() => expect(screen.queryByLabelText('Group name')).toBeNull());
+    expect(sent('POST /groups')).toEqual([{ name: 'approvers' }]);
+    await waitFor(() => expect(screen.getAllByRole('link', { name: 'approvers' })).toHaveLength(2));
+  });
+
+  it("a person's page says what they reach, workspace by workspace", async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /users/u2': () => ({ body: omar }),
+      'GET /users/u2/tokens': () => ({ body: [] }),
+      // One answer for every workspace: only those where they reach something have a row.
+      'GET /users/u2/access': () => ({
+        body: {
+          admin: false,
+          workspaces: [
+            {
+              workspace: { id: 'w-ops', key: 'ops', name: 'Operations' },
+              level: 'operator',
+              approve: true,
+              flows: [{ project: 'core', file: 'upgrade.flow.yaml', level: 'rw' }],
+              through: ['user:omar', 'group:netops'],
+            },
+          ],
+        },
+      }),
+    };
+    open('/admin/people/u2');
+    const reach = (await screen.findByRole('heading', { name: 'What they reach' })).closest(
+      'section',
+    ) as HTMLElement;
+    const link = await within(reach).findByRole('link', { name: 'Operations' });
+    expect(link.getAttribute('href')).toBe('/w/ops');
+    const cells = within(link.closest('tr') as HTMLElement)
+      .getAllByRole('cell')
+      .map((c) => c.textContent);
+    expect(cells).toEqual([
+      'Operations',
+      'operator',
+      'upgrade.flow.yaml: rw in core',
+      'yes',
+      'their own grant, group netops',
+    ]);
+    expect(within(reach).getAllByRole('row')).toHaveLength(2);
+    // One question, not one per workspace.
+    expect(asked.filter((a) => a.key.endsWith('/access')).map((a) => a.key)).toEqual([
+      'GET /users/u2/access',
+    ]);
+    expect(asked.some((a) => /^GET \/workspaces\/.+\/access$/.test(a.key))).toBe(false);
+
+    // What they reach comes before the profile; taking access away is the last part.
+    const order = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(order.slice(0, 2)).toEqual(['Groups', 'What they reach']);
+    expect(order.at(-1)).toBe('Access to the server');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+        .getByRole('link', { name: 'People and groups' })
+        .getAttribute('href'),
+    ).toBe('/admin/people');
+
+    // An administrator: said in a sentence, nothing asked of the workspaces' access.
+    cleanup();
+    asked = [];
+    routes = {
+      ...routes,
+      'GET /users/u1': () => ({ body: dana }),
+      'GET /users/u1/tokens': () => ({ body: [] }),
+    };
+    open('/admin/people/u1');
+    await screen.findByText('Administrators may do everything.');
+    expect(asked.some((a) => a.key.endsWith('/access'))).toBe(false);
   });
 
   it("a person's page: profile, the server's refusal, disable, password, revoke a token", async () => {
@@ -155,7 +292,7 @@ describe('People and groups', () => {
     expect(sent('PUT /users/u2/password')).toEqual([{ password: 'another long secret' }]);
 
     // Their tokens are seen and revoked here; they make their own.
-    expect(screen.queryByRole('button', { name: 'Make token' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Make/ })).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke laptop git' }));
     await waitFor(() => expect(sent('DELETE /users/u2/tokens/t1')).toHaveLength(1));
   });
@@ -174,6 +311,8 @@ describe('People and groups', () => {
     open('/admin/people/u3');
     await screen.findByText(/No token: the account cannot sign in/);
     expect(screen.queryByLabelText('New password')).toBeNull();
+    // The token form is behind its button.
+    fireEvent.click(screen.getByRole('button', { name: 'Make a token' }));
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'pipeline' } });
     fireEvent.click(screen.getByRole('button', { name: 'Make token' }));
     await screen.findByText('afs_example-service-token');
@@ -188,6 +327,26 @@ describe('People and groups', () => {
       'GET /session': () => ({ body: dana }),
       'GET /groups/g1': () => ({ body: g }),
       'GET /users': () => ({ body: [dana, omar, ci] }),
+      // The grants that name the group, in every workspace, in one answer.
+      'GET /groups/g1/grants': () => ({
+        body: [
+          {
+            id: 'gr1',
+            level: 'approve',
+            workspace: { id: 'w1', key: 'ops', name: 'Operations' },
+            createdAt: '2026-11-01T09:00:00.000Z',
+            createdBy: 'dana',
+          },
+          {
+            id: 'gr3',
+            level: 'ro',
+            workspace: { id: 'w2', key: 'lab', name: 'Lab' },
+            flow: { project: 'p1', projectKey: 'core', file: 'upgrade.flow.yaml' },
+            createdAt: '2026-11-02T09:00:00.000Z',
+            createdBy: 'dana',
+          },
+        ],
+      }),
       'PUT /groups/g1/members': (body) => {
         const ids = (body as { users: string[] }).users;
         g = {
@@ -210,6 +369,26 @@ describe('People and groups', () => {
     fireEvent.click(within(members).getByRole('button', { name: 'Save members' }));
     await within(members).findByText('Saved.');
     expect(sent('PUT /groups/g1/members')).toEqual([{ users: ['u1'] }]);
+
+    // The group's grants, each leading to its workspace.
+    const named = screen
+      .getByRole('heading', { name: 'Where it is named' })
+      .closest('section') as HTMLElement;
+    const space = await within(named).findByRole('link', { name: 'Operations' });
+    expect(space.getAttribute('href')).toBe('/w/ops');
+    expect(
+      within(named)
+        .getAllByRole('cell')
+        .map((c) => c.textContent),
+    ).toEqual([
+      'Operations',
+      'approve',
+      'the whole workspace',
+      'Lab',
+      'ro',
+      'upgrade.flow.yaml in core',
+    ]);
+    expect(asked.some((a) => a.key.startsWith('GET /workspaces/'))).toBe(false);
 
     fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'net-ops' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

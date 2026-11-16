@@ -56,6 +56,8 @@ export function WorkspaceAccess({
   );
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // AFS-84: giving access is opened when wanted; who can do what is what the page is read for.
+  const [giving, setGiving] = useState(false);
   const id = useId();
   const reload = () => {
     grants.reload();
@@ -91,6 +93,52 @@ export function WorkspaceAccess({
         flow; of a person's own and their groups' grants, the highest counts. Administrators may do
         everything.
       </p>
+      <h3>Who can do what</h3>
+      <Loading state={who} />
+      {!!who.data?.length && (
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Person</th>
+                <th scope="col">Workspace</th>
+                <th scope="col">Flows of their own</th>
+                <th scope="col">Approves</th>
+                <th scope="col">Through</th>
+              </tr>
+            </thead>
+            <tbody>
+              {who.data.map((w) => (
+                <tr key={w.user.id}>
+                  <td>
+                    {w.user.name} <span className="muted">({w.user.login})</span>
+                    {w.disabled && <span className="muted"> · disabled</span>}
+                  </td>
+                  <td>{w.admin ? 'administrator' : (w.workspace ?? '')}</td>
+                  <td>
+                    {w.flows.map((f) => (
+                      <div key={`${f.project}/${f.file}`}>
+                        <code>{f.file}</code>: {f.level}
+                      </div>
+                    ))}
+                  </td>
+                  <td>{w.approve ? 'yes' : ''}</td>
+                  <td className="muted">{w.admin ? 'administrator' : w.through.join(', ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="panel-head">
+        <h3>Grants</h3>
+        {!giving && (
+          <button type="button" onClick={() => setGiving(true)}>
+            Give access
+          </button>
+        )}
+      </div>
       <Loading state={grants} />
       {grants.data?.length === 0 && (
         <p className="muted">No grants yet: only administrators see this workspace.</p>
@@ -150,6 +198,104 @@ export function WorkspaceAccess({
         </div>
       )}
 
+      {giving && (
+        <div className="sheet">
+          <h3>Give access</h3>
+          <form className="form" onSubmit={give}>
+            <div className="field">
+              <label htmlFor={`${id}-who`}>Who</label>
+              <select
+                id={`${id}-who`}
+                value={input.principal}
+                onChange={(e) => setInput({ ...input, principal: e.target.value })}
+                required
+              >
+                <option value="">(choose a person or a group)</option>
+                <optgroup label="People">
+                  {users.data
+                    ?.filter((u) => !u.admin)
+                    .map((u) => (
+                      <option key={u.id} value={`user:${u.id}`}>
+                        {u.name} ({u.login}){u.service ? ', service account' : ''}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="Groups">
+                  {groups.data?.map((g) => (
+                    <option key={g.id} value={`group:${g.id}`}>
+                      {g.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+            <fieldset className="choices">
+              <legend>Level</legend>
+              {(['ro', 'operator', 'rw', 'approve'] as const).map((level) => (
+                <label key={level} className="inline">
+                  <input
+                    type="radio"
+                    name={`${id}-level`}
+                    checked={input.level === level}
+                    onChange={() => setInput({ ...input, level })}
+                  />
+                  {LEVEL_WORDS[level]}
+                </label>
+              ))}
+            </fieldset>
+            <div className="pair">
+              <div className="field">
+                <label htmlFor={`${id}-project`}>On</label>
+                <select
+                  id={`${id}-project`}
+                  value={input.project}
+                  onChange={(e) => setInput({ ...input, project: e.target.value, flow: '' })}
+                >
+                  <option value="">the whole workspace</option>
+                  {projects.data?.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      one flow of {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {input.project && (
+                <div className="field">
+                  <label htmlFor={`${id}-flow`}>Flow</label>
+                  <select
+                    id={`${id}-flow`}
+                    value={input.flow}
+                    onChange={(e) => setInput({ ...input, flow: e.target.value })}
+                    required
+                  >
+                    <option value="">(choose a flow)</option>
+                    {flows.data?.map((f) => (
+                      <option key={f.file} value={f.file}>
+                        {f.name ? `${f.name} (${f.file})` : f.file}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            {error && (
+              <p className="notice error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="actions">
+              <button type="submit" className="primary" disabled={busy}>
+                {busy ? 'Giving…' : 'Give'}
+              </button>
+              <button type="button" onClick={() => setGiving(false)} disabled={busy}>
+                Close
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <h3>Approvals</h3>
       <label className="choice">
         <input
           type="checkbox"
@@ -165,134 +311,6 @@ export function WorkspaceAccess({
         />
         Who launched a run may decide its approvals (off: someone else decides)
       </label>
-
-      <h3>Give access</h3>
-      <form className="form" onSubmit={give}>
-        <div className="field">
-          <label htmlFor={`${id}-who`}>Who</label>
-          <select
-            id={`${id}-who`}
-            value={input.principal}
-            onChange={(e) => setInput({ ...input, principal: e.target.value })}
-            required
-          >
-            <option value="">(choose a person or a group)</option>
-            <optgroup label="People">
-              {users.data
-                ?.filter((u) => !u.admin)
-                .map((u) => (
-                  <option key={u.id} value={`user:${u.id}`}>
-                    {u.name} ({u.login}){u.service ? ', service account' : ''}
-                  </option>
-                ))}
-            </optgroup>
-            <optgroup label="Groups">
-              {groups.data?.map((g) => (
-                <option key={g.id} value={`group:${g.id}`}>
-                  {g.name}
-                </option>
-              ))}
-            </optgroup>
-          </select>
-        </div>
-        <fieldset className="choices">
-          <legend>Level</legend>
-          {(['ro', 'operator', 'rw', 'approve'] as const).map((level) => (
-            <label key={level} className="inline">
-              <input
-                type="radio"
-                name={`${id}-level`}
-                checked={input.level === level}
-                onChange={() => setInput({ ...input, level })}
-              />
-              {LEVEL_WORDS[level]}
-            </label>
-          ))}
-        </fieldset>
-        <div className="pair">
-          <div className="field">
-            <label htmlFor={`${id}-project`}>On</label>
-            <select
-              id={`${id}-project`}
-              value={input.project}
-              onChange={(e) => setInput({ ...input, project: e.target.value, flow: '' })}
-            >
-              <option value="">the whole workspace</option>
-              {projects.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  one flow of {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {input.project && (
-            <div className="field">
-              <label htmlFor={`${id}-flow`}>Flow</label>
-              <select
-                id={`${id}-flow`}
-                value={input.flow}
-                onChange={(e) => setInput({ ...input, flow: e.target.value })}
-                required
-              >
-                <option value="">(choose a flow)</option>
-                {flows.data?.map((f) => (
-                  <option key={f.file} value={f.file}>
-                    {f.name ? `${f.name} (${f.file})` : f.file}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-        {error && (
-          <p className="notice error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="actions">
-          <button type="submit" className="primary" disabled={busy}>
-            {busy ? 'Giving…' : 'Give'}
-          </button>
-        </div>
-      </form>
-
-      <h3>Who can do what</h3>
-      <Loading state={who} />
-      {!!who.data?.length && (
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Person</th>
-                <th scope="col">Workspace</th>
-                <th scope="col">Flows of their own</th>
-                <th scope="col">Approves</th>
-                <th scope="col">Through</th>
-              </tr>
-            </thead>
-            <tbody>
-              {who.data.map((w) => (
-                <tr key={w.user.id}>
-                  <td>
-                    {w.user.name} <span className="muted">({w.user.login})</span>
-                    {w.disabled && <span className="muted"> · disabled</span>}
-                  </td>
-                  <td>{w.admin ? 'administrator' : (w.workspace ?? '')}</td>
-                  <td>
-                    {w.flows.map((f) => (
-                      <div key={`${f.project}/${f.file}`}>
-                        <code>{f.file}</code>: {f.level}
-                      </div>
-                    ))}
-                  </td>
-                  <td>{w.approve ? 'yes' : ''}</td>
-                  <td className="muted">{w.admin ? 'administrator' : w.through.join(', ')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </section>
   );
 }

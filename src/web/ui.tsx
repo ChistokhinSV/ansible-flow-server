@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react';
 import { ApiError } from './api';
+import { Link } from './router';
 
 /** Words fit to show for anything that went wrong. */
 export const messageOf = (error: unknown): string =>
@@ -208,5 +209,74 @@ export function PageHead({
       </div>
       {children && <div className="actions">{children}</div>}
     </header>
+  );
+}
+
+export interface Tab {
+  /** The last part of the tab's address; empty for the first tab, which is the page itself. */
+  key: string;
+  label: string;
+  /** How many things the tab holds, when that helps choosing it. */
+  count?: number;
+  /** Something on the tab needs a look (a failure, a thing waiting). */
+  alert?: boolean;
+}
+
+/**
+ * AFS-84: the parts of a page as tabs. Each tab is an address (`base` for the first one, `base/key`
+ * for the others), so a tab can be linked to and the back button goes through them.
+ */
+export function Tabs({
+  label,
+  base,
+  tabs,
+  current,
+}: {
+  label: string;
+  base: string;
+  tabs: Tab[];
+  current: string;
+}) {
+  return (
+    <nav aria-label={label} className="tabs">
+      {tabs.map((tab) => (
+        <Link
+          key={tab.key}
+          to={tab.key ? `${base}/${tab.key}` : base}
+          aria-current={tab.key === current ? 'page' : undefined}
+        >
+          {tab.label}
+          {tab.count !== undefined && <span className="tab-count">{tab.count}</span>}
+          {tab.alert && <span className="tab-alert" role="img" aria-label="needs a look" />}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * AFS-84: something on a page that is opened when needed (an add form, rarely used fields). `open`
+ * and `onToggle` let the page close it, for example after a form in it was sent.
+ */
+export function Fold({
+  summary,
+  children,
+  open,
+  onToggle,
+}: {
+  summary: string;
+  children: ReactNode;
+  open?: boolean;
+  onToggle?(open: boolean): void;
+}) {
+  return (
+    <details
+      className="fold"
+      open={open}
+      onToggle={onToggle ? (e) => onToggle((e.target as HTMLDetailsElement).open) : undefined}
+    >
+      <summary>{summary}</summary>
+      <div className="fold-body">{children}</div>
+    </details>
   );
 }

@@ -4,7 +4,8 @@
 // administrator hands one to a service account; an operator only reads them.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from '../../src/web/app';
+import type { User } from '../../src/web/api';
+import { LaunchConfigPage } from '../../src/web/launch';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -104,6 +105,11 @@ const page = (me: object, schedules: () => unknown[]) => ({
   'GET /launch-configs/c1/schedules': () => ({ body: schedules() }),
   'GET /users': () => ({ body: [dana, ci] }),
 });
+/** AFS-85: the schedules are a tab of the configuration's page. */
+const show = (me: object) =>
+  render(
+    <LaunchConfigPage me={me as User} workspace="net" project="core" id="c1" tab="schedules" />,
+  );
 const section = async () =>
   (await screen.findByRole('heading', { name: 'Schedules' })).closest('section') as HTMLElement;
 
@@ -134,8 +140,7 @@ describe('schedules of a launch configuration', () => {
         return { body: list[0] };
       },
     };
-    window.history.replaceState(null, '', '/w/net/core/launch/c1');
-    render(<App />);
+    show(dana);
     const box = await section();
     const one = await within(box).findByRole('article', { name: 'Weekdays at three' });
     expect(within(one).getByText('0 3 * * 1-5')).toBeTruthy();
@@ -182,8 +187,7 @@ describe('schedules of a launch configuration', () => {
 
   it('an operator reads them and changes nothing', async () => {
     routes = page(omar, () => [weekdays]);
-    window.history.replaceState(null, '', '/w/net/core/launch/c1');
-    render(<App />);
+    show(omar);
     const box = await section();
     const one = await within(box).findByRole('article', { name: 'Weekdays at three' });
     expect(within(box).queryByRole('button', { name: 'Add schedule' })).toBeNull();

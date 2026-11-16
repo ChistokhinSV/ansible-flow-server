@@ -12,6 +12,7 @@ import { unknownNames } from '../notify/recipients';
 import type { RunNotify } from '../notify/types';
 import { type Git, refProblem } from '../projects/git';
 import { getProject, type Project } from '../projects/store';
+import type { LastRun } from '../runs/cursor';
 import type { CredentialKind } from '../secrets/credentials';
 
 export type RunMode = 'check' | 'real';
@@ -45,6 +46,11 @@ export interface LaunchConfig {
   notify?: RunNotify;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Its newest run, among the runs the person asking may see; absent when there is none. Only
+   * the list and the configuration read by id say it.
+   */
+  lastRun?: LastRun;
 }
 
 export class LaunchError extends Error {

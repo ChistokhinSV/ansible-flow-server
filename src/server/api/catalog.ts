@@ -43,7 +43,8 @@ export type Reach =
   | { environment: string }
   | { grant: string }
   | { gitWorkspace: string }
-  | { projectQuery: string }
+  /** A list narrowed by its query: to a project, else to a launch configuration (its project's). */
+  | { projectQuery: string; configQuery?: string }
   /** AFS-76: a flow's draft, which reaches its project and flow. */
   | { draft: string };
 
@@ -135,6 +136,18 @@ export const ROUTES: Record<string, RouteDoc> = {
     'server',
   )("Set a group's members"),
   'DELETE /api/v1/groups/:id': S('People', 'administrators', 'server')('Delete a group'),
+  'GET /api/v1/users/:id/access': S(
+    'People',
+    'administrators',
+    'server',
+  )(
+    'What one person reaches, workspace by workspace: level, flows of their own, approves, through; `admin` for an administrator',
+  ),
+  'GET /api/v1/groups/:id/grants': S(
+    'People',
+    'administrators',
+    'server',
+  )('The grants that name a group, in every workspace: workspace, level, the flow when on one'),
 
   'GET /api/v1/workspaces': S('Workspaces', 'signed in', 'server')('Workspaces'),
   'POST /api/v1/workspaces': S('Workspaces', 'administrators', 'server')('Add a workspace'),
@@ -208,7 +221,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Projects',
     'signed in',
     P,
-  )("The flows at the project's commit, with their findings"),
+  )("The flows at the project's commit, with their findings and newest run (`lastRun`)"),
   'GET /api/v1/projects/:id/flows/view': S(
     'Projects',
     'signed in',
@@ -368,7 +381,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Launch configurations',
     'signed in',
     P,
-  )("A project's launch configurations"),
+  )("A project's launch configurations, each with its newest run you may see (`lastRun`)"),
   'POST /api/v1/projects/:id/launch-configs': S(
     'Launch configurations',
     'administrators',
@@ -378,7 +391,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Launch configurations',
     'signed in',
     C,
-  )('One launch configuration'),
+  )('One launch configuration, with its newest run you may see (`lastRun`)'),
   'PATCH /api/v1/launch-configs/:id': S(
     'Launch configurations',
     'administrators',
@@ -412,8 +425,8 @@ export const ROUTES: Record<string, RouteDoc> = {
     C,
   )('Launch: the run goes in the queue'),
 
-  'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project' })(
-    'Runs, newest first; filters project, flow, state; `before` and `limit` for paging',
+  'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
+    "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
   ),
   'GET /api/v1/runs/:id': S('Runs', 'signed in', R)('One run'),
   'GET /api/v1/runs/:id/output': S(
@@ -918,7 +931,18 @@ async function targetOf(
   };
   if ('project' in reach)
     return ofProject(params[reach.project], flowQuery ? query[flowQuery] : undefined);
-  if ('projectQuery' in reach) return ofProject(query[reach.projectQuery]);
+  if ('projectQuery' in reach) {
+    if (query[reach.projectQuery]) return ofProject(query[reach.projectQuery]);
+    // No project named, a launch configuration is: the list reaches that one's project.
+    const config = reach.configQuery ? query[reach.configQuery] : undefined;
+    if (!config) return undefined;
+    const row = await db
+      .selectFrom('launch_config')
+      .select('project_id')
+      .where('id', '=', config)
+      .executeTakeFirst();
+    return row ? ofProject(row.project_id) : undefined;
+  }
   if ('grant' in reach) {
     const id = params[reach.grant];
     const row = id

@@ -22,7 +22,8 @@ import {
   type Project,
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
-import { LEASE_MS, MAX_ATTEMPTS, RunQueue } from '../../src/server/runs/queue';
+import { readBefore, runCursor } from '../../src/server/runs/cursor';
+import { LEASE_MS, lastRuns, MAX_ATTEMPTS, RunQueue } from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
 import { grant } from './helpers/grant';
@@ -299,6 +300,91 @@ for (const [name, config] of databases) {
       const next = await q.list({ limit: 2, before: page.at(-1)?.createdAt });
       expect(next.map((r) => r.id)).toEqual([runs[2]?.id, runs[1]?.id]);
       expect(await q.activeCount(a)).toBe(2);
+    });
+
+    it('filters by launch configuration and by who asked', async () => {
+      const q = queue();
+      const omar = { id: 'u-omar', login: 'omar' };
+      const one = await q.enqueue(launchOf(a), {}, DANA, 'Nightly', at(0));
+      const two = await q.enqueue({ ...launchOf(a), config: 'c-2' }, {}, omar, 'Other', at(1));
+      const three = await q.enqueue({ ...launchOf(b), config: 'c-2' }, {}, DANA, 'Other', at(2));
+      const idsOf = async (filter: Parameters<RunQueue['list']>[0]) =>
+        (await q.list(filter)).map((r) => r.id);
+      expect(await idsOf({ config: 'c-2' })).toEqual([three.id, two.id]);
+      expect(await idsOf({ config: 'c-2', project: a })).toEqual([two.id]);
+      expect(await idsOf({ by: 'dana' })).toEqual([three.id, one.id]);
+      expect(await idsOf({ by: 'omar', config: 'c-1' })).toEqual([]);
+      // The filters narrow what someone may see, never widen it.
+      expect(await idsOf({ by: 'dana', visible: { workspaces: [], flows: [] } })).toEqual([]);
+      expect(
+        await idsOf({ config: 'c-2', visible: { workspaces: [], flows: [[a, 'ping.flow.yaml']] } }),
+      ).toEqual([two.id]);
+    });
+
+    it('pages do not skip or repeat runs made in the same millisecond', async () => {
+      const q = queue({ maxRuns: 4, perProject: 4 });
+      // Seven runs at one time, in two projects, and one older.
+      const old = await q.enqueue(launchOf(a), {}, DANA, 'Nightly', at(0));
+      const same = [];
+      for (const project of [a, b, a, b, a, b, a])
+        same.push(await q.enqueue(launchOf(project), {}, DANA, 'Nightly', at(5)));
+      const all = (await q.list()).map((r) => r.id);
+      expect(all).toHaveLength(8);
+      expect(all.at(-1)).toBe(old.id);
+      // A project's runs of one moment keep the order of their numbers.
+      expect((await q.list({ project: a })).map((r) => r.number)).toEqual([5, 4, 3, 2, 1]);
+      const paged: string[] = [];
+      let before: string | undefined;
+      for (let i = 0; i < 6; i++) {
+        const page = await q.list({ limit: 3, ...(before ? { before } : {}) });
+        paged.push(...page.map((r) => r.id));
+        const last = page.at(-1);
+        if (page.length < 3 || !last) break;
+        before = runCursor(last);
+      }
+      expect(paged).toEqual(all);
+      // A time alone still works as it did: the runs made before it.
+      expect((await q.list({ before: same[0]?.createdAt })).map((r) => r.id)).toEqual([old.id]);
+      expect(readBefore('2026-11-13T09:00:00.000Z')).toEqual({
+        createdAt: '2026-11-13T09:00:00.000Z',
+      });
+      expect(readBefore('2026-11-13T09:00:00.000Z,7,abc')).toEqual({
+        createdAt: '2026-11-13T09:00:00.000Z',
+        run: { number: 7, id: 'abc' },
+      });
+      expect(readBefore('2026-11-13T09:00:00.000Z,x,abc')).toBeUndefined();
+      expect(readBefore('2026-11-13T09:00:00.000Z,7')).toBeUndefined();
+    });
+
+    it('says the newest run of each configuration and flow, of the flows asked for', async () => {
+      const q = queue();
+      const other = { ...launchOf(a), flow: { ...launchOf(a).flow, file: 'other.flow.yaml' } };
+      await q.enqueue(launchOf(a), {}, DANA, 'Nightly', at(0));
+      const ping = await q.enqueue(launchOf(a), {}, DANA, 'Nightly', at(1));
+      const moved = await q.enqueue(other, {}, DANA, 'Nightly', at(2));
+      const two = await q.enqueue({ ...other, config: 'c-2' }, {}, DANA, 'Other', at(3));
+      await q.enqueue(launchOf(b), {}, DANA, 'Nightly', at(4));
+      const everything = () => true;
+      const configs = await lastRuns(db(), a, 'config', everything);
+      expect([...configs.keys()].sort()).toEqual(['c-1', 'c-2']);
+      expect(configs.get('c-1')).toEqual({
+        id: moved.id,
+        number: 3,
+        state: 'queued',
+        createdAt: moved.createdAt,
+      });
+      expect(configs.get('c-2')?.id).toBe(two.id);
+      // Who may not see the other flow is told the newest run of the one they may.
+      const pingOnly = (file: string) => file === 'ping.flow.yaml';
+      expect([...(await lastRuns(db(), a, 'config', pingOnly))]).toEqual([
+        ['c-1', expect.objectContaining({ id: ping.id })],
+      ]);
+      expect([...(await lastRuns(db(), a, 'config', everything, 'c-2')).keys()]).toEqual(['c-2']);
+      const flows = await lastRuns(db(), a, 'flow', everything);
+      expect(flows.get('ping.flow.yaml')?.id).toBe(ping.id);
+      expect(flows.get('other.flow.yaml')?.id).toBe(two.id);
+      expect([...(await lastRuns(db(), a, 'flow', pingOnly)).keys()]).toEqual(['ping.flow.yaml']);
+      expect((await lastRuns(db(), a, 'flow', () => false)).size).toBe(0);
     });
 
     it('a project with a run going is not deleted; its ended runs go with it', async () => {

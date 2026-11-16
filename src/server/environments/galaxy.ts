@@ -72,37 +72,81 @@ export function galaxyClient(base = DEFAULT_GALAXY, timeoutMs = 20_000): Galaxy 
       return out;
     },
     async search(words, limit = 20) {
-      const q = new URLSearchParams({
-        keywords: words.trim().slice(0, 100),
-        is_highest: 'true',
-        is_deprecated: 'false',
-        limit: String(Math.min(Math.max(limit, 1), 50)),
-      });
-      const body = (await get(`/api/v3/plugin/ansible/search/collection-versions/?${q}`)) as {
-        data?: {
-          collection_version?: {
-            namespace?: string;
-            name?: string;
-            version?: string;
-            description?: string;
-            requires_ansible?: string;
-          };
-        }[];
+      const text = words.trim().toLowerCase().slice(0, 100);
+      const size = Math.min(Math.max(limit, 1), 50);
+      const ask = async (filter: Record<string, string>): Promise<FoundCollection[]> => {
+        const q = new URLSearchParams({
+          ...filter,
+          is_highest: 'true',
+          is_deprecated: 'false',
+          limit: String(size),
+        });
+        const body = (await get(`/api/v3/plugin/ansible/search/collection-versions/?${q}`)) as {
+          data?: {
+            collection_version?: {
+              namespace?: string;
+              name?: string;
+              version?: string;
+              description?: string;
+              requires_ansible?: string;
+            };
+          }[];
+        };
+        return (body.data ?? []).flatMap((d) => {
+          const c = d.collection_version;
+          if (!c?.namespace || !c.name || !c.version) return [];
+          return [
+            {
+              name: `${c.namespace}.${c.name}`,
+              version: c.version,
+              ...(c.description ? { description: c.description.slice(0, 300) } : {}),
+              ...(c.requires_ansible ? { requiresAnsible: c.requires_ansible } : {}),
+            },
+          ];
+        });
       };
-      return (body.data ?? []).flatMap((d) => {
-        const c = d.collection_version;
-        if (!c?.namespace || !c.name || !c.version) return [];
-        return [
-          {
-            name: `${c.namespace}.${c.name}`,
-            version: c.version,
-            ...(c.description ? { description: c.description.slice(0, 300) } : {}),
-            ...(c.requires_ansible ? { requiresAnsible: c.requires_ansible } : {}),
-          },
-        ];
-      });
+      // Galaxy's keywords are a full-text search over names, descriptions and tags, in no order of
+      // match, and a dotted name is one word to it that matches nothing. So a full name is also
+      // looked up by namespace and name, a single word also as a collection name, and the results
+      // are put in order here.
+      const lookups = [ask({ keywords: text.replace(/\./g, ' ') })];
+      if (NAME.test(text)) {
+        const [namespace = '', name = ''] = text.split('.');
+        lookups.push(ask({ namespace, name }));
+      } else if (/^[a-z0-9_]+$/.test(text)) lookups.push(ask({ name: text }));
+      const settled = await Promise.allSettled(lookups);
+      const found = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+      const failed = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed && found.length === 0) throw failed.reason;
+      return rankCollections(text, found).slice(0, size);
     },
   };
+}
+
+/**
+ * Found collections, each once, best match first: the name as typed, then a collection or
+ * namespace named by one of the words, then names holding every word, then the rest (matched in a
+ * description or tags). Within a rank, the collection server's order stays.
+ */
+export function rankCollections(text: string, found: FoundCollection[]): FoundCollection[] {
+  const words = text
+    .toLowerCase()
+    .split(/[\s.]+/)
+    .filter(Boolean);
+  const rank = (full: string) => {
+    if (full === text.toLowerCase()) return 0;
+    const [namespace = '', name = ''] = full.split('.');
+    if (words.includes(name)) return 1;
+    if (words.includes(namespace)) return 2;
+    if (words.length > 0 && words.every((w) => full.includes(w))) return 3;
+    return 4;
+  };
+  const seen = new Set<string>();
+  const unique = found.filter((c) => !seen.has(c.name) && Boolean(seen.add(c.name)));
+  return unique
+    .map((c, i) => ({ c, i, r: rank(c.name) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.c);
 }
 
 /** Stable releases only, unless asked for one that is not. */

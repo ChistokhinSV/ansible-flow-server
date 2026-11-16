@@ -17,6 +17,9 @@ import type { Schema } from '../db/schema';
 import type { PreparedLaunch } from '../launch/prepare';
 import { open, seal } from '../secrets/crypto';
 import type { MasterKey } from '../secrets/masterKey';
+import { type LastRun, readBefore } from './cursor';
+
+export type { LastRun };
 
 export const STATES = [
   'queued',
@@ -103,9 +106,16 @@ export interface RunFilter {
   /** The flow's file in the repository (with `project`). */
   flow?: string;
   state?: RunState;
+  /** Runs of this launch configuration (its id). */
+  config?: string;
+  /** Runs this person asked for (their login). */
+  by?: string;
   /** The newest first; at most this many (1 to 200). */
   limit?: number;
-  /** Runs made before this time: the next page. */
+  /**
+   * The next page: the runs after the one a cursor names (`runCursor`), or the runs made before
+   * a time. A time alone skips runs made in the same millisecond as a page's last one.
+   */
   before?: string;
   /**
    * Only runs someone may see (AFS-27): of these workspaces, or of these flows (project, file).
@@ -272,11 +282,31 @@ export class RunQueue {
       .selectAll()
       .orderBy('created_at', 'desc')
       .orderBy('number', 'desc')
+      // Numbers count within a project: the id settles runs of two projects made at once, so
+      // that the order is the same each time and a page can go on where the last one ended.
+      .orderBy('id', 'desc')
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 200));
     if (filter.project) query = query.where('project_id', '=', filter.project);
     if (filter.flow) query = query.where('flow_file', '=', filter.flow);
     if (filter.state) query = query.where('state', '=', filter.state);
-    if (filter.before) query = query.where('created_at', '<', filter.before);
+    if (filter.config) query = query.where('config_id', '=', filter.config);
+    if (filter.by) query = query.where('requested_login', '=', filter.by);
+    const before = filter.before ? readBefore(filter.before) : undefined;
+    const last = before?.run;
+    if (before && last)
+      query = query.where((eb) =>
+        eb.or([
+          eb('created_at', '<', before.createdAt),
+          eb.and([
+            eb('created_at', '=', before.createdAt),
+            eb.or([
+              eb('number', '<', last.number),
+              eb.and([eb('number', '=', last.number), eb('id', '<', last.id)]),
+            ]),
+          ]),
+        ]),
+      );
+    else if (before) query = query.where('created_at', '<', before.createdAt);
     const visible = filter.visible;
     if (visible) {
       if (!visible.workspaces.length && !visible.flows.length) return [];
@@ -720,4 +750,54 @@ export class RunQueue {
     this.ended(gone);
     return result;
   }
+}
+
+/**
+ * The newest run of each launch configuration of a project (`by: 'config'`, keyed by the
+ * configuration's id) or of each of its flows (`by: 'flow'`, keyed by the flow's file), among
+ * the runs of flows `maySee` allows. One question for the whole project, not one per row.
+ */
+export async function lastRuns(
+  db: Db,
+  project: string,
+  by: 'config' | 'flow',
+  maySee: (flowFile: string) => boolean,
+  /** Only this launch configuration (with `by: 'config'`). */
+  config?: string,
+): Promise<Map<string, LastRun>> {
+  // A project's runs are numbered as they are made: the highest number is the newest. A
+  // configuration can have run more than one flow (it was pointed at another since), and
+  // someone may see one and not the other: the newest of each pair is read, and which of
+  // them count is settled here.
+  const rows = await db
+    .selectFrom('run')
+    .select(['id', 'number', 'state', 'created_at', 'ended_at', 'config_id', 'flow_file'])
+    .where('project_id', '=', project)
+    .where('number', 'in', (eb) => {
+      let newest = eb
+        .selectFrom('run as r')
+        .select((s) => s.fn.max('r.number').as('n'))
+        .where('r.project_id', '=', project);
+      if (by === 'config') {
+        newest = newest.where('r.config_id', 'is not', null);
+        if (config) newest = newest.where('r.config_id', '=', config);
+      }
+      return newest.groupBy(by === 'config' ? ['r.config_id', 'r.flow_file'] : ['r.flow_file']);
+    })
+    .execute();
+  const out = new Map<string, LastRun>();
+  for (const row of rows) {
+    const key = by === 'config' ? row.config_id : row.flow_file;
+    if (!key || !maySee(row.flow_file)) continue;
+    const has = out.get(key);
+    if (has && has.number > row.number) continue;
+    out.set(key, {
+      id: row.id,
+      number: row.number,
+      state: row.state,
+      createdAt: row.created_at,
+      ...(row.ended_at ? { endedAt: row.ended_at } : {}),
+    });
+  }
+  return out;
 }

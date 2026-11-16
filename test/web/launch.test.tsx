@@ -1,9 +1,11 @@
 // The launch pages with the server played by the test: a project's configurations, the launch
 // form (secret inputs hidden, what would run, problems at their fields, Launch, start values),
-// and adding one.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+// and adding one. AFS-85: the configuration's page in tabs (Launch, Runs, Schedules, Settings).
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Project, Run, User } from '../../src/web/api';
 import { App } from '../../src/web/app';
+import { LaunchConfigPage, LaunchConfigsSection, type LaunchTab } from '../../src/web/launch';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -57,6 +59,26 @@ const form = {
     { name: 'retries', type: 'integer', required: false, secret: false, text: '3' },
   ],
 };
+
+/** A run of the flow, as the server lists it. */
+const run = (n: number, state: string, of?: string, at = '2026-11-13T12:00:00.000Z') =>
+  ({
+    id: `r${n}`,
+    number: n,
+    project: 'p1',
+    ...(of ? { config: { id: of, name: of === 'c1' ? 'Nightly check' : 'Another' } } : {}),
+    commit: COMMIT,
+    flow,
+    mode: 'check',
+    inputs: {},
+    targets: [],
+    credentials: [],
+    state,
+    requestedBy: { id: 'u1', login: 'dana' },
+    createdAt: at,
+    attempts: 1,
+    cancelRequested: false,
+  }) as Run;
 
 let asked: { key: string; body?: unknown }[];
 let routes: Record<string, (body?: unknown) => { status?: number; body?: unknown }>;
@@ -114,6 +136,235 @@ describe("a project's launch configurations", () => {
     expect(
       screen.getByRole('link', { name: 'Add a launch configuration' }).getAttribute('href'),
     ).toBe('/w/net/core/launch/new');
+    // AFS-85: launching is one step from the project's page.
+    const launch = screen.getByRole('link', { name: 'Launch Nightly check' });
+    expect(launch.getAttribute('href')).toBe('/w/net/core/launch/c1');
+    expect(launch.className).toBe('button');
+  });
+
+  it('say how the newest run of each went, and offer Launch to who may launch (AFS-85)', async () => {
+    const other = { ...config, id: 'c2', name: 'Weekly real', flowFile: 'flows/other.flow.yaml' };
+    // The server says each configuration's newest run; one that never ran has none.
+    const lastRun = {
+      id: 'r8',
+      number: 8,
+      state: 'succeeded',
+      createdAt: '2026-11-13T12:00:00.000Z',
+      endedAt: '2026-11-13T12:02:00.000Z',
+    };
+    routes = {
+      'GET /projects/p1/launch-configs': () => ({ body: [{ ...config, lastRun }, other] }),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: { [flow.file]: 'operator' } },
+      }),
+    };
+    render(
+      <LaunchConfigsSection
+        me={omar as unknown as User}
+        workspace="net"
+        project={project as unknown as Project}
+      />,
+    );
+    const row = (await screen.findByRole('link', { name: 'Nightly check' })).closest(
+      'tr',
+    ) as HTMLElement;
+    const last = within(row).getByRole('link', { name: /went well/ });
+    expect(last.getAttribute('href')).toBe('/runs/r8');
+    expect(await within(row).findByRole('link', { name: 'Launch Nightly check' })).toBeTruthy();
+    // ro on the other flow: its page still opens, there is no Launch.
+    const quiet = screen.getByRole('link', { name: 'Weekly real' }).closest('tr') as HTMLElement;
+    expect(within(quiet).getByText('none yet')).toBeTruthy();
+    expect(within(quiet).queryByRole('link', { name: /^Launch/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Add a launch configuration' })).toBeNull();
+  });
+});
+
+describe("a launch configuration's tabs (AFS-85)", () => {
+  const page = (tab: LaunchTab, me = dana) =>
+    render(
+      <LaunchConfigPage
+        me={me as unknown as User}
+        workspace="net"
+        project="core"
+        id="c1"
+        tab={tab}
+      />,
+    );
+  const RUNS = 'GET /runs?config=c1&limit=100';
+
+  it('Launch: the form first, the rare fields folded, the settings in one line', async () => {
+    routes = common(dana);
+    page('launch');
+    const launch = await screen.findByRole('button', { name: 'Launch' });
+    // The inputs come before the button, the branch and limit after it, folded.
+    const precedes = (a: Element, b: Element) =>
+      !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(precedes(screen.getByLabelText(/^devices/), launch)).toBe(true);
+    expect(precedes(screen.getByLabelText('Real'), launch)).toBe(true);
+    const fold = screen.getByLabelText(/^Branch/).closest('details') as HTMLDetailsElement;
+    expect(precedes(launch, fold)).toBe(true);
+    expect(fold.open).toBe(false);
+    expect(fold.contains(screen.getByLabelText('Limit'))).toBe(true);
+    // No settings section over the form: one line, with the flow as a link to its page.
+    expect(screen.queryByRole('heading', { name: 'Settings' })).toBeNull();
+    const line = document.querySelector('.statusline') as HTMLElement;
+    expect(within(line).getByRole('link', { name: flow.file }).getAttribute('href')).toBe(
+      '/w/net/core/flow/flows/upgrade.flow.yaml',
+    );
+    expect(line.textContent).toContain('newest of main');
+    expect(line.textContent).toContain('inventory inventory/hosts.yaml');
+    expect(line.textContent).toContain("image the server's default");
+    expect(line.textContent).toContain('1 credential');
+    // The tabs are addresses; Change is one of them now.
+    const tabs = screen.getByRole('navigation', { name: 'Launch configuration' });
+    expect(
+      within(tabs)
+        .getAllByRole('link')
+        .map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('aria-current')]),
+    ).toEqual([
+      ['Launch', '/w/net/core/launch/c1', 'page'],
+      ['Runs', '/w/net/core/launch/c1/runs', null],
+      ['Schedules', '/w/net/core/launch/c1/schedules', null],
+      ['Settings', '/w/net/core/launch/c1/settings', null],
+    ]);
+    expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'What the flow needs' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Schedules' })).toBeNull();
+    expect(asked.some((a) => a.key.startsWith('GET /runs'))).toBe(false);
+  });
+
+  it('Launch: a configuration with a limit shows it, the fold open', async () => {
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1/form?': () => ({ body: { ...form, limit: 'edge' } }),
+    };
+    page('launch');
+    const limit = (await screen.findByDisplayValue('edge')) as HTMLInputElement;
+    expect((limit.closest('details') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('Runs: the runs of this configuration, asked of the server', async () => {
+    routes = {
+      ...common(dana),
+      [RUNS]: () => ({
+        body: [
+          run(12, 'running', 'c1', '2026-11-13T12:00:00.000Z'),
+          run(10, 'failed', 'c1', '2026-11-13T10:00:00.000Z'),
+        ],
+      }),
+    };
+    page('runs');
+    const list = (await screen.findByRole('region', { name: 'Runs' })) as HTMLElement;
+    await within(list).findByText('#12');
+    expect(
+      within(list)
+        .getAllByRole('link')
+        .map((a) => a.getAttribute('href')),
+    ).toEqual(['/runs/r12', '/runs/r10', '/runs']);
+    // The server filters: nothing says the list is a part of something.
+    expect(within(list).queryByText(/Looks among/)).toBeNull();
+    expect(within(list).queryByRole('button', { name: 'Older runs' })).toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Launch configuration' }))
+        .getByRole('link', { name: 'Runs' })
+        .getAttribute('aria-current'),
+    ).toBe('page');
+    // The launch form is on its own tab.
+    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'What the flow needs' })).toBeNull();
+  });
+
+  it('Runs: says when there is none', async () => {
+    routes = { ...common(dana), [RUNS]: () => ({ body: [] }) };
+    page('runs');
+    expect(await screen.findByText('No run of this configuration yet.')).toBeTruthy();
+  });
+
+  it('Runs: older runs are a page further, from where the last one ended', async () => {
+    const newest = Array.from({ length: 100 }, (_, i) =>
+      run(300 - i, 'succeeded', 'c1', new Date(Date.UTC(2026, 10, 13, 12, 0, -i)).toISOString()),
+    );
+    const last = newest[99] as { createdAt: string; number: number; id: string };
+    const cursor = encodeURIComponent(`${last.createdAt},${last.number},${last.id}`);
+    routes = {
+      ...common(dana),
+      [RUNS]: () => ({ body: newest }),
+      [`GET /runs?config=c1&limit=100&before=${cursor}`]: () => ({
+        body: [run(42, 'failed', 'c1', '2026-11-12T08:00:00.000Z')],
+      }),
+    };
+    page('runs');
+    const list = (await screen.findByRole('region', { name: 'Runs' })) as HTMLElement;
+    fireEvent.click(await within(list).findByRole('button', { name: 'Older runs' }));
+    await within(list).findByText('#42');
+    expect(within(list).getByText('#300')).toBeTruthy();
+    expect(within(list).getByText('No older runs.')).toBeTruthy();
+  });
+
+  it('Schedules: the schedules, and nothing of the other tabs', async () => {
+    routes = { ...common(dana), 'GET /launch-configs/c1/schedules': () => ({ body: [] }) };
+    page('schedules');
+    await screen.findByRole('heading', { name: 'Schedules' });
+    expect(await screen.findByText('No schedule.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+  });
+
+  it('Settings: the form is changed in place and says Saved; Delete is under it', async () => {
+    let now = config;
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1': () => ({ body: now }),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
+      'GET /workspaces/net/credentials': () => ({
+        body: [{ id: 'k1', name: 'lab key', kind: 'ssh_key' }],
+      }),
+      'GET /workspaces/net/environments': () => ({ body: [] }),
+      'PATCH /launch-configs/c1': (body) => {
+        now = { ...config, ...(body as object), inventory: 'inventory/lab.yaml' };
+        return { body: now };
+      },
+      'DELETE /launch-configs/c1': () => ({ status: 204 }),
+    };
+    vi.stubGlobal('confirm', () => true);
+    window.history.replaceState(null, '', '/w/net/core/launch/c1/settings');
+    page('settings');
+    const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+    expect(name.value).toBe('Nightly check');
+    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^Inventory/), {
+      target: { value: 'inventory/lab.yaml' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect((await screen.findByRole('status')).textContent).toBe('Saved.');
+    expect(asked.find((a) => a.key === 'PATCH /launch-configs/c1')?.body).toMatchObject({
+      name: 'Nightly check',
+      flowFile: 'flows/upgrade.flow.yaml',
+      inventory: 'inventory/lab.yaml',
+      credentials: ['k1'],
+    });
+    // It stays on the tab, and the line under the title follows.
+    expect(window.location.pathname).toBe('/w/net/core/launch/c1/settings');
+    await waitFor(() =>
+      expect(document.querySelector('.statusline')?.textContent).toContain('inventory/lab.yaml'),
+    );
+    // Typing again takes the word back.
+    fireEvent.change(name, { target: { value: 'Nightly' } });
+    expect(screen.queryByRole('status')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete this launch configuration' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/w/net/core'));
+    expect(asked.some((a) => a.key === 'DELETE /launch-configs/c1')).toBe(true);
+  });
+
+  it('Settings: who may not change them reads them', async () => {
+    routes = common(omar);
+    page('settings', omar);
+    expect(await screen.findByText(/Changing them needs rw/)).toBeTruthy();
+    expect(screen.getByText('Tells')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
   });
 });
 

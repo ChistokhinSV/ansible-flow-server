@@ -49,9 +49,10 @@ describe('the audit log', () => {
     render(<App />);
     const link = await screen.findByRole('link', { name: /Audit log/ });
     expect(link.getAttribute('href')).toBe('/admin/audit');
-    expect(screen.getByRole('link', { name: 'Administration' }).getAttribute('aria-current')).toBe(
-      'page',
-    );
+    // AFS-87: the administration's own address opens People and groups.
+    expect(
+      screen.getByRole('link', { name: 'People and groups' }).getAttribute('aria-current'),
+    ).toBe('page');
   });
 
   it('shows entries, filters them, brings older ones, and exports with the filter', async () => {

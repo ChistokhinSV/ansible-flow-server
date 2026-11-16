@@ -6,6 +6,7 @@ import { CURRENT_FORMAT, formatOf } from '@ansible-flow/core/flow/format';
 import { modelOf } from '@ansible-flow/core/flow/model';
 import { createSchemaValidator } from '@ansible-flow/core/flow/schema';
 import { validateFlow } from '@ansible-flow/core/flow/validate';
+import type { LastRun } from './runs/cursor';
 
 export interface FlowSummary {
   /** The file's path in its repository. */
@@ -21,6 +22,11 @@ export interface FlowSummary {
   steps?: number;
   errors: number;
   warnings: number;
+  /**
+   * Its newest run in the project, among the runs the person asking may see; only a project's
+   * list of flows says it.
+   */
+  lastRun?: LastRun;
 }
 
 // Compiling the schema takes a moment; one validator serves every flow.

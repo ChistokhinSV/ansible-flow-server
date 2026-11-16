@@ -1,10 +1,11 @@
-// Notifications, for administrators (AFS-29): how the server sends (the mail server, the key
-// webhooks are signed with), a test message, and the delivery log: each message, where it went,
-// and how it went, with a retry for those given up on.
+// Notifications, for administrators (AFS-29): the delivery log (each message, where it went, and
+// how it went, with a retry for those given up on) and, on a second tab, how the server sends (the
+// mail server, the key webhooks are signed with) and a test message. The log comes first: it is
+// what is looked at day to day; the settings are made once (AFS-88).
 import { useEffect, useId, useState } from 'react';
 import { api, type Delivery, type NotifySettings, type SmtpSecurity } from './api';
 import { Link } from './router';
-import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Copyable, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
 
 const EVENT_LABEL: Record<string, string> = {
   'approval.waiting': 'approval waits',
@@ -162,23 +163,47 @@ function WebhookKey({ has, onMade }: { has: boolean; onMade(): void }) {
   );
 }
 
-/** `turn`: a new value reads the log again (a test was just sent). */
-function DeliveryLog({ turn }: { turn: number }) {
-  const [status, setStatus] = useState('');
-  const list = useLoad(() => api.deliveries({ ...(status ? { status } : {}) }), [status, turn]);
-  // Messages go out in the background: the log is looked at again now and then.
-  useEffect(() => {
-    const timer = setInterval(list.reload, 15_000);
-    return () => clearInterval(timer);
-  }, [list.reload]);
+const BASE = '/admin/notifications';
+const SETTINGS = `${BASE}/settings`;
+
+/** In a few words: can the server send at all, and can a receiver trust what it gets. */
+function Standing({ settings }: { settings: NotifySettings }) {
+  return (
+    <p className="statusline">
+      {settings.smtp ? (
+        <span>Email goes through {settings.smtp.host}</span>
+      ) : (
+        <span>
+          Email is not set up: no email is sent. <Link to={SETTINGS}>Set it up</Link>
+        </span>
+      )}
+      <span>{settings.webhookKey ? 'Webhooks are signed' : 'Webhooks are not signed'}</span>
+      {!settings.publicUrl && <span>Messages carry no links</span>}
+    </p>
+  );
+}
+
+function DeliveryLog({
+  list,
+  status,
+  onStatus,
+  onChanged,
+}: {
+  list?: Delivery[];
+  status: string;
+  onStatus(status: string): void;
+  onChanged(): void;
+}) {
   const statusId = useId();
   return (
     <section aria-labelledby="log">
-      <h2 id="log">Delivery log</h2>
+      <h2 id="log" className="sr-only">
+        Delivery log
+      </h2>
       <div className="filters">
         <label className="inline" htmlFor={statusId}>
           Status{' '}
-          <select id={statusId} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select id={statusId} value={status} onChange={(e) => onStatus(e.target.value)}>
             <option value="">all</option>
             <option value="pending">being tried</option>
             <option value="sent">sent</option>
@@ -186,8 +211,10 @@ function DeliveryLog({ turn }: { turn: number }) {
           </select>
         </label>
       </div>
-      {list.data?.length === 0 && <p className="empty">No message yet.</p>}
-      {!!list.data?.length && (
+      {list?.length === 0 && (
+        <p className="empty">{status ? 'No such message.' : 'No message yet.'}</p>
+      )}
+      {!!list?.length && (
         <div className="scroll">
           <table>
             <thead>
@@ -200,7 +227,7 @@ function DeliveryLog({ turn }: { turn: number }) {
               </tr>
             </thead>
             <tbody>
-              {list.data.map((d) => (
+              {list.map((d) => (
                 <tr key={d.id}>
                   <td>
                     <Time at={d.createdAt} />
@@ -240,7 +267,7 @@ function DeliveryLog({ turn }: { turn: number }) {
                           type="button"
                           onClick={async () => {
                             await api.retryDelivery(d.id).catch(() => undefined);
-                            list.reload();
+                            onChanged();
                           }}
                         >
                           Try again
@@ -254,68 +281,117 @@ function DeliveryLog({ turn }: { turn: number }) {
           </table>
         </div>
       )}
-      <Loading state={list} />
     </section>
   );
 }
 
-export function NotificationsPage() {
+function Settings({
+  settings,
+  onChanged,
+  onSent,
+}: {
+  settings: NotifySettings;
+  onChanged(): void;
+  onSent(): void;
+}) {
+  return (
+    <>
+      {!settings.publicUrl && (
+        <p className="notice">
+          Messages carry no links: set AFS_PUBLIC_URL to the address people open the server at.
+        </p>
+      )}
+      <p className="muted">
+        People are told at the email address and webhook of their account. Everyone sets their own
+        email address on My account; an administrator sets webhooks. A group without either is told
+        through its members.
+      </p>
+      <div className="columns">
+        <section className="panel" aria-labelledby="mail">
+          <h2 id="mail">Email</h2>
+          {!settings.smtp && (
+            <p className="muted">No mail server yet: the server sends no email.</p>
+          )}
+          <SmtpForm settings={settings} onSaved={onChanged} />
+          {settings.smtp && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!window.confirm('Send no email any more?')) return;
+                await api.clearSmtp().catch(() => undefined);
+                onChanged();
+              }}
+            >
+              Send no email
+            </button>
+          )}
+        </section>
+        <section className="panel" aria-labelledby="hooks">
+          <h2 id="hooks">Webhooks</h2>
+          <p className="muted">
+            A webhook gets the event as JSON, with a <code>text</code> line chat tools show.
+          </p>
+          <WebhookKey has={settings.webhookKey} onMade={onChanged} />
+        </section>
+        <section className="panel" aria-labelledby="test">
+          <h2 id="test">Test</h2>
+          <p className="muted">
+            How it went is in the <Link to={BASE}>delivery log</Link>.
+          </p>
+          <TestForm onSent={onSent} />
+        </section>
+      </div>
+    </>
+  );
+}
+
+export function NotificationsPage({ tab }: { tab: 'log' | 'settings' }) {
   const settings = useLoad(() => api.notifySettings(), []);
-  const [turn, setTurn] = useState(0);
+  // The log is read on both tabs: its tab is marked while a message was given up on.
+  const [status, setStatus] = useState('');
+  const list = useLoad(() => api.deliveries({ ...(status ? { status } : {}) }), [status]);
+  // Messages go out in the background: the log is looked at again now and then.
+  useEffect(() => {
+    const timer = setInterval(list.reload, 15_000);
+    return () => clearInterval(timer);
+  }, [list.reload]);
+  // A filter that leaves the given-up ones out says nothing about them: the mark stays as it was.
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (list.data && (status === '' || status === 'failed'))
+      setGaveUp(list.data.some((d) => d.status === 'failed'));
+  }, [list.data, status]);
   const s = settings.data;
   return (
     <>
       <PageHead
         title="Notifications"
-        lead="Approvers are asked when a run waits for them; who launched a run is told how it was decided; a launch configuration can tell people when its runs fail or end; administrators hear when the server certificate nears its end."
+        lead="What the server told people, and how it sends: approvals that wait and how they were decided, runs that fail or end, the server certificate nearing its end."
+      />
+      <Tabs
+        label="Notifications"
+        base={BASE}
+        current={tab === 'settings' ? 'settings' : ''}
+        tabs={[
+          { key: '', label: 'Delivery log', alert: gaveUp },
+          { key: 'settings', label: 'Settings' },
+        ]}
       />
       <Loading state={settings} />
-      {s && (
+      {tab === 'settings' ? (
+        s && <Settings settings={s} onChanged={settings.reload} onSent={list.reload} />
+      ) : (
         <>
-          {!s.publicUrl && (
-            <p className="notice">
-              Messages carry no links: set AFS_PUBLIC_URL to the address people open the server at.
-            </p>
-          )}
-          <p className="muted">
-            People and groups are told at the email address and webhook their account has. Everyone
-            sets their own email address on My account; webhooks are set by administrators (their
-            own on My account, others' over the API). A group without either is told through its
-            members.
-          </p>
-          <div className="columns">
-            <section className="panel" aria-labelledby="mail">
-              <h2 id="mail">Email</h2>
-              {!s.smtp && <p className="muted">No mail server yet: the server sends no email.</p>}
-              <SmtpForm settings={s} onSaved={settings.reload} />
-              {s.smtp && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!window.confirm('Send no email any more?')) return;
-                    await api.clearSmtp().catch(() => undefined);
-                    settings.reload();
-                  }}
-                >
-                  Send no email
-                </button>
-              )}
-            </section>
-            <section className="panel" aria-labelledby="hooks">
-              <h2 id="hooks">Webhooks</h2>
-              <p className="muted">
-                A webhook gets the event as JSON, with a <code>text</code> line chat tools show.
-              </p>
-              <WebhookKey has={s.webhookKey} onMade={settings.reload} />
-            </section>
-            <section className="panel" aria-labelledby="test">
-              <h2 id="test">Test</h2>
-              <TestForm onSent={() => setTurn((n) => n + 1)} />
-            </section>
-          </div>
+          {s && <Standing settings={s} />}
+          <DeliveryLog
+            list={list.data}
+            status={status}
+            onStatus={setStatus}
+            onChanged={list.reload}
+          />
+          <Loading state={list} />
         </>
       )}
-      <DeliveryLog turn={turn} />
     </>
   );
 }

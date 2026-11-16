@@ -17,6 +17,7 @@ import { accessOf, atLeast } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
+import { lastRuns } from '../runs/queue';
 import type { MasterKey } from '../secrets/masterKey';
 import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
@@ -504,9 +505,17 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       const list = await flows.list(project.id, project.commit);
       // Someone with grants on some flows only sees those.
       const access = await accessOf(db, request);
+      const maySee = (file: string) => !!access?.onFlow(project.workspace, project.id, file);
+      // Each with its newest run: read once for the project.
+      const last = await lastRuns(db, project.id, 'flow', maySee);
       return {
         ...list,
-        flows: list.flows.filter((f) => access?.onFlow(project.workspace, project.id, f.file)),
+        flows: list.flows
+          .filter((f) => maySee(f.file))
+          .map((f) => {
+            const lastRun = last.get(f.file);
+            return lastRun ? { ...f, lastRun } : f;
+          }),
       };
     } catch (e) {
       // A repository that cannot be read just now has no list; the project's page says why.

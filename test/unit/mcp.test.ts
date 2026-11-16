@@ -244,10 +244,45 @@ for (const [name, config] of databases) {
       expect(launched).toMatchObject({ state: 'queued', flow: 'Engine test · approval segments' });
       const status = await json(omar, 'run_status', { run: launched.run });
       expect(status).toMatchObject({ id: launched.run, state: 'queued', approvals: [] });
-      expect((await json(omar, 'run_list', { project: 'net/edge' }))[0]).toMatchObject({
-        id: launched.run,
-        by: 'omar',
+      const listed = await json(omar, 'run_list', { project: 'net/edge' });
+      expect(listed.runs[0]).toMatchObject({ id: launched.run, by: 'omar', config: 'Change' });
+      expect(listed.next).toBeUndefined();
+      // The configuration's list says how its last run stands.
+      expect(await json(omar, 'launch_config_list', { project: 'net/edge' })).toEqual([
+        expect.objectContaining({
+          name: 'Change',
+          lastRun: expect.objectContaining({ id: launched.run, state: 'queued' }),
+        }),
+      ]);
+
+      // By configuration, by who asked, and the caller's own.
+      const second = await json(omar, 'run_launch', { config: configId });
+      const idsOf = async (client: Client, args: Record<string, unknown>) =>
+        (await json(client, 'run_list', args)).runs.map((r: { id: string }) => r.id);
+      const both = [second.run, launched.run];
+      expect(await idsOf(omar, { config: 'net/edge/Change' })).toEqual(both);
+      expect(await idsOf(omar, { config: configId, mine: true })).toEqual(both);
+      expect(await idsOf(omar, { by: 'omar' })).toEqual(both);
+      expect(await idsOf(omar, { by: 'rita' })).toEqual([]);
+      const rita = await agent(tokens.rita as string);
+      expect(await idsOf(rita, { mine: true })).toEqual([]);
+      expect(await idsOf(rita, { by: 'omar', project: 'net/edge' })).toEqual(both);
+      expect((await call(omar, 'run_list', { config: 'net/edge/Nothing' })).isError).toBe(true);
+      // A page at a time: a full page says where the next one starts.
+      const first = await json(omar, 'run_list', { project: 'net/edge', limit: 1 });
+      expect(first.runs.map((r: { id: string }) => r.id)).toEqual([second.run]);
+      expect(first.next).toEqual(expect.any(String));
+      expect(await idsOf(omar, { project: 'net/edge', limit: 1, before: first.next })).toEqual([
+        launched.run,
+      ]);
+      // A token for another workspace does not reach the configuration's runs.
+      const lab = await call(await agent(tokens.ritaLab as string), 'run_list', {
+        config: configId,
       });
+      expect(lab.isError).toBe(true);
+      expect(lab.text).toMatch(/^Refused \(403\)/);
+
+      expect((await call(omar, 'run_stop', { run: second.run })).text).toMatch(/is stopped$/);
       expect((await call(omar, 'run_stop', { run: launched.run })).text).toMatch(/is stopped$/);
       const entry = (await listAudit(db(), { action: 'run.launch' })).entries.find(
         (e) => e.object.id === launched.run,

@@ -1,7 +1,8 @@
 // The Server certificate page and banner (AFS-54), with the server played by the test: the
 // certificate in use with its days left, a request made then downloadable, an install refused
 // with every reason and then accepted, a rollback; administrators see a banner on every page while
-// the certificate nears its end, and others never ask.
+// the certificate nears its end, and others never ask. AFS-88: the history comes before the ways
+// to replace the certificate, and one way's form shows at a time.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
@@ -100,6 +101,28 @@ describe('the Server certificate page', () => {
     // No banner on this page, and none with 200 days left.
     expect(screen.queryByText(/The server certificate ends/)).toBeNull();
 
+    // What happened comes before what can be done, and no form shows until a way is chosen.
+    const history = screen.getByRole('heading', { name: 'History' });
+    const replace = screen.getByRole('heading', { name: 'Replace the certificate' });
+    expect(
+      history.compareDocumentPosition(replace) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getAllByRole('radio').map((r) => (r as HTMLInputElement).checked)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(screen.queryByRole('button', { name: 'Make the request' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Install a PFX file' }));
+    expect(screen.getByLabelText('PFX file')).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole('radio', { name: 'Request one from your certificate authority' }),
+    );
+    // One form at a time.
+    expect(screen.queryByLabelText('PFX file')).toBeNull();
+    expect(screen.queryByLabelText('Certificate')).toBeNull();
     fireEvent.change(screen.getByLabelText('Organization'), {
       target: { value: 'Example Networks' },
     });
@@ -109,10 +132,12 @@ describe('the Server certificate page', () => {
     expect(sent('POST /admin/certificate/request')).toEqual([
       { names: ['flows.example.net'], organization: 'Example Networks' },
     ]);
+    // The form closed; the waiting request is said with no way chosen, and leads to the install.
+    expect(screen.queryByLabelText('Organization')).toBeNull();
+    expect(screen.getByText(/A request waits for its signed certificate/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Install the signed certificate' }));
 
-    const install = screen
-      .getByRole('heading', { name: 'Install a certificate' })
-      .closest('section') as HTMLElement;
+    const install = screen.getByRole('region', { name: 'Install a certificate (PEM)' });
     fireEvent.change(within(install).getByLabelText('Certificate'), {
       target: { value: 'nonsense' },
     });
@@ -160,9 +185,8 @@ describe('the Server certificate page', () => {
     };
     window.history.replaceState(null, '', '/admin/certificate');
     render(<App />);
-    const panel = (await screen.findByRole('heading', { name: 'Install a PFX file' })).closest(
-      'section',
-    ) as HTMLElement;
+    fireEvent.click(await screen.findByRole('radio', { name: 'Install a PFX file' }));
+    const panel = screen.getByRole('region', { name: 'Install a PFX file' });
     const install = within(panel).getByRole('button', { name: 'Install' }) as HTMLButtonElement;
     expect(install.disabled).toBe(true);
     const file = new File([new Uint8Array([0x30, 0x82, 0x01, 0xff])], 'flows.pfx');
@@ -175,8 +199,9 @@ describe('the Server certificate page', () => {
     expect(sent('POST /admin/certificate/install')).toEqual([
       { pfx: 'MIIB/w==', passphrase: 'not-a-real-one' },
     ]);
-    // The passphrase field is emptied once installed.
-    expect((within(panel).getByLabelText('Passphrase') as HTMLInputElement).value).toBe('');
+    // The form closes once installed, and the passphrase with it.
+    expect(screen.queryByLabelText('Passphrase')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Install a PFX file' })).toBeNull();
   });
 
   it('warns administrators on every page when the end is near; others are never asked', async () => {
