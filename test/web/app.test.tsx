@@ -525,6 +525,21 @@ describe('signed in', () => {
         ).searchParams.get('theme'),
       ).toBe('light'),
     );
+    // AFS-107: the breadcrumbs are in the top bar, beside the search box.
+    expect(document.querySelector('.bar nav[aria-label="Breadcrumb"]')?.textContent).toContain(
+      'flows/os-upgrade.flow.yaml',
+    );
+    // Full screen and its own page are icon buttons with their names.
+    const canvas = screen.getByTitle(/OS upgrade on the designer/) as HTMLIFrameElement;
+    const asked: Element[] = [];
+    canvas.requestFullscreen = async function (this: Element) {
+      asked.push(this);
+    } as never;
+    fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+    expect(asked).toEqual([canvas]);
+    expect(screen.getByRole('link', { name: 'Open on its own page' }).getAttribute('href')).toMatch(
+      /^\/viewer\.html\?project=p1&path=flows%2Fos-upgrade\.flow\.yaml/,
+    );
   });
 
   it('says which flows someone changed on the branch while the page is open', async () => {
@@ -568,7 +583,11 @@ describe('signed in', () => {
     expect(box.textContent).toContain('flows/os-upgrade.flow.yaml changed by Mia Ortega');
     expect(box.textContent).toContain('old/broken.flow.yaml removed by Omar Haddad');
     // The list is read again for the new commit.
-    expect(calls.filter((c) => c === 'GET /workspaces/network/projects').length).toBeGreaterThan(1);
+    await waitFor(() =>
+      expect(calls.filter((c) => c === 'GET /workspaces/network/projects').length).toBeGreaterThan(
+        1,
+      ),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByText(/Changed on the branch just now/)).toBeNull();
   });

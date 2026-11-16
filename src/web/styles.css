@@ -2368,3 +2368,48 @@ fieldset.name-chips {
   min-height: 2.5rem;
   padding-block: 0;
 }
+
+/* AFS-107: the top bar is as wide as the page under it, the page's breadcrumbs on its left. */
+.bar {
+  width: 100%;
+  max-width: 1180px;
+  justify-content: space-between;
+}
+.bar.bar-of.broad {
+  max-width: 1760px;
+}
+.bar.bar-of.wide,
+.bar.bar-of.full,
+.bar.bar-of.run {
+  max-width: none;
+}
+.bar-crumbs {
+  min-width: 0;
+  flex: 1;
+}
+.bar-crumbs .crumbs {
+  margin: 0;
+}
+/* The page starts with its title where the breadcrumbs were. */
+.bar + main > .page-head:first-child,
+.bar + main .flow-head > .page-head:first-child {
+  margin-top: 0.25rem;
+}
+/* AFS-107: a button that is only an icon (its name is its label). */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  padding-inline: 0.6rem;
+}
+.icon-button .icon {
+  display: block;
+}
+/* The canvas in full screen fills it. */
+.flow-frame:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+}

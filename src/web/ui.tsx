@@ -1,13 +1,16 @@
 // The few parts every page is made of.
 import {
+  createContext,
   type FormEvent,
   type InputHTMLAttributes,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError } from './api';
 import { Link } from './router';
 
@@ -285,5 +288,47 @@ export function Fold({
       <summary>{summary}</summary>
       <div className="fold-body">{children}</div>
     </details>
+  );
+}
+
+/**
+ * AFS-107: where the shell's top bar takes a page's breadcrumbs. Undefined outside the shell (a
+ * page drawn alone, as in tests): the breadcrumbs stay in the page; null: the bar is not drawn yet.
+ */
+export const BarSlot = createContext<HTMLElement | null | undefined>(undefined);
+
+/** A page's breadcrumbs: in the top bar beside the search box, so the page starts with its title. */
+export function Breadcrumb({ children }: { children: ReactNode }) {
+  const slot = useContext(BarSlot);
+  const nav = (
+    <nav aria-label="Breadcrumb" className="crumbs">
+      {children}
+    </nav>
+  );
+  if (slot === undefined) return nav;
+  return slot ? createPortal(nav, slot) : null;
+}
+
+/** AFS-107: small line icons for icon buttons (their name is the button's label). */
+export function Icon({ name }: { name: 'external' | 'fullscreen' }) {
+  return (
+    <svg
+      className="icon"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {name === 'external' ? (
+        <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5H7" />
+      ) : (
+        <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
+      )}
+    </svg>
   );
 }

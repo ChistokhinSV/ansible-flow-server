@@ -17,7 +17,18 @@ import { WorkspaceEnvironments } from './environments';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunList, RunWords } from './runs';
-import { Copyable, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Copyable,
+  Field,
+  Form,
+  Loading,
+  messageOf,
+  PageHead,
+  Tabs,
+  Time,
+  useLoad,
+} from './ui';
 
 // --- workspaces
 
@@ -270,9 +281,9 @@ export function Workspace({
   }>({ from: 'empty', sample: '' });
   return (
     <>
-      <nav aria-label="Breadcrumb" className="crumbs">
+      <Breadcrumb>
         <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
-      </nav>
+      </Breadcrumb>
       <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
         {/* AFS-94: the head's action is the tab's own: the other tabs have theirs. */}
         {me.admin && space.data && !adding && tab === '' && (
@@ -1027,10 +1038,10 @@ export function ProjectPage({
     branchList.reload();
   };
   const crumbs = (
-    <nav aria-label="Breadcrumb" className="crumbs">
+    <Breadcrumb>
       <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
       <span aria-current="page">{key}</span>
-    </nav>
+    </Breadcrumb>
   );
   if (!project)
     return (
