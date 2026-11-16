@@ -312,6 +312,20 @@ describe('a run of a flow with an approval', () => {
     await ex.stop();
     expect((await call('dana', 'POST', `/api/v1/runs/${run.id}/cancel`)).statusCode).toBe(202);
     expect((await gatesOf(database.db, run.id))[0]?.status).toBe('cancelled');
+    // AFS-110: what the canvas shows ends too: no longer waiting, said who stopped it.
+    const view = (await queue.view(run.id)) as RunView;
+    expect(view.state).toBe('error');
+    expect(view.errorCode).toBe('cancelled');
+    expect(view.error).toBe('Stopped by dana before it went on');
+    // No exit code (an exit 0 read as success), and the gate says who cancelled it.
+    expect(view.rc).toBeUndefined();
+    const gate = await database.db
+      .selectFrom('run_gate')
+      .select('decided_by')
+      .where('run_id', '=', run.id)
+      .executeTakeFirst();
+    expect(gate?.decided_by).toBe('dana');
+    expect(view.approvals?.[GATE]).toBeUndefined();
     expect((await call('omar', 'GET', '/api/v1/approvals')).json()).toEqual([]);
     const late = await call('omar', 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
       decision: 'approved',

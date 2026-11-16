@@ -663,6 +663,9 @@ export class RunQueue {
             cancelled_by: by,
             ended_at: iso(now),
             updated_at: iso(now),
+            // AFS-110: what the canvas shows of it ends too: a run stopped while it waited for a
+            // decision no longer reads as waiting there (nothing else writes its view any more).
+            ...(row.view_json ? { view_json: JSON.stringify(stoppedView(row.view_json, by)) } : {}),
           })
           .where('id', '=', id)
           .execute();
@@ -800,4 +803,29 @@ export async function lastRuns(
     });
   }
   return out;
+}
+
+/**
+ * AFS-110: the view of a run stopped before it ran on (queued, or waiting at an approval): ended,
+ * with who stopped it, and no approval waiting any more.
+ */
+export function stoppedView(viewJson: string, by: string): unknown {
+  const { rc: _rc, ...view } = JSON.parse(viewJson) as {
+    state?: string;
+    rc?: number;
+    error?: string;
+    approvals?: Record<string, { status: string }>;
+  };
+  const approvals = Object.fromEntries(
+    Object.entries(view.approvals ?? {}).filter(([, a]) => a.status !== 'waiting'),
+  );
+  return {
+    ...view,
+    // An error with the reason, no exit code: the part that ran ended well, the run did not (an
+    // exit 0 read as success). The designer then says "Run interrupted" with the reason.
+    state: 'error',
+    errorCode: 'cancelled',
+    error: `Stopped by ${by} before it went on`,
+    ...(view.approvals ? { approvals } : {}),
+  };
 }

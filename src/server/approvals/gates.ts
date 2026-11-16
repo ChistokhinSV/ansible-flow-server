@@ -181,10 +181,14 @@ export function whyNot(
 }
 
 /** A run that stops while it waits takes its waiting gate with it: nobody is asked any more. */
-export async function closeGates(db: Db, run: string): Promise<void> {
+export async function closeGates(db: Db, run: string, by?: string): Promise<void> {
   await db
     .updateTable('run_gate')
-    .set({ status: 'cancelled' })
+    // AFS-110: who stopped the run is who cancelled its gate (the page said "by nobody").
+    .set({
+      status: 'cancelled',
+      ...(by ? { decided_by: by, decided_at: new Date().toISOString() } : {}),
+    })
     .where('run_id', '=', run)
     .where('status', '=', 'waiting')
     .execute();

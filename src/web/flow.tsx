@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { flowLevel, useProjectAccess } from './access';
 import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run } from './api';
-import { FlowFileActions } from './flowFiles';
+import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
 import { RunWords } from './runs';
@@ -64,6 +64,8 @@ export function FlowPage({
   const [editing, setEditing] = useState<Draft>();
   // AFS-107: the canvas's frame, for Full screen.
   const frame = useRef<HTMLIFrameElement>(null);
+  // AFS-110: Copy or Delete, picked in the head's More menu.
+  const [fileAction, setFileAction] = useState<'copy' | 'delete'>();
   const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
   const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
   const [said, setSaid] = useState<string>();
@@ -181,8 +183,11 @@ export function FlowPage({
               <Icon name="external" />
             </a>
           )}
+          {project && !editing && mayChangeFiles && project.commit && (
+            <FlowFileMenu onPick={setFileAction} />
+          )}
         </PageHead>
-        {project && !editing && mayChangeFiles && commit && (
+        {project && !editing && mayChangeFiles && commit && fileAction && (
           <FlowFileActions
             workspace={workspace}
             project={project}
@@ -190,6 +195,8 @@ export function FlowPage({
             name={title}
             commit={commit}
             usedBy={(configs.data ?? []).map((c) => c.name)}
+            doing={fileAction}
+            onDone={() => setFileAction(undefined)}
           />
         )}
         {project && !editing ? (

@@ -2431,3 +2431,31 @@ fieldset.name-chips {
   gap: 0.5rem;
   margin: -0.4rem 0 0.6rem;
 }
+
+/* AFS-110: More (⋯) in a page head: a short list under its button. */
+.more-menu {
+  position: relative;
+}
+.more-menu-list {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: var(--menu-shadow);
+}
+.more-menu-list button {
+  justify-content: flex-start;
+  text-align: start;
+  background: none;
+  box-shadow: none;
+  white-space: nowrap;
+}
+.more-menu-list button:hover {
+  background: var(--button-hover);
+}

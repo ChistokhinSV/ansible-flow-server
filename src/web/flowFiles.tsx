@@ -4,10 +4,10 @@
 // configurations use the flow first.
 import { createIdFactory, SLUG } from '@ansible-flow/core/flow/ids';
 import { newFlowText } from '@ansible-flow/core/flow/template';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type Project } from './api';
 import { navigate } from './router';
-import { Field, Form, messageOf } from './ui';
+import { Field, Form, Icon, messageOf } from './ui';
 
 const flowPage = (workspace: string, project: string, file: string) =>
   `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}/flow/${file
@@ -116,6 +116,8 @@ export function FlowFileActions({
   name,
   commit,
   usedBy,
+  doing,
+  onDone,
 }: {
   workspace: string;
   project: Project;
@@ -124,9 +126,19 @@ export function FlowFileActions({
   commit: string;
   /** Names of the launch configurations that run it. */
   usedBy: string[];
+  /** AFS-110: which form is open (picked in the head's More menu), and closing it. */
+  doing?: 'copy' | 'delete';
+  onDone(): void;
 }) {
-  const [doing, setDoing] = useState<'copy' | 'delete'>();
   const [copyName, setCopyName] = useState(`${name} (copy)`);
+  // The name as the page knows it when Copy is picked (a new flow's name comes after its file).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: set when the copy form opens
+  useEffect(() => {
+    if (doing === 'copy') {
+      setCopyName(`${name} (copy)`);
+      setCopyPath(undefined);
+    }
+  }, [doing]);
   const copyKey = keyOf(copyName);
   const folder = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
   const [copyPath, setCopyPath] = useState<string>();
@@ -134,31 +146,11 @@ export function FlowFileActions({
   const [error, setError] = useState<string>();
   return (
     <>
-      <div className="flow-file-actions">
-        <button
-          type="button"
-          onClick={() => {
-            // The name as the page knows it now (a new flow's name comes a moment after its file).
-            setCopyName(`${name} (copy)`);
-            setCopyPath(undefined);
-            setDoing(doing === 'copy' ? undefined : 'copy');
-          }}
-        >
-          Copy…
-        </button>
-        <button
-          type="button"
-          className="danger"
-          onClick={() => setDoing(doing === 'delete' ? undefined : 'delete')}
-        >
-          Delete…
-        </button>
-      </div>
       {doing === 'copy' && (
         <section className="panel sheet" aria-label="Copy the flow">
           <Form
             submit="Make the copy"
-            onCancel={() => setDoing(undefined)}
+            onCancel={() => onDone()}
             onSubmit={async () => {
               if (!SLUG.test(copyKey)) throw new Error('A name with letters or digits');
               const problem = fileProblem(copyFile);
@@ -240,12 +232,65 @@ export function FlowFileActions({
             >
               Delete the flow
             </button>
-            <button type="button" onClick={() => setDoing(undefined)}>
+            <button type="button" onClick={() => onDone()}>
               Cancel
             </button>
           </div>
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * AFS-110: More (⋯) in a flow page's head: Copy… and Delete…, so they take no row of their own.
+ * Closes on a pick, a click elsewhere or Escape.
+ */
+export function FlowFileMenu({ onPick }: { onPick(what: 'copy' | 'delete'): void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open]);
+  const pick = (what: 'copy' | 'delete') => {
+    setOpen(false);
+    onPick(what);
+  };
+  return (
+    <div className="more-menu" ref={box}>
+      <button
+        type="button"
+        className="icon-button"
+        aria-label="More"
+        title="More: copy or delete the flow"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name="more" />
+      </button>
+      {open && (
+        <div className="more-menu-list" role="menu">
+          <button type="button" role="menuitem" onClick={() => pick('copy')}>
+            Copy the flow…
+          </button>
+          <button type="button" role="menuitem" className="danger" onClick={() => pick('delete')}>
+            Delete the flow…
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

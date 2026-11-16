@@ -310,7 +310,7 @@ export function Breadcrumb({ children }: { children: ReactNode }) {
 }
 
 /** AFS-107: small line icons for icon buttons (their name is the button's label). */
-export function Icon({ name }: { name: 'external' | 'fullscreen' }) {
+export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' }) {
   return (
     <svg
       className="icon"
@@ -326,6 +326,8 @@ export function Icon({ name }: { name: 'external' | 'fullscreen' }) {
     >
       {name === 'external' ? (
         <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5H7" />
+      ) : name === 'more' ? (
+        <path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth="2.5" />
       ) : (
         <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
       )}

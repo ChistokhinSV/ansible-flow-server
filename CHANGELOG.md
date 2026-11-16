@@ -104,7 +104,7 @@ Nothing is released yet.
 - Running a flow from its canvas: the choice of launch configuration also offers New configuration…, which opens the page that adds one for this flow (also when the flow has none yet). The canvas's launch dialog has Save as Launch Configuration…: a new configuration like the one chosen, with the dialog's mode and inputs (secret inputs are never kept). On a launch configuration's Launch tab, host lists suggest the inventory's groups; under Settings, Whom suggests the server's people and groups.
 - Administrators delete a project on its Settings tab and a workspace on its Access tab, after typing its key; what goes with it is said first, and a refusal (a run going, a workspace not empty) is shown.
 - My account has a Password section: change your own password (your other sessions are signed out).
-- Flows are made, copied and deleted in the pages: New flow on a project's Flows (the designer's starting flow, opened on its page), Copy… and Delete… on a flow's page (the copy gets its own id and key; Delete says which launch configurations run it). Each is one commit on the project's branch, for people with rw on the workspace.
+- Flows are made, copied and deleted in the pages: New flow on a project's Flows (the designer's starting flow, opened on its page), Copy the flow… and Delete the flow… in the More (⋯) menu of a flow's page (the copy gets its own id and key; Delete says which launch configurations run it). Each is one commit on the project's branch, for people with rw on the workspace.
 
 ### Changed
 
@@ -114,6 +114,7 @@ Nothing is released yet.
 
 ### Fixed
 
+- Stopping a run that waits for approval ends it on its canvas too: the run says who stopped it instead of waiting, and the approval says who cancelled it.
 - Fields side by side stay on one line when the hint under one of them wraps.
 - A workspace's Add project button shows on its Projects tab only.
 - Finding a collection for an execution environment lists the collection named by the words first, and finds a full name such as `fortinet.fortios`, which found nothing before.
