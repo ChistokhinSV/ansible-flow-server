@@ -14,7 +14,7 @@ import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
 import { followFlow } from './viewerChanges';
-import { editDraft } from './viewerDraft';
+import { editDraft, openWebLink } from './viewerDraft';
 import { askName, chooseConfig, launcher } from './viewerLaunch';
 
 const params = new URLSearchParams(window.location.search);
@@ -250,6 +250,10 @@ async function start(): Promise<void> {
             return;
           case 'showRun':
             showRun(message.id, true);
+            return;
+          case 'openLink':
+            // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
+            openWebLink(message.url);
             return;
           case 'catalog': {
             // AFS-118: a step's module docs, from the catalog of the flow's image.
