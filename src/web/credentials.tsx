@@ -17,6 +17,7 @@ export const KIND_LABEL: Record<CredentialKind, string> = {
   git_token: 'git token',
   registry: 'container registry',
   env: 'environment variables',
+  awx: 'AWX token',
 };
 const FIELD_LABEL: Record<string, string> = {
   username: 'User name',
@@ -27,11 +28,13 @@ const FIELD_LABEL: Record<string, string> = {
   passphrase: 'Key passphrase',
   password: 'Password',
   token: 'Token',
+  url: 'AWX address',
 };
 const FIELD_HINT: Record<string, string> = {
   method: 'sudo unless given',
   vaultId: 'Only for a vault with an id',
   host: 'registry.example.net',
+  url: 'https://awx.example.net (to import its templates into a flow)',
 };
 /** Secret parts written on several lines. */
 const MULTILINE = new Set(['privateKey']);

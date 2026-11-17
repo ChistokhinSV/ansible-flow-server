@@ -9,6 +9,7 @@ export const KINDS = [
   'git_token',
   'registry',
   'env',
+  'awx',
 ] as const;
 export type CredentialKind = (typeof KINDS)[number];
 
@@ -35,6 +36,8 @@ export const SPEC: Record<
   },
   // Variables for a run's environment: the names are seen, the values are secret.
   env: { fields: [], secret: [], required: [] },
+  // AFS-126: an AWX (or Automation Controller) address and a token, to import its templates.
+  awx: { fields: ['url'], secret: ['token'], required: ['url', 'token'] },
 };
 
 /** The kinds a project's git source can sign in with over HTTPS. */

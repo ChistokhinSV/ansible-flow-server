@@ -7,6 +7,7 @@ import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
 import { RunWords } from './runs';
+import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
 import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
@@ -70,6 +71,7 @@ export function FlowPage({
   const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
   const [said, setSaid] = useState<string>();
   const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
+  const [starting, setStarting] = useState<StartWhat>();
   // AFS-79: the draft changed (an insert here, an edit by anyone): the library copies are read again.
   const [changed, setChanged] = useState(0);
   const reloadAll = useRef<() => void>(() => undefined);
@@ -99,6 +101,7 @@ export function FlowPage({
         steps?: string[];
         level?: string;
         at?: { x: number; y: number };
+        what?: string;
       } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
       if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
@@ -115,6 +118,8 @@ export function FlowPage({
       if (data?.type === 'afs-draft-gone')
         stop.current(`${data.by ?? 'Someone'} discarded the draft.`);
       // AFS-79: Insert Shared Subflow… on the canvas picks from the library here.
+      // AFS-126: the empty canvas's Import / Open Sample pick what to start from here.
+      if (data?.type === 'afs-draft-start-from' && data.what) setStarting(data.what as StartWhat);
       if (data?.type === 'afs-draft-insert-shared')
         setInserting({ level: data.level ?? 'root', ...(data.at ? { at: data.at } : {}) });
     };
@@ -321,6 +326,19 @@ export function FlowPage({
             src={viewer}
             title={`The flow ${title} on the designer's canvas`}
           />
+          {editing && starting ? (
+            <StartFrom
+              draft={editing}
+              what={starting}
+              onDone={(words) => {
+                setStarting(undefined);
+                if (words) {
+                  setSaid(words);
+                  setChanged((n) => n + 1);
+                }
+              }}
+            />
+          ) : null}
           {editing && inserting ? (
             <InsertFromLibrary
               draft={editing}

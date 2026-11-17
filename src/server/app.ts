@@ -12,6 +12,7 @@ import { registerAuth } from './auth/routes';
 import type { Database } from './db/database';
 import { Drafts } from './drafts/drafts';
 import { registerDrafts } from './drafts/routes';
+import { registerStartFrom } from './drafts/startFromRoutes';
 import { registerFlowChecks } from './environments/checkRoutes';
 import type { Environments } from './environments/environments';
 import { registerEnvironments } from './environments/routes';
@@ -177,15 +178,23 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // AFS-79: the flow library: library projects' subflows, offered to every project.
     registerLibrary(app, { db: deps.database.db, git: deps.projects.git, library });
     // AFS-76: flows edited in the pages, together.
+    const drafts = new Drafts({
+      db: deps.database.db,
+      git: deps.projects.git,
+      sync: deps.projects.sync,
+      log: deps.log,
+    });
     registerDrafts(app, {
       db: deps.database.db,
       ...(deps.catalog ? { catalog: deps.catalog } : {}),
-      drafts: new Drafts({
-        db: deps.database.db,
-        git: deps.projects.git,
-        sync: deps.projects.sync,
-        log: deps.log,
-      }),
+      drafts,
+    });
+    // AFS-126: an empty flow starts from a sample, a playbook or an AWX template.
+    registerStartFrom(app, {
+      db: deps.database.db,
+      drafts,
+      git: deps.projects.git,
+      ...(deps.masterKey ? { key: deps.masterKey } : {}),
     });
     registerGit(app, { db: deps.database.db, ...deps.projects });
     registerLaunch(app, {
