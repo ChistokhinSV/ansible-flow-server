@@ -120,6 +120,8 @@ Nothing is released yet.
 
 ### Fixed
 
+- A run's page no longer repeats the run on its canvas: the canvas leaves the run's state, hosts, outputs, Stop and Run again to the page, and points to the steps for what each host did. On a flow's page the canvas offers Run only to those who may launch the flow, and Stop only to those who may stop a run. The canvas's earlier runs say how many hosts each ran on and how many failed (they said "0 hosts, did not finish").
+- The audit log names what an entry is about: workspaces, projects, launch configurations and runs by name, linked to their pages while they exist, and said to be deleted when they are not; a push lists each branch as `main: 37e668ed → 71595cb5`; the whole detail of an entry opens under it. Over the API, a page of the log has `refs` with those names and pages.
 - Links on a flow's canvas open in a new tab: a link in a note did nothing, and a step's Full Docs opened inside the page and was blocked.
 - A run's page and a flow's page show a step's module docs in its Binding (they said "Reading the docs" for good), and the modules of the collection `chistokhinsv.ansible_flow` that every run has are found when adding a step and documented while editing.
 - While you edit a flow in the pages, a note says when someone changes or removes it on the branch (a push from VS Code, another save), and what Save will do with both.

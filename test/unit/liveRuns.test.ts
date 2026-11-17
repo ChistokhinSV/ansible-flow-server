@@ -144,8 +144,11 @@ describe('the live stream of a run', () => {
       state: 'done',
       rc: 0,
       startedAt: 't',
+      summary: { hosts: ['fw-edge-01', 'fw-edge-02'], outcome: { 'fw-edge-02': 'failed' } },
     });
     hub.ended(run.id);
+    // AFS-105: the run says its host counts without its view (the canvas's earlier runs).
+    expect((await queue.get(run.id))?.hosts).toEqual({ total: 2, failed: 1 });
     const events = await watching;
 
     expect(events[0]).toMatchObject({ event: 'run', data: { id: run.id, state: 'running' } });

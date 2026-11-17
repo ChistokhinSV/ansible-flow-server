@@ -6,8 +6,38 @@
 // number, which is the order they run in.
 import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
+import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-105: a run's host counts beside its view, so a list of runs says them without the views.
+  '0026_run_host_counts': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('host_count', 'integer').execute();
+      await db.schema.alterTable('run').addColumn('failed_count', 'integer').execute();
+      const k = db as unknown as Kysely<{
+        run: {
+          id: string;
+          view_json: string | null;
+          host_count: number | null;
+          failed_count: number | null;
+        };
+      }>;
+      const rows = await k
+        .selectFrom('run')
+        .select(['id', 'view_json'])
+        .where('view_json', 'is not', null)
+        .execute();
+      for (const row of rows) {
+        const counts = hostCounts(row.view_json);
+        if (counts)
+          await k
+            .updateTable('run')
+            .set({ host_count: counts.host_count, failed_count: counts.failed_count })
+            .where('id', '=', row.id)
+            .execute();
+      }
+    },
+  },
   // AFS-116: a run's own token (the Ansible collection in the run calls the server as its launcher).
   '0025_run_token': {
     async up(db: Kysely<unknown>) {

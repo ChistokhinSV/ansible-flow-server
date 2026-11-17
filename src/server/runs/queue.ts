@@ -18,6 +18,7 @@ import type { PreparedLaunch } from '../launch/prepare';
 import { open, seal } from '../secrets/crypto';
 import type { MasterKey } from '../secrets/masterKey';
 import { type LastRun, readBefore } from './cursor';
+import { hostCounts } from './hostCounts';
 
 export type { LastRun };
 
@@ -78,6 +79,8 @@ export interface Run {
   worker?: string;
   /** Why it failed or was lost, in words for its page. */
   error?: string;
+  /** AFS-105: the hosts it ran on and those that failed, once it went. */
+  hosts?: { total: number; failed: number };
   /** AFS-26: a dev run: a check run of someone's unpushed work. */
   dev?: true;
   /** AFS-34: the schedule that launched it. */
@@ -191,6 +194,9 @@ export class RunQueue {
       ...(row.cancelled_by ? { cancelledBy: row.cancelled_by } : {}),
       ...(row.lease_owner ? { worker: row.lease_owner } : {}),
       ...(row.error ? { error: row.error } : {}),
+      ...(row.host_count !== null
+        ? { hosts: { total: row.host_count, failed: row.failed_count ?? 0 } }
+        : {}),
       ...(row.dev_bundle ? { dev: true } : {}),
       ...(row.schedule_id ? { schedule: row.schedule_id } : {}),
     };
@@ -251,6 +257,8 @@ export class RunQueue {
         cancelled_by: null,
         error: null,
         view_json: null,
+        host_count: null,
+        failed_count: null,
         run_dir: null,
         segments_json: null,
         dev_bundle: launch.dev ?? null,
@@ -508,7 +516,7 @@ export class RunQueue {
   async saveView(id: string, view: unknown, now = new Date()): Promise<void> {
     await this.db
       .updateTable('run')
-      .set({ view_json: JSON.stringify(view), updated_at: iso(now) })
+      .set({ view_json: JSON.stringify(view), ...hostCounts(view), updated_at: iso(now) })
       .where('id', '=', id)
       .execute();
   }
@@ -564,6 +572,8 @@ export class RunQueue {
         cancelled_by: null,
         error: null,
         view_json: null,
+        host_count: null,
+        failed_count: null,
         run_dir: null,
         segments_json: null,
       };
@@ -589,7 +599,7 @@ export class RunQueue {
         .updateTable('run')
         .set({
           state: outcome,
-          ...(view !== undefined ? { view_json: JSON.stringify(view) } : {}),
+          ...(view !== undefined ? { view_json: JSON.stringify(view), ...hostCounts(view) } : {}),
           ended_at: iso(now),
           started_at: row.started_at ?? iso(now),
           error: outcome === 'succeeded' ? null : (error?.slice(0, 2000) ?? null),

@@ -508,7 +508,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Audit',
     'administrators',
     'server',
-  )('The audit log, newest first, filtered; `before` for older entries'),
+  )(
+    'The audit log, newest first, filtered; `before` for older entries; `refs`: the workspaces, projects, launch configurations and runs it names by id that still exist (name, page)',
+  ),
   'GET /api/v1/audit/export': S(
     'Audit',
     'administrators',

@@ -50,16 +50,34 @@ interface RunRecord {
   createdAt: string;
   startedAt?: string;
   flow: { version: number };
+  /** AFS-105: how many hosts it ran on and how many failed, once it went. */
+  hosts?: { total: number; failed: number };
 }
+/**
+ * AFS-105: "ok" is the designer's "the run itself finished": a run that failed because hosts
+ * failed did finish (its list line says how many); one stopped, lost or broken did not.
+ */
 const pastRunOf = (run: RunRecord): PastRun => ({
   id: run.id,
   mode: run.mode,
   startedAt: run.startedAt ?? run.createdAt,
-  ok: run.state === 'succeeded',
-  hosts: 0,
-  failed: 0,
+  ok: run.state === 'succeeded' || (run.state === 'failed' && (run.hosts?.failed ?? 0) > 0),
+  hosts: run.hosts?.total ?? 0,
+  failed: run.hosts?.failed ?? 0,
   flowVersion: run.flow.version,
 });
+
+/** AFS-105: the person's level on the flow (its own, else the workspace's), as the server says. */
+interface ProjectAccess {
+  admin: boolean;
+  workspace: string | null;
+  flows: Record<string, string | null>;
+}
+const RANK: Partial<Record<string, number>> = { ro: 1, operator: 2, rw: 3 };
+const OPERATOR = 2;
+const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
+  !!access &&
+  (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= OPERATOR);
 
 /** Opens a page of the application: in the window that holds this frame, when there is one. */
 function go(to: string): void {
@@ -82,6 +100,10 @@ async function start(): Promise<void> {
     return;
   }
   if (!project || !path) return say('This address names no flow.');
+  // AFS-105: what the person may do here, asked beside the flow: the canvas offers only that.
+  const accessAsked = get(`/api/v1/projects/${encodeURIComponent(project)}/access`).catch(
+    () => undefined,
+  );
   let flow: Awaited<ReturnType<typeof get>>;
   try {
     flow = await get(
@@ -98,6 +120,12 @@ async function start(): Promise<void> {
         ? 'Sign in to see this flow.'
         : (flow.data?.message ?? `The server answered ${flow.status}`),
     );
+
+  const access = await accessAsked;
+  const operate = mayOperate(access?.ok ? (access.data as ProjectAccess) : undefined, path);
+  // AFS-105: on a run's page the page shows the run (state, hosts, outputs, approvals, Stop, Run
+  // again): the canvas does not repeat it. Elsewhere it launches and stops for an operator.
+  const embed = { runShown: !!runId, mayRun: operate && !commit, mayStop: operate };
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
@@ -215,7 +243,8 @@ async function start(): Promise<void> {
         }
         switch (message.type) {
           case 'ready':
-            send({ type: 'config', testMode: false, viewer: true });
+            // `embed` typed loosely, so this builds against a designer that does not have it yet.
+            send({ type: 'config', testMode: false, viewer: true, embed } as HostMessage);
             send({ type: 'catalogStatus', status: { state: 'idle' } });
             send({ type: 'snapshot', snapshot: flow.data.snapshot });
             void runs();

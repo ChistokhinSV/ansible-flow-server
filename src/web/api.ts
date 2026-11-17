@@ -3,6 +3,7 @@
 import type { RunView } from '@ansible-flow/core/protocol';
 import type { Grant, GrantLevel, GroupGrant, Level, UserReach } from '../server/access/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
+import type { AuditRef } from '../server/audit/refs';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
 import type { Directory, DirectoryInput, DirectoryTest } from '../server/auth/ldap/types';
 import type {
@@ -377,7 +378,10 @@ export const api = {
   runView: (id: string) => call<RunView>('GET', `/runs/${encodeURIComponent(id)}/view`),
 
   audit: (filter: AuditFilter) =>
-    call<{ entries: AuditEntry[]; next?: string }>('GET', `/audit?${queryOf(filter)}`),
+    call<{ entries: AuditEntry[]; next?: string; refs?: Record<string, AuditRef> }>(
+      'GET',
+      `/audit?${queryOf(filter)}`,
+    ),
 
   credentials: (workspace: string) =>
     call<Credential[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/credentials`),

@@ -298,6 +298,31 @@ for (const [name, config] of databases) {
       });
     });
 
+    it('names what a page mentions by id while it exists (AFS-106)', async () => {
+      const made = await app.inject({
+        method: 'POST',
+        url: '/api/v1/workspaces',
+        headers: { cookie: admin },
+        payload: { key: 'edge', name: 'Edge' },
+      });
+      const { id } = made.json() as { id: string };
+      const page = (
+        await app.inject({
+          method: 'GET',
+          url: '/api/v1/audit?action=workspace',
+          headers: { cookie: admin },
+        })
+      ).json() as { refs: Record<string, { name: string }> };
+      expect(page.refs[id]).toEqual({ type: 'workspace', name: 'edge', path: '/w/edge' });
+      // The workspace deleted earlier is named by its entry only, not in refs.
+      expect(Object.values(page.refs).map((r) => r.name)).not.toContain('net');
+      await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/workspaces/${id}`,
+        headers: { cookie: admin },
+      });
+    });
+
     it('keeps entries for the days it is told, or all of them', async () => {
       const old = await recordAudit(db(), {
         at: '2020-01-01T00:00:00.000Z',
