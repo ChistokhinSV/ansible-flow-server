@@ -278,7 +278,13 @@ describe('signed in', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add workspace' }));
     type('Name', 'Data centre');
+    // AFS-125: the key is made from the name as it is typed.
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('data-centre');
     type('Key', 'network');
+    // A key typed by hand stays when the name changes.
+    type('Name', 'Data centre west');
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('network');
+    type('Name', 'Data centre');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect((await screen.findByRole('alert')).textContent).toBe(
       'There is a workspace network already',
@@ -719,13 +725,12 @@ describe('signed in', () => {
 
     navigate('/w/network');
     fireEvent.click(await screen.findByRole('button', { name: 'Add project' }));
-    type('Name', 'Try');
-    type('Key', 'try');
+    type('Name', 'Try it: Edge #2');
     fireEvent.click(screen.getByLabelText('A sample project'));
     await screen.findByText('The smallest useful flow.');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(sent).toHaveLength(2));
-    expect(sent[1]).toEqual({ key: 'try', name: 'Try', sample: 'hello' });
+    expect(sent[1]).toEqual({ key: 'try-it-edge-2', name: 'Try it: Edge #2', sample: 'hello' });
   });
 
   it('makes an access token for one workspace, shows it once, and lists what it has', async () => {

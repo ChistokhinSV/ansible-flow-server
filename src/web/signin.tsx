@@ -6,6 +6,7 @@ import type { Mapping, Provider, ProviderInput, SignInMethods } from '../server/
 import type { Group } from '../server/auth/users';
 import { api } from './api';
 import { DirectoriesSection } from './directories';
+import { followKey } from './flowFiles';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 /** The sign-in page's provider buttons, and why the last sign-in failed (?error=). */
@@ -190,7 +191,13 @@ function ProviderForm({
         <Field
           label="Name"
           value={d.name}
-          onChange={(e) => set({ name: e.target.value })}
+          onChange={(e) =>
+            set({
+              name: e.target.value,
+              // AFS-125: a new provider's key follows its name until typed.
+              ...(d.id ? {} : { key: followKey(e.target.value, d.name ?? '', d.key ?? '', 40) }),
+            })
+          }
           required
           hint="On the sign-in button"
         />
