@@ -7,7 +7,11 @@
 # AFS-98: the Ansible collection chistokhinsv.ansible_flow (collection/) goes to Ansible Galaxy on
 # a version tag too, and on a collection tag (collection-v1.2.3) while the server has no release
 # of its own. Its galaxy.yml version must match the tag; a version Galaxy has already is skipped.
-# The secret ANSIBLE_GALAXY_TOKEN is the Galaxy API key.
+# The secret ANSIBLE_GALAXY_TOKEN is the Galaxy API key. From 1.0 the collection has the server's
+# version and goes out with the server's tag.
+#
+# A release candidate (v1.1.0-rc.1, RELEASING.md) is a GitHub pre-release with the bundles, its
+# notes the CHANGELOG's Unreleased section; its collection is checked and built, not published.
 name: Release
 
 on:
@@ -81,12 +85,19 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           VERSION=${TAG#v}
-          awk -v v="$VERSION" '/^## /{if(f)exit; if($2==v)f=1; next} f' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          PRE=()
+          case "$VERSION" in
+            *-*)
+              PRE=(--prerelease)
+              awk '/^## /{if(f)exit; if($2=="Unreleased")f=1; next} f' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+              ;;
+            *) awk -v v="$VERSION" '/^## /{if(f)exit; if($2==v)f=1; next} f' CHANGELOG.md > "$RUNNER_TEMP/notes.md" ;;
+          esac
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" out/bundle/* --clobber
           else
             gh release create "$TAG" out/bundle/* --title "Ansible Flow Server $VERSION" \
-              --notes-file "$RUNNER_TEMP/notes.md"
+              --notes-file "$RUNNER_TEMP/notes.md" "${PRE[@]}"
           fi
 
   galaxy:
@@ -136,8 +147,9 @@ jobs:
           CODE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/chistokhinsv/ansible_flow/versions/$VERSION/")
           echo "published=$([ "$CODE" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+      # A release candidate's collection is tested on staging with the server, not published.
       - name: Publish
-        if: steps.galaxy.outputs.published != 'true'
+        if: steps.galaxy.outputs.published != 'true' && !contains(github.ref_name, '-')
         env:
           ANSIBLE_GALAXY_TOKEN: ${{ secrets.ANSIBLE_GALAXY_TOKEN }}
         run: ansible-galaxy collection publish "$RUNNER_TEMP"/dist/*.tar.gz --api-key "$ANSIBLE_GALAXY_TOKEN"
