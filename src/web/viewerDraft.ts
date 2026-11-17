@@ -189,6 +189,10 @@ export function editDraft(options: {
               },
             );
             return;
+          case 'openLink':
+            // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
+            openWebLink(message.url);
+            return;
           case 'insertShared':
             tellPage({
               type: 'afs-draft-insert-shared',
@@ -230,4 +234,16 @@ export function editDraft(options: {
       },
     },
   });
+}
+
+/** AFS-119: a web link the designer asks to open, in a new tab; anything else is ignored. */
+export function openWebLink(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.protocol === 'https:' || parsed.protocol === 'http:')
+    window.open(parsed.href, '_blank', 'noopener,noreferrer');
 }
