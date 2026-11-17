@@ -2,7 +2,7 @@
 // of a project the server hosts and of one with an external source, who may do which, and what
 // the server keeps of it.
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -33,6 +33,7 @@ import {
   type Project,
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
+import { gitClient } from './helpers/gitClient';
 import { grant } from './helpers/grant';
 import { type TestRepo, testRepo } from './helpers/repo';
 
@@ -99,36 +100,8 @@ afterEach(async () => {
 const address = (project: Project, token?: string) =>
   `http://${token ? `git:${token}@` : ''}${base}${project.gitPath}`;
 
-/** Runs the git client as a person at their own machine would: no settings of this one. */
-function client(
-  cwd: string,
-  ...args: string[]
-): Promise<{ ok: boolean; out: string; err: string }> {
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      ['-c', 'credential.helper=', '-c', 'core.autocrlf=false', ...args],
-      {
-        cwd,
-        encoding: 'utf8',
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          GIT_CONFIG_NOSYSTEM: '1',
-          GIT_CONFIG_GLOBAL: join(root, 'client-config'),
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_ASKPASS: '',
-          GCM_INTERACTIVE: 'never',
-          GIT_AUTHOR_NAME: 'Lena Brandt',
-          GIT_AUTHOR_EMAIL: 'lena@example.net',
-          GIT_COMMITTER_NAME: 'Lena Brandt',
-          GIT_COMMITTER_EMAIL: 'lena@example.net',
-        },
-      },
-      (error, stdout, stderr) => resolve({ ok: !error, out: stdout.trim(), err: stderr.trim() }),
-    );
-  });
-}
+/** The git client, bounded (AFS-81). */
+const client = (cwd: string, ...args: string[]) => gitClient(root, cwd, ...args);
 const must = async (cwd: string, ...args: string[]) => {
   const done = await client(cwd, ...args);
   if (!done.ok) throw new Error(`git ${args.join(' ')}: ${done.err}`);

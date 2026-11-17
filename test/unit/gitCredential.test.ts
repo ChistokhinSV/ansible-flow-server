@@ -1,7 +1,6 @@
 // A project that signs in to its source with a credential from the store. The private source
 // is this same server: a hosted project, which only answers to an access token. The project
 // under test mirrors it over HTTP on this machine, signed in with a git_token credential.
-import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -31,6 +30,7 @@ import {
   updateCredential,
 } from '../../src/server/secrets/credentials';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
+import { gitClient } from './helpers/gitClient';
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 60_000 });
 const PASSWORD = 'correct horse battery staple';
@@ -50,31 +50,8 @@ let adminToken: string;
 let memberToken: string;
 let credential: string;
 
-function client(cwd: string, ...args: string[]) {
-  return new Promise<{ ok: boolean; out: string; err: string }>((resolve) => {
-    execFile(
-      'git',
-      ['-c', 'credential.helper=', '-c', 'core.autocrlf=false', ...args],
-      {
-        cwd,
-        encoding: 'utf8',
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          GIT_CONFIG_NOSYSTEM: '1',
-          GIT_CONFIG_GLOBAL: join(root, 'client-config'),
-          GIT_TERMINAL_PROMPT: '0',
-          GCM_INTERACTIVE: 'never',
-          GIT_AUTHOR_NAME: 'Lena Brandt',
-          GIT_AUTHOR_EMAIL: 'lena@example.net',
-          GIT_COMMITTER_NAME: 'Lena Brandt',
-          GIT_COMMITTER_EMAIL: 'lena@example.net',
-        },
-      },
-      (error, stdout, stderr) => resolve({ ok: !error, out: stdout.trim(), err: stderr.trim() }),
-    );
-  });
-}
+/** The git client, bounded (AFS-81). */
+const client = (cwd: string, ...args: string[]) => gitClient(root, cwd, ...args);
 const must = async (cwd: string, ...args: string[]) => {
   const done = await client(cwd, ...args);
   if (!done.ok) throw new Error(`git ${args[0]}: ${done.err}`);
