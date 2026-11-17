@@ -61,6 +61,16 @@ export const DEFAULT_IMAGE = 'ghcr.io/ansible/community-ansible-dev-tools:latest
 
 export type Engine = 'docker' | 'podman';
 
+/**
+ * The designer's name of a run (and of a segment of it): its folder and its container's name. Its
+ * start time first, so run folders sort by time; then the run's number and, AFS-120, the start of
+ * its id: two projects' runs with the same number starting in the same second had the same
+ * container name, and the second one failed ("The container name is already in use").
+ */
+export function runName(r: { id: string; number: number }, segment?: string, now = new Date()) {
+  return `${stamp(now)}-${r.number}-${r.id.slice(0, 8)}${segment ? `-${segment}` : ''}`;
+}
+
 /** AFS-118: the version of the collection in `dir` (its galaxy.yml); none without one. */
 export function collectionVersion(dir: string): string | undefined {
   try {
@@ -716,7 +726,7 @@ export class Executor {
         );
       }
       if (segments.length === 0) {
-        const runId = `${stamp()}-${r.number}`;
+        const runId = runName(r);
         if (!(await queue.start(r.id, token, new Date(), folder(runId)))) {
           why ??= 'lost';
           return;
@@ -755,7 +765,7 @@ export class Executor {
       const before = await queue.segments(r.id);
       while (segment) {
         const current = segment;
-        const runId = `${stamp()}-${r.number}-${current.name}`;
+        const runId = runName(r, current.name);
         if (!(await queue.addSegment(r.id, token, { name: current.name, dir: folder(runId) }))) {
           why ??= 'lost';
           return;

@@ -2,6 +2,12 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Fixed
+
+- Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
+
 ## 1.0.0 — First release
 
 The first release of Ansible Flow Server, with Ansible Flow Designer 1.0: it reads and runs the
