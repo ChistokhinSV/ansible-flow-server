@@ -1,4 +1,4 @@
-# Ansible Flow Server with docker compose (AFS-35). See README "Run with docker compose".
+# Ansible Flow Server with docker compose (AFS-35). See docs/guide/install.md.
 #
 #   cp .env.example .env      # then change what you need
 #   docker compose up -d                       # SQLite in the data volume

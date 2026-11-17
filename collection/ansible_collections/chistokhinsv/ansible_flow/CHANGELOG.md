@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0
+
+### Changed
+
+- The collection has Ansible Flow Server's version and is released with it: 1.0.0 with the
+  server's 1.0.0. The modules are as in 0.0.3.
+
 ## 0.0.3
 
 ### Added
