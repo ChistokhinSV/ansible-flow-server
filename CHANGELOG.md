@@ -6,6 +6,7 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- A project started from the **Edge baseline** sample runs: its steps use the roles the sample brings. Before, its first run failed with "the role netops.baseline.push_ntp_aaa was not found", and Push baseline showed as an empty subflow. A project made from it before keeps that flow; start a new one, or copy the sample's flow over it.
 - Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
 
 ## 1.0.0 — First release
