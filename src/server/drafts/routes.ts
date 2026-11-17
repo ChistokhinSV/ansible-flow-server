@@ -9,6 +9,8 @@
 //   POST /api/v1/drafts/:id/commands, /undo, /tidy       edits
 //   POST /api/v1/drafts/:id/here                         "I am here" (and the step I have selected)
 //   POST /api/v1/drafts/:id/save, DELETE /drafts/:id     save as one commit, discard
+//   POST /api/v1/drafts/:id/catalog                      the module catalog of the flow's image
+//   POST /api/v1/projects/:id/flows/catalog?path=        the same for a flow shown (AFS-118)
 import type { ServerResponse } from 'node:http';
 import type { FlowCommand } from '@ansible-flow/core/flow/commands';
 import type { CatalogRequest, CatalogStatus } from '@ansible-flow/core/protocol';
@@ -404,45 +406,86 @@ export function registerDrafts(
       const project = await drafts.projectOf(request.params.id);
       if (!draft || !project)
         return reply.code(404).send({ error: 'not_found', message: 'No such draft' });
-      if (!deps.catalog)
-        return reply.code(422).send({ error: 'refused', message: 'This server reads no catalogs' });
-      const image = await imageOf(project.id, draft.file);
-      const asked = request.body.request;
-      if (asked.op === 'rebuild') deps.catalog.retry(image);
-      const state = deps.catalog.get(image);
-      if (asked.op === 'status' || asked.op === 'rebuild') return { status: statusOf(state) };
-      if (state.state !== 'ready') return reply.code(202).send({ status: statusOf(state) });
-      const index = state.index;
-      switch (asked.op) {
-        case 'search':
-          return {
-            result: index.search(
-              asked.query,
-              { ...(asked.types ? { types: asked.types } : {}) },
-              20,
-            ),
-          };
-        case 'doc': {
-          const type = asked.type ?? 'module';
-          const resolved = index.resolve(asked.fqcn, [], type);
-          const plugin = index.plugin(resolved.fqcn ?? asked.fqcn, type);
-          return {
-            result: plugin
-              ? { ...plugin, collection_version: index.collectionVersion(plugin.collection) }
-              : null,
-          };
-        }
-        case 'names':
-          return { result: index.names(asked.type) };
-        // A repository's own roles and playbooks are not read here yet.
-        case 'roles':
-        case 'playbooks':
-          return { result: [] };
-        default:
-          return reply.code(400).send({ error: 'invalid', message: 'Not a catalog request' });
-      }
+      return catalogAnswer(project.id, draft.file, request.body.request, reply);
     },
   );
+
+  /**
+   * AFS-118: the same catalog for a flow shown, not edited (a run's page, a flow's page): the
+   * designer reads a step's module docs there too.
+   */
+  app.post<{
+    Params: { id: string };
+    Querystring: { path: string };
+    Body: { request: CatalogRequest | { op: 'status' } };
+  }>(
+    '/api/v1/projects/:id/flows/catalog',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          required: ['path'],
+          properties: { path: { type: 'string', minLength: 1, maxLength: 1000 } },
+        },
+        body: {
+          type: 'object',
+          required: ['request'],
+          properties: { request: { type: 'object', required: ['op'] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const project = await getProject(deps.db, request.params.id);
+      if (!project) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
+      // Shown, not changed: Rebuild is for those who edit.
+      const asked = request.body.request;
+      if (asked.op === 'rebuild')
+        return reply.code(403).send({ error: 'forbidden', message: 'Edit the flow to rebuild' });
+      return catalogAnswer(project.id, request.query.path, asked, reply);
+    },
+  );
+
+  async function catalogAnswer(
+    projectId: string,
+    file: string,
+    asked: CatalogRequest | { op: 'status' },
+    reply: FastifyReply,
+  ) {
+    if (!deps.catalog)
+      return reply.code(422).send({ error: 'refused', message: 'This server reads no catalogs' });
+    const image = await imageOf(projectId, file);
+    if (asked.op === 'rebuild') deps.catalog.retry(image);
+    const state = deps.catalog.get(image);
+    if (asked.op === 'status' || asked.op === 'rebuild') return { status: statusOf(state) };
+    if (state.state !== 'ready') return reply.code(202).send({ status: statusOf(state) });
+    const index = state.index;
+    switch (asked.op) {
+      case 'search':
+        return {
+          result: index.search(asked.query, { ...(asked.types ? { types: asked.types } : {}) }, 20),
+        };
+      case 'doc': {
+        const type = asked.type ?? 'module';
+        const resolved = index.resolve(asked.fqcn, [], type);
+        const plugin = index.plugin(resolved.fqcn ?? asked.fqcn, type);
+        return {
+          result: plugin
+            ? { ...plugin, collection_version: index.collectionVersion(plugin.collection) }
+            : null,
+        };
+      }
+      case 'names':
+        return { result: index.names(asked.type) };
+      // A repository's own roles and playbooks are not read here yet.
+      case 'roles':
+      case 'playbooks':
+        return { result: [] };
+      default:
+        return reply.code(400).send({ error: 'invalid', message: 'Not a catalog request' });
+    }
+  }
 
   app.delete<{ Params: { id: string } }>(
     '/api/v1/drafts/:id',

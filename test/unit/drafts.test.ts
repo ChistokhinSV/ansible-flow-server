@@ -328,6 +328,12 @@ describe("the module catalog of the flow's image", () => {
         state: 'ready',
         modules: 1,
       });
+      // AFS-118: a flow shown (a run's page) reads the same docs, without a draft; no Rebuild.
+      const shown = `/projects/${project.id}/flows/catalog?path=${FILE}`;
+      expect(
+        (await post(shown, { request: { op: 'doc', fqcn: 'ping' } })).json.result,
+      ).toMatchObject({ fqcn: 'ansible.builtin.ping' });
+      expect((await post(shown, { request: { op: 'rebuild' } })).status).toBe(403);
       // No launch configuration names an image: the server's default.
       expect(asked.every((a) => a === undefined)).toBe(true);
       await post(`/drafts/${draft}/save`, {});

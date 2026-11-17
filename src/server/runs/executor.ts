@@ -6,7 +6,7 @@
 // credentials, start the run, keep the lease alive (and stop when someone cancels, the lease is
 // lost or the run takes too long), say how it ended, clean up.
 import { execFile } from 'node:child_process';
-import { createWriteStream, existsSync, type WriteStream } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync, type WriteStream } from 'node:fs';
 import { chown, cp, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,6 +60,15 @@ const MAX_OUTPUT = 20 * 1024 * 1024;
 export const DEFAULT_IMAGE = 'ghcr.io/ansible/community-ansible-dev-tools:latest';
 
 export type Engine = 'docker' | 'podman';
+
+/** AFS-118: the version of the collection in `dir` (its galaxy.yml); none without one. */
+export function collectionVersion(dir: string): string | undefined {
+  try {
+    return /^version:\s*['"]?([^'"\s]+)/m.exec(readFileSync(join(dir, 'galaxy.yml'), 'utf8'))?.[1];
+  } catch {
+    return undefined;
+  }
+}
 
 /** AFS-116: the collection's folder, under a collections path, and where runs find it. */
 const COLLECTION_PATH = ['ansible_collections', 'chistokhinsv', 'ansible_flow'];
@@ -193,6 +202,7 @@ export class Executor {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
     this.probeDir = join(options.dataDir, 'probe');
     this.outputDir = join(options.dataDir, 'output');
+    const version = collectionVersion(this.collectionSource());
     this.catalogs = new ModuleCatalogs({
       engine: () => (this.options.runner ? undefined : this.engine),
       toHost: () => this.toHost,
@@ -200,6 +210,9 @@ export class Executor {
       dir: join(options.dataDir, 'catalogs'),
       labels: [this.label],
       log: deps.log,
+      ...(version
+        ? { collection: { version, dir: () => this.collectionMount(), dest: COLLECTION_DEST } }
+        : {}),
     });
     this.probes = new InventoryProbes({
       engine: () => (this.options.runner ? undefined : this.engine),
@@ -219,11 +232,16 @@ export class Executor {
    * engine mounts paths of the data folder (a sibling container sees the host's), not the
    * server's own files. Missing (a development build): runs get none.
    */
+  private collectionSource(): string {
+    return (
+      this.options.collectionDir ??
+      join(dirname(fileURLToPath(import.meta.url)), 'collection', ...COLLECTION_PATH)
+    );
+  }
+
   private collectionMount(): Promise<string | undefined> {
     this.collection ??= (async () => {
-      const from =
-        this.options.collectionDir ??
-        join(dirname(fileURLToPath(import.meta.url)), 'collection', ...COLLECTION_PATH);
+      const from = this.collectionSource();
       if (!existsSync(join(from, 'galaxy.yml'))) return undefined;
       const to = join(this.options.dataDir, 'collection', ...COLLECTION_PATH);
       await rm(to, { recursive: true, force: true });

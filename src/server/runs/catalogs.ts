@@ -41,6 +41,12 @@ export interface CatalogsOptions {
   dir: string;
   labels: string[];
   log: Logger;
+  /**
+   * AFS-118: the Ansible collection this server mounts into every run, mounted when an image's
+   * docs are read too, so the designer finds its modules; its version names the index (a new
+   * version reads the docs again, the other collections' from the cache).
+   */
+  collection?: { version: string; dir: () => Promise<string | undefined>; dest: string };
 }
 
 export class ModuleCatalogs {
@@ -59,7 +65,11 @@ export class ModuleCatalogs {
     const index = this.ready.get(image);
     if (index) return { state: 'ready', index, image };
     const folder = this.folderOf(image);
-    const path = join(folder, `index-${INDEX_SCHEMA}.sqlite`);
+    const own = this.options.collection;
+    const path = join(
+      folder,
+      `index-${INDEX_SCHEMA}${own ? `-afs-${own.version.replace(/[^\w.-]/g, '_')}` : ''}.sqlite`,
+    );
     if (existsSync(path)) {
       const opened = CatalogIndex.open(path);
       if (opened) {
@@ -101,12 +111,14 @@ export class ModuleCatalogs {
     const label = `${image} (${engine})`;
     let client: ProbeClient | undefined;
     try {
+      const own = this.options.collection;
+      const ownDir = own ? await own.dir() : undefined;
       const env: Environment = {
         kind: 'container',
         engine,
         image,
         options: this.options.labels.flatMap((l) => ['--label', l]),
-        mounts: [],
+        mounts: own && ownDir ? [{ src: ownDir, dest: own.dest, options: 'ro' }] : [],
         source: 'afd',
         label,
       };
