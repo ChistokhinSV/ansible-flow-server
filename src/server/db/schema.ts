@@ -357,6 +357,9 @@ export interface RunTable {
   error: string | null;
   /** How the run went, as the designer shows it (its RunView), as JSON. */
   view_json: string | null;
+  /** AFS-105: the hosts it ran on and those that failed, from its view (lists read no views). */
+  host_count: number | null;
+  failed_count: number | null;
   /** The designer's folder of the run: its events. */
   run_dir: string | null;
   /** AFS-28: a run of a flow with approvals: the segments it ran ([{name, dir}]), as JSON. */

@@ -107,6 +107,61 @@ describe('the audit log', () => {
     );
   });
 
+  it('names what an entry is about, linked while it exists; a push as its branches (AFS-106)', async () => {
+    const LC = '544c2527-bcf1-4ff2-bf17-3bd9943b1711';
+    const PROJECT = '3b67bf9f-27c5-4e89-8e03-6ef9c5028c0b';
+    const GONE = 'af88a302-47c3-4ea8-acb6-ecef4c88aa0b';
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /audit?limit=100': () => ({
+        body: {
+          entries: [
+            entry(1, {
+              action: 'launch-config.create',
+              object: { type: 'launch-config', id: LC, name: 'Back up edge' },
+              detail: { project: PROJECT },
+            }),
+            entry(2, {
+              source: 'git',
+              action: 'git.push',
+              object: { type: 'project', id: PROJECT, name: 'net/edge' },
+              detail: {
+                refs: [{ ref: 'refs/heads/main', from: '37e668ed0011', to: '71595cb50022' }],
+              },
+            }),
+            entry(3, {
+              action: 'run.launch',
+              object: { type: 'run' },
+              detail: { 'launch-config': GONE, error: 'not_ready' },
+            }),
+          ],
+          refs: {
+            [LC]: { type: 'launch-config', name: 'Back up edge', path: `/w/net/edge/launch/${LC}` },
+            [PROJECT]: { type: 'project', name: 'net/edge', path: '/w/net/edge' },
+          },
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/audit');
+    render(<App />);
+    await screen.findByText('launch-config.create');
+    expect(screen.getByRole('link', { name: 'Back up edge' }).getAttribute('href')).toBe(
+      `/w/net/edge/launch/${LC}`,
+    );
+    // The project in the detail and as what was pushed to: its name, linked; not its id.
+    expect(
+      screen
+        .getAllByRole('link', { name: 'net/edge' })
+        .every((a) => a.getAttribute('href') === '/w/net/edge'),
+    ).toBe(true);
+    expect(screen.queryByText(PROJECT)).toBeNull();
+    expect(screen.getByText('main: 37e668ed → 71595cb5')).toBeTruthy();
+    // A launch configuration deleted since: its id, short, said to be deleted.
+    expect(screen.getByText('af88a302… (deleted)')).toBeTruthy();
+    // All of an entry's detail, on demand.
+    expect(screen.getAllByText('All of it').length).toBe(3);
+  });
+
   it('is not there for someone who is not an administrator', async () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/admin/audit');

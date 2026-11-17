@@ -7,6 +7,7 @@ import type { Kysely } from 'kysely';
 import { administrator } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { viaMcp } from '../mcp/mark';
+import { auditRefs } from './refs';
 import {
   type AuditEntry,
   type AuditFilter,
@@ -463,7 +464,10 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     async (request, reply) => {
       if (!administrator(request, reply)) return reply;
       const filter = filterOf(request.query, reply);
-      return filter ? listAudit(db, filter) : reply;
+      if (!filter) return reply;
+      const page = await listAudit(db, filter);
+      // AFS-106: the names of what the page mentions by id, and where they are while they exist.
+      return { ...page, refs: await auditRefs(db, page.entries) };
     },
   );
 
