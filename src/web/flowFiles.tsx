@@ -16,12 +16,19 @@ const flowPage = (workspace: string, project: string, file: string) =>
     .join('/')}`;
 
 /** A key from a name: lower case words joined by dashes. */
-export const keyOf = (name: string) =>
+export const keyOf = (name: string, max = 60) =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
+    .slice(0, max)
+    .replace(/^-+|-+$/g, '');
+
+/**
+ * AFS-125: the key as the name changes: it follows the name (keyOf) while it is empty or still the
+ * key of the name before, and stays once someone typed a key of their own.
+ */
+export const followKey = (name: string, before: string, key: string, max = 60) =>
+  key === '' || key === keyOf(before, max) ? keyOf(name, max) : key;
 
 /**
  * The flow's text with a new header: its own id, key, name, and version 1. Only the `flow:` block

@@ -14,7 +14,7 @@ import {
 } from './api';
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
-import { NewFlowForm } from './flowFiles';
+import { followKey, NewFlowForm } from './flowFiles';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunList, RunWords } from './runs';
@@ -59,7 +59,12 @@ export function Workspaces({ me }: { me: User }) {
             <Field
               label="Name"
               value={input.name}
-              onChange={(e) => setInput({ ...input, name: e.target.value })}
+              onChange={(e) =>
+                setInput({
+                  name: e.target.value,
+                  key: followKey(e.target.value, input.name, input.key),
+                })
+              }
               required
               autoFocus
             />
@@ -69,7 +74,7 @@ export function Workspaces({ me }: { me: User }) {
               onChange={(e) => setInput({ ...input, key: e.target.value })}
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
-              hint="Used in addresses: lower-case letters, digits and dashes."
+              hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
             />
           </Form>
         </section>
@@ -325,7 +330,13 @@ export function Workspace({
             <Field
               label="Name"
               value={input.name}
-              onChange={(e) => setInput({ ...input, name: e.target.value })}
+              onChange={(e) =>
+                setInput({
+                  ...input,
+                  name: e.target.value,
+                  key: followKey(e.target.value, input.name, input.key),
+                })
+              }
               required
               autoFocus
             />
@@ -335,7 +346,7 @@ export function Workspace({
               onChange={(e) => setInput({ ...input, key: e.target.value })}
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
-              hint="Used in addresses: lower-case letters, digits and dashes."
+              hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
             />
             <fieldset>
               <legend>Repository</legend>

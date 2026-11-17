@@ -10,6 +10,7 @@ import {
 } from '../server/auth/ldap/types';
 import type { Group } from '../server/auth/users';
 import { api } from './api';
+import { followKey } from './flowFiles';
 import { MappingRows } from './signin';
 import { Field, Form, Loading, messageOf, Time, useLoad } from './ui';
 
@@ -110,7 +111,19 @@ function DirectoryForm({
             </select>
           </div>
         )}
-        {text('Name', 'name', 'Said where people see it')}
+        <Field
+          label="Name"
+          value={d.name ?? ''}
+          onChange={(e) =>
+            set({
+              name: e.target.value,
+              // AFS-125: a new directory's key follows its name until typed.
+              ...(d.id ? {} : { key: followKey(e.target.value, d.name ?? '', d.key ?? '', 40) }),
+            })
+          }
+          required
+          hint="Said where people see it"
+        />
         <Field
           label="Key"
           value={d.key}

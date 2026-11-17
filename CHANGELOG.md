@@ -8,6 +8,10 @@ All notable changes to Ansible Flow Server.
 
 - A project started from a sample comes with a launch configuration of its flow, inputs filled in for the sample's hosts, so **Launch** runs it at once.
 
+### Changed
+
+- **Add workspace** and **Add project** make the key from the name as you type it (lower case, other characters as dashes); a key you type yourself stays. The same for a new directory or sign-in provider.
+
 ### Fixed
 
 - A project started from the **Edge baseline** sample runs: its steps use the roles the sample brings. Before, its first run failed with "the role netops.baseline.push_ntp_aaa was not found", and Push baseline showed as an empty subflow. A project made from it before keeps that flow; start a new one, or copy the sample's flow over it.
