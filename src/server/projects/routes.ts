@@ -24,6 +24,7 @@ import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError, sshHost } from './git';
 import type { Library } from './library';
 import {
+  addSampleLaunchConfigs,
   archiveFiles,
   listSamples,
   MAX_FILES,
@@ -247,10 +248,19 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       // The sample is read before the project is made: a wrong key makes nothing.
       const start = sample ? sampleFiles(sample) : undefined;
       const project = await createProject(db, workspace.id, asked, deps.allowLocal);
-      if (start) {
+      if (start && sample) {
         const started = await startProject(deps, project, start, me, `the ${sample} sample`);
+        // AFS-124: and the sample's launch configurations, so it runs at once.
+        const launch = await addSampleLaunchConfigs(deps, started.project, sample);
         request.log.info(
-          { by: me.login, workspace: workspace.key, project: project.key, sample },
+          {
+            by: me.login,
+            workspace: workspace.key,
+            project: project.key,
+            sample,
+            launchConfigs: launch.made,
+            ...(launch.skipped.length ? { skipped: launch.skipped } : {}),
+          },
           'Project added from a sample',
         );
         return reply.code(201).send(started.project);
@@ -360,6 +370,11 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
             'Send {"sample": "<key>"}, or a zip (application/zip) or tar.gz (application/gzip) as the body',
         });
       const started = await startProject(deps, project, files, me, what);
+      // AFS-124: a sample brings its launch configurations.
+      const launch =
+        !Buffer.isBuffer(body) && typeof body?.sample === 'string'
+          ? await addSampleLaunchConfigs(deps, started.project, body.sample)
+          : undefined;
       request.log.info(
         {
           by: me.login,
@@ -367,6 +382,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           from: what,
           files: started.files,
           commit: started.commit.slice(0, 12),
+          ...(launch ? { launchConfigs: launch.made } : {}),
+          ...(launch?.skipped.length ? { skipped: launch.skipped } : {}),
         },
         'Project started',
       );
