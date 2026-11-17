@@ -227,6 +227,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('One flow as the designer shows it (at a commit when asked)'),
+  'POST /api/v1/projects/:id/flows/catalog': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    "The module catalog of a flow's image as the designer asks it while showing the flow (search, doc, names, status); 202 while it is first read",
+  ),
   'GET /api/v1/projects/:id/events': S(
     'Projects',
     'signed in',
@@ -804,6 +811,7 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/flows': 'can see',
   'GET /api/v1/projects/:id/access': 'can see',
   'GET /api/v1/projects/:id/flows/view': 'ro',
+  'POST /api/v1/projects/:id/flows/catalog': 'ro',
   'GET /api/v1/projects/:id/events': 'can see',
   'GET /api/v1/projects/:id/drafts': 'can see',
   'POST /api/v1/projects/:id/drafts': 'rw',
@@ -893,6 +901,7 @@ const LEVEL_OF: Partial<Record<Who, Level | 'see'>> = {
 /** flows/view names its flow in the query. */
 const FLOW_QUERY: Record<string, string> = {
   'GET /api/v1/projects/:id/flows/view': 'path',
+  'POST /api/v1/projects/:id/flows/catalog': 'path',
   'POST /api/v1/projects/:id/drafts': 'path',
   'GET /api/v1/projects/:id/flows/history': 'path',
 };

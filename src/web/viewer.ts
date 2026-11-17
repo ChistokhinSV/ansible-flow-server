@@ -251,6 +251,46 @@ async function start(): Promise<void> {
           case 'showRun':
             showRun(message.id, true);
             return;
+          case 'catalog': {
+            // AFS-118: a step's module docs, from the catalog of the flow's image.
+            const reqId = message.reqId;
+            void fetch(
+              `/api/v1/projects/${encodeURIComponent(project)}/flows/catalog?path=${encodeURIComponent(path)}`,
+              {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ request: message.request }),
+              },
+            ).then(
+              async (reply) => {
+                const data = await reply.json().catch(() => undefined);
+                if (reply.status === 202 || !reply.ok)
+                  send({
+                    type: 'catalogReply',
+                    reqId,
+                    ok: false,
+                    error:
+                      data?.status?.message ?? String(data?.message ?? 'The catalog is not ready'),
+                  } as HostMessage);
+                else
+                  send({
+                    type: 'catalogReply',
+                    reqId,
+                    ok: true,
+                    result: (data?.result ?? data?.status) as never,
+                  } as HostMessage);
+              },
+              () =>
+                send({
+                  type: 'catalogReply',
+                  reqId,
+                  ok: false,
+                  error: 'The server does not answer',
+                } as HostMessage),
+            );
+            return;
+          }
           case 'showRunOutput': {
             if (!shown) return;
             // AFS-96: on the run's own page, that page scrolls to its output; loading it again

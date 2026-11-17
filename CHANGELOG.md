@@ -119,6 +119,7 @@ Nothing is released yet.
 
 ### Fixed
 
+- A run's page and a flow's page show a step's module docs in its Binding (they said "Reading the docs" for good), and the modules of the collection `chistokhinsv.ansible_flow` that every run has are found when adding a step and documented while editing.
 - While you edit a flow in the pages, a note says when someone changes or removes it on the branch (a push from VS Code, another save), and what Save will do with both.
 - When saving a draft finds the branch changed the same places, the notice is one short row with its choices, apart from the Save row under it, and can be closed with Not now.
 - Stopping a run that waits for approval ends it on its canvas too: the run says who stopped it instead of waiting, and the approval says who cancelled it.
