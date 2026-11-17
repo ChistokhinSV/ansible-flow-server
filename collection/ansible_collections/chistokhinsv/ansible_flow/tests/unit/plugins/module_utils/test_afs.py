@@ -22,6 +22,7 @@ from ansible_collections.chistokhinsv.ansible_flow.plugins.module_utils.afs impo
     ensure_present,
     host_outcomes,
     input_texts,
+    run_result,
     wait_for_run,
 )
 
@@ -393,3 +394,29 @@ def test_check_mode_decides_nothing():
     client = FakeApprovals([gate("waiting")])
     changed, after = decide_approval(client, "r1", "approve-change", "rejected", check_mode=True)
     assert changed and after["status"] == "rejected" and client.posted == []
+
+
+class FakeView(object):
+    """A client with one ended run and its view."""
+
+    def __init__(self, summary):
+        self.summary = summary
+
+    def run_view(self, run_id):
+        return {"summary": self.summary}
+
+    def run_approvals(self, run_id):
+        return []
+
+    def run_url(self, run_id):
+        return URL + "/runs/" + run_id
+
+
+def test_run_result_gives_the_outputs_per_host():
+    view = FakeView({"hosts": ["r1", "r2"], "outcome": {}, "unreachable": [],
+                     "outputs": {"r1": {"backup_file": "/b/r1.cfg"}}})
+    out = run_result(view, {"id": "x1", "number": 3, "state": "succeeded"})
+    assert out["outputs"] == {"r1": {"backup_file": "/b/r1.cfg"}}
+    # A flow that gives nothing back, or a run not looked at closely: none.
+    assert run_result(FakeView({"hosts": []}), {"id": "x2", "state": "succeeded"})["outputs"] == {}
+    assert run_result(view, {"id": "x3", "state": "queued"}, with_view=False)["outputs"] == {}

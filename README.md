@@ -1653,6 +1653,12 @@ ends with the run (a run that waits for a person gets a new one when it goes on)
 certificate is checked unless it is the server's own self-signed one (`AFS_RUN_VERIFY_TLS` decides
 otherwise). In a skeleton run, launching modules launch nothing (Ansible's check mode).
 
+**Values back from a flow.** A flow gives values back with its outputs (the designer's Run outputs:
+a step's output, per host). The run keeps them (at most 256 KB) and shows them on its page under
+**Outputs**; `run` and `run_relaunch` with `wait: true` and `run_info` return them as `outputs`,
+the API in the run's view (`GET /api/v1/runs/<id>/view`, `summary.outputs`) and MCP in
+`run_status`. A flow that launched another can give back what it got in turn.
+
 Its modules, options and tests: [collection/ansible_collections/chistokhinsv/ansible_flow](collection/ansible_collections/chistokhinsv/ansible_flow/README.md).
 It is published to Ansible Galaxy by the Release workflow.
 

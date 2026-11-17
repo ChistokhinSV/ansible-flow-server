@@ -36,8 +36,8 @@ _RETRY_STATUS = (502, 503, 504)
 def connection_argument_spec():
     """The options every module takes to reach the server (see the connection doc fragment)."""
     return dict(
-        url=dict(type="str", required=True, fallback=(env_fallback, ["AFS_URL"])),
-        token=dict(type="str", required=True, no_log=True, fallback=(env_fallback, ["AFS_TOKEN"])),
+        url=dict(type="str", fallback=(env_fallback, ["AFS_URL"])),
+        token=dict(type="str", no_log=True, fallback=(env_fallback, ["AFS_TOKEN"])),
         validate_certs=dict(type="bool", default=True, fallback=(env_fallback, ["AFS_VALIDATE_CERTS"])),
         ca_path=dict(type="path", fallback=(env_fallback, ["AFS_CA_PATH"])),
         timeout=dict(type="int", default=30),
@@ -474,6 +474,8 @@ def run_result(client, run, with_view=True):
         url=client.run_url(run_id),
         hosts=host_outcomes(view),
         summary=(view or {}).get("summary"),
+        # What the run gave back (its flow's outputs), per host.
+        outputs=((view or {}).get("summary") or {}).get("outputs") or {},
         approvals=client.run_approvals(run_id) if run.get("state") == "waiting" else [],
     )
     if run.get("error"):

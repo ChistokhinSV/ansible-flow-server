@@ -79,6 +79,23 @@ approval. So a step of a flow can launch another flow and wait for it with no co
     wait: true
 ```
 
+A flow gives values back with its outputs (the designer's Run outputs): `run` with `wait: true`,
+`run_relaunch` with `wait: true` and `run_info` return them per host as `outputs`:
+
+```yaml
+- name: Back up the edge switches first
+  chistokhinsv.ansible_flow.run:
+    workspace: network
+    project: edge
+    launch_config: Back up edge
+    wait: true
+  register: backup
+
+- name: Use each switch's backup file
+  ansible.builtin.debug:
+    msg: "{{ backup.outputs[inventory_hostname].backup_file }}"
+```
+
 In a skeleton (check mode) run, `run` and `run_relaunch` launch nothing: Ansible's check mode asks
 modules to change nothing.
 

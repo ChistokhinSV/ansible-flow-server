@@ -8,6 +8,7 @@ Nothing is released yet.
 
 ### Added
 
+- What a run gives back: a flow's outputs (set in the designer) are kept with each run, per host, shown on the run's page under Outputs, and returned to a flow that launched it (the Ansible collection's `run` and `run_info`), over the API (the run's view) and over MCP (`run_status`).
 - Every run has the Ansible collection `chistokhinsv.ansible_flow` and the server's address with a token of the run (acting as whoever launched it, deciding no approval, ending with the run), so a flow can launch another flow, wait for it or stop it with no settings. `AFS_RUN_URL` sets the address runs use and `AFS_RUN_VERIFY_TLS` whether they check the certificate. The collection can also stop a run and run one again.
 - An Ansible collection, `chistokhinsv.ansible_flow` on Ansible Galaxy: launch runs and wait for them, read runs, decide approvals, and keep workspaces, projects, launch configurations, credentials, schedules and grants as code. See [Ansible collection](README.md#ansible-collection).
 - Lists of runs are columns: state first, then the run, its launch configuration, mode, who started it, when, and the commit, so a list can be read down a column. On a phone or in a narrow pane a run is two lines.

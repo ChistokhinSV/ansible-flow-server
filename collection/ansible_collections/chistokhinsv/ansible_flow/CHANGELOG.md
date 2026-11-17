@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.3
+
+### Added
+
+- `run`, `run_relaunch` (with `wait: true`) and `run_info` return `outputs`: what the run gave back
+  per host, the flow's outputs set in the designer (Ansible Flow Designer 0.97 and Ansible Flow
+  Server with it).
+
+### Changed
+
+- `url` and `token` are no longer marked required: each can come from `AFS_URL` and
+  `AFS_TOKEN`, which every run on the server has, and a module still fails clearly without them.
+
 ## 0.0.2
 
 ### Added

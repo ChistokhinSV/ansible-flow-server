@@ -97,7 +97,8 @@ export const SERVER_TOOLS: ServerTool[] = [
   {
     name: 'run_status',
     title: 'Run status',
-    description: 'How a run stands: its state, why it failed, its approvals, hosts per step',
+    description:
+      "How a run stands: its state, why it failed, its approvals, hosts per step, and what it gave back (the flow's outputs, per host)",
     readOnly: true,
     inputSchema: object({ run: str('The run id') }, ['run']),
   },
@@ -326,8 +327,16 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
         if (r.status !== 200) return refused(r);
         const approvals = await get(`/api/v1/runs/${id}/approvals`);
         const view = await get(`/api/v1/runs/${id}/view`);
-        const summary = (view.json as { summary?: { nodes?: Record<string, unknown> } } | undefined)
-          ?.summary;
+        const summary = (
+          view.json as
+            | {
+                summary?: {
+                  nodes?: Record<string, unknown>;
+                  outputs?: Record<string, Record<string, unknown>>;
+                };
+              }
+            | undefined
+        )?.summary;
         return json({
           ...(r.json as object),
           approvals:
@@ -342,6 +351,8 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
                 }))
               : [],
           ...(summary?.nodes ? { steps: summary.nodes } : {}),
+          // AFS-117: what the run gave back (its flow's outputs), per host.
+          ...(summary?.outputs ? { outputs: summary.outputs } : {}),
         });
       },
       run_output: async ({ run, tail }) => {

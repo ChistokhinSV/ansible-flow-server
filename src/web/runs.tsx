@@ -554,6 +554,49 @@ function Hosts({ lines }: { lines: HostLine[] }) {
   );
 }
 
+/**
+ * AFS-117: what the run gave back (its flow's outputs), per host, as a flow that launched it gets
+ * them (the Ansible collection's run and run_info).
+ */
+function Outputs({ summary }: { summary: NonNullable<RunView['summary']> }) {
+  const hosts = Object.entries(summary.outputs ?? {});
+  const text = (v: unknown) => {
+    const t = typeof v === 'string' ? v : JSON.stringify(v);
+    return t.length > 200 ? `${t.slice(0, 200)}…` : t;
+  };
+  return (
+    <section className="outputs" aria-labelledby="outputs">
+      <h2 id="outputs">Outputs</h2>
+      {summary.outputsTooLarge ? (
+        <p className="muted small">The outputs were too large to keep.</p>
+      ) : hosts.length === 0 ? (
+        <p className="muted small">No host gave a value.</p>
+      ) : (
+        <dl className="facts">
+          {hosts.map(([host, values]) => (
+            <div key={host}>
+              <dt className="mono">{host}</dt>
+              <dd>
+                {Object.entries(values).map(([name, value]) => (
+                  <div key={name}>
+                    <span className="mono">{name}</span> ={' '}
+                    <span
+                      className="mono"
+                      title={typeof value === 'string' ? value : JSON.stringify(value)}
+                    >
+                      {text(value)}
+                    </span>
+                  </div>
+                ))}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
+  );
+}
+
 /** Where a run belongs, as far as the person may see it: what its pages are addressed by. */
 interface Belongs {
   workspace: string;
@@ -862,6 +905,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`}
           />
           <Hosts lines={lines} />
+          {view?.summary?.outputs || view?.summary?.outputsTooLarge ? (
+            <Outputs summary={view.summary} />
+          ) : null}
           {why?.why && (
             <section className="why" aria-labelledby="why">
               <h2 id="why">

@@ -13,18 +13,18 @@ options:
     description:
       - The address of the Ansible Flow Server, such as V(https://afs.example.net).
       - A trailing C(/api/v1) is ignored.
-      - If not set, the value of the E(AFS_URL) environment variable is used.
+      - If not set, the value of the E(AFS_URL) environment variable is used; a run on the server
+        has it set to the server itself. One of the two is required.
     type: str
-    required: true
   token:
     description:
       - "An access token of the server, sent as C(Authorization: Bearer <token>)."
       - Make one on the server's Tokens page, or for a service account as an administrator.
       - What the token's owner may do on the server is what the module may do.
-      - If not set, the value of the E(AFS_TOKEN) environment variable is used.
+      - If not set, the value of the E(AFS_TOKEN) environment variable is used; a run on the server
+        has it set to a token of the run. One of the two is required.
       - The token is never logged or returned.
     type: str
-    required: true
   validate_certs:
     description:
       - Whether to check the server's TLS certificate.
@@ -56,14 +56,12 @@ options:
     description:
       - The address of the Ansible Flow Server, such as V(https://afs.example.net).
     type: str
-    required: true
     env:
       - name: AFS_URL
   token:
     description:
       - An access token of the server. Never logged or returned.
     type: str
-    required: true
     env:
       - name: AFS_TOKEN
   validate_certs:
