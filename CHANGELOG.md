@@ -28,6 +28,14 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- On a phone the breadcrumb is on a line of its own above the search box; it was squeezed to one letter per line. All of a project's tabs show, wrapped.
+- In a narrow window (a phone, a tablet, a laptop with the menu) a flow's side panel goes under the canvas, so the canvas keeps the width; it was left a few pixels, and about 200 in edit mode at 1024 px.
+- Tables fit the page: long names, user names, paths and audit details wrap instead of pushing **Launch**, **Change**, **Delete** and **Revoke** out of sight. On a phone a row's buttons stay at the right edge, and a table that still scrolls sideways shows a shade on the side that has more.
+- The runs' project filter no longer grows to the longest project name and makes the page scroll sideways.
+- Every page has one frame: the breadcrumb, the search box and the page's title start at the same edge on a run's page, a flow's page and the Files tab, and the search box no longer moves between them. On a phone the search box lines up with the page.
+- Terminal output keeps its columns (PLAY RECAP): long lines scroll sideways in their box instead of breaking.
+- On a phone the search's results line up their titles.
+- The launch form no longer moves while it loads (the inventory's groups take their place from the start), and **Another branch or commit, a limit** comes before the mode and **Launch**, so a limit is seen before launching.
 - **Limit** is applied: a run limited to some hosts runs on those only. Before, it ran on every host it targeted.
 - **Stop** stops a running run at once, and a run asked to stop never ends as succeeded; its hosts show as stopped.
 - A run that reached no host (none of its targets is in the inventory) fails, saying so, rather than "went well".
