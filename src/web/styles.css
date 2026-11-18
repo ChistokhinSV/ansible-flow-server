@@ -2892,11 +2892,14 @@ td:first-child {
 td.long {
   min-width: 10rem;
 }
-td time,
 td button,
 td a.button,
 td .badge {
   white-space: nowrap;
+}
+/* A time with its zone (AFS-139) is long: in a table it may wrap between the date and the clock. */
+td time {
+  white-space: normal;
 }
 .scroll {
   --scroll-cue: color-mix(in srgb, var(--fg) 24%, transparent);
