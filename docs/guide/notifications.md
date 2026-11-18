@@ -63,7 +63,8 @@ A run's message says what it did, so it goes only to who may see the flow's runs
 a grant on the flow or its workspace (their own or a group's), an administrator, or a group a
 grant names (a group without an address of its own and without a grant: each member who has
 access). Saving a list that names someone without access is refused, naming them. Access taken
-back later counts at once: they are not told.
+back later counts at once: they are not told. An approval's own lists in the flow (who
+is asked, who is told) follow the same rule when the message goes out.
 
 | Address (under `/api/v1`)         | Does                                                                        | Who                   |
 | --------------------------------- | --------------------------------------------------------------------------- | --------------------- |
