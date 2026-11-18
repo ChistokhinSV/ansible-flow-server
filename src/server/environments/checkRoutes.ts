@@ -47,7 +47,12 @@ export function registerFlowChecks(
     }
     const flow = await flowAt(deps.git, project.id, commit, config.flowFile);
     if ('problem' in flow) {
-      reply.code(422).send({ error: 'not_ready', message: flow.problem, field: 'flowFile' });
+      reply.code(422).send({
+        error: 'not_ready',
+        message: flow.problem,
+        field: 'flowFile',
+        ...(flow.errors?.length ? { errors: flow.errors } : {}),
+      });
       return undefined;
     }
     const requirements = await deps.git

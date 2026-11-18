@@ -246,6 +246,44 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     expect(asked.some((a) => a.key.startsWith('GET /runs'))).toBe(false);
   });
 
+  it('Launch: a flow with errors names them, each a link to its step (AFS-164)', async () => {
+    const errors = [
+      { node: 'n1', step: 'Ping', message: 'No module is bound' },
+      { node: 'n2', step: 'Backup', message: 'The fail port is not handled' },
+      { message: 'The flow has no title' },
+      ...['n4', 'n5', 'n6'].map((n) => ({ node: n, step: n, message: 'Wrong' })),
+    ];
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1/form?': () => ({
+        status: 422,
+        body: {
+          error: 'not_ready',
+          message: 'The flow has 6 errors, so it cannot run until they are fixed: …',
+          problems: [{ field: 'flowFile', message: 'The flow has 6 errors…', errors }],
+        },
+      }),
+    };
+    page('launch');
+    const note = (await screen.findAllByRole('alert')).find((a) =>
+      a.textContent?.startsWith('The flow has'),
+    ) as HTMLElement;
+    expect(note.textContent).toContain(
+      'The flow has 6 errors, so it cannot run until they are fixed:',
+    );
+    const links = within(note).getAllByRole('link');
+    // Five, then how many more; an administrator may edit: the flow opens for editing there.
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Ping', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n1&edit=1'],
+      ['Backup', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n2&edit=1'],
+      ['The flow', '/w/net/core/flow/flows/upgrade.flow.yaml?edit=1'],
+      ['n4', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n4&edit=1'],
+      ['n5', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n5&edit=1'],
+      ['and 1 more', '/w/net/core/flow/flows/upgrade.flow.yaml?edit=1'],
+    ]);
+    expect(note.textContent).toContain('Ping: No module is bound');
+  });
+
   it('Launch: a configuration with a limit shows it, the fold open', async () => {
     routes = {
       ...common(dana),

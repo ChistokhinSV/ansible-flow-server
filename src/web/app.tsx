@@ -23,6 +23,7 @@ import { AdminOnly, NotFound, ProjectPage, Workspace, Workspaces } from './pages
 import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, navigate, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
+import { listenForSaveKey } from './saveKey';
 import { SearchBox } from './search';
 import { SignInPage } from './signin';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
@@ -377,6 +378,8 @@ export function App() {
     );
     setSession({ state: needed ? 'setup' : 'signed-out' });
   }, []);
+  // AFS-166: Ctrl+S saves on every page, and never opens the browser's Save page dialog.
+  useEffect(() => listenForSaveKey(), []);
   useEffect(() => {
     setSignedOutHandler(() => setSession({ state: 'signed-out' }));
     void load();

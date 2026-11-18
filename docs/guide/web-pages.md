@@ -19,7 +19,9 @@ version, at `/help/guide/<page>`: it needs no internet. A link in it that leaves
 where it goes (GitHub). A page that is not there, or not shared with you (a workspace, a project, a
 flow, a run, a launch configuration), says what was looked for, a way back to a page you can open,
 and which administrators give access. Long pages are split into tabs; each tab has its own
-address. At phone width it folds into **Menu**.
+address. At phone width it folds into **Menu**. Ctrl+S (Cmd+S) submits the form you are typing in,
+or the page's only form (never one that deletes), and saves a flow's draft while you edit it; it
+never opens the browser's Save dialog.
 
 | Page                                              | Shows                                                                                                                                                                                                                                                              |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -90,13 +92,17 @@ Code. Everyone who edits the same flow edits one shared draft:
 
 - **Edits are shared at once.** Each change goes to the server, which applies it to the draft in
   the order it gets them, and everyone's canvas shows the result. Changes to different steps all
-  apply; when two people change the same field, the later one wins. The draft bar says who is
-  here and, on one line, what the others did last ("removed Ping", "changed Backup (timeout)");
-  **N earlier** lists the ones before. Notes about the draft (the branch moved, a save's clashes)
-  lie over the top of the canvas, so the canvas never moves while you work.
+  apply; when two people change the same field, the later one wins. While you edit alone, the
+  canvas sits right under the flow's title and its buttons (**Save**, **Stop editing**,
+  **Discard**); **i** beside Full screen says which commit of which branch the draft is of. When
+  someone else is in the draft (or you have it open in another tab), a line says who is here and
+  what the others did last ("removed Ping", "changed Backup (timeout)"); **N earlier** lists the
+  ones before. Notes about the draft (the branch moved, a save's clashes, the commit message)
+  lie over the top of the canvas.
 - **Ctrl+Z takes back your own last edit**, says which step it was, and leaves the others' alone.
   When someone changed the same place after you, it is refused with what they changed.
-- **Save** makes one commit on the project's branch, with your message, by you, and
+- **Save** (or Ctrl+S, on the page or in the canvas) asks for the commit message, then makes one
+  commit on the project's branch, with your message, by you, and
   `Co-authored-by` for everyone else who edited; it then says the commit (a link to the flow at
   it) and the co-authors. For a project with an external repository the commit is pushed there
   first, only if the branch there has not moved. When the branch moved since the draft began, the

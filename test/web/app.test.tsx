@@ -736,7 +736,7 @@ describe('signed in', () => {
     window.history.replaceState(null, '', `/w/network/edge/flow/${file}`);
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    const bar = await screen.findByRole('region', { name: 'Editing' });
+    await screen.findByRole('button', { name: 'Stop editing' });
     const frame = screen.getByTitle(/on the designer/) as HTMLIFrameElement;
     expect(new URL(frame.src).searchParams.get('draft')).toBe('d1');
     // The frame says who is there and what the others changed.
@@ -759,8 +759,12 @@ describe('signed in', () => {
         data: { type: 'afs-draft-edit', by: 'Mia Ortega', steps: ['Pre-checks'] },
       }),
     );
+    // AFS-165: with someone else in the draft, the line about the others shows.
+    const bar = await screen.findByRole('region', { name: 'Editing together' });
     await waitFor(() => expect(bar.textContent).toContain('here now: you, Mia Ortega.'));
     expect(bar.textContent).toContain('Mia Ortega changed Pre-checks');
+    // AFS-165: Save asks for the commit's message.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     type("What changed (the commit's message)", 'Safer pre-checks');
     // AFS-136: with Mia here, Save names her first.
     const asked: string[] = [];
@@ -768,13 +772,17 @@ describe('signed in', () => {
       asked.push(String(text));
       return true;
     };
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(
+      within(screen.getByRole('form', { name: 'Save the draft' })).getByRole('button', {
+        name: 'Save',
+      }),
+    );
     expect(await screen.findByText('Upgrade: title')).toBeTruthy();
     expect(asked[0]).toMatch(/^Mia Ortega is editing this draft too/);
     fireEvent.click(screen.getByRole('button', { name: 'Save with these' }));
     expect((await screen.findByText(/Saved as/)).textContent).toBe('Saved as 41d7a0c93be2.');
     expect(saves).toBe(2);
-    expect(screen.queryByRole('region', { name: 'Editing' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Stop editing' })).toBeNull();
   });
 
   it('a hosted project that is empty says to push; a project that is not there says so', async () => {

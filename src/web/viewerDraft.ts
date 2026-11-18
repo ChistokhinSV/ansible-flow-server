@@ -5,6 +5,7 @@
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
 import { guide } from './guide';
+import { isSaveKey } from './saveKey';
 
 /** AFS-149: what one edit did (the server's words: a step or the flow, and its fields). */
 export interface EditChange {
@@ -117,6 +118,8 @@ export function editDraft(options: {
   stateKey: string;
   /** AFS-149: this page (tab), as the flow page around it names it for its Save. */
   tab?: string;
+  /** AFS-164: a step to select once the flow shows (an error on it). */
+  reveal?: string;
 }): void {
   const { root, draft, me } = options;
   const tab = options.tab ?? (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`);
@@ -135,11 +138,21 @@ export function editDraft(options: {
   /** AFS-149: the designer's commands on their way to the server. */
   const sending = new Set<Promise<unknown>>();
 
+  let revealing = options.reveal;
+  /** AFS-164: the step asked for, selected once the flow is on the canvas. */
+  const revealOnce = () => {
+    if (!revealing) return;
+    send({ type: 'reveal', node: revealing } as HostMessage);
+    revealing = undefined;
+  };
   const show = (snapshot: Edit['snapshot']) => {
     if (!snapshot) return;
     latest = snapshot;
     titles = new Map((snapshot.doc?.nodes ?? []).map((n) => [n.id, n.title]));
-    if (ready) send({ type: 'snapshot', snapshot } as unknown as HostMessage);
+    if (ready) {
+      send({ type: 'snapshot', snapshot } as unknown as HostMessage);
+      revealOnce();
+    }
   };
 
   const events = new EventSource(`${base}/events?tab=${encodeURIComponent(tab)}`);
@@ -236,6 +249,13 @@ export function editDraft(options: {
     events.close();
   });
 
+  // AFS-166: on a page of its own the draft has no Save: Ctrl+S says where it is (viewer.ts keeps
+  // the browser's dialog away; in a frame, the flow's page saves).
+  window.addEventListener('keydown', (e) => {
+    if (window.parent !== window || !isSaveKey(e) || e.repeat) return;
+    notify("Save the draft on the flow's page: Save there makes the commit.", 'info');
+  });
+
   // Ctrl+Z: the person's own last edit, taken back (not in a field being typed in).
   window.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
@@ -275,7 +295,10 @@ export function editDraft(options: {
               testMode: false,
               embed: { mayRun: false, words: 'server' },
             } as HostMessage);
-            if (latest) send({ type: 'snapshot', snapshot: latest } as unknown as HostMessage);
+            if (latest) {
+              send({ type: 'snapshot', snapshot: latest } as unknown as HostMessage);
+              revealOnce();
+            }
             void catalogStatus();
             return;
           case 'catalog': {

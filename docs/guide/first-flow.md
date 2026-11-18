@@ -49,8 +49,8 @@ on purpose, choose **Accept with Reason…**: the flow keeps your reason.
 
 ## 4. Save
 
-Write what changed in **Commit message** (`First NTP baseline`) and press **Save**: one commit on
-the project's branch, by you. **Stop editing** leaves the flow as saved. Runs take the flow from
+Press **Save** (or Ctrl+S), write what changed in **Commit message** (`First NTP baseline`) and
+press **Save** again: one commit on the project's branch, by you. **Stop editing** leaves the flow as saved. Runs take the flow from
 the branch, so a flow runs only once it is saved.
 
 ## 5. Launch it

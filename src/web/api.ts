@@ -29,6 +29,7 @@ import type {
   EnvironmentSpec,
   FlowCheck,
 } from '../server/environments/types';
+import type { FlowError } from '../server/flowErrors';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { FactsReply } from '../server/launch/facts';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
@@ -117,6 +118,8 @@ export class ApiError extends Error {
       conflicts?: { id: string; label: string; draft?: string | null; branch?: string | null }[];
       /** AFS-78: the files the branch changed since a change set began. */
       files?: string[];
+      /** AFS-164: the errors of a flow that cannot run, with the step each is on. */
+      errors?: FlowError[];
     } = {},
   ) {
     super(message);
@@ -174,6 +177,7 @@ async function call<T>(
       ...(data?.form ? { form: data.form } : {}),
       ...(Array.isArray(data?.conflicts) ? { conflicts: data.conflicts } : {}),
       ...(Array.isArray(data?.files) ? { files: data.files } : {}),
+      ...(Array.isArray(data?.errors) ? { errors: data.errors } : {}),
     },
   );
 }

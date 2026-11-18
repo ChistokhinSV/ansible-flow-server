@@ -1,14 +1,15 @@
 // One flow on the designer's canvas, and editing its draft together (AFS-76). AFS-85: a slim line
 // over the canvas leads to the flow's launch configurations and its latest runs.
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { flowLevel, useProjectAccess } from './access';
-import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run } from './api';
+import { ApiError, api, type Draft, type LaunchConfig, type Run } from './api';
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { MissingProject } from './help';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
 import { ACTIVE, RunWords } from './runs';
+import { useSaveKey } from './saveKey';
 import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
 import {
@@ -46,7 +47,8 @@ export function FlowPage({
   );
   const project = found.data;
   const flows = useLoad(
-    async () => (project ? api.flows(project.id) : ({ flows: [] } as FlowList)),
+    // Nothing before the project is known: an empty list would say the flow is not there.
+    async () => (project ? api.flows(project.id) : undefined),
     [project?.id, project?.commit],
   );
   const flow = flows.data?.flows.find((f) => f.file === file);
@@ -90,8 +92,17 @@ export function FlowPage({
   const tab = useRef(
     globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random()}`,
   ).current;
-  // AFS-149: Save in the full screen bar does what the draft bar's Save does.
+  // AFS-149: Save in the full screen bar does what the draft bar's Save does. AFS-165: it asks for
+  // the commit's message first (a second Save, or Ctrl+S, while it asks saves).
   const saveNow = useRef<() => void>(() => undefined);
+  // AFS-166: Ctrl+S while editing (on the page or in the canvas) is Save.
+  useSaveKey(editing ? () => saveNow.current() : undefined);
+  // AFS-165: where the draft's Save, Stop editing and Discard go: the head, beside Full screen.
+  const [tools, setTools] = useState<HTMLElement | null>(null);
+  // AFS-164: `?step=<id>` (a link to an error on it) selects that step on the canvas.
+  const [step, setStep] = useState(
+    () => new URLSearchParams(window.location.search).get('step') ?? '',
+  );
   // AFS-110: Copy or Delete, picked in the head's More menu.
   const [fileAction, setFileAction] = useState<'copy' | 'delete'>();
   const [people, setPeople] = useState<{ login: string; name: string; tabs?: number }[]>([]);
@@ -121,6 +132,7 @@ export function FlowPage({
   }, [runsGoing, runsQueued]);
   const stopEditing = (words?: ReactNode) => {
     setEditing(undefined);
+    setStep('');
     setPeople([]);
     setEdits([]);
     setSaid(words);
@@ -229,7 +241,7 @@ export function FlowPage({
     project &&
     `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}${
       editing ? `&draft=${encodeURIComponent(editing.id)}` : ''
-    }&theme=${theme === 'system' ? 'auto' : theme}`;
+    }${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
   const edit = async () => {
     if (!project) return;
     setSaid(undefined);
@@ -288,11 +300,14 @@ export function FlowPage({
   // answer after the access; until it has, the flow is not known to be there and Edit was dropped.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once, when all three are read
   useEffect(() => {
-    if (!asked.current || !project?.commit || access === undefined || flows.loading) return;
+    // AFS-160, AFS-164: and the project's flows read, this project's (whether this one is there
+    // decides who may edit it): read after the access, the address was dropped without the draft.
+    if (!asked.current || !project?.commit || access === undefined) return;
+    if (flows.loading || !flows.data) return;
     asked.current = false;
     window.history.replaceState(null, '', window.location.pathname);
     if (mayEdit && !editing) void edit();
-  }, [project?.commit, access, flows.loading]);
+  }, [project?.commit, access, flows.loading, flows.data]);
   // AFS-152: a project not there (or not shared) is the same page as on the project's address.
   if (!found.loading && !project)
     return <MissingProject workspace={workspace} project={key} error={found.error} />;
@@ -313,13 +328,17 @@ export function FlowPage({
         <PageHead
           title={!found.loading && !project ? 'Not found' : title}
           help="web-pages.md"
-          // Shown, the flow's facts are in the line under the title: the canvas gets the room.
-          lead={
-            project && editing
-              ? `Editing a draft of ${project.gitRef} at ${editing.baseCommit.slice(0, 12)} · Save makes one commit`
-              : undefined
-          }
+          // Shown, the flow's facts are in the line under the title; editing, they are behind the
+          // "i" (AFS-165): the canvas gets the room.
         >
+          {editing ? <span className="draft-tools" ref={setTools} /> : null}
+          {editing && project ? (
+            <DraftInfo
+              draft={editing}
+              branch={project.gitRef}
+              link={(c) => commitLink.current(c)}
+            />
+          ) : null}
           {mayEdit && !editing && project?.commit ? (
             <button
               type="button"
@@ -496,6 +515,7 @@ export function FlowPage({
           <DraftBar
             draft={editing}
             me={me.login}
+            tools={tools}
             tab={tab}
             frame={() => stage.current?.querySelector('iframe') ?? null}
             // AFS-136: the others; the page's list has this person too.
@@ -630,10 +650,14 @@ async function sendTyping(frame: HTMLIFrameElement | null): Promise<void> {
  * Save (one commit, with a message) and Discard. AFS-149: a Save the branch's changes stand in the
  * way of shows each clashing place with both values and keeps the side picked per place; that
  * note, and the one saying the branch moved, lie over the canvas, so the canvas never moves.
+ * AFS-165: Save, Stop editing and Discard sit in the page's head (`tools`); Save asks for the
+ * commit's message over the canvas; the line about the others shows only when someone else (or
+ * another tab of this person) is in the draft, so one person editing has the canvas under the head.
  */
 function DraftBar({
   draft,
   me,
+  tools,
   tab,
   frame,
   people,
@@ -647,6 +671,8 @@ function DraftBar({
 }: {
   draft: Draft;
   me: string;
+  /** Where Save, Stop editing and Discard go (the head). */
+  tools: HTMLElement | null;
   tab: string;
   frame(): HTMLIFrameElement | null;
   people: { login: string; name: string }[];
@@ -663,14 +689,18 @@ function DraftBar({
   link(commit: string): ReactNode;
 }) {
   const [message, setMessage] = useState('');
+  // AFS-165: Save asks for the commit's message first.
+  const [asking, setAsking] = useState(false);
   const [conflicts, setConflicts] = useState<Clash[]>();
   const [choices, setChoices] = useState<Record<string, 'draft' | 'branch'>>({});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [hidden, setHidden] = useState<string>();
   const [earlier, setEarlier] = useState(false);
+  const messageId = useId();
   const others = people.map((p) => p.name).join(', ');
   const save = async (picked?: Record<string, 'draft' | 'branch'>) => {
+    if (busy) return;
     // AFS-136: saving ends the draft for everyone in it: whoever else is here is named first.
     // AFS-149: so are this person's other tabs.
     const also = [
@@ -697,6 +727,7 @@ function DraftBar({
         tab,
         answerConflicts: true,
       });
+      setAsking(false);
       if (done.conflicts) {
         setConflicts(done.conflicts);
         setChoices(
@@ -715,13 +746,21 @@ function DraftBar({
         ),
       );
     } catch (e) {
+      setAsking(false);
       if (e instanceof ApiError && e.details.conflicts) setConflicts(e.details.conflicts);
       else setError(messageOf(e));
     } finally {
       setBusy(false);
     }
   };
-  saveNow.current = () => void save();
+  // AFS-165: Save (in the head, in full screen, Ctrl+S) asks for the message; asked, it saves.
+  saveNow.current = () => {
+    if (asking) void save();
+    else {
+      setConflicts(undefined);
+      setAsking(true);
+    }
+  };
   const discard = async () => {
     // AFS-149: who changed it, as the server has it now, and who is here.
     const now = (await api.drafts(draft.project).catch(() => [] as Draft[])).find(
@@ -746,13 +785,48 @@ function DraftBar({
     }
     onDone();
   };
-  // AFS-136: the newest edit only, on one line. AFS-149: the line is always there (no edit yet
-  // says so), so its first edit does not move the canvas; the earlier ones open over the canvas.
+  // AFS-136: the newest edit only, on one line; the earlier ones open over the canvas.
   const newest = edits[0];
   const moved = outside && hidden !== outside.to && !conflicts;
   const notes =
-    moved || conflicts ? (
+    moved || conflicts || asking ? (
       <div className="draft-float">
+        {asking ? (
+          // AFS-165: the commit's message, asked when saving (not a field above the canvas).
+          <form
+            className="panel draft-save"
+            aria-label="Save the draft"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save();
+            }}
+          >
+            <label htmlFor={messageId}>Commit message</label>
+            <input
+              id={messageId}
+              // biome-ignore lint/a11y/noAutofocus: the one field of what Save just opened
+              autoFocus
+              aria-label="What changed (the commit's message)"
+              placeholder={`Edit ${draft.file}`}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setAsking(false);
+              }}
+            />
+            <small className="muted">
+              Save makes one commit and ends the draft for everyone in it.
+            </small>
+            <div className="draft-conflict-actions">
+              <button type="submit" className="primary" disabled={busy}>
+                Save
+              </button>
+              <button type="button" onClick={() => setAsking(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
         {moved ? (
           <div className="notice warn" role="status">
             <p>
@@ -822,73 +896,142 @@ function DraftBar({
         ) : null}
       </div>
     ) : null;
+  const buttons = (
+    <>
+      <button
+        type="button"
+        className="primary"
+        disabled={busy}
+        aria-expanded={asking}
+        title="Save the draft as one commit (Ctrl+S)"
+        onClick={() => saveNow.current()}
+      >
+        Save
+      </button>
+      <button type="button" disabled={busy} onClick={() => void leave()}>
+        Stop editing
+      </button>
+      <button type="button" className="danger" disabled={busy} onClick={() => void discard()}>
+        Discard
+      </button>
+    </>
+  );
+  const branchMoved = !!outside && hidden === outside.to && !conflicts;
+  // AFS-165: someone else (or another tab of this person) is in the draft, or was.
+  const together = people.length > 0 || myTabs > 1 || edits.length > 0 || branchMoved;
   return (
-    <section className="panel draft-bar" aria-label="Editing">
-      <p>
-        <strong>Editing</strong> · here now:{' '}
-        {people.length ? `you, ${people.map((p) => p.name).join(', ')}` : 'only you'}
-        {myTabs > 1 ? ' (you in other tabs too)' : ''}. Edits are shared at once; Ctrl+Z takes back
-        your own last one. Runs use saved flows: Save, then launch.
-      </p>
-      <div className="draft-edits muted" aria-live="polite">
-        {newest ? (
-          <span className="draft-edits-newest">
-            {newest.by} {newest.what} (<Time at={newest.at} />)
-          </span>
-        ) : (
-          <span>What the others change shows here.</span>
-        )}
-        {edits.length > 1 ? (
-          <button
-            type="button"
-            className="link"
-            aria-expanded={earlier}
-            onClick={() => setEarlier((open) => !open)}
-          >
-            {edits.length - 1} earlier
-          </button>
-        ) : null}
-        {outside && hidden === outside.to && !conflicts ? (
-          <button type="button" className="link" onClick={() => setHidden(undefined)}>
-            The branch moved
-          </button>
-        ) : null}
-        {earlier && edits.length > 1 ? (
-          <ul className="plain draft-earlier panel">
-            {edits.slice(1).map((e) => (
-              <li key={`${e.at}-${e.by}-${e.what}`}>
-                {e.by} {e.what} (<Time at={e.at} />)
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+    <>
+      {tools ? createPortal(buttons, tools) : null}
       {notes && (stage ? createPortal(notes, stage) : notes)}
+      {together ? (
+        <section className="panel draft-bar" aria-label="Editing together">
+          <p>
+            <strong>Editing together</strong> · here now:{' '}
+            {people.length ? `you, ${people.map((p) => p.name).join(', ')}` : 'only you'}
+            {myTabs > 1 ? ' (you in other tabs too)' : ''}. Edits are shared at once.
+          </p>
+          <div className="draft-edits muted" aria-live="polite">
+            {newest ? (
+              <span className="draft-edits-newest">
+                {newest.by} {newest.what} (<Time at={newest.at} />)
+              </span>
+            ) : (
+              <span>What the others change shows here.</span>
+            )}
+            {edits.length > 1 ? (
+              <button
+                type="button"
+                className="link"
+                aria-expanded={earlier}
+                onClick={() => setEarlier((open) => !open)}
+              >
+                {edits.length - 1} earlier
+              </button>
+            ) : null}
+            {branchMoved ? (
+              <button type="button" className="link" onClick={() => setHidden(undefined)}>
+                The branch moved
+              </button>
+            ) : null}
+            {earlier && edits.length > 1 ? (
+              <ul className="plain draft-earlier panel">
+                {edits.slice(1).map((e) => (
+                  <li key={`${e.at}-${e.by}-${e.what}`}>
+                    {e.by} {e.what} (<Time at={e.at} />)
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
       {error ? (
-        <p className="notice error" role="alert">
+        <p className="notice error draft-error" role="alert">
           {error}
         </p>
       ) : null}
-      <div className="draft-actions">
-        {/* AFS-102: what the field is for, seen and not only read out. */}
-        <span className="muted small">Commit message</span>
-        <input
-          aria-label="What changed (the commit's message)"
-          placeholder={`Edit ${draft.file}`}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
-        <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
-          Save
-        </button>
-        <button type="button" disabled={busy} onClick={() => void leave()}>
-          Stop editing
-        </button>
-        <button type="button" className="danger" disabled={busy} onClick={() => void discard()}>
-          Discard
-        </button>
-      </div>
-    </section>
+    </>
+  );
+}
+
+/**
+ * AFS-165: "i" beside Full screen while editing: the commit the draft is of, and how editing in
+ * the pages goes (shared at once, Ctrl+Z, Ctrl+S, runs use saved flows). Closes on a click
+ * elsewhere or Escape.
+ */
+function DraftInfo({
+  draft,
+  branch,
+  link,
+}: {
+  draft: Draft;
+  branch: string;
+  link(commit: string): ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open]);
+  return (
+    <div className="more-menu" ref={box}>
+      <button
+        type="button"
+        className="icon-button"
+        aria-label="About this draft"
+        title="The commit this draft is of, and how saving goes"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name="info" />
+      </button>
+      {open && (
+        <div className="more-menu-list draft-info" role="status">
+          <p>
+            A draft of {branch} at {link(draft.baseCommit)}, begun <Time at={draft.createdAt} />.
+          </p>
+          <p>
+            Save (Ctrl+S) makes one commit on {branch} and ends the draft for everyone in it. Runs
+            use saved flows: save, then launch.
+          </p>
+          <p>
+            Edits are shared at once with anyone in the draft; Ctrl+Z takes back your own last one.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 

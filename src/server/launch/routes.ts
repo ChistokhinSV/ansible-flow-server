@@ -117,6 +117,7 @@ export function registerLaunch(
             error: e.code,
             message: e.message,
             ...(e.field ? { field: e.field } : {}),
+            ...(e.errors?.length ? { errors: e.errors } : {}),
           });
         throw e;
       }

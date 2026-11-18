@@ -5,7 +5,9 @@ import { parseFlow } from '@ansible-flow/core/flow/document';
 import { CURRENT_FORMAT, formatOf } from '@ansible-flow/core/flow/format';
 import { modelOf } from '@ansible-flow/core/flow/model';
 import { createSchemaValidator } from '@ansible-flow/core/flow/schema';
+import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { validateFlow } from '@ansible-flow/core/flow/validate';
+import type { FlowError } from './flowErrors';
 import type { LastRun } from './runs/cursor';
 
 export interface FlowSummary {
@@ -33,42 +35,75 @@ export interface FlowSummary {
 export const schemaIssues = createSchemaValidator();
 
 export function summarizeFlow(file: string, text: string): FlowSummary {
+  return checkFlow(file, text).summary;
+}
+
+/** At most this many errors are kept with a flow that cannot run (AFS-164). */
+const KEPT = 100;
+
+/**
+ * A flow file read and validated: its summary, the flow when it is one, and its errors with the
+ * step each is on (AFS-164: a flow that cannot run says where).
+ */
+export function checkFlow(
+  file: string,
+  text: string,
+): { summary: FlowSummary; doc?: FlowDocument; errors: FlowError[] } {
   const parsed = parseFlow(text);
   if (!parsed.doc)
     return {
-      file,
-      ok: false,
-      problem: parsed.errors[0]?.message ?? 'Not a flow file',
-      errors: 0,
-      warnings: 0,
+      summary: {
+        file,
+        ok: false,
+        problem: parsed.errors[0]?.message ?? 'Not a flow file',
+        errors: 0,
+        warnings: 0,
+      },
+      errors: [],
     };
   const doc = parsed.doc;
   const format = formatOf(doc);
   // A flow written by a newer designer may mean things this server does not know: it is not run.
   if (format > CURRENT_FORMAT)
     return {
-      file,
-      ok: false,
-      problem: `The flow is in format ${format}; this server reads up to format ${CURRENT_FORMAT}. Upgrade the server.`,
-      key: doc.flow?.key,
-      name: doc.flow?.name,
-      format,
-      errors: 0,
-      warnings: 0,
+      summary: {
+        file,
+        ok: false,
+        problem: `The flow is in format ${format}; this server reads up to format ${CURRENT_FORMAT}. Upgrade the server.`,
+        key: doc.flow?.key,
+        name: doc.flow?.name,
+        format,
+        errors: 0,
+        warnings: 0,
+      },
+      doc,
+      errors: [],
     };
   const { findings } = validateFlow(doc, schemaIssues(doc));
-  const steps = [...modelOf(doc).nodes.values()].filter(
+  const nodes = modelOf(doc).nodes;
+  const steps = [...nodes.values()].filter(
     (entry) => entry.node.type !== 'start' && entry.node.type !== 'end',
   ).length;
+  const errors = findings.filter((f) => f.severity === 'error');
   return {
-    file,
-    ok: true,
-    key: doc.flow.key,
-    name: doc.flow.name,
-    version: doc.flow.version,
-    format,
-    steps,
-    errors: findings.filter((f) => f.severity === 'error').length,
-    warnings: findings.filter((f) => f.severity === 'warning').length,
+    summary: {
+      file,
+      ok: true,
+      key: doc.flow.key,
+      name: doc.flow.name,
+      version: doc.flow.version,
+      format,
+      steps,
+      errors: errors.length,
+      warnings: findings.filter((f) => f.severity === 'warning').length,
+    },
+    doc,
+    errors: errors.slice(0, KEPT).map((f) => {
+      const step = f.node ? nodes.get(f.node)?.node : undefined;
+      return {
+        message: f.message,
+        ...(step ? { node: step.id, step: step.title || step.key || step.id } : {}),
+      };
+    }),
   };
 }

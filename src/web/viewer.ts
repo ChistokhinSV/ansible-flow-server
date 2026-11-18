@@ -6,6 +6,7 @@
 //                [&run=<run id>]      that run on the canvas, live while it goes
 //                [&draft=<draft id>]  AFS-76: the flow's draft, edited (viewerDraft.ts)
 //                [&tab=<id>]          AFS-149: the page (tab) around it, for a draft's Save
+//                [&node=<step id>]    AFS-164: that step selected and in view (a flow's error)
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
 // Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
@@ -13,6 +14,7 @@
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
+import { isSaveKey, SAVE_KEY } from './saveKey';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
 import { askName, chooseConfig, launcher } from './viewerLaunch';
@@ -23,6 +25,7 @@ const project = params.get('project') ?? '';
 const path = params.get('path') ?? '';
 const commit = params.get('commit') ?? '';
 const runId = params.get('run') ?? '';
+const node = params.get('node') ?? '';
 const wanted = params.get('theme');
 const theme = wanted === 'light' || wanted === 'dark' ? wanted : 'auto';
 const root = document.getElementById('root') as HTMLElement;
@@ -39,6 +42,19 @@ window.addEventListener(
     e.preventDefault();
     window.parent.postMessage({ type: 'afs-search-key' }, window.location.origin);
     // Before the canvas: it may keep the keys it reads to itself.
+  },
+  true,
+);
+
+// AFS-166: Ctrl+S in the canvas is the page's Ctrl+S (a draft's Save, on the flow's page around the
+// frame), and never the browser's Save page dialog. Before the canvas, which keeps keys to itself.
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!isSaveKey(e)) return;
+    e.preventDefault();
+    if (window.parent !== window && !e.repeat)
+      window.parent.postMessage({ type: SAVE_KEY }, window.location.origin);
   },
   true,
 );
@@ -110,6 +126,7 @@ async function start(): Promise<void> {
       theme,
       stateKey: `afs.draft.${draft}`,
       ...(params.get('tab') ? { tab: params.get('tab') as string } : {}),
+      ...(node ? { reveal: node } : {}),
     });
     return;
   }
@@ -340,6 +357,8 @@ async function start(): Promise<void> {
             send({ type: 'config', testMode: false, viewer: true, embed } as HostMessage);
             send({ type: 'catalogStatus', status: { state: 'idle' } });
             send({ type: 'snapshot', snapshot: flow.data.snapshot });
+            // AFS-164: the step a link names (an error on it): selected, its level open.
+            if (node) send({ type: 'reveal', node });
             if (runId) {
               void runs();
               showRun(runId, false);

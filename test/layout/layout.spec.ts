@@ -147,6 +147,11 @@ for (const [width, height] of SIZES)
       await page.setViewportSize({ width, height });
       await page.goto(stack.base + path);
       await expect(page.locator('main h1').first()).toBeVisible({ timeout: 45_000 });
+      // AFS-165: the draft open (the frame is the draft's from then on).
+      if (name === 'flowEdit')
+        await expect(page.getByRole('button', { name: 'Stop editing' })).toBeVisible({
+          timeout: 45_000,
+        });
       // The flow's canvas in the designer's frame: the room its panels leave it.
       const canvas = page.frameLocator('iframe.flow-frame').locator('.afd-center');
       // Attached, not visible: squeezed to no width is what is looked for.
@@ -175,6 +180,19 @@ for (const [width, height] of SIZES)
           found.push(
             `the canvas is ${Math.round(tall)}px tall in a ${Math.round(frame.height)}px frame`,
           );
+      }
+      // AFS-165: editing, the canvas is right under the head: no lines of text between, but the
+      // line about the others when someone else is in the draft (the other pages of this check
+      // open the same draft at once, so it may show here).
+      if (name === 'flowEdit') {
+        const head = await page.locator('main .page-head').first().boundingBox();
+        const together = page.getByRole('region', { name: 'Editing together' });
+        const others = (await together.count()) ? await together.boundingBox() : null;
+        const above = others ?? head;
+        const frame = await page.locator('iframe.flow-frame').boundingBox();
+        const gap = above && frame ? frame.y - (above.y + above.height) : 0;
+        if (gap > 32)
+          found.push(`editing, the canvas starts ${Math.round(gap)}px under what is over it`);
       }
       expect(found, `${path} at ${width}px`).toEqual([]);
     });
