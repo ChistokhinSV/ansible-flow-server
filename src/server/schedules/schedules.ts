@@ -57,7 +57,8 @@ export class ScheduleError extends Error {
 
 const invalid = (message: string, field?: string) => new ScheduleError('invalid', message, field);
 const iso = (d: Date) => d.toISOString();
-const COMMIT = /^[0-9a-f]{40}$/;
+// AFS-140: short as the pages show it, or full; the launch finds the full id when it runs.
+const COMMIT = /^[0-9a-f]{7,40}$/;
 /** A fire found later than this is one the server missed (it was down, or busy). */
 export const GRACE_MS = 2 * 60 * 1000;
 const UPCOMING = 3;
@@ -80,9 +81,27 @@ const pattern = (cron: string, tz: string) => {
   try {
     return new Cron(cron, { timezone: tz, paused: true });
   } catch (e) {
-    throw invalid(`The cron expression cannot be read: ${(e as Error).message}`, 'cron');
+    throw invalid(plainCron((e as Error).message), 'cron');
   }
 };
+
+/** AFS-140: the parts of a cron, with the values each takes. */
+const CRON_PARTS: Record<string, string> = {
+  second: '0 to 59',
+  minute: '0 to 59',
+  hour: '0 to 23',
+  day: '1 to 31',
+  month: '1 to 12',
+  weekday: '0 to 7, Sunday is 0 or 7',
+};
+
+/** AFS-140: why a cron cannot be read, in words (the cron library says it its own way). */
+export function plainCron(why: string): string {
+  const named = /for (second|minute|hour|dayOfWeek|day|month):/i.exec(why)?.[1]?.toLowerCase();
+  const part = named === 'dayofweek' ? 'weekday' : named;
+  if (part) return `The ${part} part is out of range: it takes ${CRON_PARTS[part]}.`;
+  return 'A cron is five parts: minute hour day month weekday, like 0 3 * * 1-5.';
+}
 
 /** The next `count` times a cron fires after `from`. */
 export function cronTimes(cron: string, tz: string, from: Date, count = 1): Date[] {
@@ -181,9 +200,11 @@ function settled(input: ScheduleInput, before?: Row) {
   if (mode !== null && mode !== 'check' && mode !== 'real')
     throw invalid('The mode is check or real', 'mode');
   const commit =
-    input.commit === undefined ? (before?.commit_id ?? null) : input.commit?.trim() || null;
+    input.commit === undefined
+      ? (before?.commit_id ?? null)
+      : input.commit?.trim().toLowerCase() || null;
   if (commit && !COMMIT.test(commit))
-    throw invalid('A pinned commit is its full 40-character id', 'commit');
+    throw invalid('A commit is its id: 7 to 40 hex digits, like c300821e56a6.', 'commit');
   const missed = input.missed ?? (before?.missed as MissedPolicy | undefined) ?? 'once';
   if (missed !== 'once' && missed !== 'skip')
     throw invalid('After downtime: once or skip', 'missed');

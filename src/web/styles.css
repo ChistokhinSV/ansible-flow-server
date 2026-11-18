@@ -2574,3 +2574,33 @@ fieldset.name-chips {
   margin: 0 0 0.25rem;
   color: var(--fg2);
 }
+
+/* AFS-140: forms. A field marked by a problem shows it under itself (Labelled, .bad-text); a
+   problem in a status line starts its own line, without the dot between items; the private key's
+   "Or a file:" stays on one line; a collection row's input carries its own problem; an LDAP
+   filter is a few lines of monospaced text. */
+.statusline > .bad-text::before {
+  content: none;
+}
+.file-pick {
+  white-space: nowrap;
+}
+.row-input {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.row-input > * {
+  width: 100%;
+}
+.row-input input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+.filter-text {
+  width: 100%;
+  min-height: 3.5rem;
+}
+.inline-form .bad-text {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+}

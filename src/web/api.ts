@@ -270,8 +270,10 @@ export const api = {
   startProject: (id: string, from: { sample: string } | File) =>
     call<Project>('POST', `/projects/${id}/start`, from),
   /** `gitCredential: null`: the source is read without signing in. */
-  changeProject: (id: string, input: { gitCredential?: string | null; gitRef?: string }) =>
-    call<Project>('PATCH', `/projects/${id}`, input),
+  changeProject: (
+    id: string,
+    input: { gitCredential?: string | null; gitRef?: string; gitUrl?: string },
+  ) => call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
   /** A push hook for the git host: its token (the secret GitHub signs with) is shown once. */
   makeHook: (id: string) =>

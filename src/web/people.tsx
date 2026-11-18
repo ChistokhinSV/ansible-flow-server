@@ -5,10 +5,22 @@
 // person's page starts with what they reach and ends with disable and delete; a group's page
 // starts with its members and the workspaces that name it.
 import { useEffect, useId, useState } from 'react';
+import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
 import { api, type Group, type User } from './api';
 import { Link, navigate } from './router';
 import { TokensPanel } from './tokens';
-import { Breadcrumb, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Field,
+  Form,
+  Loading,
+  messageOf,
+  PageHead,
+  refuse,
+  Tabs,
+  Time,
+  useLoad,
+} from './ui';
 
 type Kind = 'person' | 'admin' | 'service';
 
@@ -42,6 +54,12 @@ function AddPerson({ onAdded, onCancel }: { onAdded(user: User): void; onCancel(
       submit="Add"
       onCancel={onCancel}
       onSubmit={async () => {
+        // AFS-140: the rules are checked here first, all said under the field.
+        const problem =
+          input.kind !== 'service' && input.password
+            ? passwordProblem(input.password, input.login.trim())
+            : undefined;
+        if (problem) refuse('password', `${problem}.`);
         onAdded(
           await api.addUser({
             login: input.login.trim(),
@@ -79,11 +97,12 @@ function AddPerson({ onAdded, onCancel }: { onAdded(user: User): void; onCancel(
       {input.kind !== 'service' && (
         <Field
           label="Password"
+          name="password"
           type="password"
           autoComplete="new-password"
           value={input.password}
           onChange={set('password')}
-          hint="Without one they cannot sign in until you set it on their page."
+          hint={`${PASSWORD_RULES} Without one they cannot sign in until you set it on their page.`}
         />
       )}
       <Field
@@ -395,6 +414,8 @@ function SetPassword({ user }: { user: User }) {
         submit="Set password"
         onSubmit={async () => {
           setDone(false);
+          const problem = passwordProblem(password, user.login);
+          if (problem) refuse('password', `${problem}.`);
           await api.setUserPassword(user.id, password);
           setPassword('');
           setDone(true);
@@ -402,6 +423,7 @@ function SetPassword({ user }: { user: User }) {
       >
         <Field
           label="New password"
+          name="password"
           type="password"
           autoComplete="new-password"
           value={password}
@@ -410,7 +432,7 @@ function SetPassword({ user }: { user: User }) {
             setDone(false);
           }}
           required
-          hint="Their sessions end. Tell them the password; they can change it on My account."
+          hint={`${PASSWORD_RULES} Their sessions end. Tell them the password; they can change it on My account.`}
         />
         {done && (
           <p className="notice ok" role="status">

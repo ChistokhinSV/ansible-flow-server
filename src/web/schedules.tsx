@@ -2,9 +2,16 @@
 // and how the last fire went; rw on the flow adds, changes, pauses and deletes them; an
 // administrator hands one to a service account. The cron's next times are shown as it is typed.
 import { useEffect, useId, useState } from 'react';
-import { api, type LaunchForm, type Schedule, type ScheduleInput, type User } from './api';
+import {
+  ApiError,
+  api,
+  type LaunchForm,
+  type Schedule,
+  type ScheduleInput,
+  type User,
+} from './api';
 import { Link } from './router';
-import { Field, Loading, messageOf, Time, useLoad } from './ui';
+import { COMMIT_PATTERN, COMMIT_TITLE, Field, Form, Loading, messageOf, Time, useLoad } from './ui';
 
 const RESULT_TONE: Record<string, string> = {
   ok: 'ok',
@@ -26,30 +33,41 @@ const localInput = (iso?: string) => {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 
-/** The next times a cron fires, looked up as it is typed (a moment after the last key). */
-function CronPreview({ cron, timezone }: { cron: string; timezone: string }) {
-  const [state, setState] = useState<{ times?: string[]; error?: string }>({});
+/**
+ * The next times a cron fires, looked up as it is typed (a moment after the last key). AFS-140:
+ * what is wrong is given back with the field it is about (the cron or the time zone), for that
+ * field to show.
+ */
+function useCronTimes(cron: string, timezone: string) {
+  const [state, setState] = useState<{
+    times?: string[];
+    problem?: { field: string; message: string };
+  }>({});
   useEffect(() => {
     if (!cron.trim()) return setState({});
     const timer = setTimeout(() => {
       api.scheduleTimes(cron.trim(), timezone.trim() || 'UTC').then(
         (r) => setState({ times: r.times }),
-        (e) => setState({ error: messageOf(e) }),
+        (e) =>
+          setState({
+            problem: {
+              field: e instanceof ApiError && e.details.field === 'timezone' ? 'timezone' : 'cron',
+              message: messageOf(e),
+            },
+          }),
       );
     }, 400);
     return () => clearTimeout(timer);
   }, [cron, timezone]);
-  if (state.error)
-    return (
-      <p className="bad-text" role="status">
-        {state.error}
-      </p>
-    );
-  if (!state.times) return null;
+  return state;
+}
+
+function CronPreview({ times }: { times?: string[] }) {
+  if (!times) return null;
   return (
     <p className="muted" role="status">
       Next:{' '}
-      {state.times.slice(0, 3).map((t, i) => (
+      {times.slice(0, 3).map((t, i) => (
         <span key={t}>
           {i > 0 && ', '}
           <Time at={t} />
@@ -84,22 +102,20 @@ function ScheduleForm({
     overlap: editing?.overlap ?? 'skip',
   });
   const [inputs, setInputs] = useState<Record<string, string>>(editing?.inputs ?? {});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; field?: string }>();
   const ids = { kind: useId(), mode: useId(), missed: useId(), overlap: useId() };
   const set = (key: keyof typeof input) => (e: { target: { value: string } }) =>
     setInput((before) => ({ ...before, [key]: e.target.value }));
   // A schedule runs with nobody to type a secret: those inputs are not offered.
   const fields = (form?.fields ?? []).filter((f) => !f.secret);
-  const at = (field: string) => (error?.field === field ? error.message : undefined);
+  const preview = useCronTimes(input.kind === 'cron' ? input.cron : '', input.timezone);
+  const live = (field: string) =>
+    preview.problem?.field === field ? preview.problem.message : undefined;
   return (
-    <form
-      className="form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (busy) return;
-        setBusy(true);
-        setError(undefined);
+    <Form
+      open
+      submit={editing ? 'Save' : 'Add schedule'}
+      onCancel={onCancel}
+      onSubmit={async () => {
         const body: ScheduleInput = {
           name: input.name.trim(),
           kind: input.kind,
@@ -113,19 +129,19 @@ function ScheduleForm({
           overlap: input.overlap as 'skip' | 'queue',
           inputs: Object.fromEntries(Object.entries(inputs).filter(([, v]) => v.trim() !== '')),
         };
-        try {
-          if (editing) await api.changeSchedule(config, editing.id, body);
-          else await api.addSchedule(config, body);
-          onDone();
-        } catch (err) {
-          const field = (err as { details?: { field?: string } }).details?.field;
-          setError({ message: messageOf(err), ...(field ? { field } : {}) });
-        } finally {
-          setBusy(false);
-        }
+        if (editing) await api.changeSchedule(config, editing.id, body);
+        else await api.addSchedule(config, body);
+        onDone();
       }}
     >
-      <Field label="Name" value={input.name} onChange={set('name')} required maxLength={100} />
+      <Field
+        label="Name"
+        name="name"
+        value={input.name}
+        onChange={set('name')}
+        required
+        maxLength={100}
+      />
       <div className="field">
         <label htmlFor={ids.kind}>Runs</label>
         <select id={ids.kind} value={input.kind} onChange={set('kind')}>
@@ -137,18 +153,20 @@ function ScheduleForm({
         <>
           <Field
             label="Cron"
+            name="cron"
             value={input.cron}
             onChange={set('cron')}
             required
             spellCheck={false}
+            problem={live('cron')}
             hint="minute hour day month weekday: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute."
           />
-          {at('cron') && <p className="bad-text">{at('cron')}</p>}
-          <CronPreview cron={input.cron} timezone={input.timezone} />
+          <CronPreview times={preview.times} />
         </>
       ) : (
         <Field
           label="At"
+          name="onceAt"
           type="datetime-local"
           value={input.onceAt}
           onChange={set('onceAt')}
@@ -158,9 +176,11 @@ function ScheduleForm({
       )}
       <Field
         label="Time zone"
+        name="timezone"
         value={input.timezone}
         onChange={set('timezone')}
         required
+        problem={live('timezone')}
         hint="Like Europe/Berlin or UTC: summer time is followed."
       />
       <div className="field">
@@ -173,11 +193,13 @@ function ScheduleForm({
       </div>
       <Field
         label="Pinned commit"
+        name="commit"
         value={input.commit}
         onChange={set('commit')}
-        pattern="[0-9a-f]{40}"
+        pattern={COMMIT_PATTERN}
+        title={COMMIT_TITLE}
         spellCheck={false}
-        hint="Empty: the newest commit of the configuration's branch when it fires."
+        hint="As shown here (12 digits) or in full. Empty: the newest commit of the configuration's branch when it fires."
       />
       {fields.length > 0 && (
         <fieldset>
@@ -209,20 +231,7 @@ function ScheduleForm({
           <option value="queue">queue another behind it</option>
         </select>
       </div>
-      {error && (
-        <p className="notice error" role="alert">
-          {error.message}
-        </p>
-      )}
-      <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>
-          {busy ? 'Working…' : editing ? 'Save' : 'Add schedule'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={busy}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    </Form>
   );
 }
 

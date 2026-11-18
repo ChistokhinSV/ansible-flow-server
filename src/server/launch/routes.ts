@@ -70,7 +70,7 @@ const REQUEST = {
   properties: {
     mode: CONFIG.mode,
     ref: text(200, 1),
-    commit: text(40, 40),
+    commit: text(40, 7),
     // AFS-26: a dev bundle's id: its commit runs, in check mode only.
     dev: text(64, 1),
     limit: text(500),
@@ -241,7 +241,7 @@ export function registerLaunch(
         querystring: {
           type: 'object',
           additionalProperties: false,
-          properties: { mode: CONFIG.mode, ref: text(200, 1), commit: text(40, 40) },
+          properties: { mode: CONFIG.mode, ref: text(200, 1), commit: text(40, 7) },
         },
       },
     },
@@ -469,7 +469,7 @@ export function registerLaunch(
       if (
         (body.dev ||
           (body.ref && body.ref !== config.gitRef) ||
-          (body.commit && body.commit !== config.commit)) &&
+          (body.commit && !config.commit?.startsWith(body.commit.toLowerCase()))) &&
         !(await mayManage(request, reply, config.project, config.flowFile))
       )
         return reply;

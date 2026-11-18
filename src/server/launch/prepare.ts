@@ -15,7 +15,7 @@ import { environmentImage } from '../environments/image';
 import { type Git, GitError, refProblem } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
-import { COMMIT, flowAt, type LaunchConfig, type RunMode } from './configs';
+import { flowAt, fullCommit, type LaunchConfig, type RunMode } from './configs';
 
 /** What a launch may say beyond its configuration. */
 export interface LaunchRequest {
@@ -113,10 +113,9 @@ export async function prepareLaunch(
   const ref = request.ref ?? (request.commit ? undefined : config.gitRef);
   let commit: string;
   if (pinned) {
-    if (!COMMIT.test(pinned)) return fail('A commit is its full 40-character id', 'commit');
-    if (!(await deps.git.hasCommit(project.id, pinned)))
-      return fail(`The repository has no commit ${pinned.slice(0, 12)}`, 'commit');
-    commit = pinned;
+    const found = await fullCommit(deps.git, project.id, pinned);
+    if ('problem' in found) return fail(found.problem, 'commit');
+    commit = found.commit;
   } else if (ref) {
     const problem = refProblem(ref);
     if (problem) return fail(problem, 'ref');

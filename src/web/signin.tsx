@@ -207,8 +207,23 @@ function ProviderForm({
           onChange={(e) => set({ key: e.target.value.toLowerCase() })}
           required
           pattern="[a-z0-9][a-z0-9-]{0,39}"
+          title="Lower-case letters, digits and dashes, up to 40"
           hint="In the sign-in address; lower-case letters, digits and dashes"
         />
+        {/* AFS-140: the address the provider is told about, while it is added (it follows the key). */}
+        {!d.id && /^[a-z0-9][a-z0-9-]{0,39}$/.test(d.key ?? '') && (
+          <div className="field">
+            <span>Redirect address</span>
+            <Copyable
+              text={`${window.location.origin}/api/v1/auth/oidc/${encodeURIComponent(d.key ?? '')}/callback`}
+              label="the redirect address"
+            />
+            <small className="muted">
+              Give it to the provider as the redirect (callback) address. A server set up with
+              another public address shows that one once the provider is added.
+            </small>
+          </div>
+        )}
         <Field
           label="Issuer"
           value={d.issuer}

@@ -260,11 +260,11 @@ for (const [name, config] of databases) {
         /name of 1 to 100/,
       );
       expect(await make({ name: 'a', kind: 'login', secret: { password: 'p' } })).toMatch(
-        /needs username/,
+        /needs a user name/,
       );
       expect(
         await make({ name: 'a', kind: 'login', fields: { username: 'u' }, secret: {} }),
-      ).toMatch(/needs password/);
+      ).toMatch(/needs a password/);
       expect(
         await make({ name: 'a', kind: 'vault', secret: { password: 'p', token: 't' } }),
       ).toMatch(/no secret "token"/);
@@ -279,6 +279,50 @@ for (const [name, config] of databases) {
         /not a variable name/,
       );
       expect(await make({ name: 'a', kind: 'nope' as never, secret: {} })).toMatch(/no kind nope/);
+      // AFS-140: the visible fields are checked, with the field each problem is about.
+      const at = (input: Parameters<typeof createCredential>[3]) =>
+        createCredential(db(), key, workspace, input).then(
+          () => 'done',
+          (e: { field?: string; message: string }) => `${e.field}: ${e.message}`,
+        );
+      expect(
+        await at({
+          name: 'a',
+          kind: 'become',
+          fields: { method: 'notamethod!!' },
+          secret: { password: 'p' },
+        }),
+      ).toMatch(/^method: A become method is a name/);
+      expect(
+        await at({
+          name: 'a',
+          kind: 'registry',
+          fields: { host: 'https://bad host/with path', username: 'u' },
+          secret: { password: 'p' },
+        }),
+      ).toMatch(/^host: A registry host is a name/);
+      expect(
+        await at({ name: 'a', kind: 'awx', fields: { url: 'not a url' }, secret: { token: 't' } }),
+      ).toMatch(/^url: An AWX address starts with https:\/\//);
+      expect(
+        await at({
+          name: 'a',
+          kind: 'vault',
+          fields: { vaultId: 'prod id' },
+          secret: { password: 'p' },
+        }),
+      ).toMatch(/^vaultId: A vault id is one word/);
+      expect(await at({ name: 'a', kind: 'ssh_key', secret: { privateKey: 'not a key' } })).toMatch(
+        /^privateKey: This is not a private key/,
+      );
+      expect(
+        await at({
+          name: 'a',
+          kind: 'become',
+          fields: { method: 'community.general.doas' },
+          secret: { password: 'p' },
+        }),
+      ).toBe('done');
       // What was refused is in no message.
       expect(
         await make({ name: 'a', kind: 'ssh_key', secret: { privateKey: 'S3CR3T' } }),
@@ -317,7 +361,7 @@ for (const [name, config] of databases) {
         secret: { token: 'second' },
       });
       expect(await refused(() => updateCredential(db(), key, made.id, { secret: {} }))).toMatch(
-        /needs token/,
+        /needs a token/,
       );
       await createCredential(db(), key, workspace, {
         name: 'other',

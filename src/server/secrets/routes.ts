@@ -54,7 +54,9 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
         return await handler(request, reply);
       } catch (e) {
         if (e instanceof CredentialError)
-          return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
+          return reply
+            .code(STATUS[e.code])
+            .send({ error: e.code, message: e.message, ...(e.field ? { field: e.field } : {}) });
         if (e instanceof SealError) {
           request.log.error({ why: e.message }, 'A stored secret could not be opened');
           return reply.code(500).send({

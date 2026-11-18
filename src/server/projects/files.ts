@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { defaultMessage } from './changeWords';
 import { type Git, GitError, MAX_FILE_BYTES, refProblem, type TreeEntry } from './git';
 import { archiveFiles, MAX_FILES } from './start';
 import { type Project, recordPushes } from './store';
@@ -328,9 +329,8 @@ export async function saveFiles(
       .select('email')
       .where('id', '=', by.id)
       .executeTakeFirst();
-    const subject =
-      input.message?.trim() ||
-      (touched.length === 1 ? `Edit ${touched[0]}` : `Edit ${touched.length} files`);
+    // AFS-140: without a message, the words the page showed as its placeholder.
+    const subject = input.message?.trim() || defaultMessage(changes);
     const commit = await deps.git.commitChanges(project.id, {
       parent: head.commit,
       writes,

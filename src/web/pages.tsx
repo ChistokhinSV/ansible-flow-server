@@ -26,6 +26,7 @@ import {
   Loading,
   messageOf,
   PageHead,
+  refuse,
   Tabs,
   Time,
   useLoad,
@@ -49,6 +50,7 @@ export function Workspaces({ me }: { me: User }) {
       {adding && (
         <section className="panel sheet" aria-label="Add workspace">
           <Form
+            open
             submit="Add"
             onCancel={() => setAdding(false)}
             onSubmit={async () => {
@@ -66,14 +68,16 @@ export function Workspaces({ me }: { me: User }) {
                 })
               }
               required
-              autoFocus
             />
             <Field
               label="Key"
+              name="key"
+              maxLength={63}
               value={input.key}
               onChange={(e) => setInput({ ...input, key: e.target.value })}
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+              title="Lower-case letters, digits and dashes, not starting or ending with a dash"
               hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
             />
           </Form>
@@ -167,6 +171,8 @@ export function ProjectStatus({ project, me, base }: { project: Project; me: Use
 
 /** AFS-58: why the archive a project was made with was refused, for its page to say. */
 let startRefusal: string | undefined;
+/** AFS-140: why a new project's source could not be read, for its Settings to say. */
+let sourceRefusal: string | undefined;
 
 /** AFS-58: what an empty hosted project starts with: a sample, or an archive of files. */
 function StartChoice({
@@ -246,6 +252,7 @@ function StartChoice({
           <label htmlFor="start-archive">Archive</label>
           <input
             id="start-archive"
+            name="archive"
             type="file"
             accept=".zip,.tar.gz,.tgz,application/zip,application/gzip"
             onChange={(e) => onChange({ ...value, archive: e.target.files?.[0] })}
@@ -313,12 +320,13 @@ export function Workspace({
       {adding && tab === '' && (
         <section className="panel sheet" aria-label="Add project">
           <Form
+            open
             submit="Add"
             onCancel={() => setAdding(false)}
             onSubmit={async () => {
               const archive = input.hosted && start.from === 'archive' ? start.archive : undefined;
               if (input.hosted && start.from === 'archive' && !archive)
-                throw new Error('Choose the archive to start with');
+                refuse('archive', 'Choose the archive to start with.');
               const made = await api.addProject(workspace, {
                 key: input.key,
                 name: input.name,
@@ -335,11 +343,17 @@ export function Workspace({
                 await api.startProject(made.id, archive).catch((e: Error) => {
                   startRefusal = e.message;
                 });
-              navigate(`/w/${workspace}/${made.key}`);
+              // AFS-140: a source that does not answer is said at once, where it can be fixed.
+              if (made.sync.state === 'error') sourceRefusal = made.sync.error;
+              navigate(
+                `/w/${workspace}/${made.key}${made.sync.state === 'error' ? '/settings' : ''}`,
+              );
             }}
           >
             <Field
               label="Name"
+              name="name"
+              maxLength={200}
               value={input.name}
               onChange={(e) =>
                 setInput({
@@ -349,14 +363,16 @@ export function Workspace({
                 })
               }
               required
-              autoFocus
             />
             <Field
               label="Key"
+              name="key"
+              maxLength={63}
               value={input.key}
               onChange={(e) => setInput({ ...input, key: e.target.value })}
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+              title="Lower-case letters, digits and dashes, not starting or ending with a dash"
               hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
             />
             <fieldset>
@@ -384,6 +400,7 @@ export function Workspace({
             {!input.hosted && (
               <Field
                 label="Repository address"
+                name="gitUrl"
                 value={input.gitUrl}
                 onChange={(e) => setInput({ ...input, gitUrl: e.target.value })}
                 required
@@ -687,6 +704,85 @@ function FlowNews({ news, onDismiss }: { news: FlowChanges; onDismiss: () => voi
   );
 }
 
+/** AFS-140: what a project's first commit holds, for the page to say once it switches. */
+let startedNote: string | undefined;
+
+/** AFS-140: the files of a first commit in words, and what to do with its playbooks. */
+async function startedWords(project: Project): Promise<string> {
+  const files = project.commit
+    ? (await api.files(project.id, project.gitRef).catch(() => undefined))?.files.map((f) => f.path)
+    : undefined;
+  if (!files) return 'The project has started.';
+  const flows = files.filter((f) => f.endsWith('.flow.yaml')).length;
+  const playbooks = files.filter(
+    (f) => /\.ya?ml$/.test(f) && !f.endsWith('.flow.yaml') && /(^|\/)playbooks?\/|^[^/]+$/.test(f),
+  ).length;
+  const counted = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  return [
+    `The project has started: ${counted(files.length, 'file')}, ${counted(flows, 'flow')}.`,
+    playbooks && !flows
+      ? `${counted(playbooks, 'YAML file')} may be playbooks: make a New flow and start it from one.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** AFS-140: the note of a project that has just started, said once on its page. */
+function StartedNote() {
+  const [note] = useState(() => {
+    const said = startedNote;
+    startedNote = undefined;
+    return said;
+  });
+  return note ? (
+    <p className="notice" role="status">
+      {note}
+    </p>
+  ) : null;
+}
+
+/** AFS-140: why a project's source could not be read when it was added, said once. */
+function SourceRefusal() {
+  const [said] = useState(() => {
+    const why = sourceRefusal;
+    sourceRefusal = undefined;
+    return why;
+  });
+  return said ? (
+    <p className="notice error" role="alert">
+      The project was added, but its source cannot be read: {said} Check the address and what it
+      signs in with below.
+    </p>
+  ) : null;
+}
+
+/** AFS-140: the address of an external project's source, changed by administrators. */
+function SourceAddress({ project, onSaved }: { project: Project; onSaved(): void }) {
+  const [url, setUrl] = useState(project.gitUrl ?? '');
+  return (
+    <Form
+      quiet
+      submit="Change the address and look"
+      onSubmit={async () => {
+        if (url.trim() === project.gitUrl) refuse('gitUrl', 'This is the address already.');
+        await api.changeProject(project.id, { gitUrl: url.trim() });
+        onSaved();
+      }}
+    >
+      <Field
+        label="Repository address"
+        name="gitUrl"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        required
+        spellCheck={false}
+        hint="https://, ssh:// or git@host:path. The project's commit is read again from it."
+      />
+    </Form>
+  );
+}
+
 /** AFS-58: an empty hosted project gets its first commit from a sample or an archive. */
 function StartPanel({ project, onStarted }: { project: Project; onStarted(): void }) {
   const [start, setStart] = useState<{
@@ -694,7 +790,7 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
     sample: string;
     archive?: File;
   }>({ from: 'sample', sample: 'hello' });
-  const [refused] = useState(() => {
+  const [refused, setRefused] = useState(() => {
     const said = startRefusal;
     startRefusal = undefined;
     return said;
@@ -714,16 +810,26 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
       <Form
         submit="Start"
         onSubmit={async () => {
+          let started: Project;
           if (start.from === 'archive') {
-            if (!start.archive) throw new Error('Choose the archive to start with');
-            await api.startProject(project.id, start.archive);
+            if (!start.archive) return refuse('archive', 'Choose the archive to start with.');
+            started = await api.startProject(project.id, start.archive);
           } else if (start.from === 'sample')
-            await api.startProject(project.id, { sample: start.sample });
+            started = await api.startProject(project.id, { sample: start.sample });
           else return;
+          startedNote = await startedWords(started);
           onStarted();
         }}
       >
-        <StartChoice value={start} onChange={setStart} empty={false} />
+        <StartChoice
+          value={start}
+          onChange={(v) => {
+            // AFS-140: the refusal of the archive before goes once another is chosen.
+            setRefused(undefined);
+            setStart(v);
+          }}
+          empty={false}
+        />
       </Form>
     </section>
   );
@@ -1054,10 +1160,25 @@ export function ProjectPage({
     return () => events.close();
   }, [id, found.reload]);
   const [looking, setLooking] = useState(false);
+  // AFS-140: what the look found, said beside the button (not only a new time).
+  const [looked, setLooked] = useState<{ ok: boolean; text: string }>();
   const look = async () => {
     if (!id) return;
     setLooking(true);
-    await api.syncProject(id).catch(() => undefined);
+    setLooked(undefined);
+    const after = await api.syncProject(id).catch((e) => messageOf(e));
+    setLooked(
+      typeof after === 'string'
+        ? { ok: false, text: after }
+        : after.sync.state === 'error'
+          ? { ok: false, text: `The source cannot be read: ${after.sync.error ?? 'no answer'}` }
+          : {
+              ok: true,
+              text: after.commit
+                ? `The source answered: ${after.gitRef} is at ${after.commit.slice(0, 12)}.`
+                : 'The source answered.',
+            },
+    );
     setLooking(false);
     found.reload();
     branchList.reload();
@@ -1104,6 +1225,11 @@ export function ProjectPage({
         )}
       </PageHead>
       <ProjectStatus project={project} me={me} base={base} />
+      {looked && (
+        <p className={looked.ok ? 'notice' : 'notice error'} role="status">
+          {looked.text}
+        </p>
+      )}
       <Tabs
         label="Project"
         base={base}
@@ -1127,6 +1253,7 @@ export function ProjectPage({
           {project.hosted && !project.commit && mayPush && (
             <StartPanel project={project} onStarted={found.reload} />
           )}
+          {project.commit && <StartedNote />}
 
           <LaunchConfigsSection me={me} workspace={workspace} project={project} />
 
@@ -1274,6 +1401,7 @@ export function ProjectPage({
           {!project.hosted && (
             <section className="panel" aria-labelledby="source">
               <h2 id="source">Source</h2>
+              <SourceRefusal />
               <dl className="facts">
                 <dt>Repository</dt>
                 <dd>
@@ -1282,8 +1410,10 @@ export function ProjectPage({
                 <dt>Last look</dt>
                 <dd>
                   <SyncBadge project={project} /> {project.sync.at && <Time at={project.sync.at} />}
+                  {project.sync.error && <div className="bad-text">{project.sync.error}</div>}
                 </dd>
               </dl>
+              {me.admin && <SourceAddress project={project} onSaved={found.reload} />}
               {sshUrl(project.gitUrl) && (
                 <HostKey project={project} admin={me.admin} onChanged={found.reload} />
               )}

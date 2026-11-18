@@ -2,10 +2,24 @@
 // what a launch gets now, what that image holds, its spec (collections with a version, a range or
 // latest; pip and Debian packages; certificates), Build, the builds with their logs (followed while
 // one goes), the ansible-builder file, and Delete. rw on the workspace changes and builds; ro reads.
-import { useCallback, useEffect, useId, useState } from 'react';
+import { type InputHTMLAttributes, useCallback, useEffect, useId, useState } from 'react';
+import { collectionProblem } from '../server/environments/collections';
 import { api, type Environment, type EnvironmentBuild, type EnvironmentSpec } from './api';
 import { Link, navigate } from './router';
-import { Breadcrumb, Field, Fold, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Field,
+  Fold,
+  Form,
+  Labelled,
+  Loading,
+  messageOf,
+  PageHead,
+  refuse,
+  Time,
+  useFieldProblem,
+  useLoad,
+} from './ui';
 
 const STATE_TONE: Record<string, string> = {
   done: 'ok',
@@ -178,6 +192,32 @@ function specBody(
 /** Saves the spec form's changes; given to the page while there are unsaved ones (AFS-92). */
 export type SaveSpec = () => Promise<Environment>;
 
+/** AFS-140: a collection row's input, marked with the problem the form's refusal has about it. */
+function RowInput(props: InputHTMLAttributes<HTMLInputElement> & { name: string }) {
+  const problem = useFieldProblem(props.name);
+  const id = useId();
+  return (
+    <span className="row-input">
+      <input
+        {...props}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={problem ? `${id}-problem` : undefined}
+      />
+      {problem && (
+        <small id={`${id}-problem`} className="bad-text">
+          {problem}
+        </small>
+      )}
+    </span>
+  );
+}
+
+/** AFS-140: the server's refusal about the collections as a whole, said above them. */
+function CollectionsProblem() {
+  const problem = useFieldProblem('collections');
+  return problem ? <p className="bad-text">{problem}</p> : null;
+}
+
 function SpecForm({
   env,
   onSaved,
@@ -200,7 +240,6 @@ function SpecForm({
   const [keep, setKeep] = useState(env.keep);
   const [saved, setSaved] = useState(false);
   const [more, setMore] = useState(!!spec.caCertificates);
-  const ids = { python: useId(), system: useId(), ca: useId() };
   const set = (i: number, part: 'name' | 'version', v: string) =>
     setCollections(collections.map((c, j) => (j === i ? { ...c, [part]: v } : c)));
   const body = specBody(keep, {
@@ -227,6 +266,14 @@ function SpecForm({
       submit="Save the spec"
       onSubmit={async () => {
         setSaved(false);
+        // AFS-140: a wrong row is said at its name or version, before the server is asked.
+        const seen = new Set<string>();
+        for (const [i, c] of collections.entries()) {
+          if (!c.name.trim()) continue;
+          const problem = collectionProblem(c, seen);
+          if (problem) refuse(`collection-${problem.part}-${i}`, problem.message);
+          seen.add(c.name);
+        }
         await save();
         setSaved(true);
       }}
@@ -234,6 +281,7 @@ function SpecForm({
       <div className="pair">
         <Field
           label="ansible-core"
+          name="ansibleCore"
           value={core}
           onChange={(e) => setCore(e.target.value)}
           required
@@ -253,6 +301,7 @@ function SpecForm({
           under it. */}
       <fieldset className="spec-collections">
         <legend>Collections</legend>
+        <CollectionsProblem />
         {collections.length > 0 && (
           <div className="spec-rows">
             <div className="spec-row spec-head" aria-hidden="true">
@@ -263,14 +312,16 @@ function SpecForm({
             {collections.map((c, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity but their place
               <div key={i} className="spec-row">
-                <input
+                <RowInput
+                  name={`collection-name-${i}`}
                   aria-label={`Collection ${i + 1}`}
                   value={c.name}
                   onChange={(e) => set(i, 'name', e.target.value)}
                   placeholder="cisco.ios"
                   spellCheck={false}
                 />
-                <input
+                <RowInput
+                  name={`collection-version-${i}`}
                   aria-label={`Version ${i + 1}`}
                   value={c.version}
                   onChange={(e) => set(i, 'version', e.target.value)}
@@ -305,59 +356,69 @@ function SpecForm({
         </small>
       </fieldset>
       <div className="pair">
-        <div className="field">
-          <label htmlFor={ids.python}>Python packages</label>
-          <textarea
-            id={ids.python}
-            rows={4}
-            className="mono"
-            value={python}
-            onChange={(e) => setPython(e.target.value)}
-            spellCheck={false}
-            placeholder="netaddr>=1.3"
-          />
-          <small className="muted">One per line, as pip reads them: a name and versions.</small>
-        </div>
-        <div className="field">
-          <label htmlFor={ids.system}>Debian packages</label>
-          <textarea
-            id={ids.system}
-            rows={4}
-            className="mono"
-            value={system}
-            onChange={(e) => setSystem(e.target.value)}
-            spellCheck={false}
-            placeholder="iputils-ping"
-          />
-          <small className="muted">One per line, as apt names them.</small>
-        </div>
+        <Labelled
+          label="Python packages"
+          name="python"
+          hint="One per line, as pip reads them: a name and versions."
+        >
+          {(props) => (
+            <textarea
+              {...props}
+              name="python"
+              rows={4}
+              className="mono"
+              value={python}
+              onChange={(e) => setPython(e.target.value)}
+              spellCheck={false}
+              placeholder="netaddr>=1.3"
+            />
+          )}
+        </Labelled>
+        <Labelled label="Debian packages" name="system" hint="One per line, as apt names them.">
+          {(props) => (
+            <textarea
+              {...props}
+              name="system"
+              rows={4}
+              className="mono"
+              value={system}
+              onChange={(e) => setSystem(e.target.value)}
+              spellCheck={false}
+              placeholder="iputils-ping"
+            />
+          )}
+        </Labelled>
       </div>
       {/* Rarely changed: folded until asked for, open when certificates are set. */}
       <Fold summary="Base image and certificate authorities" open={more} onToggle={setMore}>
         <div className="form wide">
           <Field
             label="Base image"
+            name="baseImage"
             value={base}
             onChange={(e) => setBase(e.target.value)}
             required
             spellCheck={false}
             hint="A Debian-based Python image; the default is the one afd-ee uses."
           />
-          <div className="field">
-            <label htmlFor={ids.ca}>Extra certificate authorities</label>
-            <textarea
-              id={ids.ca}
-              rows={4}
-              className="mono"
-              value={ca}
-              onChange={(e) => setCa(e.target.value)}
-              spellCheck={false}
-              placeholder="-----BEGIN CERTIFICATE-----"
-            />
-            <small className="muted">
-              PEM. Trusted in the image: by pip, ansible-galaxy and the hosts runs reach.
-            </small>
-          </div>
+          <Labelled
+            label="Extra certificate authorities"
+            name="caCertificates"
+            hint="PEM. Trusted in the image: by pip, ansible-galaxy and the hosts runs reach."
+          >
+            {(props) => (
+              <textarea
+                {...props}
+                name="caCertificates"
+                rows={4}
+                className="mono"
+                value={ca}
+                onChange={(e) => setCa(e.target.value)}
+                spellCheck={false}
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+            )}
+          </Labelled>
         </div>
       </Fold>
       {saved && (
@@ -515,6 +576,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
   const builds = useLoad(() => api.environmentBuilds(id), [id]);
   const [env, setEnv] = useState<Environment>();
   const [error, setError] = useState<string>();
+  const [deleteError, setDeleteError] = useState<string>();
   useEffect(() => setEnv(load.data), [load.data]);
   const level = space.data?.level;
   const mayManage = level === 'admin' || level === 'rw';
@@ -695,29 +757,36 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
           <p className="muted">
             Its builds and their images go with it.
             {env.usedBy
-              ? ` ${env.usedBy} launch configuration${env.usedBy === 1 ? ' uses' : 's use'} it.`
+              ? ` ${env.usedBy} launch configuration${env.usedBy === 1 ? ' uses' : 's use'} it: give ${env.usedBy === 1 ? 'it' : 'them'} another environment first.`
               : ''}
           </p>
           <button
             type="button"
             className="danger"
+            // AFS-140: refused while in use, with the reason beside it, not at the top of the page.
+            disabled={!!env.usedBy}
             onClick={async () => {
               if (
                 !window.confirm(`Delete the environment ${env.name}, its builds and their images?`)
               )
                 return;
-              setError(undefined);
+              setDeleteError(undefined);
               try {
                 await api.deleteEnvironment(env.id);
                 // AFS-134: back to the list it was on, not the workspace's projects.
                 navigate(`/w/${workspace}/-/environments`);
               } catch (e) {
-                setError(messageOf(e));
+                setDeleteError(messageOf(e));
               }
             }}
           >
             Delete the environment
           </button>
+          {deleteError && (
+            <p className="notice error" role="alert">
+              {deleteError}
+            </p>
+          )}
         </section>
       )}
     </>

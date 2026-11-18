@@ -17,9 +17,51 @@ const subscribe = (listener: () => void) => {
   };
 };
 
+/**
+ * AFS-140: forms with typing not sent yet. Leaving the page (a link, a tab, Back, closing the tab)
+ * asks first, so what was typed is not lost without a word.
+ */
+const unsaved = new Set<object>();
+const LEAVE = 'Leave this page? What you typed is not saved.';
+let shownPath = typeof window === 'undefined' ? '/' : window.location.pathname;
+
+/** True when nothing unsaved is in the way, or the person chose to leave it. */
+export function mayLeave(): boolean {
+  if (unsaved.size === 0) return true;
+  if (!window.confirm(LEAVE)) return false;
+  unsaved.clear();
+  return true;
+}
+
+/** Marks a form (any object standing for it) as holding unsaved typing, or not. */
+export function holdUnsaved(form: object, holding: boolean): void {
+  if (holding) unsaved.add(form);
+  else unsaved.delete(form);
+}
+
+if (typeof window !== 'undefined') {
+  // Registered before any page listens, so a Back the person takes back stops here.
+  window.addEventListener('popstate', (event) => {
+    if (window.location.pathname === shownPath) return;
+    if (mayLeave()) {
+      shownPath = window.location.pathname;
+      return;
+    }
+    event.stopImmediatePropagation();
+    window.history.pushState(null, '', shownPath);
+  });
+  window.addEventListener('beforeunload', (event) => {
+    if (unsaved.size === 0) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}
+
 /** Goes to a path of this application. */
 export function navigate(path: string, options: { replace?: boolean } = {}): void {
   if (path === window.location.pathname) return;
+  if (!mayLeave()) return;
+  shownPath = path.split(/[?#]/)[0] ?? path;
   if (options.replace) window.history.replaceState(null, '', path);
   else window.history.pushState(null, '', path);
   for (const listener of listeners) listener();

@@ -5,6 +5,7 @@
 // never a way to run a command at build time.
 import { createHash } from 'node:crypto';
 import { stringify } from 'yaml';
+import { collectionProblem } from './collections';
 import type { EnvironmentSpec } from './types';
 
 /** The Python image an environment starts from unless it says otherwise: the one afd-ee uses. */
@@ -32,24 +33,9 @@ export function specProblems(spec: EnvironmentSpec): { field: string; message: s
     out.push({ field: 'collections', message: 'At most 200 collections' });
   const seen = new Set<string>();
   for (const c of spec.collections) {
-    if (!/^[a-z0-9_]+\.[a-z0-9_]+$/.test(c.name))
-      out.push({
-        field: 'collections',
-        message: `"${c.name.slice(0, 60)}" is not a collection name (namespace.name)`,
-      });
-    else if (seen.has(c.name))
-      out.push({ field: 'collections', message: `${c.name} is there twice` });
+    const problem = collectionProblem(c, seen);
+    if (problem) out.push({ field: 'collections', message: problem.message });
     seen.add(c.name);
-    const v = c.version.trim();
-    if (
-      v &&
-      v !== 'latest' &&
-      !/^(\*|[<>=!]=?\s*\d[\w.+-]*)(\s*,\s*[<>=!]=?\s*\d[\w.+-]*)*$|^\d[\w.+-]*$/.test(v)
-    )
-      out.push({
-        field: 'collections',
-        message: `${c.name}: "${v.slice(0, 40)}" is not a version, a range or latest`,
-      });
   }
   for (const p of spec.python)
     if (!PIP.test(p.trim()))

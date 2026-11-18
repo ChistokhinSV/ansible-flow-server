@@ -5,7 +5,7 @@
 // AFS-85: a configuration's page is four tabs (Launch, Runs, Schedules, Settings), each with an
 // address; the launch form comes first, and what is rarely typed is folded away.
 import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import type { FactsReply } from '../server/launch/facts';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
@@ -25,7 +25,22 @@ import { EnvironmentCheck, environmentAddress } from './environments';
 import { Link, navigate } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
-import { ago, Breadcrumb, Fold, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  ago,
+  Breadcrumb,
+  COMMIT_PATTERN,
+  COMMIT_TITLE,
+  Fold,
+  Labelled,
+  Loading,
+  messageOf,
+  PageHead,
+  reveal,
+  Tabs,
+  Time,
+  useLoad,
+  useReveal,
+} from './ui';
 
 type LaunchField = LaunchForm['fields'][number];
 /** The kinds of credential a run can be given (a git token is for a repository). */
@@ -58,48 +73,8 @@ function Takes({ config, project }: { config: LaunchConfig; project?: Project })
   );
 }
 
-/** A field of a form, with its problem said under it and to a screen reader. */
 /** The choice of the environment chooser that asks for an image's name instead. */
 const IMAGE_BY_NAME = ':image';
-
-function Labelled({
-  label,
-  hint,
-  problem,
-  children,
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  problem?: string;
-  children: (props: {
-    id: string;
-    'aria-describedby'?: string;
-    'aria-invalid'?: boolean;
-  }) => ReactNode;
-}) {
-  const id = useId();
-  const described = [hint && `${id}-hint`, problem && `${id}-problem`].filter(Boolean).join(' ');
-  return (
-    <div className={`field${problem ? ' invalid' : ''}`}>
-      <label htmlFor={id}>{label}</label>
-      {children({
-        id,
-        ...(described ? { 'aria-describedby': described } : {}),
-        ...(problem ? { 'aria-invalid': true } : {}),
-      })}
-      {hint && (
-        <small id={`${id}-hint`} className="muted">
-          {hint}
-        </small>
-      )}
-      {problem && (
-        <small id={`${id}-problem`} className="bad-text">
-          {problem}
-        </small>
-      )}
-    </div>
-  );
-}
 
 /**
  * A project's launch configurations, on its page. Each row says how the configuration's newest
@@ -438,8 +413,10 @@ function WouldRun({
   hosts?: HostsState;
 }) {
   const shown = Object.entries(launch.inputs);
+  // AFS-140: the answer comes below the form: it is brought into view.
+  const place = useReveal<HTMLElement>(launch, false);
   return (
-    <section className="panel ok-panel" aria-labelledby="would-run" aria-live="polite">
+    <section ref={place} className="panel ok-panel" aria-labelledby="would-run" aria-live="polite">
       <h2 id="would-run">What would run</h2>
       <dl className="facts">
         <dt>Flow</dt>
@@ -733,6 +710,11 @@ export function LaunchConfigPage({
   const isShown = (field: string) =>
     ['ref', 'commit', 'limit', 'mode'].includes(field) || fields.some((f) => f.name === field);
   const problemOf = (field: string) => problems.find((p) => p.field === field)?.message;
+  // AFS-140: a problem goes once the field it is about is changed.
+  const settle = (field: string) =>
+    setProblems((before) =>
+      before.some((p) => p.field === field) ? before.filter((p) => p.field !== field) : before,
+    );
   const start = (what: 'check' | 'launch' | 'save') => {
     setBusy(what);
     setProblems([]);
@@ -912,7 +894,10 @@ export function LaunchConfigPage({
                   field={f}
                   value={texts[f.name] ?? f.text}
                   problem={problemOf(f.name)}
-                  onChange={(text) => setTexts((t) => ({ ...t, [f.name]: text }))}
+                  onChange={(text) => {
+                    setTexts((t) => ({ ...t, [f.name]: text }));
+                    settle(f.name);
+                  }}
                   groups={groups}
                 />
               ))}
@@ -1005,7 +990,10 @@ export function LaunchConfigPage({
                         {...props}
                         list="branches"
                         value={ref}
-                        onChange={(e) => setRef(e.target.value)}
+                        onChange={(e) => {
+                          setRef(e.target.value);
+                          settle('ref');
+                        }}
                         onBlur={reread}
                         disabled={!mayManage}
                         spellCheck={false}
@@ -1017,15 +1005,23 @@ export function LaunchConfigPage({
                       <option key={b} value={b} />
                     ))}
                   </datalist>
-                  <Labelled label="Or a commit" hint="40 hex digits" problem={problemOf('commit')}>
+                  <Labelled
+                    label="Or a commit"
+                    hint="As shown here (12 digits) or in full"
+                    problem={problemOf('commit')}
+                  >
                     {(props) => (
                       <input
                         {...props}
                         value={commit}
-                        onChange={(e) => setCommit(e.target.value)}
+                        onChange={(e) => {
+                          setCommit(e.target.value);
+                          settle('commit');
+                        }}
                         onBlur={reread}
                         disabled={!mayManage}
-                        pattern="[0-9a-f]{40}"
+                        pattern={COMMIT_PATTERN}
+                        title={COMMIT_TITLE}
                         spellCheck={false}
                       />
                     )}
@@ -1045,7 +1041,10 @@ export function LaunchConfigPage({
                     <input
                       {...props}
                       value={limitText}
-                      onChange={(e) => setLimit(e.target.value)}
+                      onChange={(e) => {
+                        setLimit(e.target.value);
+                        settle('limit');
+                      }}
                       spellCheck={false}
                     />
                   )}
@@ -1126,8 +1125,17 @@ function ConfigForm({
   const set = (key: keyof LaunchConfigInput, value: unknown) => {
     setSaved(false);
     setInput((i) => ({ ...i, [key]: value }));
+    // AFS-140: a refusal goes once what it is about is changed.
+    setProblem((p) => (p && (!p.field || p.field === key) ? undefined : p));
   };
   const at = (field: string) => (problem?.field === field ? problem.message : undefined);
+  // AFS-140: a refusal is brought into view: the field it is about, or its notice.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (!problem) return;
+    const shown = formRef.current?.querySelector<HTMLElement>('.field.invalid, .notice.error');
+    reveal(shown, shown?.querySelector<HTMLElement>('input, select, textarea'));
+  }, [problem]);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -1191,8 +1199,41 @@ function ConfigForm({
       ? problem.message
       : undefined;
 
+  // AFS-140: a configuration runs a flow: with none to choose, the form says why instead.
+  if (!existing && flows.data?.length === 0 && !input.flowFile)
+    return (
+      <div className="notice" role="status">
+        <p>
+          {project.sync.state === 'error'
+            ? `The project's source cannot be read, so there is no flow to choose: ${project.sync.error ?? ''}`
+            : project.commit
+              ? 'The project has no flow yet: a launch configuration runs a flow (a file named *.flow.yaml).'
+              : 'The project has no commit yet, so no flow to run.'}
+        </p>
+        <p>
+          <Link to={base(workspace, project.key)}>
+            {project.sync.state === 'error'
+              ? 'Back to the project'
+              : 'Make a flow on the project page'}
+          </Link>
+          {project.sync.state === 'error' && (
+            <>
+              {' · '}
+              <Link to={`${base(workspace, project.key)}/settings`}>
+                Check its source in Settings
+              </Link>
+            </>
+          )}
+        </p>
+        {onCancel && (
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    );
   return (
-    <form className="form wide" onSubmit={save}>
+    <form className="form wide" onSubmit={save} ref={formRef}>
       {/* AFS-94: fields that belong together share a row; what is chosen first comes first. */}
       <div className="pair">
         <Labelled label="Name" problem={at('name')}>
@@ -1280,7 +1321,7 @@ function ConfigForm({
         </Labelled>
         <Labelled
           label="Pinned commit"
-          hint="Always this commit; empty: the newest of the branch."
+          hint="Always this commit, as shown here (12 digits) or in full; empty: the newest of the branch."
           problem={at('commit')}
         >
           {(props) => (
@@ -1288,7 +1329,8 @@ function ConfigForm({
               {...props}
               value={input.commit ?? ''}
               onChange={(e) => set('commit', e.target.value)}
-              pattern="[0-9a-f]{40}"
+              pattern={COMMIT_PATTERN}
+              title={COMMIT_TITLE}
               spellCheck={false}
             />
           )}

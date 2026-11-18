@@ -3,7 +3,7 @@
 // either way).
 import { type FormEvent, useId, useState } from 'react';
 import { api, type GrantLevel, type Level, type ProjectAccess } from './api';
-import { Loading, messageOf, useLoad } from './ui';
+import { Loading, messageOf, useLoad, useReveal } from './ui';
 
 const RANK: Record<Level, number> = { ro: 1, operator: 2, rw: 3 };
 /** True when `have` is at least `need`. */
@@ -104,6 +104,8 @@ export function WorkspaceAccess({
     }
   };
 
+  // AFS-140: the form opens below the grants: it is brought into view, the cursor on Who.
+  const giveSheet = useReveal<HTMLDivElement>(giving);
   return (
     <section className="panel" aria-labelledby={`${id}-access`}>
       <h2 id={`${id}-access`}>Access</h2>
@@ -232,7 +234,7 @@ export function WorkspaceAccess({
       )}
 
       {giving && (
-        <div className="sheet">
+        <div className="sheet" ref={giveSheet}>
           <h3>Give access</h3>
           <form className="form" onSubmit={give}>
             <div className="field">

@@ -1,7 +1,8 @@
 // AFS-78: a project's files. The tree of a branch, a file to read (and to edit, for text), and the
 // changes made here, kept as a change set until Save makes one commit of them on the branch. The
 // change set lives in this browser until then (a reload keeps it); the server checks it all again.
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { changeWords, defaultMessage } from '../server/projects/changeWords';
 import { atLeast, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
@@ -87,18 +88,27 @@ export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[]
   return [...tree.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/** Words for one change in the list. */
-function describe(c: FileChange): string {
-  switch (c.op) {
-    case 'write':
-      return `${c.text !== undefined ? 'Edit' : 'Upload'} ${c.path}`;
-    case 'delete':
-      return `Delete ${c.path}`;
-    case 'move':
-      return `Move ${c.from} to ${c.to}`;
-    case 'unpack':
-      return `Unpack an archive into ${c.path || 'the top folder'}`;
-  }
+/** Words for one change in the list (AFS-140: the same words the server commits with). */
+const describe = changeWords;
+
+/**
+ * AFS-140: what is wrong with a path typed for a new file or a move, or undefined: it stays inside
+ * the project, and does not land on a file or folder that is there (that one would be hidden).
+ */
+export function pathProblem(path: string, shown: Shown[], from?: string): string | undefined {
+  const parts = path.split('/');
+  if (!path || path.includes('\\') || parts.some((p) => p === '' || p === '.' || p === '..'))
+    return 'A path inside the project, like playbooks/site.yml: no ../, no empty parts.';
+  const inFrom = (p: string) => from !== undefined && (p === from || p.startsWith(`${from}/`));
+  const there = shown.find(
+    (f) => !inFrom(f.path) && (f.path === path || f.path.startsWith(`${path}/`)),
+  );
+  if (there) return `There is ${there.path === path ? 'a file' : 'a folder'} ${path} already.`;
+  // A file cannot also be a folder: playbooks/site.yml/x is refused while site.yml is a file.
+  const parent = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
+  const file = parent.find((p) => shown.some((f) => f.path === p && !inFrom(f.path)));
+  if (file) return `${file} is a file, not a folder.`;
+  return undefined;
 }
 
 const sizeWords = (n: number) =>
@@ -209,15 +219,18 @@ function TextView({
   text,
   editable,
   dark,
+  focus,
   onChange,
 }: {
   path: string;
   text: string;
   editable: boolean;
   dark: boolean;
+  /** AFS-140: the cursor goes into the text once it shows (a file just made). */
+  focus?: boolean;
   onChange(text: string): void;
 }) {
-  const box = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLElement>(null);
   const change = useRef(onChange);
   change.current = onChange;
   const [failed, setFailed] = useState(false);
@@ -237,6 +250,7 @@ function TextView({
           label: `Text of ${path}`,
           onChange: (t) => change.current(t),
         });
+        if (focus) editor.focus();
       },
       () => setFailed(true),
     );
@@ -255,25 +269,33 @@ function TextView({
         onChange={(e) => onChange(e.target.value)}
       />
     );
-  return <div ref={box} className="code-editor" />;
+  // AFS-140: named outside the shadow root too, for tools that do not look inside it.
+  return <section ref={box} className="code-editor" aria-label={`Text of ${path}`} />;
 }
 
 function PathForm({
   label,
   start,
+  check,
   onDone,
 }: {
   label: string;
   start: string;
+  /** AFS-140: what is wrong with the path, said at once instead of at Save. */
+  check?(path: string): string | undefined;
   onDone(path?: string): void;
 }) {
   const [value, setValue] = useState(start);
+  const [problem, setProblem] = useState<string>();
+  const id = useId();
   return (
     <form
       className="inline-form"
       onSubmit={(e) => {
         e.preventDefault();
         const path = value.trim().replace(/^\/+/, '');
+        const why = path ? check?.(path) : undefined;
+        if (why) return setProblem(why);
         onDone(path || undefined);
       }}
     >
@@ -283,8 +305,13 @@ function PathForm({
           // biome-ignore lint/a11y/noAutofocus: the field the button opened
           autoFocus
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setProblem(undefined);
+          }}
           aria-label={label}
+          aria-invalid={problem ? true : undefined}
+          aria-describedby={problem ? `${id}-problem` : undefined}
           spellCheck={false}
         />
       </label>{' '}
@@ -292,6 +319,11 @@ function PathForm({
       <button type="button" className="link" onClick={() => onDone()}>
         Cancel
       </button>
+      {problem && (
+        <p id={`${id}-problem`} className="bad-text" role="alert">
+          {problem}
+        </p>
+      )}
     </form>
   );
 }
@@ -327,16 +359,21 @@ export function FilesPage({
     setSet(next);
     if (id) keepSet(id, branch, next);
   };
-  const change = (c: FileChange, replaceWriteOf?: string) => {
-    const base = set.base ?? listing.data?.commit;
-    const changes =
-      replaceWriteOf !== undefined
-        ? set.changes.filter(
-            (x) => !(x.op === 'write' && x.path === replaceWriteOf && x.text !== undefined),
-          )
-        : set.changes;
-    update({ ...(base ? { base } : {}), changes: [...changes, c] });
-  };
+  // AFS-140: each change is added to the set as it is then, so several files picked at once (one
+  // change each, made one after the other) are all kept.
+  const change = (c: FileChange, replaceWriteOf?: string) =>
+    setSet((before) => {
+      const base = before.base ?? listing.data?.commit;
+      const changes =
+        replaceWriteOf !== undefined
+          ? before.changes.filter(
+              (x) => !(x.op === 'write' && x.path === replaceWriteOf && x.text !== undefined),
+            )
+          : before.changes;
+      const next = { ...(base ? { base } : {}), changes: [...changes, c] };
+      if (id) keepSet(id, branch, next);
+      return next;
+    });
 
   const shown = useMemo(
     () => applyChanges(listing.data?.files ?? [], set.changes),
@@ -402,12 +439,19 @@ export function FilesPage({
   );
 
   const [asking, setAsking] = useState<'new' | 'move'>();
+  // AFS-140: the file just made with New file, whose editor takes the cursor.
+  const [made, setMade] = useState<string>();
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ ok?: string; error?: string; files?: string[] }>();
   const uploads = useRef<HTMLInputElement>(null);
   const archive = useRef<HTMLInputElement>(null);
   const join = (folderPath: string, name: string) => (folderPath ? `${folderPath}/${name}` : name);
+  /** AFS-140: the change set deletes the path, or a folder it is in. */
+  const deleting = (path: string) =>
+    set.changes.some(
+      (c) => c.op === 'delete' && (c.path === path || path.startsWith(`${c.path}/`)),
+    );
 
   const onUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const picked = [...(e.target.files ?? [])];
@@ -428,15 +472,17 @@ export function FilesPage({
       const done = await api.saveFiles(id, {
         branch,
         ...(set.base ? { base: set.base } : {}),
-        ...(message.trim() ? { message: message.trim() } : {}),
+        // AFS-140: the message is what the placeholder showed when none is typed.
+        message: message.trim() || defaultMessage(set.changes),
         changes: set.changes,
       });
+      const n = set.changes.length;
       update({ changes: [] });
       setMessage('');
       setSaid({
         ok: done.unchanged
           ? 'Nothing to save: the branch has the files as they are.'
-          : `Saved ${done.files.length} file${done.files.length === 1 ? '' : 's'} as ${done.commit.slice(0, 12)} on ${done.branch}.`,
+          : `Saved ${n} change${n === 1 ? '' : 's'} as ${done.commit.slice(0, 12)} on ${done.branch}.`,
       });
       listing.reload();
       found.reload();
@@ -551,11 +597,7 @@ export function FilesPage({
                 <input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder={
-                    set.changes.length === 1
-                      ? describe(set.changes[0] as FileChange)
-                      : 'What changed and why'
-                  }
+                  placeholder={defaultMessage(set.changes)}
                   size={50}
                 />
               </label>{' '}
@@ -632,10 +674,12 @@ export function FilesPage({
               <PathForm
                 label="New file"
                 start={here ? `${here}/` : ''}
+                check={(path) => pathProblem(path, shown)}
                 onDone={(path) => {
                   setAsking(undefined);
                   if (path) {
                     change({ op: 'write', path, text: '' });
+                    setMade(path);
                     select(path);
                   }
                 }}
@@ -674,7 +718,16 @@ export function FilesPage({
           )}
           {selected && !file && listing.data && !folder && (
             <p className="muted">
-              There is no {selected} on {branch}.
+              {deleting(selected) ? (
+                <>
+                  <code>{selected}</code> is marked for deletion: it goes from {branch} when the
+                  changes are saved. Take it back in Changes not saved to keep it.
+                </>
+              ) : (
+                <>
+                  There is no {selected} on {branch}.
+                </>
+              )}
             </p>
           )}
           {folder && (
@@ -758,6 +811,7 @@ export function FilesPage({
             <PathForm
               label="New path"
               start={selected}
+              check={(to) => (to === selected ? undefined : pathProblem(to, shown, selected))}
               onDone={(to) => {
                 setAsking(undefined);
                 if (to && to !== selected) {
@@ -791,6 +845,7 @@ export function FilesPage({
                 text={text}
                 editable={editable}
                 dark={dark}
+                focus={made === file.path}
                 onChange={(t) => change({ op: 'write', path: file.path, text: t }, file.path)}
               />
             </>

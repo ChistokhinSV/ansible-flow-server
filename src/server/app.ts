@@ -4,6 +4,7 @@
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { registerAccess } from './access/routes';
 import { registerCatalog } from './api/catalog';
+import { plainInvalid } from './api/invalid';
 import { registerApprovals } from './approvals/routes';
 import { registerAudit } from './audit/routes';
 import type { Connect } from './auth/ldap/client';
@@ -284,14 +285,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
     if (status >= 500) request.log.error({ err: error }, 'The request failed');
     // What went wrong inside stays inside: a 500 says only that it happened, and which request.
-    return reply.code(status).send(
-      status >= 500
-        ? { error: 'internal', message: 'The server could not do this', request: request.id }
-        : {
-            error: error.validation ? 'invalid' : (error.code ?? 'bad_request'),
-            message: error.message,
-          },
-    );
+    return reply
+      .code(status)
+      .send(
+        status >= 500
+          ? { error: 'internal', message: 'The server could not do this', request: request.id }
+          : error.validation
+            ? { error: 'invalid', ...plainInvalid(error.validation) }
+            : { error: error.code ?? 'bad_request', message: error.message },
+      );
   });
 
   return app;

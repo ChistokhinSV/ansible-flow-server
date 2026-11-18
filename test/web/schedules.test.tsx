@@ -156,7 +156,11 @@ describe('schedules of a launch configuration', () => {
     expect(within(box).queryByLabelText('api_password')).toBeNull();
     fireEvent.change(within(box).getByLabelText('retries'), { target: { value: '5' } });
     fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
-    expect((await within(box).findByRole('alert')).textContent).toMatch(/at most once a minute/);
+    // AFS-140: said once, at the field it is about, which is marked.
+    const cron = within(box).getByLabelText('Cron');
+    await waitFor(() => expect(cron.getAttribute('aria-invalid')).toBe('true'));
+    expect(within(box).getAllByText(/at most once a minute/)).toHaveLength(1);
+    expect(within(box).queryByRole('alert')).toBeNull();
     fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
     await within(box).findByRole('article', { name: 'Mornings' });
     expect(sent('POST /launch-configs/c1/schedules').at(-1)).toEqual({

@@ -7,7 +7,7 @@ import { newFlowText } from '@ansible-flow/core/flow/template';
 import { useEffect, useRef, useState } from 'react';
 import { api, type Project } from './api';
 import { navigate } from './router';
-import { Field, Form, Icon, messageOf } from './ui';
+import { Field, Form, Icon, messageOf, refuse, useLoad } from './ui';
 
 const flowPage = (workspace: string, project: string, file: string) =>
   `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}/flow/${file
@@ -15,13 +15,35 @@ const flowPage = (workspace: string, project: string, file: string) =>
     .map(encodeURIComponent)
     .join('/')}`;
 
-/** A key from a name: lower case words joined by dashes. */
-export const keyOf = (name: string, max = 60) =>
-  name
+/** Letters that do not come apart into a plain letter and marks. */
+const SPELLED: Record<string, string> = {
+  ß: 'ss',
+  æ: 'ae',
+  œ: 'oe',
+  ø: 'o',
+  ł: 'l',
+  đ: 'd',
+  ð: 'd',
+  þ: 'th',
+  ı: 'i',
+};
+
+/**
+ * A key from a name: lower case words joined by dashes. AFS-140: accented letters are kept as
+ * their plain letter (Ünïcödé: unicode), and a long name is cut between words, not inside one.
+ */
+export const keyOf = (name: string, max = 60) => {
+  const words = name
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
     .toLowerCase()
+    .replace(/[ßæœøłđðþı]/g, (c) => SPELLED[c] ?? c)
     .replace(/[^a-z0-9]+/g, '-')
-    .slice(0, max)
     .replace(/^-+|-+$/g, '');
+  if (words.length <= max) return words;
+  const cut = words.slice(0, max + 1).lastIndexOf('-');
+  return (cut > 0 ? words.slice(0, cut) : words.slice(0, max)).replace(/-+$/, '');
+};
 
 /**
  * AFS-125: the key as the name changes: it follows the name (keyOf) while it is empty or still the
@@ -54,12 +76,34 @@ export function copiedFlowText(text: string, name: string, key: string, id: stri
   return lines.join('\n');
 }
 
-function fileProblem(path: string): string | undefined {
-  if (!/\.flow\.yaml$/.test(path)) return 'A flow file ends in .flow.yaml';
-  if (path.startsWith('/') || path.split('/').some((p) => p === '..' || p === ''))
-    return 'A path inside the project, such as flows/patch-web.flow.yaml';
+/** AFS-140: what is wrong with a new flow's file, in words, or undefined. */
+export function fileProblem(path: string, taken?: ReadonlySet<string>): string | undefined {
+  if (path.startsWith('/') || path.split('/').some((p) => p === '..' || p === '.' || p === ''))
+    return 'The file must be inside the project, such as flows/patch-web.flow.yaml (no ../).';
+  if (!/\.flow\.yaml$/.test(path)) return 'A flow file ends in .flow.yaml.';
+  if (taken?.has(path)) return `There is a file ${path} already: choose another name.`;
   return undefined;
 }
+
+/** AFS-140: `file`, or the first of file-2, file-3... that is not taken. */
+export function freeFile(file: string, taken: ReadonlySet<string>): string {
+  if (!file || !taken.has(file)) return file;
+  const stem = file.replace(/\.flow\.yaml$/, '');
+  for (let n = 2; ; n++) if (!taken.has(`${stem}-${n}.flow.yaml`)) return `${stem}-${n}.flow.yaml`;
+}
+
+/** AFS-140: the files of the project's branch, to say a name is taken before saving. */
+function useTaken(project: Project, when = true): ReadonlySet<string> {
+  const files = useLoad(
+    async () =>
+      when && project.commit
+        ? new Set((await api.files(project.id, project.gitRef)).files.map((f) => f.path))
+        : new Set<string>(),
+    [project.id, project.commit, when],
+  );
+  return files.data ?? NONE;
+}
+const NONE: ReadonlySet<string> = new Set();
 
 /** New flow, on a project's page. */
 export function NewFlowForm({
@@ -74,16 +118,18 @@ export function NewFlowForm({
   const [name, setName] = useState('');
   const [path, setPath] = useState<string>();
   const key = keyOf(name);
-  const file = path ?? (key ? `flows/${key}.flow.yaml` : '');
+  const taken = useTaken(project);
+  const file = path ?? (key ? freeFile(`flows/${key}.flow.yaml`, taken) : '');
   return (
     <section className="panel sheet" aria-label="New flow">
       <Form
+        open
         submit="Make the flow"
         onCancel={onCancel}
         onSubmit={async () => {
-          if (!SLUG.test(key)) throw new Error('A name with letters or digits');
-          const problem = fileProblem(file);
-          if (problem) throw new Error(problem);
+          if (!SLUG.test(key)) refuse('name', 'A name with letters or digits is needed.');
+          const problem = fileProblem(file, taken);
+          if (problem) refuse('file', problem);
           await api.saveFiles(project.id, {
             branch: project.gitRef,
             message: `Add the flow ${name.trim()}`,
@@ -97,6 +143,7 @@ export function NewFlowForm({
       >
         <Field
           label="Name"
+          name="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
@@ -105,6 +152,7 @@ export function NewFlowForm({
         />
         <Field
           label="File"
+          name="file"
           value={file}
           onChange={(e) => setPath(e.target.value)}
           required
@@ -150,7 +198,9 @@ export function FlowFileActions({
   const copyKey = keyOf(copyName);
   const folder = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
   const [copyPath, setCopyPath] = useState<string>();
-  const copyFile = copyPath ?? (copyKey ? `${folder}${copyKey}.flow.yaml` : '');
+  const taken = useTaken(project, doing === 'copy');
+  // AFS-140: the file offered is one that is not there yet.
+  const copyFile = copyPath ?? (copyKey ? freeFile(`${folder}${copyKey}.flow.yaml`, taken) : '');
   const [error, setError] = useState<string>();
   // AFS-134: one delete at a time (a double click sent two).
   const [deleting, setDeleting] = useState(false);
@@ -159,13 +209,14 @@ export function FlowFileActions({
       {doing === 'copy' && (
         <section className="panel sheet" aria-label="Copy the flow">
           <Form
+            open
             submit="Make the copy"
             onCancel={() => onDone()}
             onSubmit={async () => {
-              if (!SLUG.test(copyKey)) throw new Error('A name with letters or digits');
-              const problem = fileProblem(copyFile);
-              if (problem) throw new Error(problem);
-              if (copyFile === file) throw new Error('Another file than the flow itself');
+              if (!SLUG.test(copyKey)) refuse('name', 'A name with letters or digits is needed.');
+              if (copyFile === file) refuse('file', 'Another file than the flow itself.');
+              const problem = fileProblem(copyFile, taken);
+              if (problem) refuse('file', problem);
               // The page may show an older commit than the branch has now: the newest is read then.
               const text = await api.fileText(project.id, file, commit).catch(async () => {
                 const now = (await api.projects(workspace)).find((p) => p.id === project.id);
@@ -188,12 +239,14 @@ export function FlowFileActions({
           >
             <Field
               label="Name"
+              name="name"
               value={copyName}
               onChange={(e) => setCopyName(e.target.value)}
               required
             />
             <Field
               label="File"
+              name="file"
               value={copyFile}
               onChange={(e) => setCopyPath(e.target.value)}
               required
