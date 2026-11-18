@@ -35,7 +35,6 @@ import {
   Loading,
   messageOf,
   PageHead,
-  ProjectName,
   refuse,
   Scroll,
   Tabs,
