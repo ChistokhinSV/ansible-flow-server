@@ -36,8 +36,8 @@ export function StartFrom({
     try {
       const done = await api.draftStart(draft.id, body);
       onDone(
-        // AFS-136: the importer counts tasks; the canvas counts steps with subflows and ends.
-        `The flow was made from ${name}: ${done.steps} ${'sample' in body ? 'step' : 'task'}${done.steps === 1 ? '' : 's'}${'sample' in body ? '' : ' became steps'}.${
+        // AFS-151: the server counts the steps as Readiness does (every level).
+        `The flow was made from ${name}: ${done.steps} step${done.steps === 1 ? '' : 's'}.${
           done.notes.length
             ? `${'sample' in body ? ' Before it runs: ' : ' What did not map one to one: '}${done.notes.slice(0, 3).join(' ')}${done.notes.length > 3 ? ' …' : ''}`
             : ''

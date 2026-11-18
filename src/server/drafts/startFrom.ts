@@ -41,18 +41,36 @@ export function hasNoSteps(text: string): boolean {
   return top.every((n) => n.type === 'start' || n.type === 'end');
 }
 
-/** The imported flow as the draft's: its id and key kept, everything else the import's. */
+/**
+ * The imported flow as the draft's: its id, key, name, version and owner kept (AFS-151: a sample's
+ * version 3 and owner netops are not this flow's), everything else the import's.
+ */
 export function asDraftFlow(current: string, imported: FlowDocument): string {
   const doc = parseFlow(current).doc;
   if (!doc) throw new StartFromError('refused', 'The flow does not read: fix it first');
-  // The name the person gave the flow stays too (a new flow is named when it is made).
+  const { owner: _theirs, ...rest } = imported.flow;
   const flow = {
-    ...imported.flow,
+    ...rest,
     ...(doc.flow.id ? { id: doc.flow.id } : {}),
     key: doc.flow.key,
     ...(doc.flow.name ? { name: doc.flow.name } : {}),
+    version: doc.flow.version ?? 1,
+    ...(doc.flow.owner ? { owner: doc.flow.owner } : {}),
   };
   return flowText({ ...imported, flow });
+}
+
+/**
+ * AFS-151: the steps of a flow as the designer's Readiness counts them: every node on every level
+ * but Start and End.
+ */
+export function stepCount(text: string): number {
+  const doc = parseFlow(text).doc;
+  if (!doc) return 0;
+  let n = 0;
+  for (const { node } of buildModel(doc).nodes.values())
+    if (node.type !== 'start' && node.type !== 'end') n++;
+  return n;
 }
 
 /** The flow text of a sample project (samples/projects.json), or why not. */
@@ -276,4 +294,20 @@ export async function fromAwx(
     notes: result.notes,
     steps: result.counts.steps,
   };
+}
+
+/**
+ * AFS-151: what a start from something was, for the toast of its undo: "the import of site.yml",
+ * an AWX template's name, or a sample flow, with its steps as Readiness counts them.
+ */
+export function startedFrom(text: string): { what: string; steps: number } {
+  const from = parseFlow(text).doc?.flow.imported_from;
+  const what = !from
+    ? 'the sample flow'
+    : from.template
+      ? `the import of ${from.template}`
+      : from.path
+        ? `the import of ${from.path}`
+        : 'the import';
+  return { what, steps: stepCount(text) };
 }

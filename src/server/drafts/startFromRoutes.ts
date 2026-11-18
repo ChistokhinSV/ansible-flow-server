@@ -26,6 +26,7 @@ import {
   repositoryIO,
   StartFromError,
   sampleFlowText,
+  stepCount,
 } from './startFrom';
 
 const ID = {
@@ -175,7 +176,7 @@ export function registerStartFrom(
         const io = repositoryIO(git, project.id, draft.baseCommit);
         const body = request.body;
         let notes: string[] = [];
-        let steps = 0;
+        let made = '';
         let from = '';
         const done = await drafts.replace(
           draft.id,
@@ -184,11 +185,11 @@ export function registerStartFrom(
             if ('sample' in body) {
               from = `the ${body.sample} sample`;
               const doc = parseFlow(sampleFlowText(body.sample)).doc as FlowDocument;
-              steps = doc.nodes.filter((n) => n.type !== 'start' && n.type !== 'end').length;
               notes = await missingSampleRoles(doc, io);
-              return asDraftFlow(current, doc);
+              made = asDraftFlow(current, doc);
+              return made;
             }
-            const made =
+            const result =
               'playbook' in body
                 ? await fromPlaybook(io, body.playbook, current, draft.file, newId)
                 : await fromAwx(
@@ -200,11 +201,14 @@ export function registerStartFrom(
                   );
             from =
               'playbook' in body ? body.playbook : `AWX ${body.awx.kind} template ${body.awx.id}`;
-            notes = made.notes;
-            steps = made.steps;
-            return made.text;
+            notes = result.notes;
+            made = result.text;
+            return made;
           },
         );
+        // AFS-151: the steps as the designer's Readiness counts them (every level), not the tasks
+        // the importer read.
+        const steps = stepCount(made);
         request.log.info(
           { by: me.login, project: project.key, file: draft.file, from, steps },
           'Draft started from',

@@ -149,7 +149,10 @@ export function registerDrafts(
     const draft = await drafts.get(id);
     const text = await drafts.text(id);
     if (!draft || !text) return undefined;
-    return { draft, snapshot: await snapshotOf(text.text, text.file, text.revision + 1) };
+    return {
+      draft,
+      snapshot: await snapshotOf(text.text, text.file, text.revision + 1, await drafts.probe(id)),
+    };
   };
 
   app.get<{ Params: { id: string } }>(
@@ -246,9 +249,12 @@ export function registerDrafts(
           const text = await drafts.text(id);
           if (!text || !open || text.revision <= revision) return;
           revision = text.revision;
-          const snapshot = await snapshotOf(text.text, text.file, text.revision + 1).catch(
-            () => undefined,
-          );
+          const snapshot = await snapshotOf(
+            text.text,
+            text.file,
+            text.revision + 1,
+            await drafts.probe(id),
+          ).catch(() => undefined);
           send('edit', {
             revision: text.revision,
             ...(news && news.revision === text.revision

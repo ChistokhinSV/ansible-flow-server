@@ -101,6 +101,11 @@ All notable changes to Ansible Flow Server.
 - A flow that is not there no longer shows an empty white canvas in the dark theme nor offers to copy or delete it; it links back to its project.
 - Pressing Delete on a flow's canvas when it is shown read only says so, instead of nothing happening.
 - A page for something that is not there asks the server once: no repeated failing requests, and a run's page no longer asks for the events of a run that is not there.
+- A flow started from a sample keeps its own version and owner; before, it took the sample's (version 3, owner netops).
+- The note after starting a flow from a playbook or sample counts the steps as **Readiness** does, on every level.
+- Ctrl+Z after starting a flow from a sample or a playbook says what it took back in one line ("Took back the import of site.yml (28 steps)"), and a change inside a subflow is named by its step, not "a step".
+- A step bound to a role the project does not have is shown with a warning and as specified, not implemented, in the flow editor and the flow page.
+- **Add a directory** on the sign-in settings puts the focus on the form's first field.
 - On a laptop (1024 px wide, or 1280 x 720 with the side menu) a flow's canvas keeps the window's height: the designer's side panel stays beside it, folded to a strip until a step is selected, instead of going under the canvas. Only on a phone does it go under.
 - The canvas opens with the whole flow in view, notes included, at every width and in the editor; a sample opened in the editor is fitted again, and a new note is brought into view. The open fail port question names its step in full and wraps on a narrow window.
 - After a step is clicked on a run's page, the mouse wheel scrolls the page again; a click on the empty canvas still lets it zoom.
