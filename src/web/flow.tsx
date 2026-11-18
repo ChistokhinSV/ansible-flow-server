@@ -388,6 +388,12 @@ export function FlowPage({
                 {project.gitRef} at <code>{commit.slice(0, 12)}</code> · read only
               </span>
             )}
+            {/* AFS-153: a flow with no step yet does nothing when run: it says so, and how. */}
+            {flow?.ok && flow.steps === 0 && (
+              <span className="warn-text" data-empty-flow>
+                No steps yet{mayEdit ? ': Edit to add them' : ''}
+              </span>
+            )}
             {/* AFS-147: a flow that is gone offers no launch: its configurations cannot run. */}
             {gone && !!configs.data?.length && (
               <span className="warn-text">
