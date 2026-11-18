@@ -1671,6 +1671,15 @@ textarea.code {
     max-width: none;
   }
 }
+/* AFS-146: beside a long side panel the canvas does not grow past the window: it fits what is
+   left under the run's header, so the whole flow and its zoom controls are in sight. */
+@media (min-width: 1101px) {
+  .run-flow {
+    align-self: flex-start;
+    min-height: 480px;
+    height: calc(100vh - 160px);
+  }
+}
 @media (max-width: 860px) {
   .run-head,
   .run-below {
@@ -1712,6 +1721,15 @@ textarea.code {
   background: transparent;
   color: var(--bad);
   box-shadow: inset 0 0 0 1px var(--bad);
+}
+/* AFS-146: Keep waiting is neither answer: it looks neutral, not like Reject. */
+.decision .actions button.neutral {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* AFS-146: a comment is prose, not code. */
+.decide textarea {
+  font-family: inherit;
 }
 .decision .gate + .gate {
   border-top-color: var(--warn-badge);

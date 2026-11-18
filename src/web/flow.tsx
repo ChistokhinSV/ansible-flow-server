@@ -331,7 +331,7 @@ export function FlowPage({
                   <span key={r.id}>
                     {i > 0 && ', '}
                     <Link to={`/runs/${r.id}`}>
-                      #{r.number} <RunWords state={r.state} />
+                      #{r.number} <RunWords state={r.state} against={r.decidedAgainst} />
                     </Link>
                   </span>
                 ))}

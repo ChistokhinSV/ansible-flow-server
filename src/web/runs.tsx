@@ -48,7 +48,15 @@ const LABEL: Record<string, string> = {
   lost: 'lost',
 };
 
-export function StateBadge({ state }: { state: string }) {
+/** AFS-146: a run that failed because its approval was decided against says so. */
+const AGAINST: Record<string, string> = {
+  rejected: 'rejected',
+  'timed out': 'not decided in time',
+};
+
+export function StateBadge({ state, against }: { state: string; against?: string | undefined }) {
+  if (state === 'failed' && against && AGAINST[against])
+    return <span className="badge bad">{AGAINST[against]}</span>;
   const tone =
     state === 'succeeded'
       ? 'ok'
@@ -93,7 +101,7 @@ export function RunList({
           <li key={run.id}>
             <Link to={`/runs/${run.id}`}>
               <span className="c-state">
-                <RunWords state={run.state} />
+                <RunWords state={run.state} against={run.decidedAgainst} />
               </span>
               <span className="title">
                 {run.flow.name} <span className="muted">#{run.number}</span>
@@ -448,8 +456,11 @@ export function RunsPage({ me }: { me: User }) {
 }
 
 /** A run's state in a few words and a colour, for lists (AFS-64). */
-export function RunWords({ state }: { state: string }) {
-  const [text, tone] = WORDS[state] ?? [state, 'muted'];
+export function RunWords({ state, against }: { state: string; against?: string | undefined }) {
+  const [text, tone] =
+    state === 'failed' && against && AGAINST[against]
+      ? [AGAINST[against], 'bad-text']
+      : (WORDS[state] ?? [state, 'muted']);
   return <span className={tone}>{text}</span>;
 }
 const WORDS: Record<string, [string, string]> = {
@@ -518,7 +529,7 @@ interface HostLine {
 }
 
 /** Each host of a run and how it fares, those with a problem first. */
-function hostLines(view: RunView, state: Run['state']): HostLine[] {
+function hostLines(view: RunView, state: Run['state'], against?: string): HostLine[] {
   const summary = view.summary;
   if (!summary) return [];
   const problem = new Map<string, HostLine>();
@@ -533,7 +544,16 @@ function hostLines(view: RunView, state: Run['state']): HostLine[] {
         why: { task: f.task, ...(f.msg ? { msg: plainWhy(f.msg) } : {}) },
       });
   for (const [host, reason] of Object.entries(summary.outcome))
-    if (!problem.has(host)) problem.set(host, { host, words: plainWhy(reason), tone: 'bad-text' });
+    if (!problem.has(host))
+      problem.set(host, {
+        host,
+        // AFS-146: a host ended by a rejection ended there because of it, not because Ansible
+        // failed: "Ended at Not approved (rejected)".
+        words: against
+          ? plainWhy(reason).replace(/\(outcome: failed\)$/, `(${AGAINST[against] ?? against})`)
+          : plainWhy(reason),
+        tone: 'bad-text',
+      });
   // A problem a step rescued into a port: the host went on, but that is where it went wrong.
   for (const hosts of Object.values(summary.problems ?? {}))
     for (const [host, p] of Object.entries(hosts)) {
@@ -549,11 +569,15 @@ function hostLines(view: RunView, state: Run['state']): HostLine[] {
       (host): HostLine =>
         state === 'cancelled'
           ? { host, words: 'stopped', tone: 'muted' }
-          : going && view.state === 'running'
-            ? { host, words: 'in progress', tone: 'muted' }
-            : going
-              ? { host, words: 'waiting', tone: 'muted' }
-              : { host, words: 'went well', tone: 'ok-text' },
+          : // AFS-146: a run held at an approval: its hosts wait for the decision, they are
+            // not in progress.
+            state === 'waiting'
+            ? { host, words: 'waiting for a decision', tone: 'muted' }
+            : going && view.state === 'running'
+              ? { host, words: 'in progress', tone: 'muted' }
+              : going
+                ? { host, words: 'waiting', tone: 'muted' }
+                : { host, words: 'went well', tone: 'ok-text' },
     );
   return [...problem.values(), ...rest];
 }
@@ -657,6 +681,8 @@ function Outputs({ summary }: { summary: NonNullable<RunView['summary']> }) {
 interface Belongs {
   workspace: string;
   project: string;
+  /** AFS-146: the project's name, as the breadcrumb says it. */
+  projectName?: string;
   /** The flow's page, when the project has the flow now. */
   flow?: string;
   /** The launch configuration's page, when it is still there. */
@@ -690,6 +716,7 @@ async function belongs(project: string, file: string, config?: string): Promise<
     return {
       workspace: workspace.key,
       project: found.key,
+      ...(found.name ? { projectName: found.name } : {}),
       ...(flows.includes(file)
         ? { flow: `${base}/flow/${file.split('/').map(part).join('/')}` }
         : {}),
@@ -834,7 +861,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const viewer = `/viewer.html?project=${encodeURIComponent(run.project)}&path=${encodeURIComponent(
     run.flow.file,
   )}&commit=${run.commit}&run=${run.id}&theme=${theme === 'system' ? 'auto' : theme}`;
-  const lines = view ? hostLines(view, run.state) : [];
+  const lines = view ? hostLines(view, run.state, run.decidedAgainst) : [];
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
   const why = lines.find((l) => l.why);
   const by = personOf(run.requestedBy);
@@ -852,7 +879,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 </Link>{' '}
                 /{' '}
                 <Link to={`/w/${part(where.workspace)}/${part(where.project)}`}>
-                  {where.project}
+                  {where.projectName ?? where.project}
                 </Link>{' '}
                 /{' '}
                 {where.config && run.config && (
@@ -874,14 +901,23 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             <HelpLink page="runs.md" />
           </div>
           <p>
-            <StateBadge state={run.state} />
+            <StateBadge state={run.state} against={run.decidedAgainst} />
             {standing(run) && ` ${standing(run)}`} · started by {by} ·{' '}
             {run.mode === 'real' ? 'real run' : 'check run'}
             {lines.length > 0 && (
               <>
                 {' '}
                 · {lines.length} {lines.length === 1 ? 'host' : 'hosts'}
-                {failed > 0 && <span className="bad-text">, {failed} with a problem</span>}
+                {failed > 0 && (
+                  <span className="bad-text">
+                    , {failed}{' '}
+                    {run.decidedAgainst === 'rejected'
+                      ? 'not approved'
+                      : run.decidedAgainst
+                        ? 'not decided in time'
+                        : 'with a problem'}
+                  </span>
+                )}
               </>
             )}
             {run.dev && (

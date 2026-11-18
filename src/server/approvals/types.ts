@@ -18,13 +18,35 @@ export interface Gate {
   comment?: string;
   /** AFS-133: the hosts that waited here, for whoever decides (from the carried host sets). */
   hosts?: string[];
+  /** AFS-146: who decided, by display name (decidedBy is the login). */
+  decidedByName?: string;
+  /**
+   * AFS-146: who may decide it, by name: the approval's approvers, else the people and groups
+   * holding approve on the flow or its workspace (administrators may always).
+   */
+  deciders?: string[];
+  /** AFS-146: the step each decision sends the waiting hosts to, by its title. */
+  next?: { approved?: string; rejected?: string; timeout?: string };
   createdAt: string;
 }
 
 /** A waiting gate as the inbox lists it. */
 export interface WaitingApproval {
-  run: { id: string; number: number; project: string; flow: { file: string; name: string } };
+  run: {
+    id: string;
+    number: number;
+    project: string;
+    flow: { file: string; name: string };
+    /** AFS-146: what the approver needs to decide (not on decided ones). */
+    projectName?: string;
+    workspaceName?: string;
+    mode?: 'check' | 'real';
+    /** The run's inputs, secret-looking values shown as ***. */
+    inputs?: Record<string, unknown>;
+  };
   requestedBy: string;
+  /** AFS-146: who launched the run, by display name. */
+  requestedByName?: string;
   gate: Gate;
   mayDecide: boolean;
   /** Why not, when not. */

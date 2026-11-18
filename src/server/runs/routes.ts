@@ -74,9 +74,28 @@ export function registerRuns(
         .filter((u) => u.name)
         .map((u) => [u.id, u.name]),
     );
+    // AFS-146: a failed run whose approval was decided against reads as that.
+    const failed = runs.filter((r) => r.state === 'failed').map((r) => r.id);
+    const against = new Map(
+      failed.length
+        ? (
+            await db
+              .selectFrom('run_gate')
+              .select(['run_id', 'status'])
+              .where('run_id', 'in', failed)
+              .where('status', 'in', ['rejected', 'timed out'])
+              .execute()
+          ).map((g) => [g.run_id, g.status as 'rejected' | 'timed out'])
+        : [],
+    );
     return runs.map((r) => {
       const name = names.get(r.requestedBy.id);
-      return name ? { ...r, requestedBy: { ...r.requestedBy, name } } : r;
+      const decided = against.get(r.id);
+      return {
+        ...r,
+        ...(name ? { requestedBy: { ...r.requestedBy, name } } : {}),
+        ...(decided ? { decidedAgainst: decided } : {}),
+      };
     });
   };
   const nameOne = async (run: Run | undefined) => (run ? (await named([run]))[0] : undefined);

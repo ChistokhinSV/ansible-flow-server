@@ -11,7 +11,15 @@ import { getUser } from '../auth/users';
 import type { Schema } from '../db/schema';
 import type { RunHub } from '../runs/hub';
 import type { RunQueue } from '../runs/queue';
-import { DECISIONS, type Decision, decideGate, type Gate, gatesOf, whyNot } from './gates';
+import {
+  DECISIONS,
+  type Decision,
+  decideGate,
+  decidersOf,
+  type Gate,
+  gatesOf,
+  whyNot,
+} from './gates';
 import type { WaitingApproval } from './types';
 
 export type { WaitingApproval };
@@ -64,6 +72,20 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         )
       : 'It is decided';
 
+  /**
+   * AFS-146: a gate as the pages show it: while it waits, who may decide it (by name).
+   */
+  const dressed = async (
+    gate: Gate,
+    place: { workspace: string; project: string; flowFile: string },
+    launcher: { id: string; login: string },
+    selfApprove: boolean,
+  ): Promise<Gate> => {
+    if (gate.status !== 'waiting') return gate;
+    const deciders = await decidersOf(db, gate, place, selfApprove ? undefined : launcher);
+    return { ...gate, deciders };
+  };
+
   app.get<{ Params: { id: string } }>(
     '/api/v1/runs/:id/approvals',
     { schema: { params: { type: 'object', properties: { id: text(64) }, required: ['id'] } } },
@@ -74,10 +96,18 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
       const who = await deciderFor(request);
       const place = await placeOf(run.project);
       if (!who || !place) return reply;
-      return (await gatesOf(db, run.id)).map((gate) => {
-        const why = judge(who, gate, run, place);
-        return { ...gate, mayDecide: !why, ...(why && gate.status === 'waiting' ? { why } : {}) };
-      });
+      const gates = await gatesOf(db, run.id);
+      const where = { workspace: place.workspace, project: run.project, flowFile: run.flow.file };
+      return Promise.all(
+        gates.map(async (gate) => {
+          const why = judge(who, gate, run, place);
+          return {
+            ...(await dressed(gate, where, run.requestedBy, place.self_approve === 1)),
+            mayDecide: !why,
+            ...(why && gate.status === 'waiting' ? { why } : {}),
+          };
+        }),
+      );
     },
   );
 
@@ -137,6 +167,13 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
       const why = judge(who, gate, run, place);
       if (why) return reply.code(403).send({ error: 'forbidden', message: why });
       const { decision, comment } = request.body;
+      // AFS-146: a rejection says why, whatever asks for it (the pages, the canvas, the API, an
+      // agent): the comment is what who launched the run reads.
+      if (decision === 'rejected' && !comment?.trim())
+        return reply.code(400).send({
+          error: 'comment_required',
+          message: 'Say why you reject it: a rejection needs a comment',
+        });
       if (!(await decideGate(db, gate.id, { status: decision, by: me.login, comment })))
         return reply
           .code(409)
@@ -174,7 +211,11 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         'run.flow_name',
         'run.requested_by',
         'run.requested_login',
+        'run.mode',
+        'run.inputs_shown_json',
+        'project.name as project_name',
         'workspace.id as workspace',
+        'workspace.name as workspace_name',
         'workspace.self_approve',
       ])
       .orderBy('run_gate.created_at', decided ? 'desc' : 'asc');
@@ -183,6 +224,20 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
       : query.where('run_gate.status', '=', 'waiting').where('run.state', '=', 'waiting');
     const rows = await query.execute();
     const out: WaitingApproval[] = [];
+    // AFS-146: people by their names, as on the other pages.
+    const people = await db
+      .selectFrom('user_account')
+      .select(['id', 'login', 'name'])
+      .where('id', 'in', [...new Set(rows.map((r) => r.requested_by)), ''])
+      .execute();
+    const launcherName = new Map(people.filter((p) => p.name).map((p) => [p.id, p.name]));
+    const inputsOf = (json: string | null) => {
+      try {
+        return json ? (JSON.parse(json) as Record<string, unknown>) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
     for (const row of rows) {
       // Only what the person may see; and of that, whether they may decide.
       const sees =
@@ -191,8 +246,16 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         who.access.approves(row.workspace, row.project_id, row.flow_file);
       if (!sees) continue;
       if (decided && out.length >= 50) break;
-      const gate = (await gatesOf(db, row.run)).find((g) => g.id === row.gate);
-      if (!gate) continue;
+      const found = (await gatesOf(db, row.run)).find((g) => g.id === row.gate);
+      if (!found) continue;
+      const gate = await dressed(
+        found,
+        { workspace: row.workspace, project: row.project_id, flowFile: row.flow_file },
+        { id: row.requested_by, login: row.requested_login },
+        row.self_approve === 1,
+      );
+      const requestedByName = launcherName.get(row.requested_by);
+      const byName = requestedByName ? { requestedByName } : {};
       if (decided) {
         out.push({
           run: {
@@ -202,6 +265,7 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
             flow: { file: row.flow_file, name: row.flow_name },
           },
           requestedBy: row.requested_login,
+          ...byName,
           gate,
           mayDecide: false,
         });
@@ -217,14 +281,20 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         },
         { workspace: row.workspace, self_approve: row.self_approve },
       );
+      const inputs = inputsOf(row.inputs_shown_json);
       out.push({
         run: {
           id: row.run,
           number: row.number,
           project: row.project_id,
           flow: { file: row.flow_file, name: row.flow_name },
+          projectName: row.project_name,
+          workspaceName: row.workspace_name,
+          mode: row.mode as 'check' | 'real',
+          ...(inputs ? { inputs } : {}),
         },
         requestedBy: row.requested_login,
+        ...byName,
         gate,
         mayDecide: !why,
         ...(why ? { why } : {}),

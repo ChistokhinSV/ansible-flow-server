@@ -6,6 +6,7 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- Each approval names who may decide it: its approvers, or the people and groups with approve on the flow or its workspace (`deciders` in the API). The Approvals page shows the run's inputs (secret-looking values as `***`), its workspace and project, and whether it is a real run; the request email carries the inputs too.
 - An empty flow edited in the pages starts from what its canvas offers: **Import Ansible Playbooks…** (a playbook of the project's repository), **Import AWX Workflow or Job Template…** (through a new credential kind, `awx`: an address and a token), **Open Sample Flow…** and **Get Started**. Before, only **Add a Step** did anything.
 - A project started from a sample comes with a launch configuration of its flow, inputs filled in for the sample's hosts, so **Launch** runs it at once.
 - The launch page says how many of the hosts a **Limit** leaves (and warns when it leaves none), and names targets that are not in the inventory.
@@ -29,6 +30,12 @@ All notable changes to Ansible Flow Server.
 - A launch configuration tells of its runs only people and groups with access to the flow: saving one that names someone without access is refused and says who, and someone whose access was taken back later is no longer told.
 - The audit log names the token an action was done with, beside where it came from, and an entry of a token made says what it reaches.
 - A read-only token is refused as such at once, before what it sent is checked.
+- A run that failed because its approval was rejected (or nobody decided in time) reads as **rejected** (or **not decided in time**) in the run lists and on its page, and its hosts as ended at the rejection's step, not failed.
+- Approvals, their emails and the run's notice name people by their names, not their logins. The run page's breadcrumb names the project by its name.
+- **Approve…** and **Reject…** name the step the hosts go to, keep your comment in sight while they ask, and **Keep waiting** no longer looks like Reject. The decision email says who decided without a stray comma and names the step the hosts go to.
+- Refusing someone who launched the run says the workspace can allow it on its Access page.
+- The audit log names a run by its flow and number on every entry, and a refused decision names the approval by its title.
+- Emails sent from a bare address carry the name Ansible Flow Server.
 - A pinned commit (launch configurations, schedules, a launch) can be given as the pages show it (12 digits) or in full.
 - Keys made from a name keep accented letters as their plain letter (Ünïcödé: unicode) and a long name is cut between words.
 - A cron that cannot be read says which part is out of range and what it takes; a time-zone problem is said at the time zone.
@@ -55,6 +62,12 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- A rejection without a comment is refused by the server, whatever asks for it (the canvas, the API, an agent), not only by the pages.
+- The Approvals count in the side menu follows a decision made on the canvas, and what the Approvals page shows, at once.
+- The hosts of a run waiting at an approval read as waiting for a decision, not in progress.
+- The home page accounts for every run of the day (those going and stopped too), and says whose decision your waiting run needs.
+- On a run's page the canvas fits the window beside a long side panel: the whole flow and its zoom controls are in sight.
+- A comment is typed in the page's font, not in monospace.
 - An empty flow's **Get Started** opens the guide's part on building a flow in the pages. The pickers of **Import …** and **Open Sample Flow…** take the focus when they open and close with Escape. A sample opened in a project that lacks its roles says which roles to copy.
 - A flow's page shows its newest run on the canvas, as **Latest runs** above it lists it; before, the Run panel said there was no run. A run the canvas launches, or one that ends while shown, updates **Latest runs** and the canvas's run list, and a run that is still going is listed as running, not "did not finish". The Run panel names a run of the server as one, with its number, not as a local run (with designer 1.0.1-rc.7).
 - Every time on the pages names its time zone (yours), in one format: search results showed runs in UTC, other pages in local time without saying so.

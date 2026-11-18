@@ -101,12 +101,22 @@ export function Home({ me }: { me: User }) {
   // AFS-102: what did not go well is said too, not only what did.
   const failed = todays.filter((r) => r.state === 'failed' || r.state === 'lost').length;
   const waiting = todays.filter((r) => r.state === 'waiting').length;
+  // AFS-146: every run of the day is accounted for: those going and those stopped too.
+  const going = todays.filter((r) => r.state === 'running' || r.state === 'queued').length;
+  const stopped = todays.filter((r) => r.state === 'cancelled').length;
+  // AFS-146: whose decision your own held run waits for, when it is one run.
+  const heldFor =
+    yours.length === 1
+      ? approvals.data?.find((a) => a.run.id === yours[0])?.gate.deciders
+      : undefined;
   const summary = [
     todays.length
       ? `${plural(todays.length, 'run', 'runs')} today: ${[
           `${well} went well`,
           failed ? `${failed} failed` : '',
           waiting ? `${waiting} ${waiting === 1 ? 'waits' : 'wait'} for a decision` : '',
+          going ? `${going} going` : '',
+          stopped ? `${stopped} stopped` : '',
         ]
           .filter(Boolean)
           .join(', ')}.`
@@ -116,7 +126,9 @@ export function Home({ me }: { me: User }) {
       : 'Nothing waits for you.',
     // AFS-144: your own runs held at a gate for someone else are said too.
     yours.length
-      ? `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision.`
+      ? heldFor?.length
+        ? `1 run of yours waits for a decision by ${heldFor.length === 1 ? heldFor[0] : `${heldFor.slice(0, -1).join(', ')} or ${heldFor.at(-1)}`}.`
+        : `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision.`
       : '',
   ]
     .filter(Boolean)
