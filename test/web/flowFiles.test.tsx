@@ -145,6 +145,7 @@ describe('flows in the pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete the flow…' }));
     const del = screen.getByRole('region', { name: 'Delete the flow' });
+    expect(del.classList.contains('danger-zone')).toBe(true);
     expect(del.textContent).toContain('Nightly patch');
     fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
     await waitFor(() => expect(saved).toHaveLength(2));

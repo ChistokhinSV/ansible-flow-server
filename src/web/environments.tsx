@@ -766,8 +766,8 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
       </section>
       {/* AFS-94: what cannot be undone is last on the page, away from Build. */}
       {mayManage && (
-        <section className="panel" aria-labelledby="delete">
-          <h2 id="delete">Delete</h2>
+        <section className="panel danger-zone" aria-labelledby="delete">
+          <h2 id="delete">Delete the environment</h2>
           <p className="muted">
             Its builds and their images go with it.
             {env.usedBy

@@ -21,7 +21,8 @@ docker compose up -d
 docker compose logs server | grep -i "setup code"
 ```
 
-Open the address, enter the setup code and make the first administrator, then follow
+Open the address in that line (the setup page, with the code in it) and make the first
+administrator, then follow
 [Your first project](https://github.com/ChistokhinSV/ansible-flow-server/blob/main/docs/guide/first-project.md).
 
 The server runs flows in sibling containers through the engine's socket

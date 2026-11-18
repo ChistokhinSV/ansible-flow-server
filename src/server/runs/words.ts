@@ -49,10 +49,40 @@ export function noHostWhy(run: {
   return `No host ran: none of the targets (${list(run.targets)}) is in ${inventory}`;
 }
 
+/** AFS-167: what ansible-playbook's exit codes mean. */
+export const EXIT_CODES: Readonly<Record<number, string>> = {
+  1: 'Ansible stopped on an error',
+  2: 'One or more hosts failed',
+  3: 'One or more hosts could not be reached',
+  4: 'Ansible could not read the playbook or the inventory, or found no host to run on',
+  5: 'Ansible was given options it does not accept',
+  99: 'The run was interrupted',
+  250: 'Ansible stopped on an unexpected error',
+};
+
+/**
+ * AFS-167: "One or more hosts could not be reached: fatal: [sw-edge-01]: UNREACHABLE! (Ansible
+ * ended with code 3)". The meaning of the code, and Ansible's last error line, which names the
+ * host or the file, when there is one.
+ */
+export function exitWords(rc: number | undefined, error?: string): string {
+  const said = error?.replace(/^(ERROR!|\[?error\]?:?)\s*/i, '').trim();
+  const code =
+    rc === undefined ? 'Ansible ended without an exit code' : `Ansible ended with code ${rc}`;
+  const meaning = rc === undefined ? undefined : EXIT_CODES[rc];
+  if (!meaning) return said ? `${code}: ${said}` : code;
+  return `${meaning}${said ? `: ${said}` : ''} (${code})`;
+}
+
 /** "1 of 4 hosts failed at Pre-checks": a run whose hosts failed, in words. */
-export function failedWhy(view: RunView, nodes: readonly Titled[], rc: number | undefined): string {
+export function failedWhy(
+  view: RunView,
+  nodes: readonly Titled[],
+  rc: number | undefined,
+  error?: string,
+): string {
   const s = view.summary;
-  const code = `Ansible ended with code ${rc ?? 'unknown'}`;
+  const code = exitWords(rc, error);
   if (!s) return code;
   const failed = new Set([
     ...Object.keys(s.outcome),
@@ -75,6 +105,10 @@ export function failedWhy(view: RunView, nodes: readonly Titled[], rc: number | 
   ];
   const total = Math.max(s.hosts.length, failed.size);
   const at = steps.length ? ` at ${list(steps)}` : '';
+  // Only unreachable hosts: that, with their names, says more than "failed".
+  const unreachable = !steps.length && [...failed].every((h) => s.unreachable.includes(h));
+  if (unreachable)
+    return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} could not be reached: ${list([...failed])}`;
   return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} failed${at}`;
 }
 

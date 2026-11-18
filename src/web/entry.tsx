@@ -136,7 +136,14 @@ export function Entry({
 }
 
 export function Setup({ onDone }: { onDone: (user: User) => void }) {
-  const [input, setInput] = useState({ code: '', login: '', name: '', password: '' });
+  // AFS-158: the address in the log brings the code with it (/setup?code=…).
+  const [input, setInput] = useState(() => ({
+    code: new URLSearchParams(window.location.search).get('code') ?? '',
+    login: '',
+    name: '',
+    password: '',
+  }));
+  const [given] = useState(() => !!input.code);
   const set = (key: keyof typeof input) => (e: { target: { value: string } }) =>
     setInput((before) => ({ ...before, [key]: e.target.value }));
   return (
@@ -154,12 +161,19 @@ export function Setup({ onDone }: { onDone: (user: User) => void }) {
           onDone(await api.setup(input));
         }}
       >
-        <Field label="Setup code" value={input.code} onChange={set('code')} required autoFocus />
+        <Field
+          label="Setup code"
+          value={input.code}
+          onChange={set('code')}
+          required
+          autoFocus={!given}
+        />
         <Field
           label="Login"
           value={input.login}
           onChange={set('login')}
           required
+          autoFocus={given}
           autoComplete="username"
         />
         <Field

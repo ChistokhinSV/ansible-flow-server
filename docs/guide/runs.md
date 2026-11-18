@@ -92,7 +92,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   passphrase fails the run with "The SSH key could not be unlocked".
 - Ended: `succeeded` when Ansible ended well and wrote its events; `failed` otherwise, with
   the reason in plain words ("1 of 4 hosts failed at Pre-checks", "No host ran: the limit
-  sw-edge-09 matched none of the targets (sw-edge-01) in the inventory inventory.ini");
+  sw-edge-09 matched none of the targets (sw-edge-01) in the inventory inventory.ini", "1 of 3
+  hosts could not be reached: sw-edge-02"). When only Ansible's exit code tells, the run says
+  what it means, with Ansible's last error line when there is one: "Ansible could not read the
+  playbook or the inventory, or found no host to run on: the role 'baseline' was not found in
+  /runner/project/roles (Ansible ended with code 4)". The codes: 1 an error, 2 a host failed,
+  3 hosts could not be reached, 4 the playbook or inventory could not be read or no host was
+  found, 5 options Ansible does not accept, 99 interrupted, 250 an unexpected error;
   `cancelled` when stopped on request, saying who stopped it and during which step ("Stopped by
   Dana Whitfield during Upgrade", "Stopped by Dana Whitfield while it waited for approval at
   Change approval"). On the canvas that step reads **stopped** and the steps after it **not

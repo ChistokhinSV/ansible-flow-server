@@ -1875,6 +1875,21 @@ textarea.code {
   padding-top: 0;
 }
 
+/* AFS-162: what cannot be undone (delete a project, a workspace, a flow, an environment, a launch
+   configuration) sits in one red-bordered box, apart from the settings around it. */
+.panel.danger-zone,
+.panel + .panel.danger-zone,
+.panel.sheet + .panel.danger-zone,
+section + .panel.danger-zone {
+  border: 1px solid var(--bad);
+  border-radius: 14px;
+  padding: 20px;
+  background: none;
+}
+.panel.danger-zone > h2 {
+  color: var(--bad);
+}
+
 /* AFS-82: runs as rows; the state and the commit at the end. */
 .list .end {
   display: flex;

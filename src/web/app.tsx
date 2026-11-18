@@ -388,7 +388,8 @@ export function App() {
 
   const signedIn = (user: User) => {
     // /signin is only the page a refused provider sign-in comes back to: nothing is there once in.
-    if (window.location.pathname === '/signin') navigate('/', { replace: true });
+    // The same for /setup, the address the setup code is written with (AFS-158).
+    if (/^\/(signin|setup)$/.test(window.location.pathname)) navigate('/', { replace: true });
     setSession({ state: 'signed-in', user });
   };
   const me = session.state === 'signed-in' ? session.user : undefined;

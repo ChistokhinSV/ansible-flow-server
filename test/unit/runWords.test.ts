@@ -2,6 +2,7 @@
 import type { RunView } from '@ansible-flow/core/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  exitWords,
   failedWhy,
   noHostWhy,
   skippedTarget,
@@ -55,7 +56,52 @@ describe('a run in words (AFS-147)', () => {
       failures: [{ host: 'b', node: 'n1', task: 'check' }] as never,
     });
     expect(failedWhy(failed, nodes, 2)).toBe('1 of 4 hosts failed at Pre-checks');
-    expect(failedWhy(view({ hosts: ['a'] }), nodes, 2)).toBe('Ansible ended with code 2');
+    expect(failedWhy(view({ hosts: ['a'] }), nodes, 2)).toBe(
+      'One or more hosts failed (Ansible ended with code 2)',
+    );
+  });
+
+  it('names hosts that could not be reached', () => {
+    const v = view({
+      hosts: ['a', 'b', 'c'],
+      outcome: { b: 'unreachable' } as never,
+      unreachable: ['b'],
+    });
+    expect(failedWhy(v, nodes, 4)).toBe('1 of 3 hosts could not be reached: b');
+  });
+});
+
+describe('Ansible exit codes in words (AFS-167)', () => {
+  it.each([
+    [1, 'Ansible stopped on an error (Ansible ended with code 1)'],
+    [2, 'One or more hosts failed (Ansible ended with code 2)'],
+    [3, 'One or more hosts could not be reached (Ansible ended with code 3)'],
+    [
+      4,
+      'Ansible could not read the playbook or the inventory, or found no host to run on (Ansible ended with code 4)',
+    ],
+    [5, 'Ansible was given options it does not accept (Ansible ended with code 5)'],
+    [99, 'The run was interrupted (Ansible ended with code 99)'],
+    [250, 'Ansible stopped on an unexpected error (Ansible ended with code 250)'],
+  ])('code %i', (rc, words) => {
+    expect(exitWords(rc)).toBe(words);
+    // A run with no summary says the same, as do mails and the API (they carry the run's error).
+    expect(failedWhy({ ...view({}), summary: undefined } as RunView, nodes, rc)).toBe(words);
+  });
+
+  it('adds the last error Ansible wrote, which names the file or the host', () => {
+    expect(exitWords(4, "ERROR! the role 'baseline' was not found in /runner/project/roles")).toBe(
+      "Ansible could not read the playbook or the inventory, or found no host to run on: the role 'baseline' was not found in /runner/project/roles (Ansible ended with code 4)",
+    );
+    expect(exitWords(3, 'fatal: [sw-edge-01]: UNREACHABLE! => {"msg": "timed out"}')).toBe(
+      'One or more hosts could not be reached: fatal: [sw-edge-01]: UNREACHABLE! => {"msg": "timed out"} (Ansible ended with code 3)',
+    );
+  });
+
+  it('an unknown code, or none, as it is', () => {
+    expect(exitWords(7)).toBe('Ansible ended with code 7');
+    expect(exitWords(7, '[ERROR]: something')).toBe('Ansible ended with code 7: something');
+    expect(exitWords(undefined)).toBe('Ansible ended without an exit code');
   });
 
   it('says who stopped a run and during which step', () => {

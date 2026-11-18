@@ -3,10 +3,12 @@
 [The guide](README.md)
 
 A new server has no user. At start it writes a setup code to its log; the first administrator is
-made with it, so by someone who can read the server's log:
+made with it, so by someone who can read the server's log. The line names the page to open with
+the code: the setup page under `AFS_PUBLIC_URL`, or under the address the server listens on when
+that is not set:
 
 ```text
-[09:44:38 13.11.2026] WARN  No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
+[09:44:38 13.11.2026] WARN  No user yet. Make the first administrator with this setup code: open https://flows.example.net:8443/setup?code=Jq3vN0c4TzWk (or POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
 ```
 
 ```sh

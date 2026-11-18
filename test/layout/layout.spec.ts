@@ -127,6 +127,17 @@ function look() {
   }
   for (const s of covered) out.push(`a table cell is covered: ${s}`);
 
+  // AFS-162: what cannot be undone sits in a box with a border all round, in the theme's red.
+  for (const z of document.querySelectorAll('main .danger-zone')) {
+    const s = getComputedStyle(z);
+    const sides = [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth];
+    if (sides.some((w) => Number.parseFloat(w) < 1))
+      out.push(`a danger zone without its border: ${name(z)}`);
+    const h = z.querySelector('h2');
+    if (h && getComputedStyle(h).color !== s.borderTopColor)
+      out.push(`a danger zone's title is not in its border's red: ${name(z)}`);
+  }
+
   return [...new Set(out)];
 }
 

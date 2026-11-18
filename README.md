@@ -43,7 +43,8 @@ docker compose up -d
 docker compose logs server | grep -i "setup code"
 ```
 
-Open the address, enter the setup code and make the first administrator. Then follow
+Open the address in that line (the setup page, with the code in it) and make the first
+administrator. Then follow
 **[Your first project](docs/guide/first-project.md)**: a workspace, a project from a sample, a
 launch, and an approval, in about 15 minutes.
 

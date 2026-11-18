@@ -296,7 +296,8 @@ export function FlowFileActions({
         </section>
       )}
       {doing === 'delete' && (
-        <section className="panel sheet" aria-label="Delete the flow">
+        <section className="panel danger-zone" aria-labelledby="delete-flow">
+          <h2 id="delete-flow">Delete the flow</h2>
           <p>
             Deletes <code>{file}</code> in one commit on {project.gitRef}. Its runs stay in the
             history.
