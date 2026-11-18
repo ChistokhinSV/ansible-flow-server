@@ -164,7 +164,8 @@ export function editDraft(options: {
         switch (message.type) {
           case 'ready':
             ready = true;
-            send({ type: 'config', testMode: false });
+            // AFS-136: a draft does not run (runs use saved commits): no Run buttons while editing.
+            send({ type: 'config', testMode: false, embed: { mayRun: false } } as HostMessage);
             if (latest) send({ type: 'snapshot', snapshot: latest } as unknown as HostMessage);
             void catalogStatus();
             return;

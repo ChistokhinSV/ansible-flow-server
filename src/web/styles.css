@@ -2511,6 +2511,23 @@ fieldset.name-chips {
   background: var(--bg);
   border-radius: 12px;
 }
+/* AFS-136: shown in full screen only. */
+.fullscreen-bar {
+  display: none;
+}
+.flow-stage:fullscreen .fullscreen-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
 .flow-stage:fullscreen {
   border-radius: 0;
 }

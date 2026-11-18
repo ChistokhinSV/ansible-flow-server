@@ -225,6 +225,28 @@ export function FlowPage({
               {waiting?.editors.length ? 'Open the draft' : 'Edit'}
             </button>
           ) : null}
+          {/* AFS-136: a draft can be dropped from here too, without opening it. */}
+          {mayEdit && !editing && waiting?.editors.length ? (
+            <button
+              type="button"
+              className="danger"
+              onClick={async () => {
+                const whose = waiting.editors
+                  .map((e) => (e.login === me.login ? 'yours' : `${e.name}'s`))
+                  .join(', ');
+                if (!window.confirm(`Discard the draft? The unsaved edits go (${whose}).`)) return;
+                try {
+                  await api.discardDraft(waiting.id);
+                  setSaid('The draft is discarded.');
+                } catch (e) {
+                  setSaid(messageOf(e));
+                }
+                reloadAll.current();
+              }}
+            >
+              Discard the draft
+            </button>
+          ) : null}
           {/* AFS-107: the canvas the whole screen (viewing or editing), or on a page of its own
               (with the draft while editing); icons, so the head takes little room. */}
           {viewer && (
@@ -342,6 +364,15 @@ export function FlowPage({
       </div>
       {viewer && project?.commit && (
         <div className="flow-stage" ref={stage}>
+          {/* AFS-136: in full screen, the way back (and to Save) stays in sight. */}
+          <div className="fullscreen-bar">
+            {editing ? (
+              <span className="muted small">Save is under the page: come back to save.</span>
+            ) : null}
+            <button type="button" onClick={() => void document.exitFullscreen?.()}>
+              Exit full screen
+            </button>
+          </div>
           <iframe
             // A new commit, theme or draft is a new page for the designer.
             key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
@@ -474,7 +505,7 @@ function DraftBar({
       <p>
         <strong>Editing</strong> · here now:{' '}
         {people.length ? people.map((p) => p.name).join(', ') : 'only you'}. Edits are shared at
-        once; Ctrl+Z takes back your own last one.
+        once; Ctrl+Z takes back your own last one. Runs use saved flows: Save, then launch.
       </p>
       {newest ? (
         <p className="muted draft-edits" aria-live="polite">
