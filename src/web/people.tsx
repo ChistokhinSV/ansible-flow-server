@@ -17,6 +17,7 @@ import {
   messageOf,
   PageHead,
   refuse,
+  Scroll,
   Tabs,
   Time,
   useLoad,
@@ -194,7 +195,7 @@ function PeopleTable({ users }: { users: User[] }) {
           No one matches.
         </p>
       ) : (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -230,7 +231,7 @@ function PeopleTable({ users }: { users: User[] }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </>
   );
@@ -238,7 +239,7 @@ function PeopleTable({ users }: { users: User[] }) {
 
 function GroupsTable({ groups }: { groups: Group[] }) {
   return (
-    <div className="scroll">
+    <Scroll>
       <table>
         <thead>
           <tr>
@@ -261,7 +262,7 @@ function GroupsTable({ groups }: { groups: Group[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </Scroll>
   );
 }
 
@@ -541,7 +542,7 @@ function Reach({ user }: { user: User }) {
       <Loading state={load} />
       {load.data && rows.length === 0 && <p className="muted">No access to any workspace.</p>}
       {rows.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -573,7 +574,7 @@ function Reach({ user }: { user: User }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </>
   );
@@ -777,7 +778,7 @@ function NamedIn({ group }: { group: Group }) {
         <p className="muted">No workspace gives this group a level.</p>
       )}
       {rows.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -809,7 +810,7 @@ function NamedIn({ group }: { group: Group }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );

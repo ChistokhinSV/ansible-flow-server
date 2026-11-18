@@ -3097,3 +3097,259 @@ td time {
   margin-top: 0;
 }
 /* === end AFS-138 ============================================================================= */
+
+/* === AFS-154: one frame, phone tables, small layout points ===================================
+   Kept together so other changes to this file merge around it. test/layout checks one right edge
+   and no covered table cell. */
+
+/* One frame on every page: the top bar and every page (lists, a flow, files, an environment, a
+   run) share one width, so they all end where the search box ends. At 1440 px the frame takes the
+   window (a flow being edited needs the room for its canvas beside the designer's panel); a very
+   wide screen widens it for every page alike. */
+:root {
+  --frame: 1240px;
+}
+@media (min-width: 1880px) {
+  :root {
+    --frame: 1480px;
+  }
+}
+.page,
+.page.wide,
+.page.broad,
+.page.full,
+.page.run,
+.bar,
+.bar.bar-of.broad,
+.bar.bar-of.wide,
+.bar.bar-of.full,
+.bar.bar-of.run {
+  max-width: var(--frame);
+}
+/* A run's page has the page's edges too: its head, the canvas with the side panel, and what is
+   under them keep inside the frame instead of running to the window's edge. */
+.page.run {
+  padding: 0 44px 48px;
+}
+.run-head,
+.run-below,
+.run-flow > p {
+  max-width: none;
+  padding-inline: 0;
+}
+@media (max-width: 1100px) {
+  .run-side {
+    padding-inline: 16px;
+  }
+}
+@media (max-width: 860px) {
+  .page.run {
+    padding: 0 16px 40px;
+  }
+  .run-head,
+  .run-below,
+  .run-flow > p {
+    padding-inline: 0;
+  }
+}
+
+/* On a phone a table's rows stack: each row a block, each value under or beside the name of its
+   column (ui.tsx Scroll sets data-label), a row's buttons on a line of their own. Nothing is
+   covered by a button column that stays in place, and nothing scrolls sideways. */
+@media (max-width: 640px) {
+  .scroll {
+    background: none;
+  }
+  .scroll > table,
+  .scroll > table > tbody,
+  .scroll > table > tbody > tr,
+  .scroll > table > tbody > tr > td {
+    display: block;
+    width: auto;
+  }
+  .scroll > table > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .scroll > table > tbody > tr {
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel .scroll > table > tbody > tr:last-child {
+    border-bottom: 0;
+  }
+  .scroll > table > tbody > tr > td,
+  .scroll > table > tbody > tr > td:first-child {
+    border: 0;
+    min-width: 0;
+    padding: 0.15rem 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  /* The column's name floats in the cell's left padding; the cell grows to hold a long one. */
+  .scroll > table > tbody > tr > td[data-label] {
+    display: flow-root;
+    padding-left: 9rem;
+  }
+  .scroll > table > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    float: left;
+    width: 8.25rem;
+    margin-left: -9rem;
+    color: var(--muted);
+    font-size: 13px;
+    overflow-wrap: break-word;
+  }
+  /* A column with nothing in this row is left out of its card. */
+  .scroll > table > tbody > tr > td[data-label]:empty {
+    display: none;
+  }
+  /* The first value names the row: it reads as a title, without its column's name. */
+  .scroll > table > tbody > tr > td:first-child[data-label] {
+    padding-left: 0;
+    font-weight: 600;
+  }
+  .scroll > table > tbody > tr > td:first-child[data-label]::before {
+    content: none;
+  }
+  .scroll td:last-child:has(button, a.button),
+  .scroll th:last-child:has(.sr-only) {
+    position: static;
+    box-shadow: none;
+    padding-left: 0;
+    background: none;
+  }
+  .scroll td:last-child:has(button, a.button) {
+    padding-top: 0.4rem;
+  }
+  .scroll td .actions {
+    justify-content: flex-start;
+  }
+}
+
+/* A status line's facts are divided by dots; a fact that starts a line has none (the dot sits in
+   the gap before it, and the line's left edge cuts the first one off). */
+.statusline > * {
+  position: relative;
+}
+.statusline > * + *::before {
+  position: absolute;
+  left: -10px;
+  margin: 0;
+}
+.statusline {
+  clip-path: inset(-1rem -100vw -1rem -3px);
+}
+
+/* A button that cannot be pressed looks it: faded, unfilled, with a dashed edge. */
+button:disabled,
+button.primary:disabled,
+button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+  filter: none;
+}
+button.link:disabled {
+  box-shadow: none;
+}
+
+/* The Help page's descriptions start at one edge in every section. */
+@media (min-width: 561px) {
+  .facts.guide-list {
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+}
+
+/* The side menu's Workspaces heading is a link as easy to hit as the others. */
+.side-label a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 4px;
+  margin-left: -4px;
+}
+
+/* A choice's label with a long name (a credential) wraps inside its column. */
+label.choice,
+label.inline {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* "git says the certificate is not trusted?" keeps a line's space from what follows it. */
+.clone-trust {
+  margin-bottom: 1.25rem;
+}
+
+/* A field with a problem keeps its red mark while it has the focus (the page focuses it). */
+.field [aria-invalid="true"]:focus-visible {
+  outline-color: var(--bad);
+}
+
+/* The Files tab fits a window's height: the file's pane is tall, not taller than what is left. */
+@media (min-width: 901px) {
+  .files > .files-view {
+    min-height: min(60vh, calc(100dvh - 25rem));
+  }
+}
+
+/* A long project name in the breadcrumbs is shortened on its line (its whole name is its title). */
+.crumbs .crumb-name {
+  display: inline-block;
+  max-width: min(28ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* AFS-155: the user guide, as the server shows it. */
+.guide {
+  max-width: 54rem;
+  line-height: 1.6;
+}
+.guide h2 {
+  margin-top: 2rem;
+}
+.guide img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75rem 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.guide .guide-code {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--code-bg);
+  font: 13px / 1.55 var(--mono);
+  overflow-x: auto;
+}
+.guide .scroll {
+  margin-bottom: 1rem;
+}
+.guide blockquote {
+  margin: 1rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.guide li + li {
+  margin-top: 0.3rem;
+}
+.out-link .icon {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.2em;
+  vertical-align: -0.05em;
+}
+/* === end AFS-154 ============================================================================= */

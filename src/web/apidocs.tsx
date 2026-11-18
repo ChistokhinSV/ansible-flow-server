@@ -1,7 +1,7 @@
 // The API reference: the server's own OpenAPI document (/api/v1/openapi.json), shown by
 // subject. Each address with what it does, who may call it, and what it takes.
 import { useState } from 'react';
-import { Loading, PageHead, useLoad } from './ui';
+import { Loading, PageHead, Scroll, useLoad } from './ui';
 
 interface Schema {
   type?: string | string[];
@@ -68,7 +68,7 @@ function Fields({
   rows: { name: string; where?: string; required: boolean; schema: Schema }[];
 }) {
   return (
-    <div className="scroll">
+    <Scroll>
       <table>
         <thead>
           <tr>
@@ -91,7 +91,7 @@ function Fields({
           ))}
         </tbody>
       </table>
-    </div>
+    </Scroll>
   );
 }
 

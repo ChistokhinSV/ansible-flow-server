@@ -180,6 +180,14 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     tokens: '/account/tokens',
     people: '/admin/people',
     audit: '/admin/audit',
+    // AFS-154: the pages the round-2 exploration found wider or covered.
+    access: '/w/network/-/access',
+    edge: '/w/network/edge',
+    newLaunch: '/w/network/hello/launch/new',
+    missing: '/w/network/hello/flow/flows/gone.flow.yaml',
+    help: '/help',
+    // AFS-155: the guide the server serves, a page with a wide table.
+    guide: '/help/guide/web-pages.md',
   };
 }
 

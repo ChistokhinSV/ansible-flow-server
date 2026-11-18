@@ -29,7 +29,9 @@ import {
   Loading,
   messageOf,
   PageHead,
+  ProjectName,
   refuse,
+  Scroll,
   Tabs,
   Time,
   useLoad,
@@ -1094,7 +1096,7 @@ function BranchesPanel({
       )}
       {branches.length === 0 && <p className="muted">None yet.</p>}
       {branches.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -1156,7 +1158,7 @@ function BranchesPanel({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       {adding && (
         <Form
@@ -1397,7 +1399,10 @@ export function ProjectPage({
       <Link to={`/w/${workspace}`}>
         <WorkspaceName workspace={workspace} />
       </Link>{' '}
-      / <span aria-current="page">{key}</span>
+      /{' '}
+      <span aria-current="page">
+        <ProjectName workspace={workspace} project={key} />
+      </span>
     </Breadcrumb>
   );
   if (!project)
@@ -1580,7 +1585,7 @@ export function ProjectPage({
             <Loading state={pushes} />
             {pushes.data?.length === 0 && <p className="muted">None yet.</p>}
             {!!pushes.data?.length && (
-              <div className="scroll">
+              <Scroll>
                 <table>
                   <thead>
                     <tr>
@@ -1612,7 +1617,7 @@ export function ProjectPage({
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </Scroll>
             )}
           </section>
         </>

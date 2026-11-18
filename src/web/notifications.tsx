@@ -5,7 +5,18 @@
 import { type ReactNode, useEffect, useId, useState } from 'react';
 import { api, type Delivery, type NotifySettings, type SmtpSecurity } from './api';
 import { Link } from './router';
-import { Copyable, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  Copyable,
+  Field,
+  Form,
+  Loading,
+  messageOf,
+  PageHead,
+  Scroll,
+  Tabs,
+  Time,
+  useLoad,
+} from './ui';
 
 const EVENT_LABEL: Record<string, string> = {
   'approval.waiting': 'approval waits',
@@ -226,7 +237,7 @@ function DeliveryLog({
         <p className="empty">{status ? 'No such message.' : 'No message yet.'}</p>
       )}
       {!!list?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -291,7 +302,7 @@ function DeliveryLog({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );

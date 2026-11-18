@@ -8,7 +8,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ApiError, api, type CertificateInfo, type CertificateState } from './api';
 import { Link } from './router';
-import { Field, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Field, Loading, messageOf, PageHead, Scroll, Time, useLoad } from './ui';
 
 /** Days left at which administrators are warned, on every page. */
 const WARN_DAYS = 30;
@@ -330,7 +330,7 @@ function History({ turn }: { turn: number }) {
       <Loading state={list} />
       {list.data?.length === 0 && <p className="empty">No change yet.</p>}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -360,7 +360,7 @@ function History({ turn }: { turn: number }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );

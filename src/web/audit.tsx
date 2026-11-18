@@ -5,7 +5,7 @@ import { AUDIT_KINDS as OBJECTS } from '../server/audit/kinds';
 import type { AuditRef } from '../server/audit/refs';
 import { type AuditEntry, type AuditFilter, api, auditExport } from './api';
 import { Link } from './router';
-import { Loading, messageOf, PageHead, Time } from './ui';
+import { Loading, messageOf, PageHead, Scroll, Time } from './ui';
 
 const SOURCE_LABEL: Record<string, string> = {
   ui: 'pages',
@@ -220,7 +220,7 @@ export function AuditPage() {
         <p className="empty">Nothing in the log matches.</p>
       )}
       {entries.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -280,7 +280,7 @@ export function AuditPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       <Loading state={state} />
       {next && !state.loading && (

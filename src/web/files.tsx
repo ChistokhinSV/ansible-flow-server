@@ -10,7 +10,17 @@ import { Missing } from './help';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
-import { Breadcrumb, Loading, messageOf, PageHead, Tabs, Time, useLoad, WorkspaceName } from './ui';
+import {
+  Breadcrumb,
+  Loading,
+  messageOf,
+  PageHead,
+  ProjectName,
+  Tabs,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 const FLOW = /\.flow\.ya?ml$/;
 /** Text the page edits; a bigger file is downloaded (the server takes 1 MB per edited file). */
@@ -494,6 +504,24 @@ export function FilesPage({
           : set.changes,
       });
       const n = set.changes.length;
+      // AFS-154: a file or folder this save deleted is no longer shown as picked.
+      const gone = set.changes.some(
+        (c) =>
+          c.op === 'delete' &&
+          !!selected &&
+          (selected === c.path || selected.startsWith(`${c.path}/`)),
+      );
+      if (gone) {
+        const q = new URLSearchParams(window.location.search);
+        q.delete('path');
+        const rest = q.toString();
+        // The same page: the address changes in place, and the update below draws it again.
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${rest ? `?${rest}` : ''}`,
+        );
+      }
       update({ changes: [] });
       setMessage('');
       setSaid({
@@ -520,7 +548,11 @@ export function FilesPage({
       <Link to={`/w/${workspace}`}>
         <WorkspaceName workspace={workspace} />
       </Link>{' '}
-      / <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">Files</span>
+      /{' '}
+      <Link to={`/w/${workspace}/${key}`}>
+        <ProjectName workspace={workspace} project={key} />
+      </Link>{' '}
+      / <span aria-current="page">Files</span>
     </Breadcrumb>
   );
   if (!project)
