@@ -18,7 +18,10 @@ server that stops and starts again keeps the run waiting.
 - **Not who launched the run**, unless the workspace allows it (Access, on the workspace's page,
   or `PATCH /api/v1/workspaces/<id>` with `{"selfApprove": true}`).
 - **A comment** goes with every decision; the run, its page, its canvas and the audit log keep
-  who decided, when and why.
+  who decided, when and why. Rejecting needs one. On the pages, **Approve…** and **Reject…** ask
+  once more and say where the hosts go; each approval says who may decide it.
+- **A run that fails after a rejection** says so (`Rejected at <approval> by <login>: <comment>`),
+  and the decision email says where the hosts go.
 - **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
   hosts take the approval's `timeout` port (or `rejected` when it has none).
 - **A stopped run** asks nobody any more.

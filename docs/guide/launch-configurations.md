@@ -75,6 +75,9 @@ project's list of flows says the same of each flow.
 - **At launch** a person may give `mode`, `ref` or `commit`, `limit`, and `inputs` as typed
   text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
   not repeated in the answer.
+- **The limit** is Ansible's `--limit`: the run touches only the targeted hosts it matches. On
+  the launch page, **What would run** says how many hosts it leaves (none: the run would stop at
+  once) and names targets that are not in the inventory. A real launch asks first.
 
 **On the pages:** a project's page lists its launch configurations. A configuration's page
 shows its settings and the launch form:
