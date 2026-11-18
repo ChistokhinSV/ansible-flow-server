@@ -68,7 +68,11 @@ describe('the search field', () => {
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(document.activeElement).toBe(field);
 
+    // AFS-140: one character finds nothing on purpose, and says so.
+    fireEvent.change(field, { target: { value: 'h' } });
+    expect(screen.getByText('Type at least 2 characters to search.')).toBeTruthy();
     fireEvent.change(field, { target: { value: 'hello' } });
+    expect(screen.queryByText('Type at least 2 characters to search.')).toBeNull();
     const list = await screen.findByRole('listbox', { name: 'Search results' });
     await within(list).findByText('Hello, Ansible');
     const options = within(list).getAllByRole('option');

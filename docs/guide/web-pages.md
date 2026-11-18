@@ -141,9 +141,10 @@ editor with highlighting; flows are read here and edited in the flow editor.
 
 With `rw` on the workspace you change files: edit text, **New file**, **Upload files** and
 **Upload a folder (zip)** (a zip or tar.gz unpacked into the folder you are in), **Rename or
-move** and **Delete** (files and folders). The changes are listed until **Save**, which makes one
-commit of them on the branch, with your message, by you; this browser keeps them meanwhile, and
-**Take back** drops one. When the branch moved since your first change, Save goes on top of it,
+move** and **Delete** (files and folders). A path is checked as you type it: it stays inside the
+project and does not land on a file or folder that is there. The changes are listed until
+**Save**, which makes one commit of them on the branch, with your message (left empty, the words
+the Message field shows), by you; this browser keeps them meanwhile, and **Take back** drops one. When the branch moved since your first change, Save goes on top of it,
 unless the branch changed one of the same files: then nothing is saved and those files are
 listed. For a project with an external repository the commit is pushed there first. A Save is
 listed with the pushes and in the audit log (`project.files-save`).

@@ -422,6 +422,10 @@ describe('the launch form', () => {
 
     refuse = false;
     fireEvent.change(secret, { target: { value: 's3cret-value' } });
+    // AFS-140: the problem goes once its field is changed, not at the next question.
+    expect(secret.getAttribute('aria-invalid')).toBeNull();
+    expect(screen.queryByText('api_password is required')).toBeNull();
+    expect(screen.queryByText(/Some fields need a look/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'What would run' }));
     await screen.findByRole('heading', { name: 'What would run' });
     expect(secret.getAttribute('aria-invalid')).toBeNull();
@@ -642,6 +646,20 @@ describe('adding a launch configuration', () => {
       credentials: ['k1'],
       mode: 'check',
     });
+  });
+});
+
+describe('AFS-140: a launch configuration of a project without flows', () => {
+  it('says there is no flow to run instead of an empty list', async () => {
+    routes = {
+      ...common(dana),
+      'GET /projects/p1/flows': () => ({ body: { flows: [] } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    expect(await screen.findByText(/The project has no flow yet/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Flow/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Make a flow on the project page' })).toBeTruthy();
   });
 });
 

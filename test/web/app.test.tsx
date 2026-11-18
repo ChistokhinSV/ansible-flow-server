@@ -747,6 +747,71 @@ describe('signed in', () => {
     expect(sent[1]).toEqual({ key: 'try-it-edge-2', name: 'Try it: Edge #2', sample: 'hello' });
   });
 
+  it('AFS-140: Add project makes a readable key, says a refusal at its field, and keeps typing', async () => {
+    const sent: unknown[] = [];
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces/network/projects': () => ({ body: [edge, lab] }),
+      'GET /samples': () => ({ body: [] }),
+      'POST /workspaces/network/projects': (body) => {
+        sent.push(body);
+        return sent.length === 1
+          ? {
+              status: 409,
+              body: {
+                error: 'taken',
+                message: 'The workspace has a project edge already',
+                field: 'key',
+              },
+            }
+          : {
+              status: 201,
+              body: {
+                ...lab,
+                id: 'p9',
+                key: 'mirror',
+                hosted: false,
+                gitUrl: 'https://git.invalid.example/a10/x.git',
+                sync: { state: 'error', error: 'fatal: unable to access the address' },
+              },
+            };
+      },
+    };
+    window.history.replaceState(null, '', '/w/network');
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add project' }));
+    const name = screen.getByLabelText('Name') as HTMLInputElement;
+    // The form opened takes the cursor, and a name has a limit the field keeps.
+    await waitFor(() => expect(document.activeElement).toBe(name));
+    expect(name.maxLength).toBe(200);
+    type('Name', 'a10 Ünïcödé 🚀 "quoted" / slash');
+    const key = screen.getByLabelText('Key') as HTMLInputElement;
+    expect(key.value).toBe('a10-unicode-quoted-slash');
+    type('Name', `datacenter refresh ${'wave '.repeat(14)}`);
+    expect(key.value.length).toBeLessThanOrEqual(60);
+    expect(key.value.endsWith('-wave')).toBe(true);
+
+    type('Key', 'edge');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(key.getAttribute('aria-invalid')).toBe('true'));
+    expect(screen.getByText('The workspace has a project edge already')).toBeTruthy();
+    // Changing the key takes the refusal away.
+    type('Key', 'mirror');
+    expect(screen.queryByText('The workspace has a project edge already')).toBeNull();
+
+    // Leaving with typing not sent asks first; staying keeps it.
+    vi.stubGlobal('confirm', () => false);
+    fireEvent.click(screen.getByRole('link', { name: 'Execution environments' }));
+    expect(window.location.pathname).toBe('/w/network');
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('mirror');
+
+    // A source that cannot be read is said at once, on Settings, where its address can change.
+    fireEvent.click(screen.getByLabelText('An existing repository'));
+    type('Repository address', 'https://git.invalid.example/a10/x.git');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/w/network/mirror/settings'));
+  });
+
   it('makes an access token for one workspace, shows it once, and lists what it has', async () => {
     const made = {
       id: 't1',

@@ -46,6 +46,12 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 | `/workspaces/:id/credentials` | List; add                                                | read: `ro` on the workspace; change: administrators |
 | `/credentials/:id`            | One; change name, open part, or the whole secret; delete | as above                                            |
 
+- **The open part is checked:** a become method is a plugin's name (`sudo`, `su`,
+  `community.general.doas`; the form offers the usual ones), a registry host is a host name with a
+  port if needed and no `https://` or path, an AWX address starts with `https://` or `http://`, a
+  vault id is one word. A private key is the whole key, from `-----BEGIN` to the `-----END` line.
+  The form checks these before sending and says a problem at its field; two variables of one name
+  are refused there too.
 - **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
   the values. To change a secret, send it again whole.
 - **A private repository:** give the project a credential of its workspace:
