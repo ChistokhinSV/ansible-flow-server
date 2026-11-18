@@ -107,6 +107,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'self',
   )('Change your own name and email address; a webhook only as an administrator'),
   'PUT /api/v1/session/password': S('Session', 'session', 'self')('Change your own password'),
+  'GET /api/v1/session/access': S(
+    'Session',
+    'signed in',
+    'self',
+  )(
+    'Your own access, workspace by workspace (level, flows of your own, approves, through), and the administrators who give access',
+  ),
 
   'GET /api/v1/tokens': S('Tokens', 'signed in', 'self')('Your access tokens'),
   'POST /api/v1/tokens': S(

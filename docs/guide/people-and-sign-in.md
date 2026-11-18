@@ -27,6 +27,7 @@ just user add dana --name "Dana Whitfield" --admin
 | `GET /session`                                             | Who am I, with my groups                                            | signed in                         |
 | `DELETE /session`                                          | Sign out                                                            | anyone                            |
 | `PUT /session/password`                                    | Change my password: `{"current","password"}`                        | signed in                         |
+| `GET /session/access`                                      | My own access, workspace by workspace, and who gives access (below) | signed in                         |
 | `PATCH /session`                                           | Change my `name` and `email`; `webhookUrl` only as an administrator | session (not a token)             |
 | `GET /tokens`, `POST /tokens`                              | My access tokens; make one (shown once)                             | signed in; making needs a session |
 | `DELETE /tokens/:id`                                       | Revoke one of my tokens                                             | signed in, with a session         |
@@ -49,9 +50,11 @@ just user add dana --name "Dana Whitfield" --admin
   `disabled`) only with its right password.
 - `GET /users/:id/access` answers `{"admin", "workspaces"}`: a row for each workspace where a
   grant names the person or one of their groups, with the `workspace` (`id`, `key`, `name`),
-  their `level` there, `approve`, the `flows` with a grant of their own, and `through` (whose
-  grants gave it: `user:omar`, `group:netops`). For an administrator it is `"admin": true` and
-  no rows. `GET /groups/:id/grants` lists the grants that name the group: each with the
+  their `level` there, `approve`, the `flows` with a grant of their own (`project` key,
+  `projectId`, `file`, `level`), and `through` (whose grants gave it: `user:omar`,
+  `group:netops`). For an administrator it is `"admin": true` and no rows. `GET /session/access`
+  is the same answer for whoever asks, about themself, with `administrators`: the names of the
+  administrators, who give access. **My account** shows it under **Your access**. `GET /groups/:id/grants` lists the grants that name the group: each with the
   `workspace` (`id`, `key`, `name`), the `level`, and the `flow` when it is on one flow.
 - A person and a group each have an email address and a webhook address: where a notification
   for them goes (see [Notifications](notifications.md)).
@@ -200,6 +203,9 @@ Administrators may do everything. Everyone else sees and does only what they are
   answers 404 with the words a missing one gets ("No such run"). What they may see but not do answers 403.
 - **Tokens act as their owner,** narrowed further when read-only or made for one workspace.
 - Workspaces, projects, credentials and grants are changed by administrators.
+- **The pages say the levels in words:** read only, operator, read and write, approver. Each
+  workspace and every tab of a project says your own access there under its title, with the
+  flows a grant of your own gives another level on, by their titles.
 
 Give and take grants on the workspace's page (Access), or:
 
