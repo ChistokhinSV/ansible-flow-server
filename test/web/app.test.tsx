@@ -630,7 +630,8 @@ describe('signed in', () => {
       }),
       'POST /drafts/d1/save': (body) => {
         saves++;
-        return (body as { force?: boolean }).force
+        // AFS-149: the side kept at each clashing place.
+        return (body as { choices?: Record<string, string> }).choices?.['node:x:title'] === 'draft'
           ? { body: { commit: '41d7a0c93be2f5681a0c4e7d9b3f2a6c8e1d0b57' } }
           : {
               status: 409,
@@ -680,8 +681,8 @@ describe('signed in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Upgrade: title')).toBeTruthy();
     expect(asked[0]).toMatch(/^Mia Ortega is editing this draft too/);
-    fireEvent.click(screen.getByRole('button', { name: "Save with the draft's side" }));
-    expect(await screen.findByText('Saved as 41d7a0c93be2.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save with these' }));
+    expect((await screen.findByText(/Saved as/)).textContent).toBe('Saved as 41d7a0c93be2.');
     expect(saves).toBe(2);
     expect(screen.queryByRole('region', { name: 'Editing' })).toBeNull();
   });

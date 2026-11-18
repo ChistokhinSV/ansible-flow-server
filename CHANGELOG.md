@@ -29,6 +29,10 @@ All notable changes to Ansible Flow Server.
 - A run names the targets Ansible skipped because the inventory does not have them, also when it went well.
 - The Runs page has a **Find** box: words in a flow's or configuration's name, a login, or a run's number (`q` in the API).
 - A launch configuration's page names its environment (with its image, or why it has none), its limit and its credentials. The inventory's group buttons say how many hosts each holds.
+- A save the branch's changes clash with lists each place with the draft's value and the branch's; you pick which to keep at each and **Save with these**.
+- After a save, the page says the commit (a link to the flow at it) and the co-authors. The Branches tab's pushes name the person, say how each came (git push, draft saved, files changed, branch, project started) and show the new commit's message.
+- Full screen has a **Save** while editing a draft.
+- The draft bar's line of what the others did says what each edit was ("removed Ping", "changed Backup (timeout)", "changed the flow's goal"); **N earlier** lists the ones before.
 
 ### Changed
 
@@ -64,6 +68,11 @@ All notable changes to Ansible Flow Server.
 - Breadcrumbs name the workspace ("Network team"), not its key.
 - Home says when a run of yours waits for someone else's approval. A runs list emptied by its filters offers **Show all runs**.
 - **Add a provider** sits at the head of the Providers section, as **Add a directory** does at its own.
+- Notes about a draft (the branch moved, a save's clashes) lie over the top of the canvas, and the line of what the others did is there from the start: the canvas no longer moves down while you edit.
+- Discarding a draft asks the same question on the flow's page and in the editor, naming whose unsaved edits go.
+- The Run tab of a flow being edited says runs use the saved flow (save, then launch), not AWX or the local environment.
+- "Reading the hosts from the inventory…" shows only when reading takes a while, and no longer stays over the launch dialog.
+- **New configuration…** from the canvas's Run goes back to the flow once the configuration is saved.
 
 ### Fixed
 
@@ -121,6 +130,10 @@ All notable changes to Ansible Flow Server.
 - The sign-in page no longer logs an error in the browser's console, and its card no longer shows the picture through it.
 - Small layout fixes: the dot of a status line sits outside the "active" badge; the "Added …" note goes when you switch tabs; **Launch…** and a branch's buttons line up at the right of their rows; tabs keep their width when opened; unchosen radio buttons show in the dark theme; file choosers follow the theme; a flow's long name is shortened on one line beside its buttons; a run's title lines up with its breadcrumbs; gaps under hints and fact lists; **Replace the certificate** is ruled off from the history; a sent test message is shown in green; the delivery log no longer repeats an address; collections found have no list bullets.
 - Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
+- A save in one tab now takes in what the same person is still typing in another tab of the draft (a background tab too); before, that typing was lost. The save waits only until each page has sent its typing. A page whose typing could not be sent says so.
+- After **Save with the draft's side** (now: per place), the flow's page shows the new commit at once, not the one shown before editing.
+- Your own push to the branch while you edit is "You changed this flow", not your name and "theirs"; your own save made in another tab says "You saved the draft".
+- Ctrl+Z with nothing to undo, and a save that clashes with the branch, no longer log errors in the browser's console.
 
 ## 1.0.0 — First release
 

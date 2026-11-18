@@ -87,7 +87,7 @@ describe('Run on the canvas', () => {
     await l.run('check');
     expect(choose).toHaveBeenCalledWith([]);
     expect(sent).toEqual([]);
-    expect(went).toEqual(['/w/netops/edge/launch/new?flow=flows%2Fhello.flow.yaml']);
+    expect(went).toEqual(['/w/netops/edge/launch/new?flow=flows%2Fhello.flow.yaml&back=flow']);
   });
 
   it('Save as Launch Configuration: a copy of the chosen one with the mode and inputs (AFS-97)', async () => {

@@ -57,6 +57,14 @@ const KIND_LABEL: Record<string, string> = {
 
 const base = (workspace: string, project: string) =>
   `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}`;
+/** AFS-149: a flow's page, where the canvas's Run asked for a new configuration. */
+const flowPage = (workspace: string, project: string, file: string) =>
+  `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}/flow/${file.split('/').map(encodeURIComponent).join('/')}`;
+/** AFS-149: the flow whose canvas asked for a new configuration (`?flow=…&back=flow`). */
+const canvasFlow = () => {
+  const q = new URLSearchParams(window.location.search);
+  return q.get('back') === 'flow' ? (q.get('flow') ?? undefined) : undefined;
+};
 export const launchAddress = (workspace: string, project: string, id: string) =>
   `${base(workspace, project)}/launch/${encodeURIComponent(id)}`;
 /** A flow's page (as the project page builds it: that page reads this file, so it is not read here). */
@@ -1729,6 +1737,7 @@ export function LaunchConfigEdit({
 }) {
   const project = useProject(workspace, key);
   const existing = useLoad(async () => (id ? api.launchConfig(id) : undefined), [id]);
+  const fromCanvas = canvasFlow();
   const title = id
     ? `Change ${existing.data?.name ?? 'launch configuration'}`
     : 'Add a launch configuration';
@@ -1763,8 +1772,24 @@ export function LaunchConfigEdit({
           workspace={workspace}
           project={project.data}
           {...(existing.data ? { existing: existing.data } : {})}
-          onSaved={(saved) => navigate(launchAddress(workspace, key, saved.id))}
-          onCancel={() => navigate(id ? launchAddress(workspace, key, id) : base(workspace, key))}
+          // AFS-149: opened from the canvas's Run (`back=flow`): back to the flow, where Run now
+          // offers the new configuration with its inputs.
+          onSaved={(saved) =>
+            navigate(
+              fromCanvas && !id
+                ? flowPage(workspace, key, fromCanvas)
+                : launchAddress(workspace, key, saved.id),
+            )
+          }
+          onCancel={() =>
+            navigate(
+              fromCanvas && !id
+                ? flowPage(workspace, key, fromCanvas)
+                : id
+                  ? launchAddress(workspace, key, id)
+                  : base(workspace, key),
+            )
+          }
         />
       </section>
     </>

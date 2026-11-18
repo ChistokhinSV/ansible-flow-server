@@ -87,18 +87,24 @@ Code. Everyone who edits the same flow edits one shared draft:
 - **Edits are shared at once.** Each change goes to the server, which applies it to the draft in
   the order it gets them, and everyone's canvas shows the result. Changes to different steps all
   apply; when two people change the same field, the later one wins. The draft bar says who is
-  here and what the others changed last.
+  here and, on one line, what the others did last ("removed Ping", "changed Backup (timeout)");
+  **N earlier** lists the ones before. Notes about the draft (the branch moved, a save's clashes)
+  lie over the top of the canvas, so the canvas never moves while you work.
 - **Ctrl+Z takes back your own last edit**, says which step it was, and leaves the others' alone.
   When someone changed the same place after you, it is refused with what they changed.
 - **Save** makes one commit on the project's branch, with your message, by you, and
-  `Co-authored-by` for everyone else who edited. For a project with an external repository the
-  commit is pushed there first, only if the branch there has not moved. When the branch moved
-  since the draft began, the draft is merged onto it step by step first; places both changed are
-  listed, and **Save with the draft's side** takes the draft's version of those. While you edit,
-  a note says when someone changes or removes the flow on the branch (a push from VS Code, another
-  save), so nobody's work is saved over unknowingly. When others are in the draft, **Save** names
-  them first, and their pages send what they are still typing before the commit is made.
-  Saves are listed among the project's pushes (Branches).
+  `Co-authored-by` for everyone else who edited; it then says the commit (a link to the flow at
+  it) and the co-authors. For a project with an external repository the commit is pushed there
+  first, only if the branch there has not moved. When the branch moved since the draft began, the
+  draft is merged onto it step by step first; each place both changed is listed with the draft's
+  value and the branch's, you pick which to keep at each, and **Save with these** saves. While
+  you edit, a note says when the flow is changed or removed on the branch (a push from VS Code,
+  another save; your own push says "You"), so nobody's work is saved over unknowingly. When
+  others are in the draft, or you have it open in another tab, **Save** says so first, and every
+  other page in the draft (your other tabs too) sends what is still being typed before the commit
+  is made. Full screen has its own **Save**. Saves are listed among the project's pushes
+  (Branches): who (by name), how (git push, draft saved, files changed, branch, project
+  started), the commits and the new commit's message.
 - **New flow** (a project's Flows) makes the file in one commit and opens it for editing. The file
   is `flows/<key>/<key>.flow.yaml` unless you type another, as the samples keep theirs. An empty
   project the server hosts offers it too: the flow is the project's first commit.
@@ -117,17 +123,23 @@ Code. Everyone who edits the same flow edits one shared draft:
     Once the flow has a step, starting from something is refused: it never writes over work.
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
   by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard the draft** there
-  without opening it. A draft nobody changed is dropped when you stop editing it. Runs take the flow
-  from the branch, so a draft runs only once saved: while you edit, the canvas has no Run buttons.
+  without opening it. Discard asks the same question on the flow's page and in the editor, naming
+  whose unsaved edits go. A draft nobody changed is dropped when you stop editing it. Runs take the flow
+  from the branch, so a draft runs only once saved: while you edit, the canvas has no Run buttons
+  and its Run tab says to save, then launch.
 - **Binding steps** searches the module catalog of the flow's image (its launch configuration's
   environment or image, else the server's default `AFS_EE_IMAGE`). The first time an image is
   asked for, the server reads its plugin docs with the designer's probe (a few minutes; the
   catalog's state shows meanwhile) and keeps the index in the data folder. A repository's own
   roles and playbooks are not offered yet.
 - Over the API: `POST /api/v1/projects/<id>/drafts?path=` opens a flow's draft;
-  `GET /api/v1/drafts/<id>/events` follows it (server-sent events: `draft`, `edit`, `people`,
-  `saved`, `discarded`); `POST /api/v1/drafts/<id>/commands` (the designer's commands), `/undo`,
-  `/tidy`, `/here`, `/catalog`, `/save`; `DELETE /api/v1/drafts/<id>` discards;
+  `GET /api/v1/drafts/<id>/events?tab=` follows it (server-sent events: `draft`, `edit` with
+  what it changed, `people`, `saving`, `saved`, `discarded`); a page told `saving` sends what is
+  being typed and then answers `POST /api/v1/drafts/<id>/flushed` with the event's `flush` and
+  `stream`; `POST /api/v1/drafts/<id>/commands` (the designer's commands), `/undo` (`nothing`
+  when there is nothing to take back), `/tidy`, `/here`, `/catalog`, `/save` (`choices` keeps
+  `draft` or `branch` per clash id, `answerConflicts` answers clashes instead of a 409);
+  `DELETE /api/v1/drafts/<id>` discards;
   `GET /api/v1/drafts/<id>/start-from` (samples, playbooks, AWX credentials),
   `GET /api/v1/drafts/<id>/start-from/awx?credential=` (templates) and
   `POST /api/v1/drafts/<id>/start-from` with `{"sample"}`, `{"playbook"}` or

@@ -93,11 +93,14 @@ export function launcher(deps: LauncherDeps) {
     if (!form?.ok)
       return notify('error', form ? why(form, 'The launch form could not be read') : 'No answer');
     const { flow, fields, inventory, eeImage } = form.data as Form;
-    notify('info', 'Reading the hosts from the inventory…');
+    // AFS-149: said only when the read takes a while: a toast said every time stayed over the
+    // dialog after the hosts were listed.
+    const slow = setTimeout(() => notify('info', 'Reading the hosts from the inventory…'), 1500);
     const start = Object.fromEntries(fields.filter((f) => !f.secret).map((f) => [f.name, f.text]));
     const read = await facts(config.id, { mode, groups: true, inputs: start }).catch(
       () => undefined,
     );
+    clearTimeout(slow);
     if (!read?.ok)
       return notify('error', read ? why(read, 'The inventory could not be read') : 'No answer');
     const answer = read.data as FactsReply;
@@ -185,7 +188,7 @@ export function launcher(deps: LauncherDeps) {
     const w = space?.ok ? (space.data as { key: string }) : undefined;
     if (!p || !w) return notify('error', 'The project could not be read');
     deps.go(
-      `/w/${encodeURIComponent(w.key)}/${encodeURIComponent(p.key)}/launch/new?flow=${encodeURIComponent(deps.path)}`,
+      `/w/${encodeURIComponent(w.key)}/${encodeURIComponent(p.key)}/launch/new?flow=${encodeURIComponent(deps.path)}&back=flow`,
     );
   }
 

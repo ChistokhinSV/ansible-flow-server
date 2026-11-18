@@ -331,7 +331,7 @@ export async function startProject(
       author: { name: by.name, email: row?.email ?? `${by.login}@users.ansible-flow-server` },
       message: `Start ${project.key} from ${what}\n`,
     });
-    await recordPushes(deps.db, project.id, by, [{ ref: project.gitRef, to: made }]);
+    await recordPushes(deps.db, project.id, by, [{ ref: project.gitRef, to: made }], 'start');
     await deps.sync.refresh(project.id);
     return made;
   });

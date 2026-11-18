@@ -489,10 +489,23 @@ export interface PushedRef {
   to?: string;
 }
 
+/**
+ * AFS-149: how a push came: a git client (`push`), a draft saved in the pages (`save`), files
+ * changed in the pages (`files`), a branch made or deleted there (`branch`), a project started
+ * from a sample or an archive (`start`).
+ */
+export type PushKind = 'push' | 'save' | 'files' | 'branch' | 'start';
+
 export interface Push extends PushedRef {
   id: string;
   /** Who pushed, as the server knew them then. */
   login: string;
+  /** AFS-149: their name, while they have an account. */
+  name?: string;
+  /** AFS-149: how it came; absent for pushes written down before 1.0.1. */
+  kind?: PushKind;
+  /** AFS-149: the first line of the new commit's message, when the server has it. */
+  message?: string;
   at: string;
 }
 
@@ -502,6 +515,7 @@ export async function recordPushes(
   projectId: string,
   user: { id: string; login: string },
   refs: PushedRef[],
+  kind: PushKind = 'push',
 ): Promise<void> {
   if (!refs.length) return;
   const at = now();
@@ -516,6 +530,7 @@ export async function recordPushes(
         ref: ref.ref,
         old_commit: ref.from ?? null,
         new_commit: ref.to ?? null,
+        kind,
         created_at: at,
       })),
     )
@@ -526,15 +541,19 @@ export async function recordPushes(
 export async function listPushes(db: Db, projectId: string, limit = 50): Promise<Push[]> {
   const rows = await db
     .selectFrom('git_push')
-    .selectAll()
-    .where('project_id', '=', projectId)
-    .orderBy('created_at', 'desc')
-    .orderBy('ref')
+    .leftJoin('user_account', 'user_account.id', 'git_push.user_id')
+    .selectAll('git_push')
+    .select('user_account.name as name')
+    .where('git_push.project_id', '=', projectId)
+    .orderBy('git_push.created_at', 'desc')
+    .orderBy('git_push.ref')
     .limit(Math.min(Math.max(limit, 1), 200))
     .execute();
   return rows.map((row) => ({
     id: row.id,
     login: row.login,
+    ...(row.name ? { name: row.name } : {}),
+    ...(row.kind ? { kind: row.kind as PushKind } : {}),
     ref: row.ref,
     ...(row.old_commit ? { from: row.old_commit } : {}),
     ...(row.new_commit ? { to: row.new_commit } : {}),

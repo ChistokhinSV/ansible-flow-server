@@ -5,6 +5,7 @@
 //                [&commit=<40 hex>]   the flow at that commit (a run's), not the project's
 //                [&run=<run id>]      that run on the canvas, live while it goes
 //                [&draft=<draft id>]  AFS-76: the flow's draft, edited (viewerDraft.ts)
+//                [&tab=<id>]          AFS-149: the page (tab) around it, for a draft's Save
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
 // Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
@@ -108,6 +109,7 @@ async function start(): Promise<void> {
       me: String(me.data?.login ?? ''),
       theme,
       stateKey: `afs.draft.${draft}`,
+      ...(params.get('tab') ? { tab: params.get('tab') as string } : {}),
     });
     return;
   }

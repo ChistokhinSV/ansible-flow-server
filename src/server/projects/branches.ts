@@ -100,7 +100,7 @@ export async function createBranch(
       throw e;
     }
     await deps.git.setBranch(project.id, name, { commit }, await upstreamOf(deps, project));
-    await recordPushes(deps.db, project.id, by, [{ ref: name, to: commit }]);
+    await recordPushes(deps.db, project.id, by, [{ ref: name, to: commit }], 'branch');
     return { name, commit };
   });
 }
@@ -143,7 +143,7 @@ export async function deleteBranch(
       { old: branch.commit },
       await upstreamOf(deps, project),
     );
-    await recordPushes(deps.db, project.id, by, [{ ref: name, from: branch.commit }]);
+    await recordPushes(deps.db, project.id, by, [{ ref: name, from: branch.commit }], 'branch');
     return { name, commit: branch.commit };
   });
 }
