@@ -447,6 +447,16 @@ a.button:hover {
   background: var(--button-hover);
   color: var(--fg);
 }
+/* AFS-135: a field that cannot be used looks it. */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+label.choice:has(input:disabled) {
+  color: var(--muted);
+}
 button:disabled {
   opacity: 0.55;
   cursor: default;

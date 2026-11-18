@@ -344,7 +344,12 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
         </p>
       )}
       <Loading state={list} />
-      {list.data?.length === 0 && <p className="empty">No credential yet.</p>}
+      {/* AFS-135: who can change that, for whoever reads it. */}
+      {list.data?.length === 0 && (
+        <p className="empty">
+          No credential yet.{admin ? '' : ' An administrator adds the credentials of a workspace.'}
+        </p>
+      )}
       {!!list.data?.length && (
         <div className="scroll">
           <table>

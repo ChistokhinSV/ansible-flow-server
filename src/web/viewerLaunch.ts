@@ -35,6 +35,8 @@ export interface LauncherDeps {
   askName(suggested: string): Promise<string | undefined>;
   /** Goes to a page of the server (the whole window, not the canvas's frame). */
   go(to: string): void;
+  /** AFS-135: the person may add launch configurations (rw on the flow); default true. */
+  mayAddConfig?: boolean;
 }
 
 type Reply = { ok: boolean; status: number; data: unknown };
@@ -114,7 +116,7 @@ export function launcher(deps: LauncherDeps) {
       environment: answer.environment || eeImage || 'the server’s image',
       ...((answer.inventory ?? inventory) ? { inventory: answer.inventory ?? inventory } : {}),
       // AFS-97: Save as Launch Configuration (a designer without it leaves it out).
-      canSave: true,
+      canSave: deps.mayAddConfig !== false,
     };
     open.set(token, { config: config.id, plan });
     deps.send({ type: 'launch', plan });

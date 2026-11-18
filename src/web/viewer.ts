@@ -75,6 +75,9 @@ interface ProjectAccess {
 }
 const RANK: Partial<Record<string, number>> = { ro: 1, operator: 2, rw: 3 };
 const OPERATOR = 2;
+/** AFS-135: rw on the flow: may add and change its launch configurations. */
+const mayManage = (access: ProjectAccess | undefined, file: string): boolean =>
+  !!access && (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= 3);
 const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
   !!access &&
   (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= OPERATOR);
@@ -141,6 +144,7 @@ async function start(): Promise<void> {
 
   const access = await accessAsked;
   const operate = mayOperate(access?.ok ? (access.data as ProjectAccess) : undefined, path);
+  const manage = mayManage(access?.ok ? (access.data as ProjectAccess) : undefined, path);
   // AFS-105: on a run's page the page shows the run (state, hosts, outputs, approvals, Stop, Run
   // again): the canvas does not repeat it. Elsewhere it launches and stops for an operator.
   const embed = { runShown: !!runId, mayRun: operate && !commit, mayStop: operate };
@@ -220,6 +224,7 @@ async function start(): Promise<void> {
     choose: chooseConfig,
     askName,
     go,
+    mayAddConfig: manage,
     launched: (id) => {
       showRun(id, false);
       void runs();

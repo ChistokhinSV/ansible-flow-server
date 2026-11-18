@@ -82,8 +82,9 @@ export function Workspaces({ me }: { me: User }) {
       <Loading state={list} />
       {list.data?.length === 0 && (
         <p className="empty">
-          No workspace yet.{' '}
-          {me.admin ? 'Add the first one.' : 'An administrator makes the first one.'}
+          {me.admin
+            ? 'No workspace yet. Add the first one.'
+            : 'You have no access to a workspace yet: ask an administrator for it.'}
         </p>
       )}
       <ul className="cards">

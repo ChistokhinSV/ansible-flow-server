@@ -198,11 +198,13 @@ export function Home({ me }: { me: User }) {
           <Loading state={workspaces} />
           {workspaces.data?.length === 0 && (
             <p className="empty">
-              No workspace yet.{' '}
               {me.admin ? (
-                <Link to="/workspaces">Add the first one.</Link>
+                <>
+                  No workspace yet. <Link to="/workspaces">Add the first one.</Link>
+                </>
               ) : (
-                'An administrator makes the first one.'
+                // AFS-135: the server may have workspaces this person has no access to yet.
+                'You have no access to a workspace yet: ask an administrator for it.'
               )}
             </p>
           )}

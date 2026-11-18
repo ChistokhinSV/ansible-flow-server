@@ -178,6 +178,7 @@ export function TokensPanel({
               />
               An agent with this token may decide approvals over MCP (off: approvals stay with
               people)
+              {input.readOnly ? ' · not for a read-only token' : ''}
             </label>
             <WorkspaceChoice
               value={input.workspace}

@@ -46,6 +46,9 @@ export function YourAccess({ level }: { level: Level | 'admin' | null | undefine
   );
 }
 
+/** A flow's file as people read it: its name without folders and extension. */
+const flowName = (file: string) => (file.split('/').at(-1) ?? file).replace(/.flow.ya?ml$/, '');
+
 /** A workspace's grants and who can do what: for administrators. */
 export function WorkspaceAccess({
   workspace,
@@ -173,42 +176,56 @@ export function WorkspaceAccess({
               </tr>
             </thead>
             <tbody>
-              {grants.data.map((g) => (
-                <tr key={g.id}>
-                  <td>
-                    {g.principal.type === 'group' ? 'group ' : ''}
-                    {g.principal.name}
-                  </td>
-                  <td>
-                    <span className="badge">{g.level}</span>
-                  </td>
-                  <td>
-                    {g.flow ? (
-                      <>
-                        <code>{g.flow.file}</code>{' '}
-                        <span className="muted">in {g.flow.projectKey}</span>
-                      </>
-                    ) : (
-                      'the whole workspace'
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="danger"
-                      aria-label={`Take back ${g.level} from ${g.principal.name}`}
-                      onClick={async () => {
-                        if (!window.confirm(`Take back ${g.level} from ${g.principal.name}?`))
-                          return;
-                        await api.removeGrant(g.id).catch((e) => setError(messageOf(e)));
-                        reload();
-                      }}
-                    >
-                      Take back
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {grants.data.map((g) => {
+                // AFS-135: people by their names (login after), flows by name with their project.
+                const person = users.data?.find((u) => u.login === g.principal.name);
+                const who =
+                  g.principal.type === 'group'
+                    ? `group ${g.principal.name}`
+                    : person && person.name !== person.login
+                      ? `${person.name} (${person.login})`
+                      : g.principal.name;
+                const where = g.flow
+                  ? `the flow ${flowName(g.flow.file)} in ${g.flow.projectKey}`
+                  : 'the whole workspace';
+                return (
+                  <tr key={g.id}>
+                    <td>{who}</td>
+                    <td>
+                      <span className="badge">{g.level}</span>
+                    </td>
+                    <td>
+                      {g.flow ? (
+                        <>
+                          {flowName(g.flow.file)}{' '}
+                          <span className="muted">in {g.flow.projectKey}</span>
+                        </>
+                      ) : (
+                        'the whole workspace'
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label={`Take back ${g.level} from ${g.principal.name}`}
+                        onClick={async () => {
+                          if (
+                            !window.confirm(
+                              `Take back ${g.level} on ${where} from ${who}? It ends at once.`,
+                            )
+                          )
+                            return;
+                          await api.removeGrant(g.id).catch((e) => setError(messageOf(e)));
+                          reload();
+                        }}
+                      >
+                        Take back
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -270,7 +287,7 @@ export function WorkspaceAccess({
                   <option value="">the whole workspace</option>
                   {projects.data?.map((p) => (
                     <option key={p.id} value={p.id}>
-                      one flow of {p.name}
+                      a flow of the project {p.name}
                     </option>
                   ))}
                 </select>
