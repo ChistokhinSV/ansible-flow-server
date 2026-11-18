@@ -844,7 +844,9 @@ a.row-main:hover strong {
 .filters input {
   max-width: 11rem;
 }
-td.detail {
+td.detail,
+td.long code,
+td.detail code {
   font-size: 0.85em;
   overflow-wrap: anywhere;
   min-width: 12rem;
@@ -2778,3 +2780,173 @@ ul.found > li {
   flex-basis: 100%;
   margin: 0.25rem 0 0;
 }
+/* === AFS-138: layout at phone, tablet and desktop widths, both themes ==========================
+   Kept together so other changes to this file merge around it. test/layout checks the pages at
+   390, 768, 1024 and 1440 px. */
+
+/* One frame on every page: the top bar (breadcrumbs, search) keeps the reading column's width and
+   left edge, also over pages that take the screen (a flow, a run, files), so the search box does
+   not move between pages and tabs. */
+.bar.bar-of.broad,
+.bar.bar-of.wide,
+.bar.bar-of.full,
+.bar.bar-of.run {
+  max-width: 1180px;
+}
+/* A page with no breadcrumbs leaves no empty place before the search box, which stays right. */
+.bar-crumbs:empty {
+  display: none;
+}
+.bar > .search {
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  /* The breadcrumbs take a line of their own above the search box: squeezed beside it they were
+     a column one letter wide. */
+  .bar {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+  .bar-crumbs {
+    flex: 1 1 100%;
+  }
+  /* All the tabs are seen: they wrap instead of scrolling out of sight. */
+  .tabs {
+    flex-wrap: wrap;
+  }
+  /* A date range wraps too when the row has no room for both dates. */
+  .range {
+    flex-wrap: wrap;
+  }
+}
+
+/* On a phone a flow's head (title, buttons, the draft's bar) fills most of the window: the page
+   scrolls, and the canvas's frame keeps most of a window's height of its own. */
+@media (max-width: 640px) {
+  .flow-page {
+    height: auto;
+  }
+  .flow-page .flow-stage {
+    flex: none;
+    height: 85dvh;
+  }
+}
+
+/* A run's page: its head and the blocks under the canvas start where the breadcrumbs start, and
+   its head ends where the search box ends. */
+.run-head {
+  max-width: 1180px;
+  padding-inline: 44px;
+}
+.run-below,
+.run-flow > p {
+  padding-inline: 44px;
+}
+@media (max-width: 1100px) {
+  /* The side panel goes under the canvas: its blocks keep the page's edge. */
+  .run-side {
+    padding-inline: 44px;
+  }
+}
+@media (max-width: 860px) {
+  .run-head,
+  .run-below,
+  .run-flow > p,
+  .run-side {
+    padding-inline: 16px;
+  }
+}
+
+/* Terminal output keeps its columns (PLAY RECAP): long lines scroll sideways in their box, as in
+   a terminal, instead of breaking. */
+.run-output .output {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Tables fit their column: cells wrap when the table would be wider than the page (a long name,
+   a path, an audit detail), times and buttons stay whole. A table that still does not fit scrolls
+   in its box, with a shade at the side that has more. */
+td,
+td code {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+/* What can be long without a space (a name, a link, a user name, an audit detail) may break
+   anywhere; other words stay whole, so short columns are not squeezed to a letter. A name keeps
+   a readable column. */
+td:first-child,
+td:first-child code,
+td a,
+td a code,
+td .long,
+td.long,
+td.detail,
+td.long code,
+td.detail code {
+  overflow-wrap: anywhere;
+}
+td:first-child {
+  min-width: 8rem;
+}
+td.long {
+  min-width: 10rem;
+}
+td time,
+td button,
+td a.button,
+td .badge {
+  white-space: nowrap;
+}
+.scroll {
+  --scroll-cue: color-mix(in srgb, var(--fg) 24%, transparent);
+  background:
+    linear-gradient(to right, var(--bg) 40%, transparent) left / 1.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--bg) 40%, transparent) right / 1.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--scroll-cue), transparent) left / 0.6rem 100%
+    no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--scroll-cue), transparent) right / 0.6rem 100%
+    no-repeat scroll;
+}
+@media (max-width: 640px) {
+  /* On a phone a row's buttons (Revoke, Change, Delete, Launch) stay in reach at the right edge
+     while the rest of the row scrolls. */
+  .scroll td:last-child:has(button, a.button),
+  .scroll th:last-child:has(.sr-only) {
+    position: sticky;
+    right: 0;
+    background: var(--bg);
+    padding-left: 0.5rem;
+    box-shadow: -10px 0 8px -8px var(--scroll-cue);
+  }
+}
+
+/* The runs' project filter is as wide as its column allows, not as its longest project name. */
+.run-filters > label {
+  min-width: 0;
+  max-width: 100%;
+}
+.run-project {
+  width: 16rem;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* The search's results: the kind in a column of its own width, so the titles line up. */
+@media (max-width: 640px) {
+  .search-hit {
+    grid-template-columns: 5.75rem minmax(0, 1fr);
+  }
+}
+
+/* A launch form's groups take their row's height from the start (see launch.tsx). */
+.group-slot {
+  min-height: 2.25rem;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+}
+.group-slot .name-chips {
+  margin-top: 0;
+}
+/* === end AFS-138 ============================================================================= */

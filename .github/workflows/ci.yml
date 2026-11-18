@@ -64,6 +64,42 @@ jobs:
       - name: Build
         run: node scripts/build.mjs
 
+  # AFS-138: the pages at 390, 768, 1024 and 1440 px in both themes (test/layout, `just layout`).
+  # The check starts the built server itself on SQLite with no container engine: no secrets, no
+  # lab, no Docker.
+  layout:
+    if: vars.AFD_PACKAGES_ON_NPM == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-fund --no-audit
+
+      - name: Browser
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Build
+        run: node scripts/build.mjs
+
+      - name: Layout check
+        run: npx --no-install playwright test -c test/layout/playwright.config.ts
+
+      - name: What it saw, when it failed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: layout-results
+          path: .layout-results/
+          retention-days: 7
+
   # AFS-98: the Ansible collection (collection/): ansible-test sanity and unit tests.
   collection:
     runs-on: ubuntu-latest

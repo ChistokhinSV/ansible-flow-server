@@ -59,6 +59,11 @@ web-dev:
 secrets *args: build
     node dist/server.js secrets {{ args }}
 
+# Layout check (test/layout): the pages at phone, tablet and desktop widths in both themes, on a
+# server of its own (SQLite, no container engine, no lab). Extra args go to Playwright
+layout *args: build
+    npx --no-install playwright test -c test/layout/playwright.config.ts {{ args }}
+
 # End-to-end suites against docker compose and the GNS3 lab (test/e2e/README.md):
 # `just e2e image`, `just e2e lab`, `just e2e browser`, `just e2e down`
 e2e what *args:

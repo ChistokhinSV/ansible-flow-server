@@ -334,23 +334,30 @@ function InputField({
               {...(suggest.length ? { list: listId } : {})}
             />
             {suggest.length > 0 && <Suggestions id={listId} values={suggest} />}
-            {field.targets && groups === 'reading' && (
-              <small className="muted">Reading the inventory's groups…</small>
-            )}
-            {known.length > 0 && (
-              <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
-                {known.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    className={`chip${chosen.has(g) ? ' on' : ''}`}
-                    aria-pressed={chosen.has(g)}
-                    onClick={() => onChange(toggleName(value, g))}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </fieldset>
+            {/* AFS-138: the groups come a moment after the form: their row keeps its height from
+                the start, so Launch does not move under the pointer. */}
+            {field.targets && groups !== undefined && (
+              <div className="group-slot">
+                {groups === 'reading' ? (
+                  <small className="muted">Reading the inventory's groups…</small>
+                ) : known.length > 0 ? (
+                  <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
+                    {known.map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        className={`chip${chosen.has(g) ? ' on' : ''}`}
+                        aria-pressed={chosen.has(g)}
+                        onClick={() => onChange(toggleName(value, g))}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <small className="muted">No groups to pick from the inventory.</small>
+                )}
+              </div>
             )}
           </>
         )
@@ -905,80 +912,8 @@ export function LaunchConfigPage({
                   groups={groups}
                 />
               ))}
-              <fieldset className="choices">
-                <legend>Mode</legend>
-                {(['check', 'real'] as const).map((m) => (
-                  <label key={m} className="inline">
-                    <input
-                      type="radio"
-                      name="mode"
-                      value={m}
-                      checked={(mode ?? form.data?.mode ?? c.mode) === m}
-                      onChange={() => setMode(m)}
-                    />
-                    {/* AFS-143: one name, "check run", and both modes said in a few words. */}
-                    {m === 'check'
-                      ? 'Check: nothing is changed, approvals pass by themselves'
-                      : 'Real: the hosts are changed, approvals wait for a decision'}
-                  </label>
-                ))}
-              </fieldset>
-              {error && (
-                <p className="notice error" role="alert" id="launch-error">
-                  {error}
-                </p>
-              )}
-              {problems.some((p) => p.field && isShown(p.field)) && !error && (
-                <p className="notice error" role="alert">
-                  Some fields need a look: see the ones marked.
-                </p>
-              )}
-              {saved && (
-                <p className="notice" role="status">
-                  {saved}
-                </p>
-              )}
-              {/* AFS-94: Launch is first and the only filled button; Enter in a field still asks
-                  what would run (the form's submit), which changes nothing. */}
-              <div className="actions">
-                {mayLaunch && (
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => void launch()}
-                    disabled={!!busy || !form.data}
-                  >
-                    {busy === 'launch' ? 'Launching…' : 'Launch'}
-                  </button>
-                )}
-                <button type="submit" disabled={!!busy || !form.data}>
-                  {busy === 'check' ? 'Looking…' : 'What would run'}
-                </button>
-                {mayManage && (
-                  // AFS-102: it changes the configuration: a button, not a link.
-                  <button type="button" onClick={() => void keep()} disabled={!!busy || !form.data}>
-                    Keep as start values
-                  </button>
-                )}
-              </div>
-              {form.data && (
-                <p className="muted small">
-                  The inputs of <strong>{form.data.flow.name}</strong> at{' '}
-                  <code>{form.data.commit.slice(0, 12)}</code>
-                  {form.data.ref && (
-                    <>
-                      , the newest of <code>{form.data.ref}</code>
-                    </>
-                  )}
-                  .
-                </p>
-              )}
-              {!mayLaunch && (
-                <p className="muted">
-                  You may see what would run; launching needs operator on this flow.
-                </p>
-              )}
-              {/* Rarely typed, so under the buttons and folded: Launch stays near the top. */}
+              {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
+                  Launch. */}
               <Fold
                 summary="Another branch or commit, a limit"
                 open={foldOpen}
@@ -1055,6 +990,79 @@ export function LaunchConfigPage({
                   )}
                 </Labelled>
               </Fold>
+              <fieldset className="choices">
+                <legend>Mode</legend>
+                {(['check', 'real'] as const).map((m) => (
+                  <label key={m} className="inline">
+                    <input
+                      type="radio"
+                      name="mode"
+                      value={m}
+                      checked={(mode ?? form.data?.mode ?? c.mode) === m}
+                      onChange={() => setMode(m)}
+                    />
+                    {/* AFS-143: one name, "check run", and both modes said in a few words. */}
+                    {m === 'check'
+                      ? 'Check: nothing is changed, approvals pass by themselves'
+                      : 'Real: the hosts are changed, approvals wait for a decision'}
+                  </label>
+                ))}
+              </fieldset>
+              {error && (
+                <p className="notice error" role="alert" id="launch-error">
+                  {error}
+                </p>
+              )}
+              {problems.some((p) => p.field && isShown(p.field)) && !error && (
+                <p className="notice error" role="alert">
+                  Some fields need a look: see the ones marked.
+                </p>
+              )}
+              {saved && (
+                <p className="notice" role="status">
+                  {saved}
+                </p>
+              )}
+              {/* AFS-94: Launch is first and the only filled button; Enter in a field still asks
+                  what would run (the form's submit), which changes nothing. */}
+              <div className="actions">
+                {mayLaunch && (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void launch()}
+                    disabled={!!busy || !form.data}
+                  >
+                    {busy === 'launch' ? 'Launching…' : 'Launch'}
+                  </button>
+                )}
+                <button type="submit" disabled={!!busy || !form.data}>
+                  {busy === 'check' ? 'Looking…' : 'What would run'}
+                </button>
+                {mayManage && (
+                  // AFS-102: it changes the configuration: a button, not a link.
+                  <button type="button" onClick={() => void keep()} disabled={!!busy || !form.data}>
+                    Keep as start values
+                  </button>
+                )}
+              </div>
+              {form.data && (
+                <p className="muted small">
+                  The inputs of <strong>{form.data.flow.name}</strong> at{' '}
+                  <code>{form.data.commit.slice(0, 12)}</code>
+                  {form.data.ref && (
+                    <>
+                      , the newest of <code>{form.data.ref}</code>
+                    </>
+                  )}
+                  .
+                </p>
+              )}
+              {!mayLaunch && (
+                <p className="muted">
+                  You may see what would run; launching needs operator on this flow.
+                </p>
+              )}
             </form>
           </section>
           {result && <WouldRun launch={result.launch} form={result.form} hosts={hosts} />}

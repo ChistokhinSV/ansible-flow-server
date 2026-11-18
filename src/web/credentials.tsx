@@ -404,7 +404,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                     {c.description && <div className="muted">{c.description}</div>}
                   </td>
                   <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
-                  <td>{holds(c)}</td>
+                  <td className="long">{holds(c)}</td>
                   <td>
                     {c.usedBy === 0
                       ? 'nothing'

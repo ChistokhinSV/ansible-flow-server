@@ -48,7 +48,7 @@
   },
   "overrides": [
     {
-      "includes": ["test/e2e/browser/**"],
+      "includes": ["test/e2e/browser/**", "test/layout/**"],
       "linter": {
         "domains": {
           "playwright": "recommended"

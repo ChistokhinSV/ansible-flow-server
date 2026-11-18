@@ -204,13 +204,15 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     routes = common(dana);
     page('launch');
     const launch = await screen.findByRole('button', { name: 'Launch' });
-    // The inputs come before the button, the branch and limit after it, folded.
+    // The inputs come before the button; AFS-138: the branch and limit too, folded, before the
+    // mode, so a limit is seen before Launch.
     const precedes = (a: Element, b: Element) =>
       !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(precedes(screen.getByLabelText(/^devices/), launch)).toBe(true);
     expect(precedes(screen.getByLabelText(/^Real/), launch)).toBe(true);
     const fold = screen.getByLabelText(/^Branch/).closest('details') as HTMLDetailsElement;
-    expect(precedes(launch, fold)).toBe(true);
+    expect(precedes(screen.getByLabelText(/^devices/), fold)).toBe(true);
+    expect(precedes(fold, screen.getByLabelText(/^Real/))).toBe(true);
     expect(fold.open).toBe(false);
     expect(fold.contains(screen.getByLabelText('Limit'))).toBe(true);
     // No settings section over the form: one line, with the flow as a link to its page.
@@ -524,6 +526,28 @@ describe('the launch form', () => {
     fireEvent.change(devices, { target: { value: 'edge, l' } });
     expect(options()).toEqual(['edge, lab']);
     expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
+  });
+
+  it('the groups keep one place while they are read, so the buttons do not move (AFS-138)', async () => {
+    let answer: (v: unknown) => void = () => undefined;
+    routes = {
+      ...common(dana),
+      // The answer's body comes when the test says.
+      'POST /launch-configs/c1/facts': () => ({
+        body: new Promise((r) => {
+          answer = r;
+        }),
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const reading = await screen.findByText("Reading the inventory's groups…");
+    const slot = reading.closest('.group-slot');
+    expect(slot).toBeTruthy();
+    // None found: the same place says so, rather than closing up under the buttons.
+    answer({ groups: [], environment: 'ee:1 (docker)', commit: COMMIT });
+    const none = await screen.findByText('No groups to pick from the inventory.');
+    expect(none.closest('.group-slot')).toBe(slot);
   });
 
   it('Recipients suggests the people and groups of the server (AFS-97)', async () => {

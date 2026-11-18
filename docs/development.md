@@ -47,6 +47,7 @@ checkout cannot build from `vendor/`; for anything others test, publish a releas
 | `just user <command>`      | Build, then run a user command                                                                                                   |
 | `just secrets <command>`   | Build, then run a secrets command                                                                                                |
 | `just e2e <suite>`         | End-to-end suites (`image`, `lab`, `browser`, `down`): the image in docker compose, flows on lab hosts; see `test/e2e/README.md` |
+| `just layout [args]`       | Build, then the pages at 390, 768, 1024 and 1440 px in both themes (Playwright, `test/layout/`) on a server it starts itself     |
 
 ## Layout
 
@@ -57,6 +58,7 @@ checkout cannot build from `vendor/`; for anything others test, publish a releas
 | `test/web/`    | Tests of the web pages                                          |
 | `test/unit/`   | Unit tests; `test/fixtures/` has sample flows from the designer |
 | `test/e2e/`    | End-to-end suites: docker compose, a GNS3 lab, a browser        |
+| `test/layout/` | The layout check: the pages at four widths, a server of its own |
 | `scripts/`     | Build and package scripts                                       |
 | `collection/`  | The Ansible collection `chistokhinsv.ansible_flow`              |
 | `deploy/`      | docker compose and the Linux service install                    |
@@ -65,3 +67,18 @@ checkout cannot build from `vendor/`; for anything others test, publish a releas
 | `CHANGELOG.md` | What changed, for people who use the server                     |
 | `media/icons/` | The icon set                                                    |
 | `vendor/`      | An unreleased designer's packages as tarballs (not in git)      |
+
+## The layout check
+
+`just layout` builds, starts the server on SQLite in a temporary folder (plain HTTP on
+127.0.0.1:18438, no container engine, so runs wait in the queue), makes a small team's things
+with long names, and opens the main pages in Chromium at 390, 768, 1024 and 1440 px, dark and
+light. A page fails when it scrolls sideways, its breadcrumb takes more than two lines, a control
+is off the side of the window (a table's buttons included), something spills out of the page's
+column, or the flow's canvas gets less than 60% of its frame. It needs no secrets, lab or Docker;
+CI runs it as the `layout` job. Once: `npx playwright install chromium`.
+
+- `AFS_LAYOUT_SHOTS=<folder>` keeps a screenshot of every page looked at.
+- `node test/layout/stack.ts` starts the same server and prints its address, the administrator's
+  password and `AFS_LAYOUT_STACK=…`; with that variable set, `just layout` checks that server.
+- `AFS_LAYOUT_PORT` changes the port. What a failure leaves is in `.layout-results/`.
