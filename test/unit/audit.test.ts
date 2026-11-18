@@ -281,6 +281,24 @@ for (const [name, config] of databases) {
       ).toBe(400);
     });
 
+    it('Who matches part of a login or a name, any case, and the login a refused sign-in tried (AFS-153)', async () => {
+      await db()
+        .updateTable('user_account')
+        .set({ name: 'Omar Haddad' })
+        .where('login', '=', 'omar')
+        .execute();
+      const by = async (actor: string) => (await listAudit(db(), { actor, limit: 1000 })).entries;
+      const part = await by('MA');
+      expect(part.some((e) => e.actor?.login === 'omar')).toBe(true);
+      expect(part.every((e) => e.actor?.login !== 'dana')).toBe(true);
+      expect((await by('hadd')).some((e) => e.actor?.login === 'omar')).toBe(true);
+      // Dana's refused sign-in: nobody, by the login tried.
+      expect((await by('dan')).some((e) => !e.actor && e.detail?.login === 'dana')).toBe(true);
+      // LIKE's own characters are only themselves.
+      expect(await by('%')).toEqual([]);
+      expect(await by('_')).toEqual([]);
+    });
+
     it('exports as CSV and JSON, and the export is itself recorded', async () => {
       const csv = await app.inject({
         method: 'GET',
@@ -366,7 +384,7 @@ for (const [name, config] of databases) {
       });
       const refused = await newest('user.create');
       expect(refused).toMatchObject({
-        result: 'failed',
+        result: 'refused',
         object: { type: 'user', name: 'nora' },
         detail: { error: 'invalid', reason: expect.stringMatching(/password/i) },
       });

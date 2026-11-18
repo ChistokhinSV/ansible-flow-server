@@ -7,9 +7,11 @@
 // Events are written to the outbox (store.ts) and sent from there by the channels, with tries again
 // on failures that can pass. What happens never waits for its notification, and never fails
 // because of one: an error here is logged.
+
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
+import { STATE_WORDS } from '../runs/words';
 import type { CertificateInfo } from '../tls/certificates';
 import type { Channel, Message } from './channels';
 import {
@@ -71,12 +73,7 @@ interface RunFacts {
 const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'lost']);
 const UNSUCCESSFUL = new Set(['failed', 'lost']);
 /** AFS-143: how a run ended, in the words the pages use. */
-const ENDED_WORDS: Record<string, string> = {
-  succeeded: 'went well',
-  failed: 'failed',
-  cancelled: 'stopped',
-  lost: 'lost',
-};
+const ENDED_WORDS = STATE_WORDS;
 
 export class Notifier {
   private readonly channels: Map<ChannelKind, Channel>;

@@ -83,3 +83,20 @@ export function stoppedBy(error: string | undefined, who: string | undefined): s
   if (!who || !error?.startsWith('Stopped on request')) return error;
   return `Stopped by ${who}${error.slice('Stopped on request'.length)}`;
 }
+
+/**
+ * AFS-153: a run's state in the words the pages use (went well, stopped), for whatever tells it
+ * outside a page: search, mails, messages.
+ */
+export const STATE_WORDS: Record<string, string> = {
+  queued: 'queued',
+  running: 'running',
+  waiting: 'waiting for a decision',
+  succeeded: 'went well',
+  failed: 'failed',
+  cancelled: 'stopped',
+  lost: 'lost',
+};
+
+/** A state in words; an unknown one as it is. */
+export const stateWord = (state: string): string => STATE_WORDS[state] ?? state;

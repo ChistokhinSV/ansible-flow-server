@@ -854,6 +854,10 @@ td.detail code {
   overflow-wrap: anywhere;
   min-width: 12rem;
 }
+/* AFS-153: a login stays on one line (a1-nora, not a1- over nora). */
+.audit-who .login {
+  white-space: nowrap;
+}
 /* AFS-106: an entry's whole detail, on demand. */
 .audit-all summary {
   color: var(--muted);

@@ -1,11 +1,13 @@
 // The master key, sealing, and the credentials store: the rules on both databases the server
 // supports (PostgreSQL when AFS_TEST_POSTGRES_URL is set), the API and the commands.
+
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
+import { listAudit } from '../../src/server/audit/store';
 import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Config, loadConfig } from '../../src/server/config';
@@ -603,6 +605,25 @@ describe('credentials over the API', () => {
     expect(lines.join('\n')).not.toContain(SECRET);
     expect(lines.join('\n')).toContain('Credential added');
     expect((await reveal(database.db, key, id))?.secret).toEqual({ password: `${SECRET}-2` });
+  });
+
+  it('the audit log lists only the fields a change changed (AFS-153)', async () => {
+    const made = await call('POST', '/api/v1/workspaces/net/credentials', {
+      cookie: admin,
+      body: { name: 'Audited', kind: 'vault', fields: { vaultId: 'a' }, secret: { password: 'p' } },
+    });
+    const id = made.json().id;
+    const changedOf = async (body: object) => {
+      expect(
+        (await call('PATCH', `/api/v1/credentials/${id}`, { cookie: admin, body })).statusCode,
+      ).toBe(200);
+      const { entries } = await listAudit(database.db, { action: 'credential.change' });
+      return entries[0]?.detail?.changed;
+    };
+    expect(
+      await changedOf({ name: 'Audited', description: 'Prod vault', fields: { vaultId: 'a' } }),
+    ).toEqual(['description']);
+    expect(await changedOf({ name: 'Audited', secret: { password: 'q' } })).toEqual(['secret']);
   });
 
   it('everyone signed in sees which there are; administrators change them', async () => {

@@ -332,8 +332,10 @@ function sourceOf(request: FastifyRequest): AuditSource {
   return request.headers['sec-fetch-site'] ? 'ui' : 'api';
 }
 
+// AFS-153: the server said no (a field that is not right, a login taken, no access): refused;
+// it could not do what it was asked: failed.
 const resultOf = (status: number): AuditResult =>
-  status < 400 ? 'ok' : [401, 403, 429].includes(status) ? 'refused' : 'failed';
+  status < 400 ? 'ok' : status < 500 ? 'refused' : 'failed';
 
 declare module 'fastify' {
   interface FastifyRequest {
