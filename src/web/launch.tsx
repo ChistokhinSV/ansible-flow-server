@@ -25,7 +25,18 @@ import { EnvironmentCheck, environmentAddress } from './environments';
 import { Link, navigate } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
-import { ago, Breadcrumb, Fold, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  ago,
+  Breadcrumb,
+  Fold,
+  Loading,
+  messageOf,
+  PageHead,
+  Tabs,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 type LaunchField = LaunchForm['fields'][number];
 /** The kinds of credential a run can be given (a git token is for a repository). */
@@ -146,7 +157,7 @@ export function LaunchConfigsSection({
                 <th scope="col">Name</th>
                 <th scope="col">Flow</th>
                 <th scope="col">Last run</th>
-                <th scope="col">
+                <th scope="col" className="act">
                   <span className="sr-only">Launch</span>
                 </th>
               </tr>
@@ -180,7 +191,7 @@ export function LaunchConfigsSection({
                         <span className="muted">none yet</span>
                       )}
                     </td>
-                    <td>
+                    <td className="act">
                       {mayLaunch && (
                         <Link
                           to={launchAddress(workspace, project.key, c.id)}
@@ -224,8 +235,11 @@ function Crumbs({
 }) {
   return (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <Link to={base(workspace, project)}>{project}</Link> /{' '}
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      / <Link to={base(workspace, project)}>{project}</Link> /{' '}
       {config && (
         <>
           <Link to={launchAddress(workspace, project, config.id)}>{config.name}</Link> /{' '}

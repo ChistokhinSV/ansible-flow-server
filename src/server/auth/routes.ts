@@ -264,6 +264,10 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
   );
 
   app.get('/api/v1/session', async (request, reply) => {
+    // AFS-144: the pages ask on every load whether anyone is signed in; a 401 there is logged as
+    // an error by the browser, so they may ask for "nobody" as an empty answer instead.
+    if (!request.user && request.headers['x-afs-session'] === 'optional')
+      return reply.code(204).send();
     const me = signedIn(request, reply);
     return me ? getUser(db, me.id) : reply;
   });

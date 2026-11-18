@@ -196,7 +196,8 @@ describe('before anyone is signed in', () => {
     window.history.replaceState(null, '', '/w/network');
     let tries = 0;
     routes = {
-      'GET /session': () => ({ status: 401, body: { error: 'unauthorized', message: 'Sign in' } }),
+      // AFS-144: the page asks as "optional": nobody signed in is an empty answer, not a 401.
+      'GET /session': () => ({ status: 204 }),
       'GET /setup': () => ({ body: { needed: false } }),
       'POST /session': () => {
         if (tries++ === 0)
@@ -323,8 +324,11 @@ describe('signed in', () => {
     expect(row?.textContent).toContain('9f2c1e7a');
     expect(row?.textContent).toContain('41d7a0c9');
     expect(screen.getByRole('button', { name: 'Look at the source now' })).toBeTruthy();
-    // The breadcrumb leads back.
-    fireEvent.click(screen.getByRole('link', { name: 'network' }));
+    // AFS-144: the actions of a branch sit in a box of their own at the row's end.
+    expect(branches.querySelector('td.act > .actions')).toBeTruthy();
+    // The breadcrumb leads back, by the workspace's name (AFS-144).
+    const crumbs = document.querySelector('.bar-crumbs') as HTMLElement;
+    fireEvent.click(await within(crumbs).findByRole('link', { name: 'Network team' }));
     await screen.findByRole('heading', { name: 'Network team' });
   });
 

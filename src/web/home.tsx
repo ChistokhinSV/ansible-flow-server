@@ -88,6 +88,13 @@ export function Home({ me }: { me: User }) {
   }, [runs.reload, approvals.reload]);
 
   const mine = approvals.data?.filter((a) => a.mayDecide) ?? [];
+  const yours = [
+    ...new Set(
+      (approvals.data ?? [])
+        .filter((a) => !a.mayDecide && a.requestedBy === me.login)
+        .map((a) => a.run.id),
+    ),
+  ];
   const today = new Date().toDateString();
   const todays = (runs.data ?? []).filter((r) => new Date(r.createdAt).toDateString() === today);
   const well = todays.filter((r) => r.state === 'succeeded').length;
@@ -107,7 +114,13 @@ export function Home({ me }: { me: User }) {
     mine.length
       ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
       : 'Nothing waits for you.',
-  ].join(' ');
+    // AFS-144: your own runs held at a gate for someone else are said too.
+    yours.length
+      ? `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   const first = me.name.split(/\s+/)[0] || me.name;
   // AFS-85: the newest run of each configuration this person launched themselves (a schedule's
   // runs are its owner's, and not launched by hand). A few more than are shown, for the ones

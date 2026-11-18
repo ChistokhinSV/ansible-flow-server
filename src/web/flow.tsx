@@ -9,7 +9,7 @@ import { Link } from './router';
 import { ACTIVE, RunWords } from './runs';
 import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
-import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad, WorkspaceName } from './ui';
 
 /**
  * One flow on the designer's canvas, read-only. The designer is a page of its own
@@ -218,7 +218,10 @@ export function FlowPage({
     <div className="flow-page">
       <div className="flow-head">
         <Breadcrumb>
-          <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link>{' '}
+          <Link to="/workspaces">Workspaces</Link> /{' '}
+          <Link to={`/w/${workspace}`}>
+            <WorkspaceName workspace={workspace} />
+          </Link>{' '}
           / <Link to={`/w/${workspace}/${key}`}>{key}</Link> /{' '}
           <span aria-current="page">{file}</span>
         </Breadcrumb>

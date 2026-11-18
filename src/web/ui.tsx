@@ -12,7 +12,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ApiError } from './api';
+import { ApiError, api } from './api';
 import { guide } from './guide';
 import { Link } from './router';
 
@@ -294,14 +294,15 @@ export function PageHead({
   return (
     <header className="page-head">
       <div>
+        {/* AFS-142: the focus lands on the title after a page change (app.tsx). AFS-143: the
+            help link sits beside the heading, not in it, so the heading's name stays the title. */}
         {help ? (
-          // The link sits beside the heading, not in it: the heading's name stays the title.
           <div className="title-line">
-            <h1>{title}</h1>
+            <h1 tabIndex={-1}>{title}</h1>
             <HelpLink page={help} />
           </div>
         ) : (
-          <h1>{title}</h1>
+          <h1 tabIndex={-1}>{title}</h1>
         )}
         {lead && <p className="muted">{lead}</p>}
       </div>
@@ -352,7 +353,10 @@ export function Tabs({
           to={tab.key ? `${base}/${tab.key}` : base}
           aria-current={tab.key === current ? 'page' : undefined}
         >
-          {tab.label}
+          {/* AFS-144: as wide as in bold, so a tab keeps its width when it is the open one. */}
+          <span className="tab-label" data-label={tab.label}>
+            {tab.label}
+          </span>
           {tab.count !== undefined && <span className="tab-count">{tab.count}</span>}
           {tab.alert && <span className="tab-alert" role="img" aria-label="needs a look" />}
         </Link>
@@ -393,6 +397,31 @@ export function Fold({
  * page drawn alone, as in tests): the breadcrumbs stay in the page; null: the bar is not drawn yet.
  */
 export const BarSlot = createContext<HTMLElement | null | undefined>(undefined);
+
+/** The workspaces' names by key, read once for the breadcrumbs; read again for a key it lacks. */
+let spaceNames: Promise<Map<string, string>> | undefined;
+
+/** AFS-144: a workspace in a breadcrumb by its name ("Network team"), not its key ("network"). */
+export function WorkspaceName({ workspace }: { workspace: string }) {
+  const [name, setName] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    spaceNames ??= api.workspaces().then(
+      (list) => new Map(list.map((w) => [w.key, w.name])),
+      () => new Map(),
+    );
+    const asked = spaceNames;
+    void asked.then((names) => {
+      const found = names.get(workspace);
+      if (!found && spaceNames === asked) spaceNames = undefined;
+      if (live) setName(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, [workspace]);
+  return <>{name ?? workspace}</>;
+}
 
 /** A page's breadcrumbs: in the top bar beside the search box, so the page starts with its title. */
 export function Breadcrumb({ children }: { children: ReactNode }) {

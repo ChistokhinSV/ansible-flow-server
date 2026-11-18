@@ -300,31 +300,33 @@ export function SignInPage() {
             Directory). Their groups there can be groups here.{' '}
           </>
         }
-      >
-        {!editing && (
-          <button type="button" className="primary" onClick={() => setEditing({ ...EMPTY })}>
-            Add a provider
-          </button>
-        )}
-      </PageHead>
+      />
       {error && (
         <p className="notice error" role="alert">
           {error}
         </p>
       )}
-      {editing && (
-        <ProviderForm
-          draft={editing}
-          groups={groups.data ?? []}
-          onCancel={() => setEditing(undefined)}
-          onDone={() => {
-            setEditing(undefined);
-            providers.reload();
-          }}
-        />
-      )}
       <section className="panel" aria-labelledby="providers">
-        <h2 id="providers">Providers</h2>
+        {/* AFS-144: each section's add button at its head, the same as Add a directory. */}
+        <div className="section-head">
+          <h2 id="providers">Providers</h2>
+          {!editing && (
+            <button type="button" onClick={() => setEditing({ ...EMPTY })}>
+              Add a provider
+            </button>
+          )}
+        </div>
+        {editing && (
+          <ProviderForm
+            draft={editing}
+            groups={groups.data ?? []}
+            onCancel={() => setEditing(undefined)}
+            onDone={() => {
+              setEditing(undefined);
+              providers.reload();
+            }}
+          />
+        )}
         <Loading state={providers} />
         {providers.data?.length === 0 && (
           <p className="muted">None yet: people sign in with a password.</p>

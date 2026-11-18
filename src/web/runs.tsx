@@ -17,7 +17,17 @@ import {
 import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
-import { ago, Breadcrumb, HelpLink, Loading, PageHead, span, Time, useLoad } from './ui';
+import {
+  ago,
+  Breadcrumb,
+  HelpLink,
+  Loading,
+  PageHead,
+  span,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 export const ACTIVE = ['queued', 'running', 'waiting'];
 /** AFS-143: a person as the pages show people: by name (the login on hover). */
@@ -416,6 +426,19 @@ export function RunsPage({ me }: { me: User }) {
                 : project
                   ? 'No run of this project yet.'
                   : 'No run yet. Runs start from a launch configuration of a project.'}
+          {/* AFS-144: a way back from choices that leave nothing. */}
+          {(state || project || mine) && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="link"
+                onClick={() => setChoices({ state: '', project: '', config: '', mine: false })}
+              >
+                Show all runs
+              </button>
+            </>
+          )}
         </p>
       )}
       {!!rows?.length && <RunList runs={rows} me={me} />}
@@ -824,7 +847,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             {where ? (
               <>
                 <Link to="/workspaces">Workspaces</Link> /{' '}
-                <Link to={`/w/${part(where.workspace)}`}>{where.workspace}</Link> /{' '}
+                <Link to={`/w/${part(where.workspace)}`}>
+                  <WorkspaceName workspace={where.workspace} />
+                </Link>{' '}
+                /{' '}
                 <Link to={`/w/${part(where.workspace)}/${part(where.project)}`}>
                   {where.project}
                 </Link>{' '}
@@ -844,7 +870,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             <span aria-current="page">#{run.number}</span>
           </Breadcrumb>
           <div className="title-line">
-            <h1>{title}</h1>
+            <h1 tabIndex={-1}>{title}</h1>
             <HelpLink page="runs.md" />
           </div>
           <p>

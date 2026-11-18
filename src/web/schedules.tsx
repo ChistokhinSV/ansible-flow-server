@@ -488,12 +488,13 @@ export function SchedulesSection({
           </dl>
           {mayManage && open !== s.id && (
             <div className="actions">
-              <button type="button" onClick={() => setOpen(s.id)}>
+              <button type="button" aria-label={`Change ${s.name}`} onClick={() => setOpen(s.id)}>
                 Change
               </button>
               {(s.kind === 'cron' || s.enabled) && (
                 <button
                   type="button"
+                  aria-label={`${s.enabled ? 'Pause' : 'Resume'} ${s.name}`}
                   onClick={() =>
                     act(() => api.changeSchedule(config, s.id, { enabled: !s.enabled }))
                   }
@@ -504,6 +505,7 @@ export function SchedulesSection({
               <button
                 type="button"
                 className="danger"
+                aria-label={`Delete ${s.name}`}
                 onClick={() => {
                   if (window.confirm(`Delete the schedule "${s.name}"?`))
                     void act(() => api.deleteSchedule(config, s.id));

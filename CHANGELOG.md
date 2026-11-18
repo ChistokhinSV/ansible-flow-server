@@ -30,6 +30,10 @@ All notable changes to Ansible Flow Server.
 - One set of words for runs: a run is "flow #number" on its page, in lists and in emails; its state reads "went well" and "stopped" everywhere, said once in its header; emails name the workspace and project by name. People who launched runs are shown by name. The mode choice says what **Check** and **Real** do, a flow shown and not edited is "read only", a decided approval no longer says "Waiting since", and why a host stopped names the step by its title, not its key.
 - A page that is not there, or not shared with you, says what was looked for ("The project edge in network") with the way back, not the address's last part as its title. **Copy** says when it could not copy and selects the text instead.
 - The audit log names environments, schedules, sign-in providers and directories, not their ids; access grants name the workspace or flow they are on. A group's entry says who was added and who left, a person not added is named by the login tried with the reason, and a change lists only the fields whose values changed. **About** filters by every kind, access grants and approvals among them, and the detail column wraps within the page.
+- **New flow** puts the file in a folder of its own, `flows/<key>/<key>.flow.yaml`, as the samples do; a copy of such a flow gets a folder too.
+- Breadcrumbs name the workspace ("Network team"), not its key.
+- Home says when a run of yours waits for someone else's approval. A runs list emptied by its filters offers **Show all runs**.
+- **Add a provider** sits at the head of the Providers section, as **Add a directory** does at its own.
 
 ### Fixed
 
@@ -52,6 +56,10 @@ All notable changes to Ansible Flow Server.
 - Saves of a flow's draft are listed among the pushes through the server. After **Copy the flow**, the copy's page closes the form and shows the new commit. The notice of what a flow was imported from goes once the import is taken back.
 - **Delete the flow** cannot be sent twice; signing out leaves the address of the last page; the token form starts from its defaults; a credential that launch configurations use cannot be deleted; deleting an environment returns to Environments.
 - A project started from the **Edge baseline** sample runs: its steps use the roles the sample brings. Before, its first run failed with "the role netops.baseline.push_ntp_aaa was not found", and Push baseline showed as an empty subflow. A project made from it before keeps that flow; start a new one, or copy the sample's flow over it.
+- After going to another page, the keyboard focus is on the new page's title, not at the top of the document. Esc in the search field empties it and leaves the cursor there; `/` and Ctrl+K open the search while the flow canvas has the focus too. Esc closes the phone menu, whose button says **Close menu** while it is open.
+- Screen readers hear which schedule a **Change**, **Pause** or **Delete** button is for.
+- The sign-in page no longer logs an error in the browser's console, and its card no longer shows the picture through it.
+- Small layout fixes: the dot of a status line sits outside the "active" badge; the "Added …" note goes when you switch tabs; **Launch…** and a branch's buttons line up at the right of their rows; tabs keep their width when opened; unchosen radio buttons show in the dark theme; file choosers follow the theme; a flow's long name is shortened on one line beside its buttons; a run's title lines up with its breadcrumbs; gaps under hints and fact lists; **Replace the certificate** is ruled off from the history; a sent test message is shown in green; the delivery log no longer repeats an address; collections found have no list bullets.
 - Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
 
 ## 1.0.0 — First release

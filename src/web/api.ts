@@ -120,7 +120,12 @@ export const setSignedOutHandler = (handler: () => void) => {
   onSignedOut = handler;
 };
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function call<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  extra?: Record<string, string>,
+): Promise<T> {
   let reply: Response;
   try {
     reply = await fetch(`/api/v1${path}`, {
@@ -129,8 +134,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       // AFS-58: a file (an archive) goes as it is, typed by its name.
       headers:
         body === undefined
-          ? {}
+          ? { ...extra }
           : {
+              ...extra,
               'content-type':
                 body instanceof Blob
                   ? /\.zip$/i.test((body as File).name ?? '')
@@ -233,7 +239,11 @@ export const api = {
   setupNeeded: () => call<{ needed: boolean }>('GET', '/setup'),
   setup: (input: { code: string; login: string; name: string; password: string }) =>
     call<User>('POST', '/setup', input),
-  me: () => call<User>('GET', '/session'),
+  /**
+   * Who is signed in; undefined: nobody. AFS-144: asked as optional, so the server answers 204
+   * rather than 401 and a signed-out visit logs no error in the browser's console.
+   */
+  me: () => call<User | undefined>('GET', '/session', undefined, { 'x-afs-session': 'optional' }),
   signIn: (login: string, password: string) => call<User>('POST', '/session', { login, password }),
   signOut: () => call<void>('DELETE', '/session'),
   /** AFS-104: your own password; your other sessions end. */

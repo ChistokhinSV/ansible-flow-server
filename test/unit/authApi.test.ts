@@ -114,6 +114,14 @@ describe('signing in', () => {
     expect((await call('GET', '/api/v1/session', { cookie: 'afs_session=nope' })).statusCode).toBe(
       401,
     );
+    // AFS-144: the pages ask as "optional": nobody is an empty answer (no error in the browser).
+    const optional = { 'x-afs-session': 'optional' };
+    const nobody = await call('GET', '/api/v1/session', { headers: optional });
+    expect(nobody.statusCode).toBe(204);
+    expect(nobody.body).toBe('');
+    expect(
+      (await call('GET', '/api/v1/session', { cookie: cookieOf(reply), headers: optional })).json(),
+    ).toMatchObject({ login: 'dana' });
   });
 
   it('gives one answer for a wrong password and an unknown login; a disabled account says so', async () => {
