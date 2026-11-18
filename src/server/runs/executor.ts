@@ -55,9 +55,12 @@ import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 export const HEARTBEAT_MS = 15_000;
 /** What runFlow says when Ansible wrote no event. */
 const NO_EVENTS = 'The run produced no events';
-/** An output line that says why a container or Ansible could not start. */
+/**
+ * An output line that says why a container or Ansible could not start ("[ERROR]: Specified
+ * inventory, host pattern and/or --limit leaves us with no hosts to target." is Ansible's own).
+ */
 const ERROR_LINE =
-  /^(error|fatal|docker:|podman:|Error response)|\b(no such host|not found|denied|unauthorized|manifest unknown)\b/i;
+  /^(\[?error\]?|\[?fatal\]?|docker:|podman:|Error response)|\b(no such host|not found|denied|unauthorized|manifest unknown)\b/i;
 /** A finished view in which no host did anything. */
 const noHostRan = (view: RunView) => view.summary !== undefined && view.summary.hosts.length === 0;
 

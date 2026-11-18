@@ -361,6 +361,19 @@ describe('a run', () => {
     expect((await queue.get(failed.id))?.error).toBe(
       'The run produced no events: docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.',
     );
+
+    // Ansible's own words, as a limit that leaves no host gets them (seen on the lab server).
+    const LIMIT =
+      '[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target.';
+    const limited = executor(async (_request, hooks) => {
+      hooks.log?.(LIMIT);
+      return { rc: 1, error: 'The run produced no events' };
+    });
+    const none2 = await launch();
+    await limited.ex.start();
+    await ended(none2.id);
+    await limited.ex.stop();
+    expect((await queue.get(none2.id))?.error).toBe(`The run produced no events: ${LIMIT}`);
   });
 
   it('fails with the reason when Ansible fails, and when the run cannot start', async () => {
