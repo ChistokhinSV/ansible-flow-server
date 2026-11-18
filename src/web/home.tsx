@@ -2,6 +2,7 @@
 // sentences and short lists; the only tinted thing is the first approval that waits.
 // AFS-85: and what this person launched lately, one step from launching it again.
 import { useEffect } from 'react';
+import { launchesAny, useMyAccess } from './access';
 import { api, type Run, type User, type Workspace } from './api';
 import { launchAddress } from './launch';
 import { Link } from './router';
@@ -78,6 +79,7 @@ export function Home({ me }: { me: User }) {
   const runs = useLoad(() => api.runs({ limit: 100 }), []);
   const approvals = useLoad(() => api.approvals(), []);
   const workspaces = useLoad(api.workspaces, []);
+  const myAccess = useMyAccess();
   // Runs end and approvals arrive while the page is open: it looks again now and then.
   useEffect(() => {
     const timer = setInterval(() => {
@@ -229,7 +231,10 @@ export function Home({ me }: { me: User }) {
           <Loading state={runs} />
           {runs.data?.length === 0 && (
             <p className="empty">
-              No run yet. Runs start from a launch configuration of a project.
+              {/* AFS-152: where runs start, only to who may start one. */}
+              {launchesAny(myAccess.data)
+                ? 'No run yet. Runs start from a launch configuration of a project.'
+                : 'No run yet.'}
             </p>
           )}
           {!!runs.data?.length && <RunList runs={runs.data.slice(0, 8)} me={me} />}
@@ -248,7 +253,12 @@ export function Home({ me }: { me: User }) {
                 </>
               ) : (
                 // AFS-135: the server may have workspaces this person has no access to yet.
-                'You have no access to a workspace yet: ask an administrator for it.'
+                // AFS-152: who to ask.
+                `You have no access to a workspace yet: ask an administrator for it${
+                  myAccess.data?.administrators.length
+                    ? ` (${myAccess.data.administrators.slice(0, 3).join(', ')})`
+                    : ''
+                }.`
               )}
             </p>
           )}

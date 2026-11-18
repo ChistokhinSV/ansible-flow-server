@@ -175,7 +175,7 @@ describe('People and groups', () => {
               workspace: { id: 'w-ops', key: 'ops', name: 'Operations' },
               level: 'operator',
               approve: true,
-              flows: [{ project: 'core', file: 'upgrade.flow.yaml', level: 'rw' }],
+              flows: [{ project: 'core', projectId: 'p1', file: 'upgrade.flow.yaml', level: 'rw' }],
               through: ['user:omar', 'group:netops'],
             },
           ],
@@ -194,7 +194,8 @@ describe('People and groups', () => {
     expect(cells).toEqual([
       'Operations',
       'operator',
-      'upgrade.flow.yaml: rw in core',
+      // AFS-152: levels in words; a flow by its title when its project's list has one.
+      'upgrade: read and write in core',
       'yes',
       'their own grant, group netops',
     ]);
@@ -385,11 +386,11 @@ describe('People and groups', () => {
         .map((c) => c.textContent),
     ).toEqual([
       'Operations',
-      'approve',
+      'approver',
       'the whole workspace',
       'Lab',
-      'ro',
-      'upgrade.flow.yaml in core',
+      'read only',
+      'upgrade in core',
     ]);
     expect(asked.some((a) => a.key.startsWith('GET /workspaces/'))).toBe(false);
 

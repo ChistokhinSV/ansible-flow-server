@@ -2,7 +2,13 @@
 // do is shown only to them (the server decides either way).
 
 import { useEffect, useState } from 'react';
-import { useProjectAccess, WorkspaceAccess, YourAccess } from './access';
+import {
+  launchesInProject,
+  ProjectYourAccess,
+  useProjectAccess,
+  WorkspaceAccess,
+  YourAccess,
+} from './access';
 import {
   api,
   type Branch,
@@ -16,7 +22,7 @@ import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './creden
 import { WorkspaceEnvironments } from './environments';
 import { followKey, NewFlowForm } from './flowFiles';
 import { guide } from './guide';
-import { Missing } from './help';
+import { Missing, MissingProject } from './help';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunList, RunWords } from './runs';
@@ -306,7 +312,11 @@ export function Workspace({
   tab?: WorkspaceTab;
 }) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
-  const projects = useLoad(() => api.projects(workspace), [workspace]);
+  // AFS-152: read once the workspace is there: a workspace not there (or not shared) is asked for once.
+  const projects = useLoad(
+    async () => (space.data ? api.projects(workspace) : undefined),
+    [workspace, !!space.data],
+  );
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState({
     key: '',
@@ -1401,27 +1411,15 @@ export function ProjectPage({
     </Breadcrumb>
   );
   if (!project)
-    return (
+    return found.loading ? (
       <>
         {crumbs}
-        {found.loading ? (
-          <>
-            <PageHead title={key} />
-            <Loading state={found} />
-          </>
-        ) : (
-          // AFS-143: what was looked for, not the address's last part as a title.
-          <Missing
-            what={
-              <>
-                The project <code>{key}</code> in <code>{workspace}</code>
-              </>
-            }
-            back={{ to: `/w/${workspace}`, label: `Back to ${workspace}` }}
-            error={found.error && !/^No such/.test(found.error) ? found.error : undefined}
-          />
-        )}
+        <PageHead title={key} />
+        <Loading state={found} />
       </>
+    ) : (
+      // AFS-143, AFS-152: what was looked for, with a way back to a page the person can open.
+      <MissingProject workspace={workspace} project={key} error={found.error} />
     );
   const address = `${window.location.origin}${project.gitPath}`;
   const mayPush = me.admin || access?.workspace === 'rw';
@@ -1439,7 +1437,7 @@ export function ProjectPage({
             {access && (
               <>
                 {' · '}
-                <YourAccess level={access.admin ? 'admin' : access.workspace} />
+                <ProjectYourAccess access={access} flows={flows.data?.flows} />
               </>
             )}
           </>
@@ -1547,7 +1545,12 @@ export function ProjectPage({
         <section aria-label="Runs of the project">
           <Loading state={runs} />
           {runs.data?.length === 0 && (
-            <p className="empty">No run yet. Runs start from a launch configuration.</p>
+            <p className="empty">
+              {/* AFS-152: where runs start, only to who may start one. */}
+              {launchesInProject(access)
+                ? 'No run yet. Runs start from a launch configuration.'
+                : 'No run yet.'}
+            </p>
           )}
           {!!runs.data?.length && <RunList runs={runs.data} me={me} />}
           {runs.data?.length === RUNS_SHOWN && (

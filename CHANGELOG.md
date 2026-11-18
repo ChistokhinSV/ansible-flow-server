@@ -6,6 +6,8 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- **My account** shows your access, workspace by workspace: the level, the flows a grant of your own gives another level on (by title), whether you approve, and whose grants gave it (`GET /api/v1/session/access`, which also names the administrators who give access).
+- Giving access says what was given, and the form starts again empty.
 - A project's name, description and branch can be changed on its **Settings** tab.
 - A one-time schedule shows its **At** in your own time too.
 - The credentials list names what uses each credential, with links (for administrators).
@@ -39,6 +41,12 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
+- Access levels are said in words everywhere in the pages (read only, operator, read and write, approver), not as ro or rw. Every tab of a project says your access, including a grant on one of its flows ("read only; operator on Hello, Ansible").
+- The Access tab names flows by their titles and projects by their names, in the grants, in **Who can do what** and in the question before taking a grant back; groups are marked as groups in **Who**, and **Through** says "group ops, their own grant".
+- A run, a flow, a launch configuration or a project that is not there, or not shared with you, shows one page: what was looked for, a way back to a page you can open (no links to pages you cannot), and the administrators who give access. A project missing from a workspace you have a level on is said not to exist.
+- Who cannot launch is no longer told that runs start from a launch configuration. Who has no workspace yet is told which administrators to ask, and the side menu has no empty **Workspaces** heading.
+- The disabled **Branch** and **Or a commit** fields of the launch page say why they cannot be changed.
+- A token's **Reaches** column names the workspace, as the form does.
 - **Upload a folder (zip)** no longer replaces files that are there without asking: Save lists them and **Replace them and save** saves. Over the API an `unpack` that would replace files is refused unless it says `replace: true`.
 - **Discard all** on the Files tab asks first.
 - Deleting a flow turns off the schedules that would fire it, and says so. A schedule whose flow is gone is turned off at its next fire instead of failing every time.
@@ -83,6 +91,9 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- A flow that is not there no longer shows an empty white canvas in the dark theme nor offers to copy or delete it; it links back to its project.
+- Pressing Delete on a flow's canvas when it is shown read only says so, instead of nothing happening.
+- A page for something that is not there asks the server once: no repeated failing requests, and a run's page no longer asks for the events of a run that is not there.
 - On a laptop (1024 px wide, or 1280 x 720 with the side menu) a flow's canvas keeps the window's height: the designer's side panel stays beside it, folded to a strip until a step is selected, instead of going under the canvas. Only on a phone does it go under.
 - The canvas opens with the whole flow in view, notes included, at every width and in the editor; a sample opened in the editor is fitted again, and a new note is brought into view. The open fail port question names its step in full and wraps on a narrow window.
 - After a step is clicked on a run's page, the mouse wheel scrolls the page again; a click on the empty canvas still lets it zoom.

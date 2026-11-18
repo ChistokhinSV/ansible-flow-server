@@ -3,10 +3,10 @@
 // change set lives in this browser until then (a reload keeps it); the server checks it all again.
 import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { changeWords, defaultMessage } from '../server/projects/changeWords';
-import { atLeast, useProjectAccess } from './access';
+import { atLeast, ProjectYourAccess, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
-import { Missing } from './help';
+import { MissingProject } from './help';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
@@ -353,6 +353,13 @@ export function FilesPage({
   const id = project?.id;
   const access = useProjectAccess(id).data;
   const canEdit = me.admin || atLeast(access?.workspace ?? null, 'rw');
+  // AFS-152: the titles of the flows a grant of one's own names, for the access line.
+  const ownFlows =
+    !!access && !access.admin && Object.values(access.flows).some((l) => l !== access.workspace);
+  const titled = useLoad(
+    async () => (id && ownFlows ? (await api.flows(id)).flows : undefined),
+    [id, ownFlows],
+  );
   const branch = params.get('branch') || project?.gitRef || 'main';
   const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
   const listing = useLoad(async () => (id ? api.files(id, branch) : undefined), [id, branch]);
@@ -524,27 +531,15 @@ export function FilesPage({
     </Breadcrumb>
   );
   if (!project)
-    return (
+    return found.loading ? (
       <>
         {crumbs}
-        {found.loading ? (
-          <>
-            <PageHead title="Files" />
-            <Loading state={found} />
-          </>
-        ) : (
-          // AFS-143: what was looked for, with the way back.
-          <Missing
-            what={
-              <>
-                The project <code>{key}</code> in <code>{workspace}</code>
-              </>
-            }
-            back={{ to: `/w/${workspace}`, label: `Back to ${workspace}` }}
-            error={found.error && !/^No such/.test(found.error) ? found.error : undefined}
-          />
-        )}
+        <PageHead title="Files" />
+        <Loading state={found} />
       </>
+    ) : (
+      // AFS-143, AFS-152: what was looked for, with a way back to a page the person can open.
+      <MissingProject workspace={workspace} project={key} error={found.error} />
     );
   const editable =
     canEdit &&
@@ -560,7 +555,18 @@ export function FilesPage({
       <PageHead
         help="web-pages.md#files-of-a-project"
         title={project.name}
-        lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+        lead={
+          <>
+            {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+            {/* AFS-152: one's own access on every tab of the project, as on the others. */}
+            {access && (
+              <>
+                {' · '}
+                <ProjectYourAccess access={access} flows={titled.data} />
+              </>
+            )}
+          </>
+        }
       />
       <ProjectStatus project={project} me={me} base={`/w/${workspace}/${key}`} />
       {/* AFS-94: Files is one of the project's tabs: the others stay a click away. */}

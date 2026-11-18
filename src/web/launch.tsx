@@ -22,6 +22,7 @@ import {
   type User,
 } from './api';
 import { EnvironmentCheck, environmentAddress } from './environments';
+import { Missing, MissingProject } from './help';
 import { Link, navigate, useUnsaved } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
@@ -191,6 +192,35 @@ export function LaunchConfigsSection({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * AFS-152: a launch configuration not there, or not shared (the server answers both the same
+ * way), in a project the person can open.
+ */
+function MissingConfig({
+  workspace,
+  project,
+  id,
+}: {
+  workspace: string;
+  project: Project;
+  id: string;
+}) {
+  return (
+    <>
+      <Crumbs workspace={workspace} project={project.key} last="Launch configuration" />
+      <Missing
+        what={
+          <>
+            The launch configuration <code>{id}</code> in {project.name}
+          </>
+        }
+        back={{ to: base(workspace, project.key), label: `Back to ${project.name}` }}
+        help="launch-configurations.md"
+      />
+    </>
   );
 }
 
@@ -745,14 +775,17 @@ export function LaunchConfigPage({
   const [limit, setLimit] = useState<string | undefined>();
   /** The commit and branch the form was read at: what the inputs are of. */
   const [at, setAt] = useState({ ref: '', commit: '' });
+  // AFS-152: asked for once the configuration is there, so one not there is asked for once.
   const form = useLoad(
-    () =>
-      api.launchForm(id, {
-        ...(mode ? { mode } : {}),
-        ...(at.ref ? { ref: at.ref } : {}),
-        ...(at.commit ? { commit: at.commit } : {}),
-      }),
-    [id, mode, at.ref, at.commit],
+    async () =>
+      config.data
+        ? api.launchForm(id, {
+            ...(mode ? { mode } : {}),
+            ...(at.ref ? { ref: at.ref } : {}),
+            ...(at.commit ? { commit: at.commit } : {}),
+          })
+        : undefined,
+    [id, mode, at.ref, at.commit, !!config.data],
   );
   const [texts, setTexts] = useState<Record<string, string>>({});
   /** AFS-150: the inputs typed into (not a text the form changed by itself, on a new mode). */
@@ -866,6 +899,12 @@ export function LaunchConfigPage({
   );
 
   const c = config.data;
+  // AFS-152: a project or a configuration not there (or not shared): what was looked for, with a
+  // way back to a page the person can open.
+  if (!project.loading && !project.data)
+    return <MissingProject workspace={workspace} project={key} error={project.error} />;
+  if (config.error && project.data)
+    return <MissingConfig workspace={workspace} project={project.data} id={id} />;
   if (!c || !project.data)
     return (
       <>
@@ -1137,7 +1176,12 @@ export function LaunchConfigPage({
                 <div className="pair">
                   <Labelled
                     label="Branch"
-                    hint={`Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`}
+                    // AFS-152: a field that cannot be typed in says why.
+                    hint={
+                      mayManage
+                        ? `Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
+                        : `${c.commit ? 'The pinned commit' : (c.gitRef ?? project.data.gitRef)}: another branch needs read and write access to this flow`
+                    }
                     problem={problemOf('ref')}
                   >
                     {(props) => (
@@ -1162,7 +1206,11 @@ export function LaunchConfigPage({
                   </datalist>
                   <Labelled
                     label="Or a commit"
-                    hint="As shown here (12 digits) or in full"
+                    hint={
+                      mayManage
+                        ? 'As shown here (12 digits) or in full'
+                        : 'Another commit needs read and write access to this flow'
+                    }
                     problem={problemOf('commit')}
                   >
                     {(props) => (
@@ -1184,7 +1232,8 @@ export function LaunchConfigPage({
                 </div>
                 {mayLaunch && !mayManage && (
                   <p className="muted">
-                    You launch what the configuration names: another branch or commit needs rw.
+                    You launch what the configuration names: another branch or commit needs read and
+                    write access.
                   </p>
                 )}
                 <Labelled
@@ -1777,6 +1826,10 @@ export function LaunchConfigEdit({
     ? `Change ${existing.data?.name ?? 'launch configuration'}`
     : 'Add a launch configuration';
 
+  if (!project.loading && !project.data)
+    return <MissingProject workspace={workspace} project={key} error={project.error} />;
+  if (id && existing.error && project.data)
+    return <MissingConfig workspace={workspace} project={project.data} id={id} />;
   if (!project.data || (id && !existing.data) || (!access.data && !access.error))
     return (
       <>

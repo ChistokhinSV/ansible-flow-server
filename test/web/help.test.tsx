@@ -1,6 +1,6 @@
 // AFS-143: help in the pages (a Help page, Help beside page titles), pages not found that say
 // what was looked for, clone help for an empty project, and failure words without step keys.
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 import { GUIDE } from '../../src/web/guide';
@@ -82,9 +82,17 @@ describe('help', () => {
   });
 
   it('a project not there or not shared names what was looked for, not the address', async () => {
+    let asked = 0;
     routes = {
       'GET /session': () => ({ body: lena }),
       'GET /workspaces': () => ({ body: [] }),
+      'GET /session/access': () => ({
+        body: { admin: false, administrators: ['Dana Whitfield'], workspaces: [] },
+      }),
+      'GET /workspaces/network/projects': () => {
+        asked++;
+        return { status: 404, body: { error: 'not_found', message: 'No such workspace' } };
+      },
     };
     window.history.replaceState(null, '', '/w/network/credentials');
     render(<App />);
@@ -93,9 +101,80 @@ describe('help', () => {
     expect(document.querySelector('main')?.textContent).toContain(
       'The project credentials in network is not here, or is not shared with you.',
     );
-    expect(screen.getByRole('link', { name: 'Back to network' }).getAttribute('href')).toBe(
-      '/w/network',
+    // AFS-152: the way back is a page she can open; the workspace she cannot is not linked, and
+    // who gives access is named.
+    expect(screen.getByRole('link', { name: 'Back to Workspaces' }).getAttribute('href')).toBe(
+      '/workspaces',
     );
+    expect(document.querySelector('a[href="/w/network"]')).toBeNull();
+    expect(await screen.findByText(/An administrator gives access: Dana Whitfield/)).toBeTruthy();
+    expect(asked).toBe(1);
+  });
+
+  it('a run, a flow or a launch configuration not there says what, with a way back', async () => {
+    routes = {
+      'GET /session': () => ({ body: lena }),
+      'GET /workspaces': () => ({ body: [network] }),
+      'GET /workspaces/network/projects': () => ({ body: [lab] }),
+      'GET /projects/p2/flows': () => ({ body: { flows: [] } }),
+      'GET /projects/p2/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: {} },
+      }),
+    };
+    const events: string[] = [];
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        constructor(url: string) {
+          events.push(url);
+        }
+        addEventListener() {}
+        close() {}
+      },
+    );
+    window.history.replaceState(null, '', '/runs/3b89f8dc');
+    const { unmount } = render(<App />);
+    await screen.findByRole('heading', { name: 'Not found' });
+    expect(document.querySelector('main')?.textContent).toContain(
+      'The run 3b89f8dc is not here, or is not shared with you.',
+    );
+    expect(screen.getByRole('link', { name: 'Back to Runs' }).getAttribute('href')).toBe('/runs');
+    // No stream of a run that is not there.
+    expect(events.filter((u) => u.includes('/runs/'))).toEqual([]);
+    unmount();
+
+    window.history.replaceState(null, '', '/w/network/lab/launch/00000000-0000');
+    const second = render(<App />);
+    await screen.findByRole('heading', { name: 'Not found' });
+    expect(document.querySelector('main')?.textContent).toContain(
+      'The launch configuration 00000000-0000 in Lab is not here, or is not shared with you.',
+    );
+    expect(screen.getByRole('link', { name: 'Back to Lab' }).getAttribute('href')).toBe(
+      '/w/network/lab',
+    );
+    second.unmount();
+
+    // A project with commits, where she could copy and delete flow files.
+    routes['GET /workspaces/network/projects'] = () => ({
+      body: [{ ...lab, commit: 'a'.repeat(40) }],
+    });
+    routes['GET /projects/p2/access'] = () => ({
+      body: { admin: false, workspace: 'rw', approve: false, flows: {} },
+    });
+    window.history.replaceState(null, '', '/w/network/lab/flow/missing.flow.yaml');
+    render(<App />);
+    await waitFor(() =>
+      expect(document.querySelector('main')?.textContent).toContain(
+        'The flow missing.flow.yaml is not here, or is not shared with you.',
+      ),
+    );
+    expect(screen.getByRole('link', { name: 'Back to Lab' }).getAttribute('href')).toBe(
+      '/w/network/lab',
+    );
+    // No canvas and no file actions for a flow that is not there.
+    expect(document.querySelector('iframe')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull();
   });
 
   it('an empty project shows how to clone it on its Overview', async () => {

@@ -6,6 +6,7 @@
 // starts with its members and the workspaces that name it.
 import { useEffect, useId, useState } from 'react';
 import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
+import { flowTitle, LEVEL_NAME, throughWords, useFlowTitles } from './access';
 import { api, type Group, type User } from './api';
 import { Link, navigate } from './router';
 import { TokensPanel } from './tokens';
@@ -521,10 +522,6 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
   );
 }
 
-/** A grant's holder as the overview names it (`user:omar`, `group:netops`), in words. */
-const throughWords = (through: string) =>
-  through.startsWith('group:') ? `group ${through.slice(6)}` : 'their own grant';
-
 /**
  * What a person reaches: their row of each workspace's "Who can do what", in one answer of the
  * server. An administrator's answer is known without asking.
@@ -536,6 +533,8 @@ function Reach({ user }: { user: User }) {
     [user.id, user.groups.join(',')],
   );
   const rows = load.data?.workspaces ?? [];
+  // AFS-152: flows by their titles, levels in words.
+  const titles = useFlowTitles(rows.flatMap((r) => r.flows.map((f) => f.projectId)));
   return (
     <>
       <Loading state={load} />
@@ -558,11 +557,12 @@ function Reach({ user }: { user: User }) {
                   <td>
                     <Link to={`/w/${workspace.key}`}>{workspace.name || workspace.key}</Link>
                   </td>
-                  <td>{who.level && <span className="badge">{who.level}</span>}</td>
+                  <td>{who.level && <span className="badge">{LEVEL_NAME[who.level]}</span>}</td>
                   <td>
                     {who.flows.map((f) => (
                       <div key={`${f.project}/${f.file}`}>
-                        <code>{f.file}</code>: {f.level}{' '}
+                        {flowTitle(titles, f.projectId, f.file)}:{' '}
+                        {f.level ? LEVEL_NAME[f.level] : 'none'}{' '}
                         <span className="muted">in {f.project}</span>
                       </div>
                     ))}
@@ -769,6 +769,8 @@ function Members({ group, onSaved }: { group: Group; onSaved(g: Group): void }) 
 function NamedIn({ group }: { group: Group }) {
   const load = useLoad(() => api.groupGrants(group.id), [group.id]);
   const rows = load.data ?? [];
+  // AFS-152: flows by their titles.
+  const titles = useFlowTitles(rows.flatMap((r) => (r.flow ? [r.flow.project] : [])));
   return (
     <section className="panel" aria-labelledby="named-in">
       <h2 id="named-in">Where it is named</h2>
@@ -793,12 +795,12 @@ function NamedIn({ group }: { group: Group }) {
                     <Link to={`/w/${workspace.key}`}>{workspace.name || workspace.key}</Link>
                   </td>
                   <td>
-                    <span className="badge">{grant.level}</span>
+                    <span className="badge">{LEVEL_NAME[grant.level]}</span>
                   </td>
                   <td>
                     {grant.flow ? (
                       <>
-                        <code>{grant.flow.file}</code>{' '}
+                        {flowTitle(titles, grant.flow.project, grant.flow.file)}{' '}
                         <span className="muted">in {grant.flow.projectKey}</span>
                       </>
                     ) : (
