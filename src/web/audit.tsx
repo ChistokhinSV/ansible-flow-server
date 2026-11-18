@@ -246,7 +246,7 @@ export function AuditPage() {
                   <td>
                     <code>{e.action}</code>
                   </td>
-                  <td>
+                  <td className="long">
                     {e.object.id ? (
                       <Named
                         id={e.object.id}
