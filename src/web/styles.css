@@ -412,6 +412,16 @@ code,
 .crumbs a {
   text-decoration: none;
 }
+/* AFS-153: the page's own name (a project's name, not its key) stays on one line in the
+   breadcrumb: the title under it says it whole. */
+.crumbs [aria-current="page"] {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .page-head {
   display: flex;
   flex-wrap: wrap;
