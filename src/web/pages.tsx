@@ -1409,9 +1409,9 @@ export function ProjectPage({
       <Link to={`/w/${workspace}`}>
         <WorkspaceName workspace={workspace} />
       </Link>{' '}
-      /{' '}
-      <span aria-current="page">
-        <ProjectName workspace={workspace} project={key} />
+      / {/* AFS-152: the page reads its project already; the crumb does not ask again. */}
+      <span aria-current="page" className="crumb-name" title={project?.name ?? key}>
+        {project?.name ?? key}
       </span>
     </Breadcrumb>
   );
