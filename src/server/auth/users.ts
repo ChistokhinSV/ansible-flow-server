@@ -56,7 +56,8 @@ export function loginProblem(login: string): string | undefined {
 }
 
 export function contactProblem(c: { email?: string | null; webhookUrl?: string | null }) {
-  if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)) return 'This is not an email address (like dana@example.net)';
+  if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email))
+    return 'This is not an email address (like dana@example.net)';
   if (c.webhookUrl) {
     try {
       const u = new URL(c.webhookUrl);
