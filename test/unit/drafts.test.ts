@@ -169,7 +169,7 @@ describe('editing a flow together', () => {
     const undone = await call('omar', 'POST', `/drafts/${draft}/undo`);
     expect(undone.status).toBe(200);
     // AFS-136: it says what it took back.
-    expect(undone.json.steps).toEqual(['Check it answers']);
+    expect(undone.json.steps).toEqual(['Ping it']);
     const doc = (await call('omar', 'GET', `/drafts/${draft}`)).json.snapshot.doc;
     const titleOf = (id: string) => doc.nodes.find((n: { id: string }) => n.id === id).title;
     expect(titleOf(PING)).toBe('Ping it');

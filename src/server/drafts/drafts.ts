@@ -355,9 +355,9 @@ export class Drafts {
         .set({ undone: 1 })
         .where('id', '=', last.id)
         .execute();
-      // AFS-136: what was taken back, by the steps' titles (none: a move on the canvas).
+      // AFS-136: what was taken back, by the steps' titles as they are again (none: a move).
       const titles = new Map(
-        [...(doc(last.before_text).nodes ?? []), ...(doc(last.after_text).nodes ?? [])].map((n) => [
+        [...(doc(last.after_text).nodes ?? []), ...(doc(last.before_text).nodes ?? [])].map((n) => [
           n.id,
           n.title,
         ]),
