@@ -631,7 +631,13 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     answering(async (request, reply) => {
       const me = administrator(request, reply);
       if (!me) return reply;
+      const before = (await getGroup(db, request.params.id))?.members ?? [];
       const group = await setMembers(db, request.params.id, request.body.users);
+      // AFS-141: the audit entry says who joined and who left, by login.
+      request.auditDetail = {
+        added: group.members.filter((login) => !before.includes(login)),
+        removed: before.filter((login) => !group.members.includes(login)),
+      };
       request.log.info(
         { by: me.login, group: group.name, members: group.members.length },
         'Group members set',

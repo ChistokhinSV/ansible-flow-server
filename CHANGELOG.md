@@ -25,6 +25,7 @@ All notable changes to Ansible Flow Server.
 - Ctrl+Z in a draft says which step it took back. While a draft is edited it has no Run buttons (runs use saved flows).
 - **Save as Launch Configuration** in the canvas's launch dialog is offered only to those who may add one. Empty lists say who adds things, someone without access to any workspace is told to ask an administrator, and fields that cannot be used look it.
 - The Access tab names people by their names and flows by theirs; taking access back names the flow.
+- The audit log names environments, schedules, sign-in providers and directories, not their ids; access grants name the workspace or flow they are on. A group's entry says who was added and who left, a person not added is named by the login tried with the reason, and a change lists only the fields whose values changed. **About** filters by every kind, access grants and approvals among them, and the detail column wraps within the page.
 
 ### Fixed
 

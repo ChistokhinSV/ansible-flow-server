@@ -24,6 +24,7 @@ export type InventoryReader = (
   q: Omit<InventoryQuestion, 'image'> & { image?: string },
 ) => Promise<InventoryAnswer>;
 
+import { changedKeys } from '../audit/changes';
 import { addDevBundle, getDevBundle } from './dev';
 import { type LaunchRequest, type PrepareDeps, prepareLaunch, withoutSecrets } from './prepare';
 
@@ -210,6 +211,7 @@ export function registerLaunch(
       )
         return reply;
       const changed = await configs.update(request.params.id, request.body);
+      request.auditDetail = { changed: changedKeys(request.body, before, changed) };
       request.log.info(
         { by: me.login, config: changed.name, changed: Object.keys(request.body) },
         'Launch configuration changed',

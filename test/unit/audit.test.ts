@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
+import { changedKeys } from '../../src/server/audit/changes';
 import { auditCommand, changes } from '../../src/server/audit/cli';
+import { AUDIT_KINDS } from '../../src/server/audit/kinds';
 import { ACTIONS } from '../../src/server/audit/routes';
 import {
   type AuditEntry,
@@ -115,6 +117,9 @@ for (const [name, config] of databases) {
         const [method, url] = route.split(' ') as [string, string];
         expect(app.hasRoute({ method: method as 'POST', url }), route).toBe(true);
       }
+      // AFS-141: the page's About filter offers every kind of action.
+      for (const { action } of Object.values(ACTIONS))
+        expect(Object.keys(AUDIT_KINDS), action).toContain(action.slice(0, action.indexOf('.')));
     });
 
     it('records a sign-in, a refused one by the login tried, and never the password', async () => {
@@ -321,6 +326,71 @@ for (const [name, config] of databases) {
         url: `/api/v1/workspaces/${id}`,
         headers: { cookie: admin },
       });
+    });
+
+    it('says who joined or left a group, a person not made and why, a grant with its workspace (AFS-141)', async () => {
+      const users = (
+        await app.inject({ method: 'GET', url: '/api/v1/users', headers: { cookie: admin } })
+      ).json() as { id: string; login: string }[];
+      const id = (login: string) => users.find((u) => u.login === login)?.id;
+      const group = (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/groups',
+          headers: { cookie: admin },
+          payload: { name: 'change-board' },
+        })
+      ).json() as { id: string };
+      const members = (logins: string[]) =>
+        app.inject({
+          method: 'PUT',
+          url: `/api/v1/groups/${group.id}/members`,
+          headers: { cookie: admin },
+          payload: { users: logins.map(id) },
+        });
+      await members(['dana']);
+      await members(['omar']);
+      expect((await newest('group.members'))?.detail).toMatchObject({
+        added: ['omar'],
+        removed: ['dana'],
+      });
+
+      await app.inject({
+        method: 'POST',
+        url: '/api/v1/users',
+        headers: { cookie: admin },
+        payload: { login: 'Nora', password: 'short' },
+      });
+      const refused = await newest('user.create');
+      expect(refused).toMatchObject({
+        result: 'failed',
+        object: { type: 'user', name: 'nora' },
+        detail: { error: 'invalid', reason: expect.stringMatching(/password/i) },
+      });
+      expect(JSON.stringify(refused)).not.toContain('"short"');
+
+      const ws = (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/workspaces',
+          headers: { cookie: admin },
+          payload: { key: 'ops', name: 'Operations' },
+        })
+      ).json() as { id: string };
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${ws.id}/grants`,
+        headers: { cookie: admin },
+        payload: { group: 'change-board', level: 'ro' },
+      });
+      expect((await newest('grant.create'))?.object.name).toBe('ro for group change-board on ops');
+    });
+
+    it('a change lists the fields whose values changed, not every field sent (AFS-141)', () => {
+      const before = { name: 'nightly', description: '', gitRef: null, inputs: { a: 1 } };
+      const after = { name: 'nightly', description: undefined, gitRef: null, inputs: { a: 2 } };
+      expect(changedKeys({ ...before, inputs: { a: 2 } }, before, after)).toEqual(['inputs']);
+      expect(changedKeys({ name: 'x' }, undefined, { name: 'x' })).toEqual(['name']);
     });
 
     it('keeps entries for the days it is told, or all of them', async () => {
