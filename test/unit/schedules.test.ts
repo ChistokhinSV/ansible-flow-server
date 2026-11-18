@@ -217,7 +217,24 @@ for (const [name, config] of databases) {
         mode: 'check',
       });
       const after = (await call('rita', 'GET', at())).json()[0];
-      expect(after.last).toMatchObject({ result: 'ok', run: run?.id });
+      // AFS-139: the run it launched as it stands now, not only the words of the fire.
+      expect(after.last).toMatchObject({
+        result: 'ok',
+        run: run?.id,
+        runNumber: run?.number,
+        runState: 'queued',
+      });
+      await db()
+        .updateTable('run')
+        .set({ state: 'succeeded' })
+        .where('id', '=', run?.id as string)
+        .execute();
+      expect((await call('rita', 'GET', at())).json()[0].last.runState).toBe('succeeded');
+      await db()
+        .updateTable('run')
+        .set({ state: 'queued' })
+        .where('id', '=', run?.id as string)
+        .execute();
       expect(Date.parse(after.next)).toBeGreaterThan(Date.now());
       expect((await call('rita', 'GET', `/runs/${run?.id}`)).json()).toMatchObject({
         schedule: s.id,
@@ -298,6 +315,30 @@ for (const [name, config] of databases) {
         .find((x: { id: string }) => x.id === once.id);
       expect(ended).toMatchObject({ enabled: false, upcoming: [] });
       expect(ended.next).toBeUndefined();
+    });
+
+    it('fires at its time, not at the next half-minute look (AFS-139)', async () => {
+      const soon = (
+        await call('rita', 'POST', at(), {
+          name: 'Once, in a moment',
+          kind: 'once',
+          onceAt: new Date(Date.now() + 1500).toISOString(),
+          mode: 'check',
+          overlap: 'queue',
+        })
+      ).json();
+      // A round of a minute: only the look at the schedule's own time fires it in this test.
+      schedules.start(60_000);
+      try {
+        const until = Date.now() + 5000;
+        while ((await runsOf(soon.id)).length === 0 && Date.now() < until)
+          await new Promise((r) => setTimeout(r, 100));
+        const [run] = await runsOf(soon.id);
+        expect(run).toBeDefined();
+        expect(Date.parse(run?.created_at as string) - Date.parse(soon.onceAt)).toBeLessThan(1500);
+      } finally {
+        await schedules.stop();
+      }
     });
 
     it('goes with its launch configuration', async () => {

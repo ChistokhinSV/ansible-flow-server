@@ -14,6 +14,11 @@ adds, changes, pauses and deletes them, `ro` reads them.
   commit.
 - Cron: five fields (`minute hour day month weekday`) or a nickname like `@daily`, at most once a
   minute; the time zone follows summer time. The page shows the next times as you type.
+- The schedule's **Time zone** is the zone its rule is read in: the cron, and the **At** of a
+  one-time schedule (the date and time on that zone's clocks). The page shows every time (next
+  times, the last fire) in your browser's time zone, named. A schedule fires at its time.
+- The list follows fires while the page is open: **Next** moves on, and **Last** shows the run a
+  fire launched as it stands now (`last.runNumber`, `last.runState` in the API).
 - After downtime: one catch-up run (default), or none. While its last run has not ended: skip
   this fire (default), or queue another.
 - Every fire is kept on the schedule (launched, skipped, refused, failed, with why) and in the
