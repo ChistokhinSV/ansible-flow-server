@@ -111,7 +111,8 @@ Code. Everyone who edits the same flow edits one shared draft:
   started), the commits and the new commit's message.
 - **New flow** (a project's Flows) makes the file in one commit and opens it for editing. The file
   is `flows/<key>/<key>.flow.yaml` unless you type another, as the samples keep theirs. An empty
-  project the server hosts offers it too: the flow is the project's first commit.
+  project the server hosts offers it too: the flow is the project's first commit. A flow with no
+  step yet shows **Edit** as its main button to who may edit it.
 - **An empty flow starts from something.** The canvas of a flow with no step yet offers what VS
   Code does, and each makes the flow in one edit (Ctrl+Z takes it back); the flow keeps its file,
   key and name:
@@ -171,6 +172,11 @@ lists the files it would replace, and **Replace them and save** saves. When the 
 unless the branch changed one of the same files: then nothing is saved and those files are
 listed. For a project with an external repository the commit is pushed there first. A Save is
 listed with the pushes and in the audit log (`project.files-save`).
+
+An empty project the server hosts has the **Files** tab from the start, for whoever may change
+files: add your playbooks there first (upload them, or a zip of the folder), and the first Save is
+the project's first commit. Then make a **New flow** and start it from one with **Import Ansible
+Playbooks…**.
 
 Limits: an edited file up to 1 MB, an uploaded one up to 5 MB, archives as for a start
 (`AFS_ARCHIVE_MAX_MB`); paths stay inside the project and never in `.git`. Larger files go by

@@ -40,6 +40,7 @@ All notable changes to Ansible Flow Server.
 - The draft bar's line of what the others did says what each edit was ("removed Ping", "changed Backup (timeout)", "changed the flow's goal"); **N earlier** lists the ones before.
 - The server shows its own user guide, as it is for its version, at `/help/guide/`: it works without internet. **Help**, the **Help** links beside page titles, the not-found pages and the certificate hint open it; a link in it that leaves the server says it opens GitHub.
 - **Get Started** on an empty canvas opens a new guide page, **Your first flow**: a flow made in the pages, step by step, from New flow to a launch.
+- An empty project the server hosts has its **Files** tab from the start: upload your playbooks (or a zip of the folder) or write new files before the first flow, then make a **New flow** and start it from one. Its Overview says so.
 
 ### Changed
 
@@ -110,6 +111,7 @@ All notable changes to Ansible Flow Server.
 - An image environment with no image yet says "pull it" (not "build it"), and the launch configuration form says "(not pulled yet)"; the environments list says "1 launch configuration" as the environment's page does.
 - A registry host typed as an address (`https://registry.example.net:5000/`) is taken as its host and port. The AWX address error says http:// is accepted too. An email address that is not one is said plainly.
 - A schedule's true-or-false input is picked from a list, as on the launch form.
+- A flow with no steps yet offers **Edit** as the main button to who may edit it.
 
 ### Fixed
 
@@ -199,6 +201,7 @@ All notable changes to Ansible Flow Server.
 - The Files tab no longer makes the window scroll by a few pixels; after deleting the picked file or folder and saving, the pane no longer says it is not there.
 - The Help page's descriptions line up in every section; the side menu's **Workspaces** link is as easy to hit as the others.
 - A field with a problem keeps its red mark while it has the focus.
+- A flow just made with **New flow** (the first of a project too) opens for editing again; it sometimes opened read only, showing "No steps yet".
 
 ## 1.0.0 — First release
 

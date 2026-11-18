@@ -284,13 +284,15 @@ export function FlowPage({
   }, [editing?.id, project?.id, file]);
   // AFS-113: `?edit=1` (a flow just made) opens it for editing once, then leaves the address.
   const asked = useRef(new URLSearchParams(window.location.search).get('edit') === '1');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when the project is known
+  // AFS-160: once the project, the access and the project's flow list are all read. The list can
+  // answer after the access; until it has, the flow is not known to be there and Edit was dropped.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when all three are read
   useEffect(() => {
-    if (!asked.current || !project?.commit || access === undefined) return;
+    if (!asked.current || !project?.commit || access === undefined || flows.loading) return;
     asked.current = false;
     window.history.replaceState(null, '', window.location.pathname);
     if (mayEdit && !editing) void edit();
-  }, [project?.commit, access]);
+  }, [project?.commit, access, flows.loading]);
   // AFS-152: a project not there (or not shared) is the same page as on the project's address.
   if (!found.loading && !project)
     return <MissingProject workspace={workspace} project={key} error={found.error} />;
@@ -319,7 +321,12 @@ export function FlowPage({
           }
         >
           {mayEdit && !editing && project?.commit ? (
-            <button type="button" onClick={() => void edit()}>
+            <button
+              type="button"
+              // AFS-160: a flow with no step yet is there to be edited: Edit comes first.
+              className={flow?.ok && flow.steps === 0 ? 'primary' : undefined}
+              onClick={() => void edit()}
+            >
               {waiting?.editors.length ? 'Open the draft' : 'Edit'}
             </button>
           ) : null}
