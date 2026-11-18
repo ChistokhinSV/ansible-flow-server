@@ -6,7 +6,7 @@ import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run }
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
-import { RunWords } from './runs';
+import { ACTIVE, RunWords } from './runs';
 import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
 import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -83,6 +83,16 @@ export function FlowPage({
     found.reload();
     drafts.reload();
   };
+  // AFS-139: the canvas launched a run or one it shows ended: Latest runs is read again.
+  const reloadRuns = useRef<() => void>(() => undefined);
+  reloadRuns.current = runs.reload;
+  // A run listed there that has not ended (launched anywhere) is looked at until it ends.
+  const runsGoing = !!runs.data?.some((r) => ACTIVE.includes(r.state));
+  useEffect(() => {
+    if (!runsGoing) return;
+    const timer = setInterval(() => reloadRuns.current(), 5000);
+    return () => clearInterval(timer);
+  }, [runsGoing]);
   const stopEditing = (words?: string) => {
     setEditing(undefined);
     setPeople([]);
@@ -119,6 +129,7 @@ export function FlowPage({
         sent?: boolean;
       } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
+      if (data?.type === 'afs-flow-runs') reloadRuns.current();
       if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
       if (data?.type === 'afs-draft-edit' && data.by) {
         const by = data.by;
