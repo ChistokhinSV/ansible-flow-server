@@ -92,6 +92,8 @@ beforeEach(() => {
   asked = [];
   window.localStorage.clear();
   window.scrollTo = () => undefined;
+  // AFS-134: a real launch asks first; the tests say yes.
+  window.confirm = () => true;
   // Launch opens the run's page, which follows the run's stream: here it says nothing.
   vi.stubGlobal(
     'EventSource',

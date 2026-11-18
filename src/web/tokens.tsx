@@ -30,13 +30,8 @@ export function TokensPanel({
 }) {
   const list = useLoad(load, []);
   const workspaces = useLoad(api.workspaces, []);
-  const [input, setInput] = useState({
-    name: '',
-    days: 90,
-    readOnly: false,
-    workspace: '',
-    mcpApprovals: false,
-  });
+  const fresh = { name: '', days: 90, readOnly: false, workspace: '', mcpApprovals: false };
+  const [input, setInput] = useState(fresh);
   const workspaceName = (id?: string) =>
     id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
@@ -139,7 +134,8 @@ export function TokensPanel({
                   ...(input.workspace ? { workspace: input.workspace } : {}),
                 }),
               );
-              setInput({ ...input, name: '' });
+              // AFS-134: the next token starts from the defaults, not this one's choices.
+              setInput(fresh);
               // The form closes: what is left to look at is the token, shown this once.
               setAdding(false);
               list.reload();

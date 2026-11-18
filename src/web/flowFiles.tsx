@@ -152,6 +152,8 @@ export function FlowFileActions({
   const [copyPath, setCopyPath] = useState<string>();
   const copyFile = copyPath ?? (copyKey ? `${folder}${copyKey}.flow.yaml` : '');
   const [error, setError] = useState<string>();
+  // AFS-134: one delete at a time (a double click sent two).
+  const [deleting, setDeleting] = useState(false);
   return (
     <>
       {doing === 'copy' && (
@@ -222,7 +224,10 @@ export function FlowFileActions({
             <button
               type="button"
               className="danger"
+              disabled={deleting}
               onClick={async () => {
+                if (deleting) return;
+                setDeleting(true);
                 setError(undefined);
                 try {
                   await api.saveFiles(project.id, {
@@ -235,6 +240,7 @@ export function FlowFileActions({
                   );
                 } catch (e) {
                   setError(messageOf(e));
+                  setDeleting(false);
                 }
               }}
             >

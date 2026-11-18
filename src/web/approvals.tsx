@@ -6,29 +6,77 @@ import { api, type Gate } from './api';
 import { Link } from './router';
 import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
-/** Approve or reject, with a comment. Resolves when the server has it. */
+/** AFS-133: the sidebar's count and other lists read again once a decision is made. */
+export const APPROVALS_CHANGED = 'afs-approvals-changed';
+
+/**
+ * Approve or reject, with a comment (required to reject). Each asks once more, naming what
+ * happens next (AFS-133). Resolves when the server has it.
+ */
 function DecideForm({
+  title,
   onDecide,
 }: {
+  title: string;
   onDecide(decision: 'approved' | 'rejected', comment: string): Promise<void>;
 }) {
   const id = useId();
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const decide = async (decision: 'approved' | 'rejected', event?: FormEvent) => {
-    event?.preventDefault();
+  const [asking, setAsking] = useState<'approved' | 'rejected'>();
+  const decide = async (decision: 'approved' | 'rejected') => {
     setBusy(true);
     setError(undefined);
     try {
-      await onDecide(decision, comment);
+      await onDecide(decision, comment.trim());
+      window.dispatchEvent(new Event(APPROVALS_CHANGED));
     } catch (e) {
       setError(messageOf(e));
       setBusy(false);
+      setAsking(undefined);
     }
   };
+  const ask = (decision: 'approved' | 'rejected', event?: FormEvent) => {
+    event?.preventDefault();
+    if (decision === 'rejected' && !comment.trim()) {
+      setError('Say why you reject it: the comment is kept with the run.');
+      document.getElementById(`${id}-comment`)?.focus();
+      return;
+    }
+    setError(undefined);
+    setAsking(decision);
+  };
+  if (asking)
+    return (
+      <fieldset className="form decide" aria-label="Confirm the decision">
+        <p>
+          {asking === 'approved'
+            ? `Approve "${title}"? The hosts waiting here go on to the next steps.`
+            : `Reject "${title}"? The hosts waiting here take the rejected path (usually a rollback or a failed end).`}
+        </p>
+        {error && (
+          <p className="notice error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="actions">
+          <button
+            type="button"
+            className={asking === 'approved' ? 'primary' : 'danger'}
+            disabled={busy}
+            onClick={() => void decide(asking)}
+          >
+            {asking === 'approved' ? 'Approve' : 'Reject'}
+          </button>
+          <button type="button" disabled={busy} onClick={() => setAsking(undefined)}>
+            Keep waiting
+          </button>
+        </div>
+      </fieldset>
+    );
   return (
-    <form className="form decide" onSubmit={(e) => void decide('approved', e)}>
+    <form className="form decide" onSubmit={(e) => ask('approved', e)}>
       <div className="field">
         <label htmlFor={`${id}-comment`}>Comment</label>
         <textarea
@@ -36,7 +84,7 @@ function DecideForm({
           rows={2}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder="Why, for the record"
+          placeholder="Why, for the record (required to reject)"
           maxLength={2000}
         />
       </div>
@@ -47,10 +95,10 @@ function DecideForm({
       )}
       <div className="actions">
         <button type="submit" className="primary" disabled={busy}>
-          Approve
+          Approve…
         </button>
-        <button type="button" disabled={busy} onClick={() => void decide('rejected')}>
-          Reject
+        <button type="button" disabled={busy} onClick={() => ask('rejected')}>
+          Reject…
         </button>
       </div>
     </form>
@@ -95,7 +143,11 @@ function GateCard({
             · times out <Time at={gate.deadline} />
           </>
         )}
-        {gate.approvers.length > 0 && <> · approvers: {gate.approvers.join(', ')}</>}
+        {/* AFS-133: who may decide, always: the node's approvers, else the workspace's. */} ·
+        decided by{' '}
+        {gate.approvers.length > 0
+          ? gate.approvers.join(', ')
+          : 'whoever has approve on the flow or its workspace'}
       </p>
       {gate.status !== 'waiting' && (
         <p>
@@ -110,7 +162,7 @@ function GateCard({
       )}
       {gate.status === 'waiting' &&
         (mayDecide ? (
-          <DecideForm onDecide={onDecide} />
+          <DecideForm title={gate.node.title} onDecide={onDecide} />
         ) : (
           <p className="muted">{why ?? 'Someone allowed to approve decides it.'}</p>
         ))}
@@ -147,6 +199,8 @@ export function RunApprovals({ run, changed }: { run: string; changed: string })
 /** Everything that waits for a decision, that this person may see. */
 export function ApprovalsPage() {
   const list = useLoad(() => api.approvals(), []);
+  // AFS-133: what was just decided here, said until the next decision.
+  const [decided, setDecided] = useState<{ text: string; run: string }>();
   // Runs reach approvals while the page is open: it looks again now and then.
   useEffect(() => {
     const timer = setInterval(list.reload, 15_000);
@@ -169,6 +223,10 @@ export function ApprovalsPage() {
         {...(a.why ? { why: a.why } : {})}
         onDecide={async (decision, comment) => {
           await api.decide(a.run.id, a.gate.node.id, decision, comment);
+          setDecided({
+            text: `You ${decision} "${a.gate.node.title}" of ${a.run.flow.name} #${a.run.number}.`,
+            run: a.run.id,
+          });
           list.reload();
         }}
       />
@@ -186,6 +244,11 @@ export function ApprovalsPage() {
             : undefined
         }
       />
+      {decided && (
+        <p className="notice ok" role="status">
+          {decided.text} <Link to={`/runs/${decided.run}`}>Open the run</Link>
+        </p>
+      )}
       <Loading state={list} />
       {list.data && list.data.length === 0 && <p className="empty">No run waits for a decision.</p>}
       {mine.length > 0 && (

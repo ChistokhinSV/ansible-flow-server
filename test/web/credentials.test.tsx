@@ -122,10 +122,11 @@ describe("a workspace's credentials", () => {
       { name: 'edge-ssh-2026', description: null, fields: { username: 'netops' } },
     ]);
 
-    fireEvent.click(within(section).getByRole('button', { name: 'Delete edge-ssh-2026' }));
-    expect((await within(section).findByRole('alert')).textContent).toMatch(
-      /signs in to its repository with it/,
-    );
+    // AFS-134: launch configurations use it: Delete is not offered, and says why.
+    const del = within(section).getByRole('button', { name: 'Delete edge-ssh-2026' });
+    expect((del as HTMLButtonElement).disabled).toBe(true);
+    expect(del.getAttribute('title')).toMatch(/Launch configurations use it/);
+    expect(within(section).getByText('2 launch configurations')).toBeTruthy();
   });
 
   it('someone who is not an administrator sees the list and nothing to change', async () => {

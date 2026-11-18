@@ -390,14 +390,34 @@ function InventoryHosts({ hosts }: { hosts: HostsState }) {
       ) : 'error' in hosts ? (
         <p className="error-text">{hosts.error}</p>
       ) : hosts.facts ? (
-        <ul className="plain" data-facts>
-          {/* The first line says "not check mode": the mode is said above. */}
-          {realRunLines(hosts.facts)
-            .slice(1)
-            .map((l) => (
-              <li key={l}>{l}</li>
+        <>
+          <ul className="plain" data-facts>
+            {/* The first line says "not check mode": the mode is said above. */}
+            {realRunLines(hosts.facts)
+              .slice(1)
+              .map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+          </ul>
+          {hosts.facts.unknown.length > 0 && (
+            <p className="warn-text" data-unknown-hosts>
+              Not in the inventory, so nothing runs there: {hosts.facts.unknown.join(', ')}
+            </p>
+          )}
+          {hosts.limited &&
+            (hosts.limited.count === 0 ? (
+              <p className="error-text" data-limit-hosts>
+                The limit <code>{hosts.limited.pattern}</code> leaves none of these hosts: the run
+                would stop at once.
+              </p>
+            ) : (
+              <p data-limit-hosts>
+                The limit <code>{hosts.limited.pattern}</code> leaves {hosts.limited.count} of them:{' '}
+                {hosts.limited.hosts.slice(0, 10).join(', ')}
+                {hosts.limited.count > 10 ? ', …' : ''}
+              </p>
             ))}
-        </ul>
+        </>
       ) : (
         <p className="error-text">{hosts.factsError}</p>
       )}
@@ -739,6 +759,17 @@ export function LaunchConfigPage({
     }
   };
   const launch = async () => {
+    // AFS-134: a real run changes the hosts: asked first, with what it runs and where.
+    const real = (mode ?? form.data?.mode ?? c.mode) === 'real';
+    if (real) {
+      const where = limit?.trim() ? ` limited to ${limit.trim()}` : '';
+      if (
+        !window.confirm(
+          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.`,
+        )
+      )
+        return;
+    }
     start('launch');
     try {
       const run = await api.launch(c.id, request());

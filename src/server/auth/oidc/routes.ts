@@ -264,6 +264,26 @@ export function registerOidc(
     },
     async (request, reply) => {
       if (!inSession(request, reply, true)) return reply;
+      // AFS-134: passwords for administrators only leaves everyone else a provider or a
+      // directory to sign in with; with neither, it would lock them all out.
+      if (request.body.local === 'admins') {
+        const provider = await db
+          .selectFrom('oidc_provider')
+          .select('id')
+          .where('enabled', '=', 1)
+          .executeTakeFirst();
+        const directory = await db
+          .selectFrom('ldap_directory')
+          .select('id')
+          .where('enabled', '=', 1)
+          .executeTakeFirst();
+        if (!provider && !directory)
+          return reply.code(409).send({
+            error: 'locks_out',
+            message:
+              'Nobody but administrators could sign in: add and enable a sign-in provider or a directory first',
+          });
+      }
       await setSetting(db, LOCAL, request.body.local);
       return { local: request.body.local };
     },

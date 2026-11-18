@@ -84,6 +84,24 @@ function go(to: string): void {
   (window.top ?? window).location.assign(to);
 }
 
+/**
+ * AFS-132: Open in Text Editor in the pages: the file on its project's Files tab. Resolves with
+ * false when the project or its workspace cannot be read.
+ */
+async function openInFiles(file: string): Promise<boolean> {
+  const read = async (url: string) => {
+    const reply = await fetch(url, { credentials: 'same-origin' });
+    return reply.ok ? ((await reply.json()) as { key?: string; workspace?: string }) : undefined;
+  };
+  const p = await read(`/api/v1/projects/${encodeURIComponent(project)}`).catch(() => undefined);
+  const w =
+    p?.workspace &&
+    (await read(`/api/v1/workspaces/${encodeURIComponent(p.workspace)}`).catch(() => undefined));
+  if (!p?.key || !w || !w.key) return false;
+  go(`/w/${w.key}/${p.key}/files?path=${encodeURIComponent(file)}`);
+  return true;
+}
+
 async function start(): Promise<void> {
   // AFS-76: editing the flow's draft, with everyone else editing it.
   const draft = params.get('draft');
@@ -283,6 +301,17 @@ async function start(): Promise<void> {
           case 'openLink':
             // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
             openWebLink(message.url);
+            return;
+          case 'openText':
+            // The flow's file (the designer names a node in it, which the Files tab cannot show).
+            void openInFiles(path).then((opened) => {
+              if (!opened)
+                send({
+                  type: 'notify',
+                  level: 'error',
+                  text: `${path} could not be opened: open it on the project's Files tab.`,
+                });
+            });
             return;
           case 'catalog': {
             // AFS-118: a step's module docs, from the catalog of the flow's image.

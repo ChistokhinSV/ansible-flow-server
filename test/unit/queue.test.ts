@@ -238,6 +238,22 @@ for (const [name, config] of databases) {
       expect((await q.get(notStarted?.id as string))?.state).toBe('cancelled');
     });
 
+    it('tells the worker at once, and a run asked to stop never ends succeeded (AFS-131)', async () => {
+      const q = queue({ maxRuns: 4, perProject: 4 });
+      const told: string[] = [];
+      q.onStopAsked = (id) => told.push(id);
+      const [going] = await fill(q, [a]);
+      const job = await q.claim('w1', at(10));
+      await q.start(going?.id as string, job?.token as string, at(11));
+      await q.cancel(going?.id as string, 'omar', at(12));
+      expect(told).toEqual([going?.id]);
+      // Its steps ended before the worker could stop it: still not a success.
+      await q.finish(going?.id as string, job?.token as string, 'succeeded', undefined, at(13));
+      const ended = await q.get(going?.id as string);
+      expect(ended?.state).toBe('cancelled');
+      expect(ended?.error).toMatch(/Asked to stop by omar/);
+    });
+
     it('a run waiting for a decision holds no place, and goes on when resumed', async () => {
       const q = queue({ maxRuns: 4, perProject: 1 });
       const [gate, next] = await fill(q, [a, a]);

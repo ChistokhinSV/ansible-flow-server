@@ -332,6 +332,37 @@ describe('a run', () => {
     expect((await queue.get(run.id))?.state).toBe('succeeded');
   });
 
+  it('a run that reached no host fails; no events gets the reason the output gave (AFS-132)', async () => {
+    const empty = {
+      nodes: {},
+      outcome: {},
+      failures: [],
+      unreachable: [],
+      hosts: [],
+      stoppedEarly: false,
+    };
+    const { ex } = executor(async () => ({ rc: 0, summary: empty }));
+    const none = await launch();
+    await ex.start();
+    await ended(none.id);
+    await ex.stop();
+    expect(await queue.get(none.id)).toMatchObject({ state: 'failed' });
+    expect((await queue.get(none.id))?.error).toMatch(/^No host ran/);
+
+    const pull = executor(async (_request, hooks) => {
+      hooks.log?.('Unable to find image locally');
+      hooks.log?.('docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.');
+      return { rc: 125, error: 'The run produced no events' };
+    });
+    const failed = await launch();
+    await pull.ex.start();
+    await ended(failed.id);
+    await pull.ex.stop();
+    expect((await queue.get(failed.id))?.error).toBe(
+      'The run produced no events: docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.',
+    );
+  });
+
   it('fails with the reason when Ansible fails, and when the run cannot start', async () => {
     const { ex } = executor(async () => ({
       rc: 2,

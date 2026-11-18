@@ -463,7 +463,9 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
   if (!newest)
     return (
       <p className="notice" role="status">
-        Not built yet: runs cannot use this environment until a build is done.
+        {env.kind === 'image'
+          ? 'Not pulled here yet: a run pulls the image when it starts. Pull and read it to check it first.'
+          : 'Not built yet: runs cannot use this environment until a build is done.'}
       </p>
     );
   // `latest`, a range or `2.19` may settle on newer versions at the next build; exact ones do not.
@@ -707,7 +709,8 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
               setError(undefined);
               try {
                 await api.deleteEnvironment(env.id);
-                navigate(`/w/${workspace}`);
+                // AFS-134: back to the list it was on, not the workspace's projects.
+                navigate(`/w/${workspace}/-/environments`);
               } catch (e) {
                 setError(messageOf(e));
               }
