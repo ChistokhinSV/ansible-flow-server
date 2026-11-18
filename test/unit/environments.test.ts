@@ -351,5 +351,65 @@ for (const [name, config] of databases) {
       expect((await call('rita', 'DELETE', `/environments/${env.id}`)).statusCode).toBe(204);
       expect(asked.filter((a) => a[0] === 'rmi').map((a) => a[1])).toContain(image);
     });
+
+    it("AFS-163: an administrator picks the server's default image from an environment", async () => {
+      const ada = await createUser(db(), {
+        login: 'ada',
+        name: 'Ada',
+        password: 'x'.repeat(12),
+        admin: true,
+      });
+      tokens.ada = (await createToken(db(), ada.id, { name: 't' })).token;
+      const put = (who: string, environment: string | null) =>
+        app.inject({
+          method: 'PUT',
+          url: '/api/v1/default-environment',
+          headers: { authorization: `Bearer ${tokens[who]}`, 'content-type': 'application/json' },
+          payload: JSON.stringify({ environment }),
+        });
+      // Nothing picked: AFS_EE_IMAGE (its default here).
+      const AFS_EE = 'ghcr.io/ansible/community-ansible-dev-tools:latest';
+      expect((await call('omar', 'GET', '/default-environment')).json()).toEqual({
+        image: AFS_EE,
+        configured: AFS_EE,
+      });
+      const awx = (await call('omar', 'GET', '/workspaces/net/environments'))
+        .json()
+        .find((e: { name: string }) => e.name === 'awx-default');
+      expect((await put('rita', awx.id)).statusCode).toBe(403);
+      expect((await put('ada', 'no-such-env')).statusCode).toBe(404);
+      const picked = await put('ada', awx.id);
+      expect(picked.statusCode).toBe(200);
+      expect(picked.json()).toMatchObject({
+        image: 'quay.io/ansible/awx-ee:24.6.1',
+        environment: { id: awx.id, name: 'awx-default', workspaceKey: 'net' },
+      });
+      expect((await call('omar', 'GET', '/default-environment')).json().image).toBe(
+        'quay.io/ansible/awx-ee:24.6.1',
+      );
+      // While it is the default, it is not deleted.
+      const refused = await call('rita', 'DELETE', `/environments/${awx.id}`);
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().message).toMatch(/server's default image/);
+
+      // A spec with no build yet: picked, but AFS_EE_IMAGE until it is built.
+      const fresh = (
+        await call('rita', 'POST', '/workspaces/net/environments', {
+          name: 'team-default',
+          kind: 'spec',
+          spec: { collections: [{ name: 'cisco.ios', version: 'latest' }] },
+        })
+      ).json();
+      const unbuilt = (await put('ada', fresh.id)).json();
+      expect(unbuilt).toMatchObject({ image: AFS_EE, environment: { name: 'team-default' } });
+      expect(unbuilt.why).toMatch(/no successful build/);
+      const b = await build(fresh.id);
+      const now = (await call('omar', 'GET', '/default-environment')).json();
+      expect(now.image).toBe(b.image);
+      expect(now.why).toBeUndefined();
+
+      expect((await put('ada', null)).json()).toEqual({ image: AFS_EE, configured: AFS_EE });
+      expect((await call('rita', 'DELETE', `/environments/${awx.id}`)).statusCode).toBe(204);
+    });
   });
 }

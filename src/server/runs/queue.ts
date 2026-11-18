@@ -100,6 +100,11 @@ export interface Run {
   credentialNames?: string[];
   environment?: { id: string; name: string; workspace: string };
   skippedTargets?: string[];
+  /**
+   * AFS-163: its launch configuration names no environment or image (as it is now): the run got
+   * the server's default image.
+   */
+  serverDefault?: true;
 }
 
 /** A run as a worker gets it: with its lease, and its inputs in full. */
@@ -499,6 +504,19 @@ export class RunQueue {
         .execute();
       return true;
     });
+  }
+
+  /**
+   * AFS-163: the image a run without its own got (the server's default then), kept on the run so
+   * its page says what it ran in.
+   */
+  async keepImage(id: string, image: string): Promise<void> {
+    await this.db
+      .updateTable('run')
+      .set({ ee_image: image })
+      .where('id', '=', id)
+      .where('ee_image', 'is', null)
+      .execute();
   }
 
   /** The designer's folder of the run (its events), once it started. */

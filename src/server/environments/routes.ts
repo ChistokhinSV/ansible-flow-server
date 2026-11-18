@@ -8,10 +8,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { changedKeys } from '../audit/changes';
-import { signedIn } from '../auth/guards';
+import { administrator, signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { getWorkspace } from '../projects/store';
 import { EnvironmentError, type Environments } from './environments';
+import { serverDefault, setServerDefault } from './serverDefault';
 import type { EnvironmentInput } from './types';
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
@@ -113,6 +114,42 @@ export function registerEnvironments(
       );
       return reply.code(201).send(made);
     }),
+  );
+
+  // AFS-163: the server's default image, and the environment an administrator picks for it.
+  app.get('/api/v1/default-environment', async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    return serverDefault(deps.db, environments.configuredImage);
+  });
+
+  app.put<{ Body: { environment: string | null } }>(
+    '/api/v1/default-environment',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['environment'],
+          properties: { environment: { anyOf: [id, { type: 'null' }] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const picked = request.body.environment;
+      if (!(await setServerDefault(deps.db, picked))) return reply.code(404).send(NONE);
+      const now = await serverDefault(deps.db, environments.configuredImage);
+      request.auditDetail = {
+        environment: now.environment?.name ?? 'none: AFS_EE_IMAGE',
+        image: now.image,
+      };
+      request.log.info(
+        { by: me.login, environment: now.environment?.name ?? null, image: now.image },
+        "The server's default image changed",
+      );
+      return now;
+    },
   );
 
   app.get<P>('/api/v1/environments/:id', { schema: { params: PARAMS } }, async (request, reply) => {

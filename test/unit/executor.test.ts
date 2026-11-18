@@ -145,7 +145,11 @@ async function launch(request: Parameters<typeof prepareLaunch>[2] = {}) {
 /** An executor whose Ansible is `fake`, and what it saw. */
 function executor(
   fake: Fake,
-  options: { timeoutMs?: number; repoConfig?: ExecutorOptions['repoConfig'] } = {},
+  options: {
+    timeoutMs?: number;
+    repoConfig?: ExecutorOptions['repoConfig'];
+    defaultImage?: ExecutorOptions['defaultImage'];
+  } = {},
 ) {
   const seen: Seen[] = [];
   const log = createLogger({ level: 'debug', format: 'json', write: (l) => lines.push(l) });
@@ -161,6 +165,7 @@ function executor(
       heartbeatMs: 30,
       pollMs: 20,
       ...(options.repoConfig ? { repoConfig: options.repoConfig } : {}),
+      ...(options.defaultImage ? { defaultImage: options.defaultImage } : {}),
       runner: async (request, hooks) => {
         const s: Seen = { request, hooks };
         const keyMount = request.env.kind === 'container' ? request.env.mounts[0] : undefined;
@@ -317,6 +322,24 @@ describe('a run', () => {
     expect(output).toContain('Credential: SSH key "key" as netops');
     expect(output).not.toContain('S3CR3T');
     expect(lines.join('\n')).not.toContain('S3CR3T');
+  });
+
+  it("AFS-163: a run without its own image gets the server's default now, kept on the run", async () => {
+    let picked = 'registry.example.net/ee/team:1';
+    const { ex, seen } = executor(async () => ({ rc: 0 }), { defaultImage: async () => picked });
+    const run = await launch();
+    expect(run.eeImage).toBeUndefined();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect(seen[0]?.request.env).toMatchObject({ image: 'registry.example.net/ee/team:1' });
+    expect((await queue.get(run.id))?.eeImage).toBe('registry.example.net/ee/team:1');
+    expect(readFileSync(ex.outputFile(run.id), 'utf8')).toContain(
+      "The server's default image: registry.example.net/ee/team:1",
+    );
+    // Picked again: the catalogs and the next run follow it.
+    picked = 'registry.example.net/ee/team:2';
+    expect(await ex.defaultImage()).toBe('registry.example.net/ee/team:2');
   });
 
   it('of another commit gets a folder of its own, removed afterwards', async () => {

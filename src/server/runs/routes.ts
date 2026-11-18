@@ -129,6 +129,14 @@ export function registerRuns(
           .where('environment_build.image', '=', image)
           .executeTakeFirst()))
       : undefined;
+    const config = run.config
+      ? await db
+          .selectFrom('launch_config')
+          .select(['environment_id', 'ee_image'])
+          .where('id', '=', run.config.id)
+          .executeTakeFirst()
+      : undefined;
+    const serverDefault = !!config && !config.environment_id && !config.ee_image;
     const view = (await queue.view(run.id)) as { skippedTargets?: unknown } | undefined;
     const skipped = Array.isArray(view?.skippedTargets)
       ? view.skippedTargets.filter((t): t is string => typeof t === 'string')
@@ -140,6 +148,7 @@ export function registerRuns(
         : {}),
       ...(env ? { environment: { id: env.id, name: env.name, workspace: env.workspace_id } } : {}),
       ...(skipped.length ? { skippedTargets: skipped } : {}),
+      ...(serverDefault ? { serverDefault: true as const } : {}),
     };
   };
   app.addHook('preClose', async () => {

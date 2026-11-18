@@ -102,8 +102,13 @@ export interface ExecutorOptions {
   dataDir: string;
   /** The container engine; `auto` finds docker, else podman; `off` runs nothing. */
   engine: Engine | 'auto' | 'off';
-  /** The image a run uses unless it names its own. */
+  /** The image a run uses unless it names its own (AFS_EE_IMAGE). */
   image: string;
+  /**
+   * AFS-163: the server's default image now (an environment an administrator picked, else
+   * `image`), asked for each run without its own image.
+   */
+  defaultImage?: () => Promise<string>;
   /** AFS-35: the data folder as the engine's machine sees it (AFS_ENGINE_DATA_DIR). */
   engineDataDir?: string;
   /** This worker's name in the queue (a server's instance id). */
@@ -215,6 +220,8 @@ export class Executor {
   private toHost: ToHost = sameAs;
   /** AFS-116: the Ansible collection in the data folder (where run containers can mount it). */
   private collection?: Promise<string | undefined>;
+  /** AFS-163: the server's default image as last asked (for what cannot wait to ask). */
+  private serverImage: string;
   /** The user each image runs as, found once. */
   private readonly owners = new Map<string, Promise<{ uid: number; gid: number } | undefined>>();
 
@@ -223,6 +230,7 @@ export class Executor {
     private readonly options: ExecutorOptions,
   ) {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
+    this.serverImage = options.image;
     // AFS-131: a stop asked on this server stops the run at once, not at the next heartbeat.
     deps.queue.onStopAsked = (id) => this.active.get(id)?.abort('cancel');
     this.probeDir = join(options.dataDir, 'probe');
@@ -279,22 +287,35 @@ export class Executor {
     return this.collection;
   }
 
+  /** AFS-163: the server's default image now; AFS_EE_IMAGE when it cannot be read. */
+  async defaultImage(): Promise<string> {
+    if (!this.options.defaultImage) return this.options.image;
+    try {
+      this.serverImage = await this.options.defaultImage();
+    } catch (e) {
+      this.deps.log.warn({ err: e }, "The server's default image could not be read");
+    }
+    return this.serverImage;
+  }
+
   /** AFS-76: the module catalog of an image (the server's default without one). */
   catalog(image?: string): CatalogState {
-    return this.catalogs.get(image ?? this.options.image);
+    return this.catalogs.get(image ?? this.serverImage);
   }
 
   /** AFS-76: Rebuild in the designer: a catalog that failed is tried again. */
   retryCatalog(image?: string): void {
-    this.catalogs.retry(image ?? this.options.image);
+    this.catalogs.retry(image ?? this.serverImage);
   }
 
   /**
    * AFS-67: what a launch would touch, as the inventory has it: read by the designer's probe in
    * the launch's image (else this server's), over the repository at the launch's commit.
    */
-  inventory(q: Omit<InventoryQuestion, 'image'> & { image?: string }): Promise<InventoryAnswer> {
-    return this.probes.ask({ ...q, image: q.image ?? this.options.image });
+  async inventory(
+    q: Omit<InventoryQuestion, 'image'> & { image?: string },
+  ): Promise<InventoryAnswer> {
+    return this.probes.ask({ ...q, image: q.image ?? (await this.defaultImage()) });
   }
 
   /**
@@ -410,7 +431,7 @@ export class Executor {
     this.timer.unref();
     void this.fill();
     this.deps.log.info(
-      { engine: this.engine, image: this.options.image, slots: this.options.slots },
+      { engine: this.engine, image: await this.defaultImage(), slots: this.options.slots },
       'Taking runs',
     );
     return this.engine;
@@ -421,6 +442,8 @@ export class Executor {
     if (this.filling || this.stopping || !this.engine) return;
     this.filling = true;
     try {
+      // AFS-163: kept fresh for the module catalogs, which cannot wait to ask.
+      await this.defaultImage();
       while (!this.stopping && this.active.size < this.options.slots) {
         const job = await this.deps.queue.claim(this.options.worker);
         if (!job) break;
@@ -587,7 +610,12 @@ export class Executor {
       const playbook = await writeGenerated(workdir.dir, r.flow.file, code);
 
       // Credentials: variables, the vault password, a key file, the container's environment.
-      const image = r.eeImage ?? this.options.image;
+      // AFS-163: a run without its own image gets the server's default now, kept on the run.
+      const image = r.eeImage ?? (await this.defaultImage());
+      if (!r.eeImage) {
+        await queue.keepImage(r.id, image);
+        line(`The server's default image: ${image}`);
+      }
       // AFS-66: a registry credential signs in and pulls the image first; reading the image's
       // user (below) already needs the image.
       const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials);

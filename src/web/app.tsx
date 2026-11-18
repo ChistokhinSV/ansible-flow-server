@@ -89,7 +89,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (group?.id) return me.admin ? <GroupPage id={group.id} /> : <AdminOnly />;
   const environment = match('/w/:workspace/environments/:id', path);
   if (environment?.workspace && environment.id)
-    return <EnvironmentPage workspace={environment.workspace} id={environment.id} />;
+    return (
+      <EnvironmentPage workspace={environment.workspace} id={environment.id} admin={me.admin} />
+    );
   const config = match('/w/:workspace/:project/launch/:id', path);
   if (config?.workspace && config.project && config.id)
     return config.id === 'new' ? (

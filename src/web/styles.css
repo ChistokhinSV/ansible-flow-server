@@ -2240,6 +2240,15 @@ section + .columns,
   font-size: 13px;
   color: var(--muted);
 }
+/* AFS-161: Save and Build stay in reach at the bottom of the window while the spec is long. */
+.env-spec .form > .actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 0.75rem 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
 .spec-add {
   display: flex;
   flex-wrap: wrap;

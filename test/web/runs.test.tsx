@@ -397,6 +397,29 @@ describe('a run', () => {
     expect(screen.getByText(/1 target not in the inventory/)).toBeTruthy();
   });
 
+  it("AFS-163: What ran says the image came from the server's default", async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({
+        body: {
+          ...run,
+          state: 'succeeded',
+          endedAt: '2026-11-13T12:03:02.000Z',
+          eeImage: 'afs-ee/net-team:0a1b2c3d4e5f6a7b',
+          environment: { id: 'e1', name: 'team', workspace: 'w1' },
+          serverDefault: true,
+        },
+      }),
+      ...places,
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const facts = (await screen.findByRole('heading', { name: 'What ran' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(facts.textContent).toContain("afs-ee/net-team:0a1b2c3d4e5f6a7b (the server's default)");
+  });
+
   it('lists its hosts, those with a problem first, and says why one failed (AFS-64)', async () => {
     routes = {
       'GET /session': () => ({ body: omar }),

@@ -265,4 +265,135 @@ describe('execution environments', () => {
     expect(screen.queryByRole('button', { name: 'Save the spec' })).toBeNull();
     expect(await screen.findByRole('link', { name: 'ansible-builder file' })).toBeTruthy();
   });
+
+  it('AFS-161: a collection added leaves the search results and comes back when removed', async () => {
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'rw' } }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: [env.latest] }),
+      'GET /galaxy/search?q=ios': () => ({
+        body: [
+          { name: 'cisco.ios', version: '11.7.0' },
+          { name: 'cisco.iosxr', version: '12.1.0' },
+        ],
+      }),
+    };
+    open('/w/net/environments/e1');
+    const spec = (await screen.findByRole('heading', { name: 'Spec' })).closest(
+      'section',
+    ) as HTMLElement;
+    fireEvent.change(within(spec).getByLabelText('Add a collection'), { target: { value: 'ios' } });
+    fireEvent.click(within(spec).getByRole('button', { name: 'Search' }));
+    const found = await within(spec).findByRole('list', { name: 'Collections found' });
+    // cisco.ios is in the spec already: only cisco.iosxr is offered.
+    expect(within(found).queryByRole('button', { name: 'Add cisco.ios' })).toBeNull();
+    fireEvent.click(within(found).getByRole('button', { name: 'Add cisco.iosxr' }));
+    expect((within(spec).getByLabelText('Collection 2') as HTMLInputElement).value).toBe(
+      'cisco.iosxr',
+    );
+    expect(within(spec).queryByRole('list', { name: 'Collections found' })).toBeNull();
+    expect(within(spec).getByText(/Every collection found is in the spec already/)).toBeTruthy();
+    fireEvent.click(within(spec).getByRole('button', { name: 'Remove collection 1' }));
+    const again = within(spec).getByRole('list', { name: 'Collections found' });
+    expect(within(again).getByRole('button', { name: 'Add cisco.ios' })).toBeTruthy();
+    expect(within(again).queryByRole('button', { name: 'Add cisco.iosxr' })).toBeNull();
+  });
+
+  it('AFS-161: Save and build sit together in the spec form, and build saves first', async () => {
+    let builds = [env.latest];
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'rw' } }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: builds }),
+      'PATCH /environments/e1': (body) => ({
+        body: { ...env, ...(body as object), updatedAt: '2026-11-14T09:00:00.000Z' },
+      }),
+      'POST /environments/e1/builds': () => {
+        builds = [
+          { ...env.latest, id: 'b2', number: 2, state: 'queued', image: undefined } as never,
+          ...builds,
+        ];
+        return { status: 201, body: builds[0] };
+      },
+    };
+    open('/w/net/environments/e1');
+    const spec = (await screen.findByRole('heading', { name: 'Spec' })).closest(
+      'section',
+    ) as HTMLElement;
+    const bar = within(spec).getByRole('button', { name: 'Save the spec' }).parentElement;
+    expect(bar?.className).toBe('actions');
+    expect(within(bar as HTMLElement).getByRole('button', { name: 'Build again' })).toBeTruthy();
+    // Nothing changed: building does not save.
+    fireEvent.click(within(spec).getByRole('button', { name: 'Build again' }));
+    expect(await screen.findByRole('button', { name: 'Building…' })).toBeTruthy();
+    expect(sent('PATCH /environments/e1')).toHaveLength(0);
+    expect(sent('POST /environments/e1/builds')).toHaveLength(1);
+  });
+
+  it('AFS-163: the server default image is shown, and an administrator picks an environment', async () => {
+    let picked: string | null = null;
+    const now = () =>
+      picked
+        ? {
+            image: IMAGE,
+            configured: 'ghcr.io/ansible/community-ansible-dev-tools:latest',
+            environment: { id: 'e1', name: 'net-tools', workspace: 'w1', workspaceKey: 'net' },
+          }
+        : {
+            image: 'ghcr.io/ansible/community-ansible-dev-tools:latest',
+            configured: 'ghcr.io/ansible/community-ansible-dev-tools:latest',
+          };
+    routes = {
+      'GET /session': () => ({ body: { ...rita, admin: true } }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'admin' } }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: [env.latest] }),
+      'GET /default-environment': () => ({ body: now() }),
+      'PUT /default-environment': (body) => {
+        picked = (body as { environment: string | null }).environment;
+        return { body: now() };
+      },
+    };
+    open('/w/net/environments/e1');
+    const fact = await screen.findByText(/no: they get/);
+    expect(fact.closest('dd')?.textContent).toMatch(/community-ansible-dev-tools/);
+    fireEvent.click(screen.getByRole('button', { name: "Make it the server's default" }));
+    expect(
+      await screen.findByText(/yes: launch configurations without an environment/),
+    ).toBeTruthy();
+    expect(sent('PUT /default-environment')).toEqual([{ environment: 'e1' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Go back to AFS_EE_IMAGE' }));
+    expect(await screen.findByText(/no: they get/)).toBeTruthy();
+    expect(sent('PUT /default-environment')[1]).toEqual({ environment: null });
+  });
+
+  it('AFS-163: the list says which image is the default; others cannot pick', async () => {
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net': () => ({ body: { ...net, level: 'rw' } }),
+      'GET /workspaces/net/projects': () => ({ body: [] }),
+      'GET /workspaces/net/environments': () => ({ body: [env] }),
+      'GET /default-environment': () => ({
+        body: {
+          image: IMAGE,
+          configured: 'ghcr.io/ansible/community-ansible-dev-tools:latest',
+          environment: { id: 'e1', name: 'net-tools', workspace: 'w1', workspaceKey: 'net' },
+        },
+      }),
+      'GET /environments/e1': () => ({ body: env }),
+      'GET /environments/e1/builds': () => ({ body: [env.latest] }),
+    };
+    open('/w/net/-/environments');
+    expect(await screen.findByText("server's default")).toBeTruthy();
+    const line = document.querySelector('[data-server-default]') as HTMLElement;
+    expect(line.textContent).toMatch(/from the environment net-tools/);
+    cleanup();
+    open('/w/net/environments/e1');
+    expect(
+      await screen.findByText(/yes: launch configurations without an environment/),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /server's default|AFS_EE_IMAGE/ })).toBeNull();
+  });
 });

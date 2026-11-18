@@ -521,6 +521,7 @@ export function Workspace({
         <WorkspaceEnvironments
           workspace={space.data.key}
           mayManage={space.data.level === 'admin' || space.data.level === 'rw'}
+          admin={me.admin}
         />
       )}
       {space.data && tab === '-/credentials' && (

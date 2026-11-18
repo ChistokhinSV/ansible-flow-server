@@ -6,6 +6,7 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- An administrator can make an execution environment the server's default image: runs whose launch configuration names no environment or image get its newest good image (`AFS_EE_IMAGE` until one is picked, and while the one picked has none). The environments pages say which image is the default, and a run's **What ran** names the image it got (`GET`, `PUT /api/v1/default-environment`).
 - **My account** shows your access, workspace by workspace: the level, the flows a grant of your own gives another level on (by title), whether you approve, and whose grants gave it (`GET /api/v1/session/access`, which also names the administrators who give access).
 - Giving access says what was given, and the form starts again empty.
 - A project's name, description and branch can be changed on its **Settings** tab.
@@ -47,6 +48,7 @@ All notable changes to Ansible Flow Server.
 - A run that ends with only Ansible's exit code says what the code means, with Ansible's last error line (which names the file or the host) when there is one, on the run page, in mails and in the API. A run whose failed hosts could only not be reached names them.
 - Deleting a project, a workspace, a flow, an execution environment or a launch configuration sits in one red-bordered box, apart from the other settings, in both themes.
 - The setup code line in the server's log names the address to open: the setup page under the public address (or the address the server listens on), with the code filled in.
+- An execution environment's **Save the spec** and **Build** sit together at the bottom of its spec and stay in sight while the spec is long.
 - Access levels are said in words everywhere in the pages (read only, operator, read and write, approver), not as ro or rw. Every tab of a project says your access, including a grant on one of its flows ("read only; operator on Hello, Ansible").
 - The Access tab names flows by their titles and projects by their names, in the grants, in **Who can do what** and in the question before taking a grant back; groups are marked as groups in **Who**, and **Through** says "group ops, their own grant".
 - A run, a flow, a launch configuration or a project that is not there, or not shared with you, shows one page: what was looked for, a way back to a page you can open (no links to pages you cannot), and the administrators who give access. A project missing from a workspace you have a level on is said not to exist.
@@ -115,6 +117,7 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- **Add a collection** on an execution environment no longer offers collections already in the spec; one removed is offered again.
 - A flow that is not there no longer shows an empty white canvas in the dark theme nor offers to copy or delete it; it links back to its project.
 - Pressing Delete on a flow's canvas when it is shown read only says so, instead of nothing happening.
 - A page for something that is not there asks the server once: no repeated failing requests, and a run's page no longer asks for the events of a run that is not there.
