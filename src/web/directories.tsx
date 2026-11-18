@@ -118,8 +118,11 @@ function DirectoryForm({
         {!d.id && (
           <div className="field">
             <label htmlFor="dir-preset">Kind</label>
+            {/* AFS-156: the form takes the focus when it opens, as Give access now does. */}
             <select
               id="dir-preset"
+              // biome-ignore lint/a11y/noAutofocus: the form was opened by its button just now
+              autoFocus
               onChange={(e) => set({ ...PRESETS[e.target.value as keyof typeof PRESETS] })}
               defaultValue="active-directory"
             >
@@ -130,6 +133,7 @@ function DirectoryForm({
         )}
         <Field
           label="Name"
+          autoFocus={!!d.id}
           value={d.name ?? ''}
           onChange={(e) =>
             set({

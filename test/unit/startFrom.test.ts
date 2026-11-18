@@ -20,8 +20,9 @@ import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
-import { missingSampleRoles, sampleFlowText } from '../../src/server/drafts/startFrom';
+import { missingSampleRoles, sampleFlowText, stepCount } from '../../src/server/drafts/startFrom';
 import { createLogger } from '../../src/server/log';
+import { roleGaps } from '../../src/server/projects/flows';
 import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
@@ -86,6 +87,8 @@ beforeAll(async () => {
     'flows/two/two.flow.yaml': EMPTY('two'),
     'flows/three/three.flow.yaml': EMPTY('three'),
     'flows/four/four.flow.yaml': EMPTY('four'),
+    'flows/five/five.flow.yaml': EMPTY('five'),
+    'flows/six/six.flow.yaml': EMPTY('six'),
   });
   const bare = join(root, 'source.git');
   execFileSync('git', ['clone', '--quiet', '--bare', source.dir, bare]);
@@ -205,6 +208,50 @@ describe('an empty flow starts from something', () => {
     expect(
       (await call('lena', 'POST', `/drafts/${id}/start-from`, { sample: 'hello' })).status,
     ).toBe(403);
+  });
+
+  it("a sample keeps the flow's version and owner; the count and the undo are the steps (AFS-151)", async () => {
+    const id = await draftOf('five');
+    const done = await call('mia', 'POST', `/drafts/${id}/start-from`, { sample: 'edge-baseline' });
+    expect(done.status).toBe(200);
+    const d = await call('mia', 'GET', `/drafts/${id}`);
+    const flow = d.json.snapshot.doc.flow as { version: number; owner?: string };
+    expect(flow.version).toBe(1);
+    expect(flow.owner).toBeUndefined();
+    // Every step on every level, as Readiness counts them.
+    const all = stepCount(sampleFlowText('edge-baseline'));
+    expect(done.json.steps).toBe(all);
+    const undo = await call('mia', 'POST', `/drafts/${id}/undo`);
+    expect(undo.json.started).toEqual({ what: 'the sample flow', steps: all });
+  });
+
+  it('the undo of an import names the playbook (AFS-151)', async () => {
+    const id = await draftOf('six');
+    const done = await call('mia', 'POST', `/drafts/${id}/start-from`, { playbook: 'site.yml' });
+    expect(done.status).toBe(200);
+    const undo = await call('mia', 'POST', `/drafts/${id}/undo`);
+    expect(undo.json.started).toEqual({ what: 'the import of site.yml', steps: done.json.steps });
+  });
+
+  it('a step bound to a role the repository lacks gets a role-missing warning (AFS-151)', async () => {
+    const doc = parseFlow(sampleFlowText('edge-baseline')).doc as FlowDocument;
+    const none = await roleGaps(doc, 'flows/x/x.flow.yaml', async () => false);
+    expect(none.map((f) => [f.code, f.subject])).toEqual(
+      expect.arrayContaining([
+        ['role-missing', 'netops_backup'],
+        ['role-missing', 'push_baseline'],
+      ]),
+    );
+    expect(none.every((f) => f.node && f.severity === 'warning')).toBe(true);
+    // Beside the flow counts too; a check that fails is no warning.
+    const beside = await roleGaps(doc, 'flows/x/x.flow.yaml', async (p) =>
+      p.startsWith('flows/x/'),
+    );
+    expect(beside).toEqual([]);
+    const broken = await roleGaps(doc, 'f.flow.yaml', async () => {
+      throw new Error('git');
+    });
+    expect(broken).toEqual([]);
   });
 
   it('a sample names the roles the project lacks, and none it has (AFS-137)', async () => {

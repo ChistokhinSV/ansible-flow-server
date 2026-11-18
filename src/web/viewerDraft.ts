@@ -248,10 +248,14 @@ export function editDraft(options: {
       tellPage({ type: 'afs-draft-undone' });
       // AFS-136: what was taken back, said each time.
       const steps = (r.data?.steps as string[] | undefined) ?? [];
+      // AFS-151: a start from a sample or an import is one thing taken back, not its every step.
+      const started = r.data?.started as { what: string; steps: number } | undefined;
       notify(
-        steps.length
-          ? `Took back your change to ${steps.join(', ')}`
-          : 'Took back your last move on the canvas',
+        started
+          ? `Took back ${started.what} (${started.steps} step${started.steps === 1 ? '' : 's'})`
+          : steps.length
+            ? `Took back your change to ${steps.join(', ')}`
+            : 'Took back your last move on the canvas',
         'info',
       );
     });

@@ -187,6 +187,8 @@ describe('sign-in with a provider', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add a directory' }));
     const form = screen.getByRole('region', { name: 'Add a directory' });
+    // AFS-156: the form takes the focus, on its first field.
+    expect(document.activeElement).toBe(within(form).getByLabelText('Kind'));
     const type = (label: RegExp, value: string) =>
       fireEvent.change(within(form).getByLabelText(label), { target: { value } });
     // The Active Directory preset fills the filters.

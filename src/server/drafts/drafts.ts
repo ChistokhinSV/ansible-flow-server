@@ -18,13 +18,13 @@ import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { layoutLevel } from '@ansible-flow/node/autoLayout';
 import { mergeFlowTexts } from '@ansible-flow/node/flowMerge';
 import type { Kysely } from 'kysely';
-import type { Schema } from '../db/schema';
+import type { FlowDraftEditTable, Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { FLOW_FILE } from '../projects/flows';
 import type { Git } from '../projects/git';
 import { getProject, type Project, recordPushes } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
-import { hasNoSteps } from './startFrom';
+import { hasNoSteps, startedFrom } from './startFrom';
 
 export interface Editor {
   id: string;
@@ -129,6 +129,9 @@ export class Drafts {
   /** One change of a draft at a time on this server; the revision guards across servers. */
   private readonly queue = new Map<string, Promise<unknown>>();
   private readonly listeners = new Map<string, Set<(news: DraftNews) => void>>();
+
+  /** AFS-151: what git said is at a path of a commit (`probe`). */
+  private readonly seen = new Map<string, Promise<boolean>>();
 
   constructor(private readonly deps: { db: Db; git: Git; sync: ProjectSync; log: Logger }) {}
 
@@ -270,7 +273,7 @@ export class Drafts {
   private async write(
     id: string,
     by: Editor,
-    kind: 'command' | 'undo' | 'layout',
+    kind: FlowDraftEditTable['kind'],
     before: { text: string; revision: number },
     after: string,
   ): Promise<number> {
@@ -364,7 +367,8 @@ export class Drafts {
       } catch (e) {
         throw new DraftError('refused', (e as Error).message);
       }
-      return { revision: await this.write(id, by, 'command', current, text) };
+      // AFS-151: kind 'start', so its undo says what it took back as one thing.
+      return { revision: await this.write(id, by, 'start', current, text) };
     });
   }
 
@@ -388,7 +392,14 @@ export class Drafts {
   async undo(
     id: string,
     by: Editor,
-  ): Promise<{ revision: number; steps: string[]; nothing?: true; message?: string }> {
+  ): Promise<{
+    revision: number;
+    steps: string[];
+    nothing?: true;
+    message?: string;
+    /** AFS-151: a start from a sample or an import was taken back: what it was, and its steps. */
+    started?: { what: string; steps: number };
+  }> {
     return this.one(id, async () => {
       const current = await this.text(id);
       if (!current) throw new DraftError('not_found', 'No such draft');
@@ -423,12 +434,14 @@ export class Drafts {
         .set({ undone: 1 })
         .where('id', '=', last.id)
         .execute();
+      if (last.kind === 'start')
+        return { revision, steps: [], started: startedFrom(last.after_text) };
       // AFS-136: what was taken back, by the steps' titles as they are again (none: a move).
+      // AFS-151: steps inside subflows are named too, not "a step".
       const titles = new Map(
-        [...(doc(last.after_text).nodes ?? []), ...(doc(last.before_text).nodes ?? [])].map((n) => [
-          n.id,
-          n.title,
-        ]),
+        [doc(last.after_text), doc(last.before_text)].flatMap((d) =>
+          [...buildModel(d).nodes.values()].map(({ node }) => [node.id, node.title] as const),
+        ),
       );
       const steps = changedNodes(last.before_text, last.after_text).map(
         (n) => titles.get(n) ?? 'a step',
@@ -571,6 +584,23 @@ export class Drafts {
   }
 
   /** The draft's project, for the routes' checks. */
+  /** AFS-151: what the draft's base commit has, for the designer's findings (roles). */
+  async probe(id: string): Promise<((path: string) => Promise<boolean>) | undefined> {
+    const row = await this.row(id);
+    if (!row) return undefined;
+    // A commit does not change: each path is asked of git once (snapshots are made per edit).
+    return async (path) => {
+      const key = `${row.project_id}:${row.base_commit}:${path}`;
+      let found = this.seen.get(key);
+      if (!found) {
+        found = this.deps.git.exists(row.project_id, row.base_commit, path);
+        if (this.seen.size > 5000) this.seen.clear();
+        this.seen.set(key, found);
+      }
+      return found;
+    };
+  }
+
   async projectOf(id: string): Promise<Project | undefined> {
     const row = await this.row(id);
     return row ? getProject(this.deps.db, row.project_id) : undefined;
