@@ -118,3 +118,60 @@ describe('the search field and the page (AFS-102)', () => {
     expect(screen.queryByRole('listbox', { name: 'Search results' })).toBeNull();
   });
 });
+
+describe('focus and keys (AFS-142)', () => {
+  it('Esc empties the field and closes the list; the cursor stays in the field', async () => {
+    open(dana);
+    const field = (await screen.findByRole('combobox', { name: 'Search' })) as HTMLInputElement;
+    field.focus();
+    fireEvent.change(field, { target: { value: 'audit' } });
+    await screen.findByRole('listbox');
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(field.value).toBe('');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('/ or Ctrl+K pressed in the designer frame puts the cursor in the field', async () => {
+    open(dana);
+    const field = await screen.findByRole('combobox', { name: 'Search' });
+    // A message from elsewhere is not the frame.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'afs-search-key' },
+        origin: 'https://elsewhere.example',
+      }),
+    );
+    expect(document.activeElement).not.toBe(field);
+    await waitFor(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'afs-search-key' },
+          origin: window.location.origin,
+        }),
+      );
+      expect(document.activeElement).toBe(field);
+    });
+  });
+
+  it('after a page change the focus is on the new page title', async () => {
+    open(dana);
+    routes['GET /workspaces'] = () => ({ body: [] });
+    await screen.findByRole('heading', { name: 'Approvals' });
+    fireEvent.click(screen.getByRole('link', { name: 'Workspaces' }));
+    const title = await screen.findByRole('heading', { level: 1, name: 'Workspaces' });
+    await waitFor(() => expect(document.activeElement).toBe(title));
+  });
+
+  it('the phone menu says it is open, and Esc closes it', async () => {
+    open(dana);
+    const toggle = await screen.findByRole('button', { name: 'Menu' });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.textContent).toBe('Close menu');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent).toBe('Menu');
+    expect(document.activeElement).toBe(toggle);
+  });
+});

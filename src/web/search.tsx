@@ -1,6 +1,6 @@
 // The search field in the top bar (AFS-69): results as you type, from the server
 // (GET /api/v1/search) and from the pages themselves (the settings and other fixed pages).
-// `/` or Ctrl+K (Cmd+K) puts the cursor in it; arrows move, Enter opens, Esc closes. A combobox
+// `/` or Ctrl+K (Cmd+K) puts the cursor in it; arrows move, Enter opens, Esc empties it. A combobox
 // with a list of options, as a screen reader expects one.
 import { useEffect, useId, useRef, useState } from 'react';
 import { api, type SearchHit, type User } from './api';
@@ -59,6 +59,9 @@ const KIND_LABEL: Record<string, string> = {
   group: 'group',
 };
 
+/** AFS-142: the message the designer's frame sends when / or Ctrl+K is pressed in it. */
+export const SEARCH_KEY = 'afs-search-key';
+
 type Hit = SearchHit | { kind: 'page'; title: string; detail: string; to: string };
 
 /** The fixed pages whose words have every word of the question. */
@@ -102,8 +105,18 @@ export function SearchBox({ me }: { me: User }) {
         input.current?.select();
       }
     };
+    // AFS-142: the designer's frame takes its own keys; it sends these two here (viewer.ts).
+    const fromFrame = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.data?.type !== SEARCH_KEY) return;
+      input.current?.focus();
+      input.current?.select();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('message', fromFrame);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('message', fromFrame);
+    };
   }, []);
 
   // Asked a moment after the last key; an older answer never replaces a newer one.
@@ -185,8 +198,11 @@ export function SearchBox({ me }: { me: User }) {
               go(hit);
             }
           } else if (e.key === 'Escape') {
+            // AFS-142: the list closes and the words go; the cursor stays in the field.
+            e.preventDefault();
             setOpen(false);
-            input.current?.blur();
+            setQ('');
+            setActive(-1);
           }
         }}
       />

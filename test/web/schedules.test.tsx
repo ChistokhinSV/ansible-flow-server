@@ -172,7 +172,10 @@ describe('schedules of a launch configuration', () => {
     });
 
     const first = within(box).getByRole('article', { name: 'Weekdays at three' });
-    fireEvent.click(within(first).getByRole('button', { name: 'Pause' }));
+    // AFS-142: each button says which schedule it acts on.
+    expect(within(first).getByRole('button', { name: 'Change Weekdays at three' })).toBeTruthy();
+    expect(within(first).getByRole('button', { name: 'Delete Weekdays at three' })).toBeTruthy();
+    fireEvent.click(within(first).getByRole('button', { name: 'Pause Weekdays at three' }));
     await waitFor(() =>
       expect(sent('PATCH /launch-configs/c1/schedules/s1')).toEqual([{ enabled: false }]),
     );

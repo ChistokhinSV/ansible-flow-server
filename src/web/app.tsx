@@ -1,7 +1,7 @@
 // The application: who is signed in, the frame around every page (a side menu, AFS-64), and
 // which page an address is.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
@@ -142,6 +142,47 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   return <NotFound />;
 }
 
+/**
+ * AFS-142: after a page change the focus goes to the new page's title, as a screen reader expects,
+ * not to the page's body. The title may come once the page has loaded, so it is watched for a
+ * while. Focus still on something in the page (a tab of the same page, a field) stays there.
+ */
+export function useFocusOnNewPage(path: string): void {
+  const first = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the page changes
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const main = document.getElementById('main');
+    if (!main) return;
+    const here = document.activeElement;
+    if (here && here !== document.body && main.contains(here)) return;
+    const place = () => {
+      const title = main.querySelector('h1');
+      if (!title) return false;
+      if (!title.hasAttribute('tabindex')) title.setAttribute('tabindex', '-1');
+      title.focus({ preventScroll: true });
+      return true;
+    };
+    if (place()) return;
+    const watch = new MutationObserver(() => {
+      if (place()) stop();
+    });
+    const stop = () => {
+      watch.disconnect();
+      clearTimeout(timer);
+      document.removeEventListener('focusin', stop);
+    };
+    watch.observe(main, { childList: true, subtree: true });
+    const timer = setTimeout(stop, 5000);
+    // The person moved on before the title came: their focus wins.
+    document.addEventListener('focusin', stop);
+    return stop;
+  }, [path]);
+}
+
 /** The side menu: the places, the workspaces, and the person's own things at the end. */
 function Side({
   me,
@@ -179,6 +220,18 @@ function Side({
   // The menu folds away on a phone once a page is picked.
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every new page
   useEffect(() => setOpen(false), [path]);
+  // AFS-142: Escape folds the phone menu and gives the focus back to its button.
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      toggle.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
 
   const waiting = approvals.data?.filter((a) => a.mayDecide).length ?? 0;
   const at = (to: string) =>
@@ -199,13 +252,14 @@ function Side({
           <span>Ansible Flow Server</span>
         </Link>
         <button
+          ref={toggle}
           type="button"
           className="menu-toggle"
           aria-expanded={open}
           aria-controls="side-menu"
           onClick={() => setOpen(!open)}
         >
-          Menu
+          {open ? 'Close menu' : 'Menu'}
         </button>
       </div>
       <div className="side-body" id="side-menu">
@@ -284,20 +338,21 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      setSession({ state: 'signed-in', user: await api.me() });
+      const user = await api.me();
+      if (user) return setSession({ state: 'signed-in', user });
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 401)
         return setSession({
           state: 'unreachable',
           message: e instanceof ApiError ? e.message : 'The page could not start.',
         });
-      // Nobody is signed in: a new server asks for its first administrator instead.
-      const needed = await api.setupNeeded().then(
-        (reply) => reply.needed,
-        () => false,
-      );
-      setSession({ state: needed ? 'setup' : 'signed-out' });
     }
+    // Nobody is signed in: a new server asks for its first administrator instead.
+    const needed = await api.setupNeeded().then(
+      (reply) => reply.needed,
+      () => false,
+    );
+    setSession({ state: needed ? 'setup' : 'signed-out' });
   }, []);
   useEffect(() => {
     setSignedOutHandler(() => setSession({ state: 'signed-out' }));
@@ -308,6 +363,7 @@ export function App() {
   }, [theme]);
   // AFS-107: the top bar's place for a page's breadcrumbs.
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
+  useFocusOnNewPage(path);
 
   const signedIn = (user: User) => {
     // /signin is only the page a refused provider sign-in comes back to: nothing is there once in.

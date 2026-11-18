@@ -26,6 +26,22 @@ const wanted = params.get('theme');
 const theme = wanted === 'light' || wanted === 'dark' ? wanted : 'auto';
 const root = document.getElementById('root') as HTMLElement;
 
+// AFS-142: / and Ctrl+K open the pages' search on every page, also while the designer here has
+// the focus: the frame hands them to the page around it (search.tsx, SEARCH_KEY).
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (window.parent === window) return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    if (!((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing))) return;
+    e.preventDefault();
+    window.parent.postMessage({ type: 'afs-search-key' }, window.location.origin);
+    // Before the canvas: it may keep the keys it reads to itself.
+  },
+  true,
+);
+
 /** Says why there is no flow to show, in the page itself. */
 function say(text: string): void {
   const note = document.createElement('p');
