@@ -23,6 +23,16 @@ export async function setupCode(db: Kysely<Schema>): Promise<string | undefined>
   return code;
 }
 
+/**
+ * AFS-158: the page to open with the code, so the log line alone is enough: under the public
+ * address when the settings name one, else under the address the server listens on.
+ */
+export function setupAddress(base: string, code: string): string {
+  const url = new URL('setup', base.endsWith('/') ? base : `${base}/`);
+  url.searchParams.set('code', code);
+  return url.toString();
+}
+
 export async function setupNeeded(db: Kysely<Schema>): Promise<boolean> {
   return (await countUsers(db)) === 0;
 }

@@ -203,6 +203,28 @@ describe('before anyone is signed in', () => {
     expect(screen.getByRole('link', { name: 'Dana Whitfield' })).toBeTruthy();
   });
 
+  it('the setup address from the log brings the code, and the page leaves it once done', async () => {
+    window.history.replaceState(null, '', '/setup?code=Jq3vN0c4TzWk');
+    routes = {
+      'GET /session': () => ({ status: 401, body: { error: 'unauthorized', message: 'Sign in' } }),
+      'GET /setup': () => ({ body: { needed: true } }),
+      'POST /setup': (body) => {
+        expect(body).toMatchObject({ code: 'Jq3vN0c4TzWk', login: 'dana' });
+        Object.assign(routes, signedInAs(dana));
+        return { body: dana };
+      },
+    };
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Set up Ansible Flow Server' });
+    expect((screen.getByLabelText('Setup code') as HTMLInputElement).value).toBe('Jq3vN0c4TzWk');
+    type('Login', 'dana');
+    type('Name', 'Dana Whitfield');
+    type('Password', 'correct horse battery staple');
+    fireEvent.click(screen.getByRole('button', { name: 'Make the administrator' }));
+    await screen.findByRole('heading', { name: 'Workspaces' });
+    expect(window.location.pathname).toBe('/');
+  });
+
   it('asks to sign in, says why a sign-in was refused, and then shows the page asked for', async () => {
     window.history.replaceState(null, '', '/w/network');
     let tries = 0;

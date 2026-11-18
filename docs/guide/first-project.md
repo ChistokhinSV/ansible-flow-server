@@ -17,8 +17,10 @@ The server prints a one-time **setup code** in its log at the first start:
 docker compose logs server | grep -i "setup code"
 ```
 
-Open the server's address. It shows **Set up Ansible Flow Server**: enter the setup code, your
-login, name and a password, then **Make the administrator**. You are signed in.
+The line names the address to open, such as
+`https://flows.example.net:8443/setup?code=Jq3vN0c4TzWk`. It shows **Set up Ansible Flow
+Server** with the setup code filled in: enter your login, name and a password, then **Make the
+administrator**. You are signed in.
 
 The server's certificate is self-signed at first; the browser warns once. To give it a real one,
 see [HTTPS and the certificate](certificates.md).
