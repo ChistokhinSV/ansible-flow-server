@@ -219,11 +219,27 @@ export function FlowFileActions({
   const [error, setError] = useState<string>();
   // AFS-134: one delete at a time (a double click sent two).
   const [deleting, setDeleting] = useState(false);
-  // AFS-147: the schedules that would fire it after it is gone, named before the delete.
+  // AFS-147: the schedules that would fire it after it is gone, named before the delete. AFS-150:
+  // those of configurations that follow the branch it is deleted on (not pinned to a commit or on
+  // another branch, where it stays) are turned off with it, so they do not fire and fail.
   const schedules = useLoad(
     async () =>
       doing === 'delete' && configIds.length
-        ? (await Promise.all(configIds.map((id) => api.schedules(id).catch(() => [])))).flat()
+        ? (
+            await Promise.all(
+              configIds.map(async (id) => {
+                const [config, list] = await Promise.all([
+                  api.launchConfig(id).catch(() => undefined),
+                  api.schedules(id).catch(() => []),
+                ]);
+                const follows =
+                  !!config &&
+                  !config.commit &&
+                  (!config.gitRef || config.gitRef === project.gitRef);
+                return follows ? list : [];
+              }),
+            )
+          ).flat()
         : [],
     [doing, configIds.join(' ')],
   ).data?.filter((s) => s.enabled);
@@ -294,9 +310,8 @@ export function FlowFileActions({
           {!!schedules?.length && (
             <p className="notice warn" data-schedules>
               {schedules.length === 1 ? 'The schedule' : 'The schedules'}{' '}
-              {schedules.map((s) => s.name).join(', ')} would fail each time{' '}
-              {schedules.length === 1 ? 'it fires' : 'they fire'}: turn{' '}
-              {schedules.length === 1 ? 'it' : 'them'} off too.
+              {schedules.map((s) => s.name).join(', ')} {schedules.length === 1 ? 'fires' : 'fire'}{' '}
+              it: {schedules.length === 1 ? 'it is' : 'they are'} turned off with it.
             </p>
           )}
           {error && (
@@ -319,6 +334,13 @@ export function FlowFileActions({
                     message: `Delete the flow ${name}`,
                     changes: [{ op: 'delete', path: file }],
                   });
+                  // A schedule that cannot be turned off here is turned off by the server when it
+                  // next fires and finds no flow.
+                  await Promise.all(
+                    (schedules ?? []).map((s) =>
+                      api.changeSchedule(s.config, s.id, { enabled: false }).catch(() => undefined),
+                    ),
+                  );
                   navigate(
                     `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project.key)}`,
                   );

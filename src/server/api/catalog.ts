@@ -699,7 +699,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Schedules',
     'signed in',
     'self',
-  )('The next times a cron expression fires in a time zone, or why it cannot be read'),
+  )(
+    'The next times a cron expression fires in a time zone, or why it cannot be read; with `check=1`, every problem in `problems` (each with its field) instead of a refusal',
+  ),
   // AFS-30: sign-in with OIDC providers.
   'GET /api/v1/auth/methods': S(
     'Session',

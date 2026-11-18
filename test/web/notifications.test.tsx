@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 import { NotificationsPage } from '../../src/web/notifications';
+import { mayLeave } from '../../src/web/router';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Reyes', admin: true, groups: [] };
 
@@ -129,6 +130,16 @@ describe('the Notifications page', () => {
     fireEvent.click(within(hooks).getByRole('button', { name: 'Make a key' }));
     expect(await within(hooks).findByText('afs_whk_example-key')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Send a test' })).toBeTruthy();
+    // AFS-150: an address typed for a test is not kept anywhere: leaving does not ask.
+    const test = screen.getByRole('heading', { name: 'Test' }).closest('section') as HTMLElement;
+    fireEvent.change(within(test).getByLabelText('To'), { target: { value: 'a8@example.net' } });
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    expect(mayLeave('/runs')).toBe(true);
+    expect(questions).toEqual([]);
 
     cleanup();
     render(<NotificationsPage tab="log" />);

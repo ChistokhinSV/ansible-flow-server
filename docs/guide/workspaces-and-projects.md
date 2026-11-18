@@ -36,7 +36,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | `/workspaces`, `/workspaces/:id`      | List, add, change, delete (by id or key)                                                                                                    | read: what you see; change: administrators |
 | `/workspaces/:id/projects`            | A workspace's projects; add one (its source is looked at at once)                                                                           | as above                                   |
-| `/projects/:id`                       | A project; change its name, source, branch, timer; delete                                                                                   | as above                                   |
+| `/projects/:id`                       | A project; change its name, description, source, branch, timer; delete                                                                      | as above                                   |
 | `POST /projects/:id/sync`             | Look at the source now                                                                                                                      | `rw` on the workspace                      |
 | `GET /samples`                        | The sample projects a hosted project can start from                                                                                         | signed in                                  |
 | `POST /projects/:id/start`            | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                                       | `rw` on the workspace                      |
@@ -72,6 +72,9 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   Secret        <the hook's token>
   Events        Just the push event
   ```
+- **Name, description and branch:** administrators change them on the project's **Settings**
+  tab. A new branch is what the flows, launch configurations and schedules that name no other
+  branch run from then on.
 - **Deleting:** administrators delete a project at the bottom of its **Settings** tab, and a workspace at the bottom of its **Access** tab, after typing its key. A project goes with its launch configurations, their schedules, its run history and the server's copy of its repository (an external source stays as it is); it is refused while one of its runs goes. A workspace is refused while it still has projects or execution environments. Over the API: `DELETE /api/v1/projects/:id`, `DELETE /api/v1/workspaces/:id`.
 - The server needs the `git` program.
 

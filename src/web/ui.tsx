@@ -193,6 +193,8 @@ export function Form({
   wide,
   more,
   open,
+  keeps = true,
+  noValidate,
 }: {
   onSubmit: () => Promise<void>;
   submit: string;
@@ -206,6 +208,13 @@ export function Form({
   more?: ReactNode;
   /** AFS-140: the form was opened by a click: it is scrolled into view, its first field focused. */
   open?: boolean;
+  /**
+   * AFS-150: false for a form that saves nothing (a test message, a search): leaving it with typing
+   * in it does not ask.
+   */
+  keeps?: boolean;
+  /** AFS-150: the page checks every field itself and says it at the field (no browser tooltip). */
+  noValidate?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ field?: string; message: string }>();
@@ -250,20 +259,26 @@ export function Form({
         message: messageOf(e),
         ...(field && claimed.current.has(field) ? { field } : {}),
       });
-      if (form.current?.isConnected) holdUnsaved(self, true);
+      if (keeps && form.current?.isConnected) holdUnsaved(self, true);
     } finally {
       setBusy(false);
     }
   };
   // Typing marks the form unsaved, and a refusal goes once what it is about is changed.
   const changed = (event: FormEvent<HTMLFormElement>) => {
-    holdUnsaved(self, true);
+    if (keeps) holdUnsaved(self, true);
     const name = (event.target as HTMLInputElement).name;
     if (problem && (!problem.field || problem.field === name)) setProblem(undefined);
   };
   const context = useMemo(() => ({ problem, claim }), [problem, claim]);
   return (
-    <form ref={form} onSubmit={send} onChange={changed} className={wide ? 'form wide' : 'form'}>
+    <form
+      ref={form}
+      onSubmit={send}
+      onChange={changed}
+      className={wide ? 'form wide' : 'form'}
+      noValidate={noValidate}
+    >
       <FormProblems.Provider value={context}>{children}</FormProblems.Provider>
       {problem && !problem.field && (
         <p className="notice error" role="alert" ref={notice} tabIndex={-1}>

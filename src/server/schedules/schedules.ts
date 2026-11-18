@@ -418,6 +418,34 @@ export class Schedules {
     return cronTimes(checkedCron(cron, zone), zone, new Date(), 5).map(iso);
   }
 
+  /**
+   * AFS-150: the next times, or every reason they cannot be worked out, each with its field: a
+   * time zone and a cron that are both wrong are both said at once (the cron is read in UTC then).
+   */
+  check(
+    cron: string,
+    tz?: string,
+  ): { times: string[]; problems: { field?: string; message: string }[] } {
+    const problems: { field?: string; message: string }[] = [];
+    const said = (e: unknown) => {
+      if (!(e instanceof ScheduleError)) throw e;
+      problems.push({ ...(e.field ? { field: e.field } : {}), message: e.message });
+    };
+    let zone = 'UTC';
+    try {
+      zone = timeZone(tz);
+    } catch (e) {
+      said(e);
+    }
+    try {
+      const times = cronTimes(checkedCron(cron, zone), zone, new Date(), 5).map(iso);
+      return { times: problems.length ? [] : times, problems };
+    } catch (e) {
+      said(e);
+      return { times: [], problems };
+    }
+  }
+
   async remove(id: string): Promise<void> {
     const done = await this.db.deleteFrom('schedule').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new ScheduleError('not_found', 'No such schedule');
@@ -552,13 +580,25 @@ export class Schedules {
         commit: row.commit_id,
       }),
     );
-    if (!prepared.ok)
-      return this.settle(
-        row,
-        now,
-        'failed',
-        prepared.problems[0]?.message ?? 'The launch is not ready',
-      );
+    if (!prepared.ok) {
+      const why = prepared.problems[0]?.message ?? 'The launch is not ready';
+      // AFS-150: its flow is gone (deleted on the branch): the schedule is turned off instead of
+      // failing at every fire, and says why.
+      if (why.startsWith(`There is no flow ${config.flowFile} `)) {
+        await this.db
+          .updateTable('schedule')
+          .set({ enabled: 0, next_at: null })
+          .where('id', '=', row.id)
+          .execute();
+        return this.settle(
+          row,
+          now,
+          'failed',
+          `${why}: the schedule is turned off. Turn it on again once the flow is back.`,
+        );
+      }
+      return this.settle(row, now, 'failed', why);
+    }
     const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
     const run = await this.deps.queue.enqueue(
       { ...prepared.launch, schedule: row.id },

@@ -24,7 +24,8 @@ export type FileChange =
   | { op: 'write'; path: string; text?: string; base64?: string; executable?: boolean }
   | { op: 'delete'; path: string }
   | { op: 'move'; from: string; to: string }
-  | { op: 'unpack'; path: string; base64: string };
+  /** AFS-150: `replace` says the archive may replace files that are there; without it, refused. */
+  | { op: 'unpack'; path: string; base64: string; replace?: boolean };
 
 export interface FileEntry {
   path: string;
@@ -35,9 +36,12 @@ export interface FileEntry {
 
 export class FilesRefused extends Error {
   constructor(
-    readonly code: 'invalid' | 'not_found' | 'conflict',
+    readonly code: 'invalid' | 'not_found' | 'conflict' | 'replaces',
     message: string,
-    /** For a conflict: the files the branch changed since the change set began. */
+    /**
+     * For a conflict: the files the branch changed since the change set began; for `replaces`, the
+     * files an archive would replace.
+     */
     readonly files?: string[],
   ) {
     super(message);
@@ -209,10 +213,27 @@ export async function planChanges(
         } catch (e) {
           throw new FilesRefused('invalid', (e as Error).message);
         }
+        // AFS-150: an archive does not replace a file that is there (with other content) unless
+        // the request says it may: the page lists those files and asks first.
+        const replaced: string[] = [];
         for (const [path, file] of files) {
           const at = filePath(folder ? `${folder}/${path}` : path);
+          const was = tree.get(at);
+          if (
+            was &&
+            !(was.bytes
+              ? was.bytes.equals(file.bytes)
+              : was.object && blobId(file.bytes, was.object) === was.object)
+          )
+            replaced.push(at);
           tree.set(at, { mode: file.executable ? '100755' : '100644', bytes: file.bytes });
         }
+        if (replaced.length && change.replace !== true)
+          throw new FilesRefused(
+            'replaces',
+            `The archive replaces ${replaced.length === 1 ? 'a file that is' : `${replaced.length} files that are`} there already`,
+            replaced.sort(),
+          );
         break;
       }
       default:

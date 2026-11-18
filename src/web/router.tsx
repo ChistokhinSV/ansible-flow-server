@@ -4,6 +4,8 @@ import {
   type AnchorHTMLAttributes,
   type MouseEvent,
   useCallback,
+  useEffect,
+  useState,
   useSyncExternalStore,
 } from 'react';
 
@@ -21,29 +23,53 @@ const subscribe = (listener: () => void) => {
  * AFS-140: forms with typing not sent yet. Leaving the page (a link, a tab, Back, closing the tab)
  * asks first, so what was typed is not lost without a word.
  */
-const unsaved = new Set<object>();
+const unsaved = new Map<object, string | undefined>();
 const LEAVE = 'Leave this page? What you typed is not saved.';
 let shownPath = typeof window === 'undefined' ? '/' : window.location.pathname;
 
-/** True when nothing unsaved is in the way, or the person chose to leave it. */
-export function mayLeave(): boolean {
-  if (unsaved.size === 0) return true;
+/**
+ * True when nothing unsaved is in the way of going to `to`, or the person chose to leave it.
+ * AFS-150: typing held `within` a path is not in the way of the paths under it (the tabs of a page
+ * that keeps it).
+ */
+export function mayLeave(to?: string): boolean {
+  const lost = [...unsaved].filter(
+    ([, within]) => !(to && within && (to === within || to.startsWith(`${within}/`))),
+  );
+  if (lost.length === 0) return true;
   if (!window.confirm(LEAVE)) return false;
-  unsaved.clear();
+  for (const [form] of lost) unsaved.delete(form);
   return true;
 }
 
-/** Marks a form (any object standing for it) as holding unsaved typing, or not. */
-export function holdUnsaved(form: object, holding: boolean): void {
-  if (holding) unsaved.add(form);
+/**
+ * Marks a form (any object standing for it) as holding unsaved typing, or not; `within`: a path
+ * under which the typing stays.
+ */
+export function holdUnsaved(form: object, holding: boolean, within?: string): void {
+  if (holding) unsaved.set(form, within);
   else unsaved.delete(form);
+}
+
+/**
+ * AFS-150: holds the page while `holding` (a form whose values differ from what is saved), so
+ * leaving asks first; let go when the form unmounts. Gives a function that lets go at once, for a
+ * save that moves on to another page before the form shows it saved.
+ */
+export function useUnsaved(holding: boolean, within?: string): () => void {
+  const [self] = useState(() => ({}));
+  useEffect(() => {
+    holdUnsaved(self, holding, within);
+  }, [self, holding, within]);
+  useEffect(() => () => holdUnsaved(self, false), [self]);
+  return useCallback(() => holdUnsaved(self, false), [self]);
 }
 
 if (typeof window !== 'undefined') {
   // Registered before any page listens, so a Back the person takes back stops here.
   window.addEventListener('popstate', (event) => {
     if (window.location.pathname === shownPath) return;
-    if (mayLeave()) {
+    if (mayLeave(window.location.pathname)) {
       shownPath = window.location.pathname;
       return;
     }
@@ -60,7 +86,7 @@ if (typeof window !== 'undefined') {
 /** Goes to a path of this application. */
 export function navigate(path: string, options: { replace?: boolean } = {}): void {
   if (path === window.location.pathname) return;
-  if (!mayLeave()) return;
+  if (!mayLeave(path.split(/[?#]/)[0] ?? path)) return;
   shownPath = path.split(/[?#]/)[0] ?? path;
   if (options.replace) window.history.replaceState(null, '', path);
   else window.history.pushState(null, '', path);

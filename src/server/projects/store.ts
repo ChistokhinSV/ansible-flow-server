@@ -42,6 +42,8 @@ export interface Project {
   hookSigned: boolean;
   /** AFS-79: a library: its flows' subflows are offered to every project on the server. */
   library: boolean;
+  /** AFS-150: what the project is for, in a line. */
+  description?: string;
 }
 
 export class ProjectError extends Error {
@@ -208,6 +210,7 @@ const projectOf = (row: ProjectRow, workspaceKey: string): Project => ({
   hook: row.hook_token_hash !== null,
   hookSigned: row.hook_secret_enc !== null,
   library: row.library === 1,
+  ...(row.description ? { description: row.description } : {}),
 });
 
 const projectRows = (db: Db) =>
@@ -294,6 +297,7 @@ export async function createProject(
     hook_token_hash: null,
     hook_secret_enc: null,
     library: 0,
+    description: null,
     created_at: at,
     updated_at: at,
   };
@@ -337,6 +341,8 @@ async function credentialProblem(
 
 export interface ProjectChange {
   name?: string;
+  /** AFS-150: empty or null takes it away. */
+  description?: string | null;
   gitUrl?: string;
   /** The credential for the source (its id); null takes it away. */
   gitCredential?: string | null;
@@ -356,12 +362,24 @@ export async function updateProject(
   change: ProjectChange,
   allowLocal: boolean,
 ): Promise<Project> {
-  const problem =
-    (change.name !== undefined ? nameProblem(change.name) : undefined) ??
-    (change.gitUrl !== undefined ? gitUrlProblem(change.gitUrl.trim(), allowLocal) : undefined) ??
-    (change.gitRef !== undefined ? refProblem(change.gitRef.trim()) : undefined) ??
-    (change.pollSeconds !== undefined ? pollProblem(change.pollSeconds) : undefined);
-  if (problem) throw new ProjectError('invalid', problem);
+  // AFS-150: each problem with the field it is about, for the Settings form to show it there.
+  const problems: [string | undefined, string][] = [
+    [change.name !== undefined ? nameProblem(change.name) : undefined, 'name'],
+    [
+      typeof change.description === 'string' && change.description.trim().length > 1000
+        ? 'A description is at most 1000 characters'
+        : undefined,
+      'description',
+    ],
+    [
+      change.gitUrl !== undefined ? gitUrlProblem(change.gitUrl.trim(), allowLocal) : undefined,
+      'gitUrl',
+    ],
+    [change.gitRef !== undefined ? refProblem(change.gitRef.trim()) : undefined, 'gitRef'],
+    [change.pollSeconds !== undefined ? pollProblem(change.pollSeconds) : undefined, 'pollSeconds'],
+  ];
+  const problem = problems.find(([why]) => why);
+  if (problem) throw new ProjectError('invalid', problem[0] as string, problem[1]);
   const current = await getProject(db, id);
   if (!current) throw new ProjectError('not_found', 'No such project');
   // The hosted repository is the only copy: pointing the project elsewhere would orphan it.
@@ -392,6 +410,9 @@ export async function updateProject(
     .updateTable('project')
     .set({
       ...(change.name !== undefined ? { name: change.name.trim() } : {}),
+      ...(change.description !== undefined
+        ? { description: change.description?.trim() || null }
+        : {}),
       ...(change.gitUrl !== undefined ? { git_url: change.gitUrl.trim() } : {}),
       ...(change.gitRef !== undefined ? { git_ref: change.gitRef.trim() } : {}),
       ...(change.pollSeconds !== undefined ? { poll_seconds: change.pollSeconds } : {}),
@@ -421,7 +442,7 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
     if (going)
       throw new ProjectError(
         'not_empty',
-        `Run ${going.number} of the project is still going: cancel it first`,
+        `Run ${going.number} of the project is still going: stop it first`,
       );
     await trx
       .deleteFrom('run_gate')

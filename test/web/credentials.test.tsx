@@ -18,6 +18,10 @@ const sshKey = {
   fields: { username: 'netops' },
   has: ['privateKey'],
   usedBy: 2,
+  uses: [
+    { kind: 'project', project: 'edge', name: 'Edge' },
+    { kind: 'launch', project: 'edge', id: 'lc1', name: 'nightly backup' },
+  ],
   createdAt: '2026-11-13T09:00:00.000Z',
   updatedAt: '2026-11-13T09:00:00.000Z',
 };
@@ -125,8 +129,14 @@ describe("a workspace's credentials", () => {
     // AFS-134: launch configurations use it: Delete is not offered, and says why.
     const del = within(section).getByRole('button', { name: 'Delete edge-ssh-2026' });
     expect((del as HTMLButtonElement).disabled).toBe(true);
-    expect(del.getAttribute('title')).toMatch(/Launch configurations use it/);
-    expect(within(section).getByText('2 launch configurations')).toBeTruthy();
+    expect(del.getAttribute('title')).toMatch(/In use \(see Used by\)/);
+    // AFS-150: what uses it, by name, each a link.
+    expect(within(section).getByRole('link', { name: 'nightly backup' }).getAttribute('href')).toBe(
+      '/w/network/edge/launch/lc1/settings',
+    );
+    expect(within(section).getByRole('link', { name: 'Edge' }).getAttribute('href')).toBe(
+      '/w/network/edge/settings',
+    );
   });
 
   it('AFS-140: checks fields before sending and says each problem at its field', async () => {
@@ -152,8 +162,15 @@ describe("a workspace's credentials", () => {
     fireEvent.change(within(section).getByLabelText('Kind'), { target: { value: 'env' } });
     fireEvent.change(within(section).getByLabelText('Name'), { target: { value: 'api' } });
     fireEvent.change(within(section).getByLabelText('Name 1'), { target: { value: 'API_KEY' } });
+    // AFS-150: a variable with no value is refused at its value.
+    fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
+    const value1 = within(section).getByLabelText('Value 1');
+    await waitFor(() => expect(value1.getAttribute('aria-invalid')).toBe('true'));
+    expect(within(section).getByText(/API_KEY has no value/)).toBeTruthy();
+    fireEvent.change(value1, { target: { value: 'a' } });
     fireEvent.click(within(section).getByRole('button', { name: 'Add a variable' }));
     fireEvent.change(within(section).getByLabelText('Name 2'), { target: { value: 'API_KEY' } });
+    fireEvent.change(within(section).getByLabelText('Value 2'), { target: { value: 'b' } });
     fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
     const second = within(section).getByLabelText('Name 2');
     await waitFor(() => expect(second.getAttribute('aria-invalid')).toBe('true'));

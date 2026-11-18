@@ -217,6 +217,8 @@ export interface ProjectTable {
   hook_secret_enc: string | null;
   /** AFS-79: 1 when the project is a library: its flows' subflows are offered to every project. */
   library: number;
+  /** AFS-150: what the project is for, in a line; null: none. */
+  description: string | null;
   created_at: IsoTime;
   updated_at: IsoTime;
 }

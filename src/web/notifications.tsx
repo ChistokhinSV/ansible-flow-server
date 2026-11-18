@@ -100,6 +100,7 @@ function TestForm({ onSent }: { onSent(): void }) {
   return (
     <Form
       submit="Send a test"
+      keeps={false}
       onSubmit={async () => {
         setResult(undefined);
         setResult(await api.testNotification(channel, to.trim() || undefined));

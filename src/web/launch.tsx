@@ -22,7 +22,7 @@ import {
   type User,
 } from './api';
 import { EnvironmentCheck, environmentAddress } from './environments';
-import { Link, navigate } from './router';
+import { Link, navigate, useUnsaved } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
 import {
@@ -747,6 +747,8 @@ export function LaunchConfigPage({
     [id, mode, at.ref, at.commit],
   );
   const [texts, setTexts] = useState<Record<string, string>>({});
+  /** AFS-150: the inputs typed into (not a text the form changed by itself, on a new mode). */
+  const [typed, setTyped] = useState<ReadonlySet<string>>(new Set());
   // A newly read form starts from its own texts; what was typed into a field of the same name
   // stays.
   useEffect(() => {
@@ -845,6 +847,15 @@ export function LaunchConfigPage({
     limit,
     mode,
   ]);
+  // AFS-150: typing not launched or kept (an input, a branch, a commit, a limit) asks before the
+  // page is left; the other tabs of the configuration keep it, so going to them does not ask.
+  const release = useUnsaved(
+    !!formFields?.some((f) => typed.has(f.name) && (texts[f.name] ?? f.text) !== f.text) ||
+      ref.trim() !== '' ||
+      commit.trim() !== '' ||
+      (limit !== undefined && limit.trim() !== formLimit),
+    launchAddress(workspace, key, id),
+  );
 
   const c = config.data;
   if (!c || !project.data)
@@ -928,6 +939,7 @@ export function LaunchConfigPage({
     start('launch');
     try {
       const run = await api.launch(c.id, request());
+      release();
       navigate(`/runs/${run.id}`);
     } catch (e) {
       refused(e);
@@ -947,6 +959,11 @@ export function LaunchConfigPage({
     try {
       const changed = await api.changeLaunchConfig(c.id, { inputs: read.inputs });
       config.reload();
+      // The kept values are the form's start values now: no longer unsaved.
+      form.reload();
+      setTyped(
+        (names) => new Set([...names].filter((n) => fields.some((f) => f.name === n && f.secret))),
+      );
       setSaved(
         `Start values kept: ${Object.keys(changed.inputs).join(', ') || 'none'}. Secret inputs are never kept.`,
       );
@@ -1034,7 +1051,16 @@ export function LaunchConfigPage({
       {tab === 'runs' ? (
         <ConfigRuns config={c} me={me} />
       ) : tab === 'schedules' ? (
-        <SchedulesSection config={c.id} form={form.data} mayManage={mayManage} me={me} />
+        <SchedulesSection
+          config={c.id}
+          form={form.data}
+          takes={{
+            ...(c.commit ? { pinned: c.commit } : {}),
+            branch: c.gitRef ?? project.data.gitRef,
+          }}
+          mayManage={mayManage}
+          me={me}
+        />
       ) : tab === 'settings' ? (
         mayManage ? (
           <>
@@ -1085,6 +1111,7 @@ export function LaunchConfigPage({
                   problem={problemOf(f.name)}
                   onChange={(text) => {
                     setTexts((t) => ({ ...t, [f.name]: text }));
+                    setTyped((names) => (names.has(f.name) ? names : new Set([...names, f.name])));
                     settle(f.name);
                   }}
                   groups={groups}
@@ -1321,6 +1348,11 @@ function ConfigForm({
   const [problem, setProblem] = useState<{ field?: string; message: string }>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  // AFS-150: what the form holds now against what was saved (or first shown): leaving with a
+  // difference asks first, on the Settings tab of a configuration as on a new one.
+  const holds = JSON.stringify([input, tellWhen, tellTo]);
+  const [kept, setKept] = useState(holds);
+  const release = useUnsaved(holds !== kept);
   // AFS-94: the image is asked for only when "an image by name" is what runs get.
   const [byImage, setByImage] = useState(!existing?.environment && !!existing?.eeImage);
   const set = (key: keyof LaunchConfigInput, value: unknown) => {
@@ -1372,6 +1404,8 @@ function ConfigForm({
         : await api.addLaunchConfig(pid, body);
       setBusy(false);
       setSaved(true);
+      setKept(holds);
+      release();
       onSaved(done);
     } catch (e) {
       setProblem({
@@ -1729,16 +1763,48 @@ export function LaunchConfigEdit({
 }) {
   const project = useProject(workspace, key);
   const existing = useLoad(async () => (id ? api.launchConfig(id) : undefined), [id]);
+  const access = useProjectAccess(project.data?.id);
   const title = id
     ? `Change ${existing.data?.name ?? 'launch configuration'}`
     : 'Add a launch configuration';
 
-  if (!project.data || (id && !existing.data))
+  if (!project.data || (id && !existing.data) || (!access.data && !access.error))
     return (
       <>
         <Crumbs workspace={workspace} project={key} last={title} />
         <PageHead title={title} />
         <Loading state={existing.error ? existing : project} />
+      </>
+    );
+
+  // AFS-150: a configuration is added or changed with rw on its flow. Who has rw on none of the
+  // project's flows (or not on this one) is told so, not given a form refused only at Add.
+  // Access that cannot be read leaves it to the server, which refuses what it must.
+  const a = access.data;
+  const mayManage =
+    !a ||
+    (existing.data
+      ? atLeast(flowLevel(a, existing.data.flowFile), 'rw')
+      : a.admin ||
+        atLeast(a.workspace, 'rw') ||
+        Object.values(a.flows).some((level) => atLeast(level, 'rw')));
+  if (!mayManage)
+    return (
+      <>
+        <Crumbs workspace={workspace} project={key} last={title} />
+        <PageHead help="launch-configurations.md" title={title} />
+        <section className="panel">
+          <p className="notice" role="status">
+            {existing.data
+              ? 'Changing this launch configuration needs rw on its flow.'
+              : "Adding a launch configuration needs rw on the flow it runs, and you have rw on none of this project's flows."}
+          </p>
+          <p>
+            <Link to={id ? launchAddress(workspace, key, id) : base(workspace, key)}>
+              {id ? 'Back to the launch configuration' : 'Back to the project'}
+            </Link>
+          </p>
+        </section>
       </>
     );
 

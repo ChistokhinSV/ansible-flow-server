@@ -341,6 +341,45 @@ for (const [name, config] of databases) {
       }
     });
 
+    it('AFS-150: the live check says a wrong zone and a wrong cron at once, without refusing', async () => {
+      const r = await call(
+        'omar',
+        'GET',
+        `/schedule-times?cron=${encodeURIComponent('61 * * * *')}&timezone=Mars/Base&check=1`,
+      );
+      expect(r.statusCode).toBe(200);
+      const { times, problems } = r.json();
+      expect(times).toEqual([]);
+      expect(problems.map((p: { field: string }) => p.field)).toEqual(['timezone', 'cron']);
+      // Without check=1 a wrong one is still refused.
+      expect(
+        (await call('omar', 'GET', `/schedule-times?cron=61+*+*+*+*&timezone=UTC`)).statusCode,
+      ).toBe(400);
+    });
+
+    it('AFS-150: a schedule whose flow is gone is turned off at its fire, saying why', async () => {
+      const s = (
+        await call('rita', 'POST', at(), {
+          name: 'Every hour',
+          kind: 'cron',
+          cron: '0 * * * *',
+          timezone: 'UTC',
+          mode: 'check',
+        })
+      ).json();
+      expect(s.enabled).toBe(true);
+      source.commit({ 'flows/hello.flow.yaml': null }, 'Delete the flow');
+      await due(s.id);
+      await schedules.tick();
+      const after = (await call('rita', 'GET', at()))
+        .json()
+        .find((x: { id: string }) => x.id === s.id);
+      expect(after).toMatchObject({ enabled: false, upcoming: [] });
+      expect(after.last).toMatchObject({ result: 'failed' });
+      expect(after.last.detail).toMatch(/There is no flow flows\/hello\.flow\.yaml .*turned off/);
+      expect(await runsOf(s.id)).toEqual([]);
+    });
+
     it('goes with its launch configuration', async () => {
       expect((await call('rita', 'DELETE', `/launch-configs/${configId}`)).statusCode).toBe(204);
       expect(await db().selectFrom('schedule').selectAll().execute()).toEqual([]);

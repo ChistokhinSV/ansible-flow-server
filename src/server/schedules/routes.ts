@@ -4,7 +4,7 @@
 //   PATCH  /api/v1/launch-configs/:id/schedules/:schedule    rw; a new owner: administrators only,
 //                                                            and only a service account (or themself)
 //   DELETE /api/v1/launch-configs/:id/schedules/:schedule    rw
-//   GET    /api/v1/schedule-times?cron=&timezone=            the next times a cron fires
+//   GET    /api/v1/schedule-times?cron=&timezone=[&check=1]  the next times a cron fires
 // The level on the flow is checked by the catalog (api/catalog.ts) before a handler runs.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { changedKeys } from '../audit/changes';
@@ -157,19 +157,23 @@ export function registerSchedules(
     }),
   );
 
-  app.get<{ Querystring: { cron: string; timezone?: string } }>(
+  app.get<{ Querystring: { cron: string; timezone?: string; check?: string } }>(
     '/api/v1/schedule-times',
     {
       schema: {
         querystring: {
           type: 'object',
           required: ['cron'],
-          properties: { cron: text(200, 1), timezone: text(64) },
+          properties: { cron: text(200, 1), timezone: text(64), check: { type: 'string' } },
         },
       },
     },
     answering(async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
+      // AFS-150: `check=1` (a form checking as it is typed) is answered with every problem, not
+      // refused, so a wrong cron or zone typed is not an error in the browser's console.
+      if (request.query.check === '1')
+        return schedules.check(request.query.cron, request.query.timezone);
       const times = schedules.preview(request.query.cron, request.query.timezone);
       return { times };
     }),

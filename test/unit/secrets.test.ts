@@ -18,6 +18,7 @@ import {
   CredentialError,
   checkKey,
   createCredential,
+  credentialUses,
   deleteCredential,
   getCredential,
   gitAuthOf,
@@ -278,6 +279,10 @@ for (const [name, config] of databases) {
       expect(await make({ name: 'a', kind: 'env', secret: { '1BAD': 'x' } })).toMatch(
         /not a variable name/,
       );
+      // AFS-150: a variable set to nothing is refused.
+      expect(await make({ name: 'a', kind: 'env', secret: { API_KEY: '' } })).toMatch(
+        /API_KEY has no value/,
+      );
       expect(await make({ name: 'a', kind: 'nope' as never, secret: {} })).toMatch(/no kind nope/);
       // AFS-140: the visible fields are checked, with the field each problem is about.
       const at = (input: Parameters<typeof createCredential>[3]) =>
@@ -441,6 +446,10 @@ for (const [name, config] of databases) {
       // In use: counted, not deleted from under the project; freed, it goes.
       const id = (project as { id: string }).id;
       expect((await getCredential(db(), token.id))?.usedBy).toBe(1);
+      // AFS-150: and named, for an administrator's list.
+      expect((await credentialUses(db(), workspace)).get(token.id)).toEqual([
+        { kind: 'project', project: (project as { key: string }).key, name: 'P' },
+      ]);
       expect(await refused(() => deleteCredential(db(), token.id))).toMatch(
         /^in_use: The project p/,
       );
@@ -615,6 +624,10 @@ describe('credentials over the API', () => {
     ).toBe(200);
     const made = await call('POST', '/api/v1/workspaces/net/credentials', { cookie: admin, body });
     const id = made.json().id;
+    // AFS-150: a name taken is said at the name field.
+    const twice = await call('POST', '/api/v1/workspaces/net/credentials', { cookie: admin, body });
+    expect(twice.statusCode).toBe(409);
+    expect(twice.json()).toMatchObject({ error: 'taken', field: 'name' });
     expect(
       (await call('PATCH', `/api/v1/credentials/${id}`, { cookie: member, body: { name: 'x' } }))
         .statusCode,

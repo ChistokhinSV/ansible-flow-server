@@ -27,6 +27,12 @@ import {
   useRefresh,
 } from './ui';
 
+/** What a configuration launches: its pinned commit, else the newest of its branch. */
+interface Takes {
+  pinned?: string;
+  branch: string;
+}
+
 const RESULT_TONE: Record<string, string> = {
   ok: 'ok',
   failed: 'bad',
@@ -98,25 +104,49 @@ export function zonedInput(iso: string | undefined, zone: string): string {
 function useCronTimes(cron: string, timezone: string) {
   const [state, setState] = useState<{
     times?: string[];
-    problem?: { field: string; message: string };
+    /** AFS-150: each problem at its field: a wrong zone and a wrong cron are both said. */
+    problems?: { field: string; message: string }[];
   }>({});
   useEffect(() => {
     if (!cron.trim()) return setState({});
     const timer = setTimeout(() => {
       api.scheduleTimes(cron.trim(), timezone.trim() || 'UTC').then(
-        (r) => setState({ times: r.times }),
+        (r) =>
+          setState(
+            r.problems?.length
+              ? {
+                  problems: r.problems.map((p) => ({
+                    field: p.field === 'timezone' ? 'timezone' : 'cron',
+                    message: p.message,
+                  })),
+                }
+              : { times: r.times },
+          ),
         (e) =>
           setState({
-            problem: {
-              field: e instanceof ApiError && e.details.field === 'timezone' ? 'timezone' : 'cron',
-              message: messageOf(e),
-            },
+            problems: [
+              {
+                field:
+                  e instanceof ApiError && e.details.field === 'timezone' ? 'timezone' : 'cron',
+                message: messageOf(e),
+              },
+            ],
           }),
       );
     }, 400);
     return () => clearTimeout(timer);
   }, [cron, timezone]);
   return state;
+}
+
+/** AFS-150: true when the browser knows the time zone (a one-time At is shown in your time). */
+function knownZone(zone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function CronPreview({ times }: { times?: string[] }) {
@@ -137,12 +167,15 @@ function CronPreview({ times }: { times?: string[] }) {
 function ScheduleForm({
   config,
   form,
+  takes,
   editing,
   onDone,
   onCancel,
 }: {
   config: string;
   form?: LaunchForm;
+  /** AFS-150: what the configuration launches: its pinned commit, else its branch. */
+  takes: Takes;
   editing?: Schedule;
   onDone(): void;
   onCancel(): void;
@@ -165,8 +198,11 @@ function ScheduleForm({
   // A schedule runs with nobody to type a secret: those inputs are not offered.
   const fields = (form?.fields ?? []).filter((f) => !f.secret);
   const preview = useCronTimes(input.kind === 'cron' ? input.cron : '', input.timezone);
-  const live = (field: string) =>
-    preview.problem?.field === field ? preview.problem.message : undefined;
+  const live = (field: string) => preview.problems?.find((p) => p.field === field)?.message;
+  const zone = input.timezone.trim() || 'UTC';
+  // AFS-150: the hints name the zone only when it is one: a wrong one is said at its own field.
+  const zoneWords = live('timezone') || !knownZone(zone) ? 'the time zone above' : zone;
+  const onceIso = input.kind === 'once' && knownZone(zone) ? zonedToIso(input.onceAt, zone) : '';
   return (
     <Form
       open
@@ -227,20 +263,28 @@ function ScheduleForm({
             required
             spellCheck={false}
             problem={live('cron')}
-            hint={`minute hour day month weekday, in ${input.timezone.trim() || 'UTC'}: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute.`}
+            hint={`minute hour day month weekday, in ${zoneWords}: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute.`}
           />
           <CronPreview times={preview.times} />
         </>
       ) : (
-        <Field
-          label="At"
-          name="onceAt"
-          type="datetime-local"
-          value={input.onceAt}
-          onChange={set('onceAt')}
-          required
-          hint={`In ${input.timezone.trim() || 'UTC'}.`}
-        />
+        <>
+          <Field
+            label="At"
+            name="onceAt"
+            type="datetime-local"
+            value={input.onceAt}
+            onChange={set('onceAt')}
+            required
+            hint={`In ${zoneWords}.`}
+          />
+          {/* AFS-150: as a cron's next times are: the moment in this browser's time. */}
+          {onceIso && (
+            <p className="muted" role="status">
+              In your time: <Time at={onceIso} />
+            </p>
+          )}
+        </>
       )}
       <div className="field">
         <label htmlFor={ids.mode}>Mode</label>
@@ -258,20 +302,30 @@ function ScheduleForm({
         pattern={COMMIT_PATTERN}
         title={COMMIT_TITLE}
         spellCheck={false}
-        hint="As shown here (12 digits) or in full. Empty: the newest commit of the configuration's branch when it fires."
+        hint={`As shown here (12 digits) or in full. Empty: ${takes.pinned ? `the configuration's pinned commit (${takes.pinned.slice(0, 12)})` : `the newest commit of ${takes.branch} when it fires`}.`}
       />
       {fields.length > 0 && (
         <fieldset>
           <legend>Inputs</legend>
-          <p className="muted">Empty: the configuration's start value.</p>
           {fields.map((f) => (
             <Field
               key={f.name}
               label={f.name}
+              // AFS-150: a refusal about this input is shown at it.
+              name={`inputs.${f.name}`}
               value={inputs[f.name] ?? ''}
               placeholder={f.text}
               onChange={(e) => setInputs({ ...inputs, [f.name]: e.target.value })}
-              hint={f.description}
+              hint={[
+                f.description,
+                f.text
+                  ? "Empty: the configuration's start value."
+                  : f.required
+                    ? 'Needed: there is no start value.'
+                    : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
             />
           ))}
         </fieldset>
@@ -346,11 +400,13 @@ function HandOver({
 export function SchedulesSection({
   config,
   form,
+  takes,
   mayManage,
   me,
 }: {
   config: string;
   form?: LaunchForm;
+  takes: Takes;
   mayManage: boolean;
   me: User;
 }) {
@@ -409,6 +465,7 @@ export function SchedulesSection({
         <ScheduleForm
           config={config}
           form={form}
+          takes={takes}
           onDone={done}
           onCancel={() => setOpen(undefined)}
         />
@@ -469,8 +526,15 @@ export function SchedulesSection({
                 <>
                   , pinned to <code>{s.commit.slice(0, 12)}</code>
                 </>
+              ) : takes.pinned ? (
+                // AFS-150: the schedule follows the configuration's pin.
+                <>
+                  , the configuration's pinned commit <code>{takes.pinned.slice(0, 12)}</code>
+                </>
               ) : (
-                ', newest commit'
+                <>
+                  , newest commit of <code>{takes.branch}</code>
+                </>
               )}
               {Object.keys(s.inputs).length > 0 && `, inputs ${Object.keys(s.inputs).join(', ')}`}
               <div className="muted">
@@ -539,6 +603,7 @@ export function SchedulesSection({
             <ScheduleForm
               config={config}
               form={form}
+              takes={takes}
               editing={s}
               onDone={done}
               onCancel={() => setOpen(undefined)}

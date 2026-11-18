@@ -25,7 +25,7 @@ export interface FilesRouteDeps {
   archiveMaxBytes?: number;
 }
 
-const STATUS = { invalid: 422, not_found: 404, conflict: 409 } as const;
+const STATUS = { invalid: 422, not_found: 404, conflict: 409, replaces: 409 } as const;
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
 const COMMIT = { type: 'string', pattern: '^[0-9a-f]{40}$' };

@@ -914,10 +914,27 @@ textarea {
   font-family: var(--mono);
   resize: vertical;
 }
-.field.invalid input,
-.field.invalid select,
-.field.invalid textarea {
+.field.invalid > input,
+.field.invalid > select,
+.field.invalid > textarea,
+.field [aria-invalid="true"] {
   border-color: var(--bad);
+}
+/* AFS-150: a field's other parts (a file chooser in its hint) are not marked with it. */
+.field.invalid .file-pick input {
+  border-color: var(--input-border);
+}
+/* AFS-150: rows of fields (a credential's variables) in fixed columns, tops aligned: a problem
+   under one field adds height under it and moves nothing beside it. */
+.variable-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: start;
+  margin-bottom: 0.6rem;
+}
+.label-space {
+  font-size: 14px;
 }
 .facts .fact {
   display: contents;
@@ -2098,7 +2115,11 @@ section + .columns,
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 5rem;
   gap: 0.6rem;
-  align-items: center;
+  /* AFS-150: tops aligned, so a problem under a version leaves the name and Remove on its line. */
+  align-items: start;
+}
+.spec-row > button {
+  min-height: 2.5rem;
 }
 .spec-head {
   font-size: 13px;

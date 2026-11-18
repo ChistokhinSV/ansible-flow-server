@@ -50,8 +50,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
   `community.general.doas`; the form offers the usual ones), a registry host is a host name with a
   port if needed and no `https://` or path, an AWX address starts with `https://` or `http://`, a
   vault id is one word. A private key is the whole key, from `-----BEGIN` to the `-----END` line.
-  The form checks these before sending and says a problem at its field; two variables of one name
-  are refused there too.
+  The form checks these before sending and says a problem at its field; two variables of one name,
+  and a variable with no value (refused by the server too), are refused there too.
 - **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
   the values. To change a secret, send it again whole.
 - **An AWX token** (kind `awx`, **AWX token** in the form): the address of an AWX or Automation
@@ -80,7 +80,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
   administrator who knows why it changed presses **Accept the new host key**
   (`POST /projects/:id/host-key/forget`), and the next look trusts the key it finds.
   `GET /projects/:id/host-key` gives the fingerprints.
-- A credential a project uses is not deleted until the project has another.
+- A credential a project uses is not deleted until the project has another. Administrators see
+  what uses each credential by name (`uses` in the list), with a link to it.
 - With authorities of your own (`AFS_CA_FILE`), the server's git trusts them too.
 
 | Command          | Does                                                                                                                                              |

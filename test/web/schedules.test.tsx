@@ -219,6 +219,60 @@ describe('schedules of a launch configuration', () => {
     });
   });
 
+  it('AFS-150: the pin it follows, every problem at its field, At in your time', async () => {
+    routes = {
+      ...page(dana, () => [weekdays]),
+      'GET /launch-configs/c1': () => ({ body: { ...config, commit: COMMIT } }),
+      [`GET /schedule-times?${new URLSearchParams({ cron: '61 * * * *', timezone: 'Mars/Base', check: '1' })}`]:
+        () => ({
+          body: {
+            times: [],
+            problems: [
+              { field: 'timezone', message: 'There is no time zone "Mars/Base"' },
+              { field: 'cron', message: 'The minute part is out of range' },
+            ],
+          },
+        }),
+      'POST /launch-configs/c1/schedules': () => ({
+        status: 400,
+        body: { error: 'invalid', message: 'devices is required', field: 'inputs.devices' },
+      }),
+    };
+    show(dana);
+    const box = await section();
+    // A schedule with no commit of its own runs the configuration's pinned one, and says so.
+    const one = await within(box).findByRole('article', { name: 'Weekdays at three' });
+    expect(one.textContent).toContain("the configuration's pinned commit 9f2c1e7ab3d4");
+    expect(one.textContent).not.toContain('newest commit');
+
+    fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
+    expect(
+      within(box).getByText(/Empty: the configuration's pinned commit \(9f2c1e7ab3d4\)/),
+    ).toBeTruthy();
+    fireEvent.change(within(box).getByLabelText('Name'), { target: { value: 'Bad' } });
+    fireEvent.change(within(box).getByLabelText('Time zone'), { target: { value: 'Mars/Base' } });
+    fireEvent.change(within(box).getByLabelText('Cron'), { target: { value: '61 * * * *' } });
+    // Both wrong: both said at once, each at its field; the cron's hint does not repeat the zone.
+    await waitFor(() =>
+      expect(within(box).getByLabelText('Cron').getAttribute('aria-invalid')).toBe('true'),
+    );
+    expect(within(box).getByLabelText('Time zone').getAttribute('aria-invalid')).toBe('true');
+    expect(within(box).getByText(/in the time zone above/)).toBeTruthy();
+
+    // A refusal about an input is said at that input.
+    fireEvent.change(within(box).getByLabelText('Time zone'), { target: { value: 'UTC' } });
+    fireEvent.change(within(box).getByLabelText('Cron'), { target: { value: '0 3 * * *' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
+    const devices = within(box).getByLabelText('devices');
+    await waitFor(() => expect(devices.getAttribute('aria-invalid')).toBe('true'));
+    expect(within(box).queryByRole('alert')).toBeNull();
+
+    // A one-time At shows the moment in this browser's time.
+    fireEvent.change(within(box).getByLabelText('Runs'), { target: { value: 'once' } });
+    fireEvent.change(within(box).getByLabelText('At'), { target: { value: '2026-12-01T04:00' } });
+    expect(within(box).getByText(/^In your time:/)).toBeTruthy();
+  });
+
   it("works a zone's wall time out to the moment, summer time included (AFS-139)", () => {
     expect(zonedToIso('2026-12-01T04:00', 'UTC')).toBe('2026-12-01T04:00:00.000Z');
     expect(zonedToIso('2026-12-01T04:00', 'Europe/Berlin')).toBe('2026-12-01T03:00:00.000Z');

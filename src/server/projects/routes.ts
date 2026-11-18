@@ -283,6 +283,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
 
   type ProjectChangeBody = {
     name?: string;
+    description?: string | null;
     gitUrl?: string;
     gitCredential?: string | null;
     gitRef?: string;
@@ -296,6 +297,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         ...ID,
         ...body([], {
           name: text(200, 1),
+          description: { type: ['string', 'null'], maxLength: 2000 },
           gitUrl: text(2000, 1),
           gitCredential: { type: ['string', 'null'], minLength: 1, maxLength: 64 },
           gitRef: text(200, 1),
