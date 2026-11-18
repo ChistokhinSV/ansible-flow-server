@@ -17,6 +17,7 @@ export type DraftNotice =
   | { type: 'afs-draft-people'; people: { login: string; name: string }[] }
   | { type: 'afs-draft-edit'; by: string; steps: string[] }
   | { type: 'afs-draft-saved'; commit?: string; by?: string }
+  | { type: 'afs-draft-saving'; by: string; sent: boolean }
   | { type: 'afs-draft-gone'; by?: string }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
   | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } }
@@ -90,6 +91,17 @@ export function editDraft(options: {
   events.addEventListener('people', (e) =>
     tellPage({ type: 'afs-draft-people', people: JSON.parse((e as MessageEvent).data) }),
   );
+  // AFS-136: someone else is about to save: what is being typed here is sent first (leaving a
+  // field commits it), and the page says so.
+  events.addEventListener('saving', (e) => {
+    const news = JSON.parse((e as MessageEvent).data) as { by?: { login: string; name: string } };
+    if (!news.by || news.by.login === me) return;
+    const typing = document.activeElement as HTMLElement | null;
+    const sent =
+      !!typing && typing !== document.body && /^(INPUT|TEXTAREA|SELECT)$/.test(typing.tagName);
+    typing?.blur();
+    tellPage({ type: 'afs-draft-saving', by: news.by.name, sent });
+  });
   events.addEventListener('saved', (e) => {
     const news = JSON.parse((e as MessageEvent).data) as { commit?: string; by?: { name: string } };
     events.close();

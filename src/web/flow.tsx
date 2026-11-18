@@ -106,6 +106,7 @@ export function FlowPage({
         level?: string;
         at?: { x: number; y: number };
         what?: string;
+        sent?: boolean;
       } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
       if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
@@ -115,6 +116,10 @@ export function FlowPage({
         setEdits((e) => [{ by, steps, at: new Date().toISOString() }, ...e].slice(0, 5));
         setChanged((n) => n + 1);
       }
+      if (data?.type === 'afs-draft-saving')
+        setSaid(
+          `${data.by ?? 'Someone'} is saving the draft${data.sent ? ': what you were typing is in it' : ''}.`,
+        );
       if (data?.type === 'afs-draft-saved')
         stop.current(
           `${data.by ?? 'Someone'} saved the draft${data.commit ? ` as ${data.commit.slice(0, 12)}` : ''}.`,
@@ -406,7 +411,7 @@ function DraftBar({
     if (
       people.length &&
       !window.confirm(
-        `${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too. Saving makes the commit and ends the draft for everyone: what they are typing and have not left yet is not in it. Save now?`,
+        `${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too. Saving makes the commit and ends the draft for everyone (what they are typing is sent first). Save now?`,
       )
     )
       return;

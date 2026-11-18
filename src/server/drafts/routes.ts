@@ -27,6 +27,8 @@ import { DraftError, type DraftNews, type Drafts, type Editor } from './drafts';
 
 /** How long "I am here" lasts without another. */
 const HERE_MS = 45_000;
+/** AFS-136: how long a save waits for the other editors to send what they are typing. */
+const FLUSH_MS = 1_200;
 /** How often a stream reads the draft's revision (an edit made through another server). */
 const LOOK_MS = 1_500;
 const KEEP_ALIVE_MS = 25_000;
@@ -61,12 +63,19 @@ export function registerDrafts(
     db: Kysely<Schema>;
     drafts: Drafts;
     catalog?: { get(image?: string): CatalogState; retry(image?: string): void };
+    /** How long a save waits for the others' typing (tests: shorter). */
+    flushMs?: number;
   },
 ): void {
   const { drafts } = deps;
   /** Who is in each draft (this server's pages; a page says so again every half minute). */
   const here = new Map<string, Map<string, Person>>();
   const peopleListeners = new Map<string, Set<(people: Person[]) => void>>();
+  /**
+   * AFS-136: told when someone is about to save a draft others are in: their pages send what is
+   * being typed (a field commits when it is left) before the commit is made.
+   */
+  const savingListeners = new Map<string, Set<(by: { login: string; name: string }) => void>>();
   const people = (id: string) => {
     const at = Date.now();
     const room = here.get(id);
@@ -212,6 +221,10 @@ export function registerDrafts(
       const onPeople = (list: Person[]) => send('people', list);
       peopleSet.add(onPeople);
       peopleListeners.set(id, peopleSet);
+      const savingSet = savingListeners.get(id) ?? new Set();
+      const onSaving = (by: { login: string; name: string }) => send('saving', { by });
+      savingSet.add(onSaving);
+      savingListeners.set(id, savingSet);
       // An edit made through another server is seen here by its revision; a draft saved or
       // discarded there is gone here.
       const looking = setInterval(() => {
@@ -230,6 +243,7 @@ export function registerDrafts(
         open = false;
         unsubscribe();
         peopleSet.delete(onPeople);
+        savingSet.delete(onSaving);
         clearInterval(looking);
         clearInterval(alive);
         streams.delete(raw);
@@ -344,6 +358,13 @@ export function registerDrafts(
           .where('id', '=', me.id)
           .executeTakeFirst()
       )?.email;
+      // AFS-136: the others in the draft send what they are typing first, then it is saved.
+      const others = people(request.params.id).filter((p) => p.login !== me.login);
+      const listening = savingListeners.get(request.params.id);
+      if (others.length && listening?.size) {
+        for (const l of listening) l({ login: me.login, name: me.name });
+        await new Promise((resolve) => setTimeout(resolve, deps.flushMs ?? FLUSH_MS));
+      }
       try {
         return await drafts.save(request.params.id, { ...editorOf(me), email }, request.body ?? {});
       } catch (e) {

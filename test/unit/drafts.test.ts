@@ -182,9 +182,35 @@ describe('editing a flow together', () => {
   });
 
   it('Save is one commit on the branch by the saver, with the other as co-author', async () => {
+    // AFS-136: Omar is in the draft: he hears "saving" before the commit is made, so his page
+    // sends what he is typing.
+    await call('omar', 'POST', `/drafts/${draft}/here`, {});
+    await call('mia', 'POST', `/drafts/${draft}/here`, {});
+    const stream = await fetch(`${api()}/drafts/${draft}/events`, {
+      headers: { authorization: `Bearer ${tokens.omar}` },
+    });
+    const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
+    const heard: string[] = [];
+    const listening = (async () => {
+      let buffer = '';
+      while (!heard.includes('saved')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += new TextDecoder().decode(value);
+        const cut = buffer.lastIndexOf('\n\n');
+        if (cut < 0) continue;
+        for (const m of buffer.slice(0, cut).matchAll(/^event: (.*)$/gm))
+          if (m[1]) heard.push(m[1]);
+        buffer = buffer.slice(cut + 2);
+      }
+    })();
     const saved = await call('mia', 'POST', `/drafts/${draft}/save`, {
       message: 'Friendlier titles',
     });
+    await Promise.race([listening, new Promise((r) => setTimeout(r, 3000))]);
+    await reader.cancel().catch(() => undefined);
+    expect(heard.indexOf('saving')).toBeGreaterThan(-1);
+    expect(heard.indexOf('saving')).toBeLessThan(heard.indexOf('saved'));
     expect(saved.status).toBe(200);
     const commit = saved.json.commit as string;
     const git = (...args: string[]) =>
