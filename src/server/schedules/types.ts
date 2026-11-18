@@ -29,7 +29,15 @@ export interface Schedule {
   next?: string;
   /** The next few times, for people to check the cron reads as they meant. */
   upcoming: string[];
-  last?: { at: string; result: FireResult; detail?: string; run?: string };
+  last?: {
+    at: string;
+    result: FireResult;
+    detail?: string;
+    run?: string;
+    /** AFS-139: the run it launched as it stands now (its number and state), while it is kept. */
+    runNumber?: number;
+    runState?: string;
+  };
   createdBy: string;
   createdAt: string;
   updatedAt: string;

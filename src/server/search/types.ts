@@ -17,4 +17,6 @@ export interface SearchHit {
   detail: string;
   /** The page it opens. */
   to: string;
+  /** AFS-139: when it happened (a run: when it was made), shown in the viewer's time zone. */
+  at?: string;
 }

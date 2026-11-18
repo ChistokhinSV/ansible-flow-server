@@ -714,6 +714,11 @@ describe('signed in', () => {
         body: [edge, started ? { ...lab, commit: 'a'.repeat(40), sync: { state: 'ok' } } : lab],
       }),
       'GET /samples': () => ({ body: samples }),
+      'GET /projects/p2/branches': () => ({
+        body: started
+          ? { branches: ['main'], details: [{ name: 'main', commit: 'a'.repeat(40) }] }
+          : { branches: [], details: [] },
+      }),
       'POST /projects/p2/start': (body) => {
         sent.push(body);
         started = true;
@@ -736,6 +741,10 @@ describe('signed in', () => {
       expect(screen.queryByRole('heading', { name: 'Start this project' })).toBeNull(),
     );
     expect(sent).toEqual([{ sample: 'edge-baseline' }]);
+    // AFS-139: the Branches tab counts the branch the start made, with no reload.
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Branches/ }).textContent).toMatch(/1/),
+    );
 
     navigate('/w/network');
     fireEvent.click(await screen.findByRole('button', { name: 'Add project' }));

@@ -1,7 +1,9 @@
 // Schedules (AFS-34): a launch configuration run on a cron, in a time zone, or once at a set time.
 // Kept in the database with the time each fires next; the scheduler looks every half minute for
-// the ones due, takes each by moving its next time on (so two servers never fire one twice), and
-// launches it as its owner, whose grants are checked then and there, not when it was made.
+// the ones due, and wakes at the next one's time when that comes sooner (AFS-139: a fire on time,
+// not up to half a minute late), takes each by moving its next time on (so two servers never fire
+// one twice), and launches it as its owner, whose grants are checked then and there, not when it
+// was made.
 //   After downtime (a fire found more than two minutes late): one catch-up run, or none (`missed`).
 //   While its last run has not ended: skip this fire, or queue another behind it (`overlap`).
 //   The commit: the newest on the configuration's branch when it fires, or a pinned one.
@@ -216,6 +218,9 @@ export interface ScheduleDeps extends PrepareDeps {
 export class Schedules {
   private readonly configs: LaunchConfigs;
   private timer?: NodeJS.Timeout;
+  /** AFS-139: the look at the next schedule's time, when it comes before the round's. */
+  private waking?: NodeJS.Timeout;
+  private everyMs = 30_000;
   private ticking?: Promise<number>;
 
   constructor(private readonly deps: ScheduleDeps) {
@@ -233,7 +238,28 @@ export class Schedules {
       .where('config_id', '=', configId)
       .orderBy('name')
       .execute();
-    return rows.map((r) => of(r));
+    return this.withRuns(rows.map((r) => of(r)));
+  }
+
+  /**
+   * AFS-139: the last fire's run as it stands now: the fire's own words ("Run 4 queued") are of
+   * that moment, and the run went on since.
+   */
+  private async withRuns(list: Schedule[]): Promise<Schedule[]> {
+    const ids = list.flatMap((s) => (s.last?.run ? [s.last.run] : []));
+    if (!ids.length) return list;
+    const runs = await this.db
+      .selectFrom('run')
+      .select(['id', 'number', 'state'])
+      .where('id', 'in', ids)
+      .execute();
+    const byId = new Map(runs.map((r) => [r.id, r]));
+    return list.map((s) => {
+      const run = s.last?.run ? byId.get(s.last.run) : undefined;
+      return run && s.last
+        ? { ...s, last: { ...s.last, runNumber: run.number, runState: run.state } }
+        : s;
+    });
   }
 
   private row(id: string): Promise<Row | undefined> {
@@ -242,7 +268,7 @@ export class Schedules {
 
   async get(id: string): Promise<Schedule | undefined> {
     const row = await this.row(id);
-    return row ? of(row) : undefined;
+    return row ? (await this.withRuns([of(row)]))[0] : undefined;
   }
 
   /**
@@ -304,6 +330,7 @@ export class Schedules {
       updated_at: iso(now),
     };
     await this.db.insertInto('schedule').values(row).execute();
+    this.wake();
     return of(row, now);
   }
 
@@ -355,7 +382,8 @@ export class Schedules {
       ...(change.owner ? { owner_id: change.owner.id, owner_login: change.owner.login } : {}),
     };
     await this.db.updateTable('schedule').set(set).where('id', '=', id).execute();
-    return of((await this.row(id)) as Row, now);
+    this.wake();
+    return (await this.withRuns([of((await this.row(id)) as Row, now)]))[0] as Schedule;
   }
 
   /** Someone a schedule may be handed to. */
@@ -376,21 +404,53 @@ export class Schedules {
 
   // --- firing
 
-  /** Looks for due schedules now, then every `everyMs`. */
+  /** Looks for due schedules now, then every `everyMs`, and at the next one's time. */
   start(everyMs = 30_000): void {
-    const look = () => {
-      this.ticking ??= this.tick().finally(() => {
-        this.ticking = undefined;
-      });
-      void this.ticking.catch((e) => this.deps.log.error({ err: e }, 'Firing schedules failed'));
-    };
-    look();
-    this.timer = setInterval(look, everyMs);
+    this.everyMs = everyMs;
+    this.look();
+    this.timer = setInterval(() => this.look(), everyMs);
     this.timer.unref();
+  }
+
+  private look(): void {
+    this.ticking ??= this.tick().finally(() => {
+      this.ticking = undefined;
+      this.wake();
+    });
+    void this.ticking.catch((e) => this.deps.log.error({ err: e }, 'Firing schedules failed'));
+  }
+
+  /**
+   * AFS-139: looks again at the time the next schedule is due, when that comes before the next
+   * look of the half-minute round (a cron at 01:50:00 fires then, not at 01:50:21).
+   */
+  private wake(): void {
+    if (!this.timer) return;
+    void this.db
+      .selectFrom('schedule')
+      .select((eb) => eb.fn.min('next_at').as('next'))
+      .where('enabled', '=', 1)
+      .executeTakeFirst()
+      .then((row) => {
+        if (!this.timer) return;
+        clearTimeout(this.waking);
+        this.waking = undefined;
+        const next = row?.next ? Date.parse(String(row.next)) : Number.NaN;
+        if (Number.isNaN(next)) return;
+        const wait = next - Date.now();
+        if (wait >= this.everyMs) return;
+        // One due now that the last look did not take (it failed) is looked at again in a second.
+        this.waking = setTimeout(() => this.look(), wait > 0 ? wait + 50 : 1000);
+        this.waking.unref();
+      })
+      .catch(() => undefined);
   }
 
   async stop(): Promise<void> {
     clearInterval(this.timer);
+    clearTimeout(this.waking);
+    this.timer = undefined;
+    this.waking = undefined;
     await this.ticking?.catch(() => undefined);
   }
 

@@ -200,7 +200,7 @@ for (const [name, config] of databases) {
         expect.arrayContaining([
           'flow Hello, Ansible',
           'launch-config Hello nightly',
-          `run Run ${runNumber} · Hello, Ansible`,
+          `run Hello, Ansible #${runNumber}`,
         ]),
       );
       expect(hello.some((h) => h.detail.startsWith('ops/'))).toBe(false);
@@ -222,7 +222,7 @@ for (const [name, config] of databases) {
     it('a grant on one flow finds that flow and its runs, not the flow beside it', async () => {
       const kinds = (await find('omar', 'hello')).map((h) => `${h.kind} ${h.title}`);
       expect(kinds).toContain('flow Hello, Ansible');
-      expect(kinds).toContain(`run Run ${runNumber} · Hello, Ansible`);
+      expect(kinds).toContain(`run Hello, Ansible #${runNumber}`);
       expect(await find('omar', 'backup')).toEqual([]);
     });
 
@@ -230,6 +230,8 @@ for (const [name, config] of databases) {
       expect((await find('rita', `#${runNumber}`))[0]).toMatchObject({
         kind: 'run',
         to: expect.stringMatching(/^\/runs\//),
+        // AFS-139: the time as a time, for the page to show in the viewer's zone.
+        at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
       });
       expect((await find('rita', `run ${runNumber}`))[0]).toMatchObject({ kind: 'run' });
       const people = await find('dana', 'omar');

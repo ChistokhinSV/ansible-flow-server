@@ -831,7 +831,8 @@ export function EnvironmentCheck({
                 {c.environment.ansibleCore ? ` (ansible-core ${c.environment.ansibleCore})` : ''}.
               </>
             ) : (
-              '. The configuration has no environment to check against.'
+              // AFS-139: said as the run and What would run say it: the server's default image.
+              ". The configuration names no environment: its runs use the server's default image, which is not checked here."
             )}
           </p>
           {c.lines.length === 0 ? (

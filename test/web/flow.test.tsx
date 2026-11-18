@@ -117,6 +117,25 @@ describe("a flow's page", () => {
     expect(screen.getByTitle(/on the designer's canvas/)).toBeTruthy();
   });
 
+  it('reads its Latest runs again when the canvas launches a run or one ends (AFS-139)', async () => {
+    let list = [run(1, 'succeeded')];
+    routes = {
+      ...common('ro'),
+      'GET /projects/p1/launch-configs': () => ({ body: [config('c1', 'Nightly check')] }),
+      [RUNS]: () => ({ body: list }),
+    };
+    show();
+    await screen.findByRole('link', { name: '#1 went well' });
+    list = [run(2, 'succeeded'), run(1, 'succeeded')];
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'afs-flow-runs' },
+        origin: window.location.origin,
+      }),
+    );
+    await screen.findByRole('link', { name: '#2 went well' });
+  });
+
   it('offers who has rw to add a configuration for this flow when there is none', async () => {
     routes = {
       ...common('rw'),

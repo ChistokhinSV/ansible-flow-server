@@ -11,11 +11,11 @@
 // When someone changes the flow on the branch, a bar says so (AFS-75, viewerChanges.ts).
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
-import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
 import { askName, chooseConfig, launcher } from './viewerLaunch';
+import { going, pastRunOf, type RunRecord, runnerOf } from './viewerRuns';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? '';
@@ -41,31 +41,6 @@ const get = (url: string) =>
     status: reply.status,
     data: await reply.json().catch(() => undefined),
   }));
-
-/** A run as the designer's run list shows it. */
-interface RunRecord {
-  id: string;
-  mode: 'check' | 'real';
-  state: string;
-  createdAt: string;
-  startedAt?: string;
-  flow: { version: number };
-  /** AFS-105: how many hosts it ran on and how many failed, once it went. */
-  hosts?: { total: number; failed: number };
-}
-/**
- * AFS-105: "ok" is the designer's "the run itself finished": a run that failed because hosts
- * failed did finish (its list line says how many); one stopped, lost or broken did not.
- */
-const pastRunOf = (run: RunRecord): PastRun => ({
-  id: run.id,
-  mode: run.mode,
-  startedAt: run.startedAt ?? run.createdAt,
-  ok: run.state === 'succeeded' || (run.state === 'failed' && (run.hosts?.failed ?? 0) > 0),
-  hosts: run.hosts?.total ?? 0,
-  failed: run.hosts?.failed ?? 0,
-  flowVersion: run.flow.version,
-});
 
 /** AFS-105: the person's level on the flow (its own, else the workspace's), as the server says. */
 interface ProjectAccess {
@@ -158,13 +133,27 @@ async function start(): Promise<void> {
   /** The run on the canvas now, for a step's host output and Stop. */
   let shown = runId;
   let stream: EventSource | undefined;
+  /** AFS-139: the flow's runs as last read, newest first. */
+  let known: RunRecord[] = [];
+  /** AFS-139: tells the page around the frame that the flow's runs changed (Latest runs). */
+  const runsChanged = () => {
+    if (window.parent !== window)
+      window.parent.postMessage({ type: 'afs-flow-runs' }, window.location.origin);
+  };
 
   /** Shows a run on the canvas: live while it goes, from its record once it ended. */
   const showRun = (id: string, past: boolean) => {
     shown = id;
     stream?.close();
-    stream = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
-    stream.addEventListener('view', (event) => {
+    const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
+    stream = events;
+    // AFS-139: the run's record (the events send it first) says where it ran and how it stands.
+    let record = known.find((r) => r.id === id);
+    let ended = !!record && !going(record.state);
+    events.addEventListener('run', (event) => {
+      record = JSON.parse((event as MessageEvent).data) as RunRecord;
+    });
+    events.addEventListener('view', (event) => {
       const view = JSON.parse((event as MessageEvent).data);
       void decidable(id, view).then((approvals) =>
         // Named by the server's run id, as the run list names it, so the canvas knows it there.
@@ -172,6 +161,7 @@ async function start(): Promise<void> {
           type: 'run',
           run: {
             ...view,
+            ...(record ? runnerOf(record) : {}),
             id,
             ...(approvals ? { approvals } : {}),
             ...(past ? { past: true } : {}),
@@ -179,7 +169,15 @@ async function start(): Promise<void> {
         }),
       );
     });
-    stream.addEventListener('end', () => stream?.close());
+    events.addEventListener('end', () => {
+      events.close();
+      // AFS-139: a run that ended while shown: the run list and the page's Latest runs say how.
+      if (!ended) {
+        ended = true;
+        void runs();
+        runsChanged();
+      }
+    });
   };
 
   /**
@@ -214,7 +212,19 @@ async function start(): Promise<void> {
     const list = await get(
       `/api/v1/runs?project=${encodeURIComponent(project)}&flow=${encodeURIComponent(path)}&limit=50`,
     ).catch(() => undefined);
-    if (list?.ok) send({ type: 'runs', runs: (list.data as RunRecord[]).map(pastRunOf) });
+    if (!list?.ok) return;
+    known = list.data as RunRecord[];
+    send({ type: 'runs', runs: known.map(pastRunOf) });
+  };
+  /**
+   * AFS-139: the flow page shows the flow's newest run on the canvas, the one its header lists
+   * first: live while it goes, else as it ended. Not on a run's page (it names its run) nor at
+   * an older commit.
+   */
+  const showLatest = async () => {
+    await runs();
+    const latest = known[0];
+    if (latest && !shown) showRun(latest.id, !going(latest.state));
   };
 
   const launch = launcher({
@@ -226,8 +236,8 @@ async function start(): Promise<void> {
     go,
     mayAddConfig: manage,
     launched: (id) => {
-      showRun(id, false);
-      void runs();
+      void runs().then(() => showRun(id, false));
+      runsChanged();
     },
   });
 
@@ -270,8 +280,11 @@ async function start(): Promise<void> {
             send({ type: 'config', testMode: false, viewer: true, embed } as HostMessage);
             send({ type: 'catalogStatus', status: { state: 'idle' } });
             send({ type: 'snapshot', snapshot: flow.data.snapshot });
-            void runs();
-            if (runId) showRun(runId, false);
+            if (runId) {
+              void runs();
+              showRun(runId, false);
+            } else if (commit) void runs();
+            else void showLatest();
             return;
           case 'run':
             // AFS-67: the designer's launch dialog, backed by a launch configuration of the flow.
@@ -301,7 +314,8 @@ async function start(): Promise<void> {
             following.compareWith(message.ref);
             return;
           case 'showRun':
-            showRun(message.id, true);
+            // AFS-139: a run picked from the list that has not ended is followed live.
+            showRun(message.id, !going(known.find((r) => r.id === message.id)?.state));
             return;
           case 'openLink':
             // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.

@@ -19,7 +19,7 @@ import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import { ago, Breadcrumb, Loading, PageHead, span, Time, useLoad } from './ui';
 
-const ACTIVE = ['queued', 'running', 'waiting'];
+export const ACTIVE = ['queued', 'running', 'waiting'];
 /** How many runs the list asks for at once. */
 const PAGE = 100;
 /** The output a page keeps; the rest is in the run's output file. */
@@ -747,7 +747,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     return () => clearTimeout(timer);
   }, [shownOutput]);
 
-  const title = run ? `${run.flow.name} · run ${run.number}` : 'Run';
+  // AFS-139: a run is named as everywhere else: its flow and #number.
+  const title = run ? `${run.flow.name} #${run.number}` : 'Run';
   useEffect(() => {
     document.title = `${title} · Ansible Flow Server`;
   }, [title]);
@@ -813,7 +814,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 <Link to="/runs">Runs</Link> /{' '}
               </>
             )}
-            <span aria-current="page">run {run.number}</span>
+            <span aria-current="page">#{run.number}</span>
           </Breadcrumb>
           <h1>{title}</h1>
           <p>

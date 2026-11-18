@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { User } from '../../src/web/api';
 import { LaunchConfigPage } from '../../src/web/launch';
+import { zonedInput, zonedToIso } from '../../src/web/schedules';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -151,7 +152,7 @@ describe('schedules of a launch configuration', () => {
     fireEvent.change(within(box).getByLabelText('Name'), { target: { value: 'Mornings' } });
     fireEvent.change(within(box).getByLabelText('Cron'), { target: { value: '30 6 * * *' } });
     fireEvent.change(within(box).getByLabelText('Time zone'), { target: { value: 'UTC' } });
-    expect(await within(box).findByText(/^Next:/)).toBeTruthy();
+    expect(await within(box).findByText(/^Next, in your time:/)).toBeTruthy();
     // Secret inputs are not offered: a schedule keeps none.
     expect(within(box).queryByLabelText('api_password')).toBeNull();
     fireEvent.change(within(box).getByLabelText('retries'), { target: { value: '5' } });
@@ -183,6 +184,64 @@ describe('schedules of a launch configuration', () => {
     await waitFor(() =>
       expect(sent('PATCH /launch-configs/c1/schedules/s1').at(-1)).toEqual({ owner: 'u3' }),
     );
+  });
+
+  it('a one-time At is on the clocks of the time zone given (AFS-139)', async () => {
+    let list: Record<string, unknown>[] = [];
+    routes = {
+      ...page(dana, () => list),
+      'POST /launch-configs/c1/schedules': (body) => {
+        list = [{ ...weekdays, id: 's3', ...(body as object), kind: 'once', upcoming: [] }];
+        return { status: 201, body: list[0] };
+      },
+    };
+    show(dana);
+    const box = await section();
+    fireEvent.click(await within(box).findByRole('button', { name: 'Add schedule' }));
+    fireEvent.change(within(box).getByLabelText('Name'), { target: { value: 'Once' } });
+    fireEvent.change(within(box).getByLabelText('Runs'), { target: { value: 'once' } });
+    fireEvent.change(within(box).getByLabelText('Time zone'), { target: { value: 'UTC' } });
+    expect(within(box).getByText('In UTC.')).toBeTruthy();
+    fireEvent.change(within(box).getByLabelText('At'), { target: { value: '2026-12-01T04:00' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
+    await within(box).findByRole('article', { name: 'Once' });
+    expect(sent('POST /launch-configs/c1/schedules').at(-1)).toMatchObject({
+      kind: 'once',
+      timezone: 'UTC',
+      onceAt: '2026-12-01T04:00:00.000Z',
+    });
+  });
+
+  it("works a zone's wall time out to the moment, summer time included (AFS-139)", () => {
+    expect(zonedToIso('2026-12-01T04:00', 'UTC')).toBe('2026-12-01T04:00:00.000Z');
+    expect(zonedToIso('2026-12-01T04:00', 'Europe/Berlin')).toBe('2026-12-01T03:00:00.000Z');
+    expect(zonedToIso('2026-07-01T04:00', 'Europe/Berlin')).toBe('2026-07-01T02:00:00.000Z');
+    expect(zonedToIso('2026-07-01T04:00', 'America/New_York')).toBe('2026-07-01T08:00:00.000Z');
+    expect(zonedToIso('', 'UTC')).toBe('');
+    expect(zonedInput('2026-07-01T02:00:00.000Z', 'Europe/Berlin')).toBe('2026-07-01T04:00');
+    expect(zonedInput('2026-12-01T04:00:00.000Z', 'UTC')).toBe('2026-12-01T04:00');
+  });
+
+  it("the last fire's run as it stands now, not as it was queued (AFS-139)", async () => {
+    routes = page(omar, () => [
+      {
+        ...weekdays,
+        last: {
+          at: '2026-11-13T02:00:00.000Z',
+          result: 'ok',
+          detail: 'Run 4 queued',
+          run: 'r4',
+          runNumber: 4,
+          runState: 'succeeded',
+        },
+      },
+    ]);
+    show(omar);
+    const box = await section();
+    const one = await within(box).findByRole('article', { name: 'Weekdays at three' });
+    expect(within(one).getByRole('link', { name: '#4' }).getAttribute('href')).toBe('/runs/r4');
+    expect(within(one).queryByText('Run 4 queued')).toBeNull();
+    expect(within(one).getByText('went well')).toBeTruthy();
   });
 
   it('an operator reads them and changes nothing', async () => {

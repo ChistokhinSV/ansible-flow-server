@@ -1,10 +1,13 @@
 // Schedules on a launch configuration's page (AFS-34): when it runs by itself, with the next times
 // and how the last fire went; rw on the flow adds, changes, pauses and deletes them; an
 // administrator hands one to a service account. The cron's next times are shown as it is typed.
+// AFS-139: a schedule's rule is in its own time zone (a cron, a one-time At); every time the page
+// shows is in this browser's zone, named. The list follows fires and their runs while it is open.
 import { useEffect, useId, useState } from 'react';
 import { api, type LaunchForm, type Schedule, type ScheduleInput, type User } from './api';
 import { Link } from './router';
-import { Field, Loading, messageOf, Time, useLoad } from './ui';
+import { ACTIVE, RunWords } from './runs';
+import { browserZone, Field, Loading, messageOf, Time, useLoad, useRefresh } from './ui';
 
 const RESULT_TONE: Record<string, string> = {
   ok: 'ok',
@@ -18,13 +21,56 @@ const RESULT_LABEL: Record<string, string> = {
   refused: 'refused',
   failed: 'failed',
 };
-const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-/** A `datetime-local` value for a time, in this browser's zone. */
-const localInput = (iso?: string) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-};
+
+/** How far (ms) a time zone's clocks are ahead of UTC at a moment; 0 for a zone Intl lacks. */
+function zoneOffset(zone: string, at: number): number {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(new Date(at));
+  } catch {
+    return 0;
+  }
+  const n = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const wall = Date.UTC(
+    n('year'),
+    n('month') - 1,
+    n('day'),
+    n('hour') % 24,
+    n('minute'),
+    n('second'),
+  );
+  return wall - Math.floor(at / 1000) * 1000;
+}
+
+/**
+ * AFS-139: the moment a `datetime-local` value ("2026-11-19T04:00") names on the clocks of
+ * `zone`, as an ISO time; '' when it is no time. Summer time is followed: the offset is the one
+ * the zone has then, worked out twice for a time near a change.
+ */
+export function zonedToIso(local: string, zone: string): string {
+  const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(local);
+  if (!m) return '';
+  const [y, mo, d, h, mi] = m.slice(1).map(Number) as [number, number, number, number, number];
+  const wall = Date.UTC(y, mo - 1, d, h, mi);
+  const first = wall - zoneOffset(zone, wall);
+  return new Date(wall - zoneOffset(zone, first)).toISOString();
+}
+
+/** AFS-139: a `datetime-local` value for a time, on the clocks of `zone`. */
+export function zonedInput(iso: string | undefined, zone: string): string {
+  const at = iso ? Date.parse(iso) : Number.NaN;
+  if (Number.isNaN(at)) return '';
+  return new Date(at + zoneOffset(zone, at)).toISOString().slice(0, 16);
+}
 
 /** The next times a cron fires, looked up as it is typed (a moment after the last key). */
 function CronPreview({ cron, timezone }: { cron: string; timezone: string }) {
@@ -48,7 +94,7 @@ function CronPreview({ cron, timezone }: { cron: string; timezone: string }) {
   if (!state.times) return null;
   return (
     <p className="muted" role="status">
-      Next:{' '}
+      Next, in your time:{' '}
       {state.times.slice(0, 3).map((t, i) => (
         <span key={t}>
           {i > 0 && ', '}
@@ -77,7 +123,7 @@ function ScheduleForm({
     kind: editing?.kind ?? ('cron' as 'cron' | 'once'),
     cron: editing?.cron ?? '0 3 * * 1-5',
     timezone: editing?.timezone ?? browserZone(),
-    onceAt: localInput(editing?.onceAt),
+    onceAt: zonedInput(editing?.onceAt, editing?.timezone ?? browserZone()),
     mode: editing?.mode ?? '',
     commit: editing?.commit ?? '',
     missed: editing?.missed ?? 'once',
@@ -106,7 +152,8 @@ function ScheduleForm({
           timezone: input.timezone.trim(),
           ...(input.kind === 'cron'
             ? { cron: input.cron.trim() }
-            : { onceAt: input.onceAt ? new Date(input.onceAt).toISOString() : '' }),
+            : // AFS-139: At is on the clocks of the schedule's time zone, as its hint says.
+              { onceAt: zonedToIso(input.onceAt, input.timezone.trim() || 'UTC') }),
           mode: input.mode ? (input.mode as 'check' | 'real') : null,
           commit: input.commit.trim() || null,
           missed: input.missed as 'once' | 'skip',
@@ -133,6 +180,14 @@ function ScheduleForm({
           <option value="once">once, at a set time</option>
         </select>
       </div>
+      {/* AFS-139: the zone first: the cron and the At below are read on its clocks. */}
+      <Field
+        label="Time zone"
+        value={input.timezone}
+        onChange={set('timezone')}
+        required
+        hint={`Like Europe/Berlin or UTC: summer time is followed. Yours is ${browserZone()}.`}
+      />
       {input.kind === 'cron' ? (
         <>
           <Field
@@ -141,7 +196,7 @@ function ScheduleForm({
             onChange={set('cron')}
             required
             spellCheck={false}
-            hint="minute hour day month weekday: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute."
+            hint={`minute hour day month weekday, in ${input.timezone.trim() || 'UTC'}: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute.`}
           />
           {at('cron') && <p className="bad-text">{at('cron')}</p>}
           <CronPreview cron={input.cron} timezone={input.timezone} />
@@ -153,16 +208,9 @@ function ScheduleForm({
           value={input.onceAt}
           onChange={set('onceAt')}
           required
-          hint="In this browser's time zone."
+          hint={`In ${input.timezone.trim() || 'UTC'}.`}
         />
       )}
-      <Field
-        label="Time zone"
-        value={input.timezone}
-        onChange={set('timezone')}
-        required
-        hint="Like Europe/Berlin or UTC: summer time is followed."
-      />
       <div className="field">
         <label htmlFor={ids.mode}>Mode</label>
         <select id={ids.mode} value={input.mode} onChange={set('mode')}>
@@ -287,6 +335,27 @@ export function SchedulesSection({
   me: User;
 }) {
   const list = useLoad(() => api.schedules(config), [config]);
+  // AFS-139: live while open: read again when the next fire is due (Next moves on, Last says
+  // what it did), every few seconds while a fired run goes, and on coming back to the page.
+  useRefresh(list.reload);
+  const soonest = Math.min(
+    ...(list.data ?? []).flatMap((s) =>
+      s.enabled && s.upcoming[0] ? [Date.parse(s.upcoming[0])] : [],
+    ),
+  );
+  const runGoing = !!list.data?.some((s) => s.last?.runState && ACTIVE.includes(s.last.runState));
+  useEffect(() => {
+    if (!Number.isFinite(soonest)) return;
+    // A moment after the fire, for the server to have taken it; at most a day ahead.
+    const wait = Math.min(Math.max(soonest - Date.now() + 2000, 1000), 86_400_000);
+    const timer = setTimeout(list.reload, wait);
+    return () => clearTimeout(timer);
+  }, [soonest, list.reload]);
+  useEffect(() => {
+    if (!runGoing) return;
+    const timer = setInterval(list.reload, 5000);
+    return () => clearInterval(timer);
+  }, [runGoing, list.reload]);
   const [open, setOpen] = useState<'new' | string>();
   const [error, setError] = useState<string>();
   const done = () => {
@@ -354,6 +423,9 @@ export function SchedulesSection({
               ) : (
                 <>
                   once, <Time at={s.onceAt} />
+                  {s.timezone !== browserZone() && (
+                    <span className="muted"> (set in {s.timezone})</span>
+                  )}
                 </>
               )}
             </dd>
@@ -396,8 +468,18 @@ export function SchedulesSection({
                     {RESULT_LABEL[s.last.result] ?? s.last.result}
                   </span>{' '}
                   <Time at={s.last.at} />
-                  {s.last.detail && <div className="muted">{s.last.detail}</div>}
-                  {s.last.run && <Link to={`/runs/${s.last.run}`}>Open the run</Link>}
+                  {/* AFS-139: the run as it stands now; the fire's words were of that moment. */}
+                  {s.last.run && s.last.runState ? (
+                    <div>
+                      <Link to={`/runs/${s.last.run}`}>#{s.last.runNumber}</Link>{' '}
+                      <RunWords state={s.last.runState} />
+                    </div>
+                  ) : (
+                    <>
+                      {s.last.detail && <div className="muted">{s.last.detail}</div>}
+                      {s.last.run && <Link to={`/runs/${s.last.run}`}>Open the run</Link>}
+                    </>
+                  )}
                 </>
               ) : (
                 <span className="muted">not fired yet</span>

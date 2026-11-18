@@ -44,14 +44,19 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
 }
 
 /** What a page shows while it has nothing yet, or instead of it when loading failed. */
-export function Loading({ state }: { state: { loading: boolean; error?: string } }) {
+export function Loading({
+  state,
+}: {
+  state: { loading: boolean; error?: string; data?: unknown };
+}) {
   if (state.error)
     return (
       <p className="notice error" role="alert">
         {state.error}
       </p>
     );
-  return state.loading ? (
+  // AFS-139: a list read again (a refresh after an action, or on a timer) keeps what it shows.
+  return state.loading && state.data === undefined ? (
     <p className="muted" aria-live="polite">
       Loading…
     </p>
@@ -161,15 +166,68 @@ export function Copyable({ text, label }: { text: string; label: string }) {
   );
 }
 
-/** A time as people read it, with the exact time on hover. */
+/** This browser's time zone, as Intl names it (Europe/Berlin), or UTC. */
+export const browserZone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+/**
+ * AFS-139: a time as people read it, in this browser's time zone and naming it ("18/11/2026,
+ * 01:44:21 CET"): every page shows times in that one zone, said, never a bare UTC or local time.
+ */
+export function formatTime(at: string | Date, locale?: string): string {
+  const date = typeof at === 'string' ? new Date(at) : at;
+  if (Number.isNaN(date.getTime())) return String(at);
+  return date.toLocaleString(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+/** A time as people read it (formatTime), with the exact time in UTC on hover. */
 export function Time({ at }: { at?: string }) {
   if (!at) return <span className="muted">never</span>;
   const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return <span>{at}</span>;
   return (
-    <time dateTime={at} title={date.toISOString()}>
-      {date.toLocaleString()}
+    <time dateTime={at} title={`${date.toISOString().slice(0, 19).replace('T', ' ')} UTC`}>
+      {formatTime(date)}
     </time>
   );
+}
+
+/**
+ * AFS-139: reads a list again when the person comes back to the page (its tab or window shown
+ * again) and, with `everyMs`, on a timer while it is shown: what changed elsewhere (a token used,
+ * a schedule fired) shows without a reload.
+ */
+export function useRefresh(reload: () => void, everyMs?: number): void {
+  useEffect(() => {
+    const back = () => {
+      if (document.visibilityState !== 'hidden') reload();
+    };
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    const timer = everyMs
+      ? setInterval(() => {
+          if (document.visibilityState !== 'hidden') reload();
+        }, everyMs)
+      : undefined;
+    return () => {
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
+      clearInterval(timer);
+    };
+  }, [reload, everyMs]);
 }
 
 /** How long ago, in words: "just now", "5 min ago", "3 h ago", "yesterday", or the date. */
