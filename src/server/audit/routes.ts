@@ -387,10 +387,15 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     if (spec.action === 'run.relaunch' && typeof answer.id === 'string') detail.run = answer.id;
     // AFS-28: the decision is one of two words, and the approval is named by its node.
     if (spec.action === 'approval.decide') {
-      const said = request.body as { decision?: unknown } | undefined;
+      const said = request.body as { decision?: unknown; comment?: unknown } | undefined;
       if (said?.decision === 'approved' || said?.decision === 'rejected')
         detail.decision = said.decision;
-      detail.approval = params.node;
+      // AFS-133: the approval by its title, and the comment the decision was given with.
+      const gate = answer as { node?: { title?: unknown; key?: unknown } };
+      detail.approval =
+        typeof gate.node?.title === 'string' ? gate.node.title : (params.node ?? undefined);
+      if (typeof said?.comment === 'string' && said.comment.trim() && status < 400)
+        detail.comment = said.comment.trim().slice(0, 500);
     }
     // AFS-29: which channel a test went by (not where: a webhook's address can be its secret).
     if (spec.action === 'notification.test') {

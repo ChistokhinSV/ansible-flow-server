@@ -455,11 +455,19 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
         <div className="actions">
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              // AFS-134: disabling signs them out and stops their tokens: asked first.
+              if (
+                !user.disabled &&
+                !window.confirm(
+                  `Disable ${user.name || user.login}? They are signed out at once, cannot sign in, and their tokens stop working. Their grants are kept.`,
+                )
+              )
+                return;
               act(async () =>
                 onChanged(await api.changeUser(user.id, { disabled: !user.disabled })),
-              )
-            }
+              );
+            }}
           >
             {user.disabled ? 'Enable' : 'Disable'}
           </button>

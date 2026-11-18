@@ -530,6 +530,8 @@ export const api = {
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 
   approvals: () => call<WaitingApproval[]>('GET', '/approvals'),
+  /** AFS-133: the newest decided approvals this person may see. */
+  decidedApprovals: () => call<WaitingApproval[]>('GET', '/approvals?decided=1'),
   runApprovals: (run: string) =>
     call<(Gate & { mayDecide: boolean; why?: string })[]>(
       'GET',

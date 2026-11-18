@@ -341,7 +341,7 @@ describe('a run of a flow with an approval', () => {
       run: { id: run.id, flow: { file: 'flows/change.flow.yaml' } },
       requestedBy: 'dana',
       mayDecide: true,
-      gate: { node: { key: 'gate' } },
+      gate: { node: { key: 'gate' }, hosts: ['fw-edge-01'] },
     });
     expect((await call('gary', 'GET', '/api/v1/approvals')).json()[0]).toMatchObject({
       mayDecide: false,
@@ -365,9 +365,21 @@ describe('a run of a flow with an approval', () => {
       .entries;
     expect(audit[0]).toMatchObject({
       actor: { login: 'omar' },
-      detail: { decision: 'approved', approval: GATE },
+      // AFS-133: the approval by its title, and the comment it was decided with.
+      detail: {
+        decision: 'approved',
+        approval: inbox[0].gate.node.title,
+        comment: 'Window confirmed with the NOC',
+      },
     });
     expect((await call('omar', 'GET', '/api/v1/approvals')).json()).toEqual([]);
+    // AFS-133: decided ones are listed apart, newest first, with who and why.
+    const history = (await call('gary', 'GET', '/api/v1/approvals?decided=1')).json();
+    expect(history[0]).toMatchObject({
+      run: { id: run.id },
+      mayDecide: false,
+      gate: { status: 'approved', decidedBy: 'omar', comment: 'Window confirmed with the NOC' },
+    });
   });
 
   it('waits across a restart; a gate whose time ran out times out, through the timeout port', async () => {

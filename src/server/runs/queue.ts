@@ -141,6 +141,11 @@ export class RunQueue {
    * once what ended it is in the database.
    */
   onEnded?: (id: string) => void;
+  /**
+   * AFS-131: told at once when someone asks a running run to stop, so the worker that has it
+   * stops it now rather than at its next heartbeat (a short run had ended by then).
+   */
+  onStopAsked?: (id: string) => void;
 
   constructor(
     private readonly db: Db,
@@ -595,14 +600,21 @@ export class RunQueue {
     const done = await this.locked(async (trx) => {
       const row = await this.leased(trx, id, token, now);
       if (!row) return false;
+      // AFS-131: a run someone asked to stop never reads as a success, even when its steps ended
+      // before the worker could stop it.
+      const stopAsked = row.cancel_requested === 1 && outcome === 'succeeded';
+      const state: Outcome = stopAsked ? 'cancelled' : outcome;
+      const why = stopAsked
+        ? `Asked to stop by ${row.cancelled_by ?? 'someone'}; its steps had ended before it could be stopped`
+        : error;
       await trx
         .updateTable('run')
         .set({
-          state: outcome,
+          state,
           ...(view !== undefined ? { view_json: JSON.stringify(view), ...hostCounts(view) } : {}),
           ended_at: iso(now),
           started_at: row.started_at ?? iso(now),
-          error: outcome === 'succeeded' ? null : (error?.slice(0, 2000) ?? null),
+          error: state === 'succeeded' ? null : (why?.slice(0, 2000) ?? null),
           lease_owner: null,
           lease_token: null,
           lease_until: null,
@@ -689,6 +701,7 @@ export class RunQueue {
       return after ? this.of(after) : undefined;
     });
     if (endedNow) this.ended([id]);
+    else if (run?.state === 'running' && run.cancelRequested) this.onStopAsked?.(id);
     return run;
   }
 

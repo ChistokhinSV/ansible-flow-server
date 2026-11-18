@@ -43,6 +43,8 @@ just user add dana --name "Dana Whitfield" --admin
   and is sent over HTTPS only.
 - After five wrong passwords for a login in fifteen minutes, sign-in for it waits.
 - The last administrator cannot be demoted, disabled or deleted.
+- A wrong login and a wrong password get one answer. A disabled account is told so (403
+  `disabled`) only with its right password.
 - `GET /users/:id/access` answers `{"admin", "workspaces"}`: a row for each workspace where a
   grant names the person or one of their groups, with the `workspace` (`id`, `key`, `name`),
   their `level` there, `approve`, the `flows` with a grant of their own, and `through` (whose
@@ -131,7 +133,8 @@ as the client's redirect URI at the provider, and Test the provider. Then:
 - At each sign-in their groups and the administrator right follow the mapped claim values: what the
   provider no longer says is taken back. Groups and rights given here by hand are kept.
 - **Passwords for administrators only:** the page's Passwords setting lets everyone else sign in
-  only with a provider (a way in stays if the provider is down).
+  only with a provider (a way in stays if the provider is down). It asks first, and is refused
+  (409) while no provider or directory is enabled: nobody else could sign in.
 - Removing a provider keeps its people; the groups and administrator rights it gave go.
 - A provider's certificate authority: `AFS_CA_FILE`. Every change is in the audit log.
 
@@ -190,7 +193,7 @@ Administrators may do everything. Everyone else sees and does only what they are
 - **Git is the workspace's:** clone needs `ro` on the workspace and push `rw` on it; a grant on
   one flow does not open the repository, which holds every flow.
 - **What a person may not see is not there for them:** lists leave it out, and asking for it
-  answers 404. What they may see but not do answers 403.
+  answers 404 with the words a missing one gets ("No such run"). What they may see but not do answers 403.
 - **Tokens act as their owner,** narrowed further when read-only or made for one workspace.
 - Workspaces, projects, credentials and grants are changed by administrators.
 

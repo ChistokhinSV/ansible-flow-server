@@ -328,7 +328,13 @@ export class Notifier {
       const lines = [
         `"${gate.title}" of ${this.where(run)} was ${gate.status}, ${by}.`,
         ...(gate.comment && gate.status !== 'timed out' ? [`Comment: ${gate.comment}`] : []),
-        'The run goes on.',
+        // AFS-133: what happens next depends on the decision: the hosts go where the flow sends
+        // them (an approval's rejected and timeout ports usually lead to a failed end).
+        gate.status === 'approved'
+          ? 'The run goes on with the approved hosts.'
+          : 'The hosts go where the flow sends them when it is ' +
+            (gate.status === 'rejected' ? 'rejected' : 'not decided in time') +
+            ': usually to a rollback or a failed end, not on to the change.',
         ...(link ? [link] : []),
       ];
       const message: Message = {

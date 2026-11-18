@@ -224,7 +224,14 @@ export class Environments {
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .where('environment_id', '=', row.id)
       .executeTakeFirst();
-    const current = row.kind === 'image' ? (row.image ?? undefined) : (good?.image ?? undefined);
+    // AFS-132: a registered image whose pulls all failed is not one runs get (as at launch).
+    const imageFailed = row.kind === 'image' && !!latest && latest.state === 'failed' && !good;
+    const current =
+      row.kind === 'image'
+        ? imageFailed
+          ? undefined
+          : (row.image ?? undefined)
+        : (good?.image ?? undefined);
     return {
       id: row.id,
       workspace: row.workspace_id,

@@ -332,6 +332,50 @@ describe('a run', () => {
     expect((await queue.get(run.id))?.state).toBe('succeeded');
   });
 
+  it('a run that reached no host fails; no events gets the reason the output gave (AFS-132)', async () => {
+    const empty = {
+      nodes: {},
+      outcome: {},
+      failures: [],
+      unreachable: [],
+      hosts: [],
+      stoppedEarly: false,
+    };
+    const { ex } = executor(async () => ({ rc: 0, summary: empty }));
+    const none = await launch();
+    await ex.start();
+    await ended(none.id);
+    await ex.stop();
+    expect(await queue.get(none.id)).toMatchObject({ state: 'failed' });
+    expect((await queue.get(none.id))?.error).toMatch(/^No host ran/);
+
+    const pull = executor(async (_request, hooks) => {
+      hooks.log?.('Unable to find image locally');
+      hooks.log?.('docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.');
+      return { rc: 125, error: 'The run produced no events' };
+    });
+    const failed = await launch();
+    await pull.ex.start();
+    await ended(failed.id);
+    await pull.ex.stop();
+    expect((await queue.get(failed.id))?.error).toBe(
+      'The run produced no events: docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.',
+    );
+
+    // Ansible's own words, as a limit that leaves no host gets them (seen on the lab server).
+    const LIMIT =
+      '[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target.';
+    const limited = executor(async (_request, hooks) => {
+      hooks.log?.(LIMIT);
+      return { rc: 1, error: 'The run produced no events' };
+    });
+    const none2 = await launch();
+    await limited.ex.start();
+    await ended(none2.id);
+    await limited.ex.stop();
+    expect((await queue.get(none2.id))?.error).toBe(`The run produced no events: ${LIMIT}`);
+  });
+
   it('fails with the reason when Ansible fails, and when the run cannot start', async () => {
     const { ex } = executor(async () => ({
       rc: 2,

@@ -6,7 +6,7 @@ import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { ApiDocs } from './apidocs';
-import { ApprovalsPage } from './approvals';
+import { APPROVALS_CHANGED, ApprovalsPage } from './approvals';
 import { AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
 import { Entry, Setup, SignIn } from './entry';
@@ -47,7 +47,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
     try {
       const [workspace, project, file] = flow.slice(1).map(decodeURIComponent);
       if (workspace && project && file)
-        return <FlowPage workspace={workspace} project={project} file={file} theme={theme} />;
+        return (
+          <FlowPage me={me} workspace={workspace} project={project} file={file} theme={theme} />
+        );
     } catch {
       return <NotFound />;
     }
@@ -160,7 +162,12 @@ function Side({
   // Approvals arrive while pages are open: the count looks again now and then.
   useEffect(() => {
     const timer = setInterval(approvals.reload, 30_000);
-    return () => clearInterval(timer);
+    // AFS-133: a decision made on any page counts at once.
+    window.addEventListener(APPROVALS_CHANGED, approvals.reload);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener(APPROVALS_CHANGED, approvals.reload);
+    };
   }, [approvals.reload]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.
   const here = /^\/w\/([^/]+)/.exec(path)?.[1];
@@ -362,6 +369,8 @@ export function App() {
           onTheme={() => setTheme(nextTheme(theme))}
           onSignOut={async () => {
             await api.signOut().catch(() => undefined);
+            // AFS-134: the next person starts at the start page, not this one's last page.
+            window.history.replaceState(null, '', '/');
             setSession({ state: 'signed-out' });
           }}
         />

@@ -36,7 +36,8 @@ export function StartFrom({
     try {
       const done = await api.draftStart(draft.id, body);
       onDone(
-        `The flow was made from ${name}: ${done.steps} step${done.steps === 1 ? '' : 's'}.${
+        // AFS-136: the importer counts tasks; the canvas counts steps with subflows and ends.
+        `The flow was made from ${name}: ${done.steps} ${'sample' in body ? 'step' : 'task'}${done.steps === 1 ? '' : 's'}${'sample' in body ? '' : ' became steps'}.${
           done.notes.length
             ? ` What did not map one to one: ${done.notes.slice(0, 3).join(' ')}${done.notes.length > 3 ? ' …' : ''}`
             : ''

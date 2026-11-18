@@ -468,7 +468,7 @@ interface HostLine {
 }
 
 /** Each host of a run and how it fares, those with a problem first. */
-function hostLines(view: RunView): HostLine[] {
+function hostLines(view: RunView, state: Run['state']): HostLine[] {
   const summary = view.summary;
   if (!summary) return [];
   const problem = new Map<string, HostLine>();
@@ -490,14 +490,20 @@ function hostLines(view: RunView): HostLine[] {
       const line = problem.get(host);
       if (line && !line.why) line.why = { task: p.task, ...(p.msg ? { msg: p.msg } : {}) };
     }
-  const done = view.state !== 'running';
+  // AFS-131: the run's own state says whether it ended: a stopped run's view can still read as
+  // running (it was stopped while it waited, or before its last view was written).
+  const going = state === 'running' || state === 'queued' || state === 'waiting';
   const rest = summary.hosts
     .filter((h) => !problem.has(h))
     .map(
       (host): HostLine =>
-        done
-          ? { host, words: 'went well', tone: 'ok-text' }
-          : { host, words: 'in progress', tone: 'muted' },
+        state === 'cancelled'
+          ? { host, words: 'stopped', tone: 'muted' }
+          : going && view.state === 'running'
+            ? { host, words: 'in progress', tone: 'muted' }
+            : going
+              ? { host, words: 'waiting', tone: 'muted' }
+              : { host, words: 'went well', tone: 'ok-text' },
     );
   return [...problem.values(), ...rest];
 }
@@ -777,7 +783,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const viewer = `/viewer.html?project=${encodeURIComponent(run.project)}&path=${encodeURIComponent(
     run.flow.file,
   )}&commit=${run.commit}&run=${run.id}&theme=${theme === 'system' ? 'auto' : theme}`;
-  const lines = view ? hostLines(view) : [];
+  const lines = view ? hostLines(view, run.state) : [];
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
   const why = lines.find((l) => l.why);
   const by = run.requestedBy.login === me.login ? 'you' : run.requestedBy.login;

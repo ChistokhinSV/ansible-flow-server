@@ -44,6 +44,7 @@ import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
+import { withLimit } from './limit';
 import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
 import type { Job, Outcome, RunQueue } from './queue';
 import { pullWithSignIn } from './registry';
@@ -52,6 +53,17 @@ import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
 /** How often the worker says it still has a run. */
 export const HEARTBEAT_MS = 15_000;
+/** What runFlow says when Ansible wrote no event. */
+const NO_EVENTS = 'The run produced no events';
+/**
+ * An output line that says why a container or Ansible could not start ("[ERROR]: Specified
+ * inventory, host pattern and/or --limit leaves us with no hosts to target." is Ansible's own).
+ */
+const ERROR_LINE =
+  /^(\[?error\]?|\[?fatal\]?|docker:|podman:|Error response)|\b(no such host|not found|denied|unauthorized|manifest unknown)\b/i;
+/** A finished view in which no host did anything. */
+const noHostRan = (view: RunView) => view.summary !== undefined && view.summary.hosts.length === 0;
+
 /** How often it looks for queued runs. */
 const POLL_MS = 2_000;
 /** A run's output is kept up to this size. */
@@ -210,6 +222,8 @@ export class Executor {
     private readonly options: ExecutorOptions,
   ) {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
+    // AFS-131: a stop asked on this server stops the run at once, not at the next heartbeat.
+    deps.queue.onStopAsked = (id) => this.active.get(id)?.abort('cancel');
     this.probeDir = join(options.dataDir, 'probe');
     this.outputDir = join(options.dataDir, 'output');
     const version = collectionVersion(this.collectionSource());
@@ -465,8 +479,15 @@ export class Executor {
     let output: WriteStream | undefined;
     let written = 0;
     let hidden: string[] = [];
+    // AFS-132: the last lines that read as an error, for a run that ends before Ansible says why.
+    const errorLines: string[] = [];
     const line = (text: string) => {
       if (!output) return;
+      const said = hide(stripAnsi(text), hidden).trim();
+      if (ERROR_LINE.test(said)) {
+        errorLines.push(said.slice(0, 300));
+        if (errorLines.length > 3) errorLines.shift();
+      }
       if (written > MAX_OUTPUT) return;
       // Ansible's colours are kept for the run page's terminal (AFS-96); the text download and
       // agents get plain text. A line with a secret in it is kept plain, so that no colour code
@@ -684,7 +705,7 @@ export class Executor {
                 line(text);
               };
               return startProcess(
-                { ...spec, args: rewriteMounts(spec.args, this.toHost) },
+                { ...spec, args: withLimit(rewriteMounts(spec.args, this.toHost), r.limit) },
                 { ...processEnv, ...creds.processEnv, ...serverEnv },
                 said,
               );
@@ -692,9 +713,24 @@ export class Executor {
           },
         );
       /** How a run that has ended is recorded, from the view of how it went. */
-      const ended = async (view: RunView) => {
+      const ended = async (view: RunView, whole = false, decided?: string) => {
         if (why) return await finish(...stoppedWhy(), view);
+        // AFS-133: hosts that failed after a rejection (or a timeout) failed because of it: the
+        // run says who decided and what they said, not Ansible's exit code.
+        if (decided && !(view.state === 'done' && view.rc === 0 && !view.error))
+          return await finish('failed', decided, view);
         if (agentFailure) return await finish('failed', agentFailure, view);
+        // AFS-132: no events, and the container said why (an image that cannot be pulled, an
+        // engine error): that is the reason, not "no events".
+        if (view.error === NO_EVENTS && errorLines.length)
+          return await finish('failed', `${NO_EVENTS}: ${errorLines.at(-1)}`, view);
+        // AFS-132: a run that reached no host did nothing: not a success.
+        if (view.state === 'done' && view.rc === 0 && !view.error && whole && noHostRan(view))
+          return await finish(
+            'failed',
+            'No host ran: none of the targets is in the inventory, or the limit left none',
+            view,
+          );
         // Without events nothing says what the flow did: that is not a success, whatever the code.
         if (view.state === 'done' && view.rc === 0 && !view.error)
           return await finish('succeeded', undefined, view);
@@ -732,7 +768,7 @@ export class Executor {
           return;
         }
         this.deps.hub?.publish(r.id, { kind: 'state' });
-        return await ended(await runOnce(runId, playbook, inputs, (v) => v));
+        return await ended(await runOnce(runId, playbook, inputs, (v) => v), true);
       }
 
       // AFS-28: a flow with approvals runs segment by segment. Where this run is: at the start,
@@ -754,10 +790,15 @@ export class Executor {
         ? nextSegment(segments, gate.segment, decision as GateDecision)
         : segments.find((g) => g.name === 'start');
       let segInputs = gate ? segmentInputs(inputs, gate.carried, decision) : inputs;
+      let decidedAgainst: string | undefined;
       if (gate) {
         const by = gate.decidedBy ? ` by ${gate.decidedBy}` : '';
         const said = gate.comment ? `: ${gate.comment}` : '';
         line(`Approval ${gate.node.title}: ${gate.status}${by}${said}`);
+        if (gate.status === 'rejected')
+          decidedAgainst = `Rejected at ${gate.node.title}${by}${said}`;
+        else if (gate.status === 'timed out')
+          decidedAgainst = `Nobody decided ${gate.node.title} in time`;
       }
       const generated = posix.dirname(playbook);
       const eventsOf = async (dirs: string[]) =>
@@ -776,9 +817,10 @@ export class Executor {
         const approvals = approvalsOf(await gatesOf(this.deps.db, r.id));
         const withApprovals = Object.keys(approvals).length ? { approvals } : {};
         // What the canvas shows while a segment runs: the segments before it, and this one.
+        // AFS-132: until the segment has a summary of its own, the earlier ones' stays shown.
         const view = await runOnce(runId, `${generated}/${current.file}`, segInputs, (v) => ({
           ...v,
-          ...(v.summary ? { summary: mergeSummaries(earlier, v.summary) } : {}),
+          summary: v.summary ? mergeSummaries(earlier, v.summary) : earlier,
           ...withApprovals,
         }));
         before.push({ name: current.name, dir: folder(runId) });
@@ -835,7 +877,7 @@ export class Executor {
             view.error ?? `The segment ${current.name} ended before its hosts reached the approval`,
             whole,
           );
-        return await ended(whole);
+        return await ended(whole, false, decidedAgainst);
       }
       return await finish('failed', 'The flow has no segment to run next');
     } catch (e) {

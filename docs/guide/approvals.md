@@ -18,7 +18,10 @@ server that stops and starts again keeps the run waiting.
 - **Not who launched the run**, unless the workspace allows it (Access, on the workspace's page,
   or `PATCH /api/v1/workspaces/<id>` with `{"selfApprove": true}`).
 - **A comment** goes with every decision; the run, its page, its canvas and the audit log keep
-  who decided, when and why.
+  who decided, when and why. Rejecting needs one. On the pages, **Approve…** and **Reject…** ask
+  once more and say where the hosts go; each approval says who may decide it.
+- **A run that fails after a rejection** says so (`Rejected at <approval> by <login>: <comment>`),
+  and the decision email says where the hosts go.
 - **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
   hosts take the approval's `timeout` port (or `rejected` when it has none).
 - **A stopped run** asks nobody any more.
@@ -38,8 +41,8 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
   -d '{"decision":"approved","comment":"Window confirmed with the NOC"}'
 ```
 
-| Address (under `/api/v1`)        | Does                                                                          | Who                          |
-| -------------------------------- | ----------------------------------------------------------------------------- | ---------------------------- |
-| `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide  | signed in                    |
-| `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom, when, why; `mayDecide`, `why` | `ro`                         |
-| `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key       | `approve`, and the approvers |
+| Address (under `/api/v1`)        | Does                                                                                                                                    | Who                          |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided | signed in                    |
+| `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom, when, why; `mayDecide`, `why`                                                           | `ro`                         |
+| `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                 | `approve`, and the approvers |

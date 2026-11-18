@@ -330,7 +330,12 @@ export function SchedulesSection({
         </p>
       )}
       <Loading state={list} />
-      {list.data?.length === 0 && <p className="empty">No schedule.</p>}
+      {list.data?.length === 0 && (
+        <p className="empty">
+          No schedule.
+          {mayManage ? '' : ' Schedules are added by people with rw on the flow.'}
+        </p>
+      )}
       {list.data?.map((s) => (
         <article key={s.id} className="schedule" aria-label={s.name}>
           <h3>

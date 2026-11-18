@@ -153,11 +153,14 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
     },
   );
 
-  app.get('/api/v1/approvals', async (request, reply) => {
+  app.get<{ Querystring: { decided?: string } }>('/api/v1/approvals', async (request, reply) => {
     if (!signedIn(request, reply)) return reply;
     const who = await deciderFor(request);
     if (!who) return reply;
-    const rows = await db
+    // AFS-133: `?decided=1`: the newest decided approvals the person may see (50), not those
+    // that wait.
+    const decided = request.query.decided === '1' || request.query.decided === 'true';
+    let query = db
       .selectFrom('run_gate')
       .innerJoin('run', 'run.id', 'run_gate.run_id')
       .innerJoin('project', 'project.id', 'run.project_id')
@@ -174,10 +177,11 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         'workspace.id as workspace',
         'workspace.self_approve',
       ])
-      .where('run_gate.status', '=', 'waiting')
-      .where('run.state', '=', 'waiting')
-      .orderBy('run_gate.created_at')
-      .execute();
+      .orderBy('run_gate.created_at', decided ? 'desc' : 'asc');
+    query = decided
+      ? query.where('run_gate.status', 'in', ['approved', 'rejected', 'timed out']).limit(200)
+      : query.where('run_gate.status', '=', 'waiting').where('run.state', '=', 'waiting');
+    const rows = await query.execute();
     const out: WaitingApproval[] = [];
     for (const row of rows) {
       // Only what the person may see; and of that, whether they may decide.
@@ -186,8 +190,23 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         who.access.onFlow(row.workspace, row.project_id, row.flow_file) ||
         who.access.approves(row.workspace, row.project_id, row.flow_file);
       if (!sees) continue;
+      if (decided && out.length >= 50) break;
       const gate = (await gatesOf(db, row.run)).find((g) => g.id === row.gate);
       if (!gate) continue;
+      if (decided) {
+        out.push({
+          run: {
+            id: row.run,
+            number: row.number,
+            project: row.project_id,
+            flow: { file: row.flow_file, name: row.flow_name },
+          },
+          requestedBy: row.requested_login,
+          gate,
+          mayDecide: false,
+        });
+        continue;
+      }
       const why = judge(
         who,
         gate,

@@ -344,7 +344,12 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
         </p>
       )}
       <Loading state={list} />
-      {list.data?.length === 0 && <p className="empty">No credential yet.</p>}
+      {/* AFS-135: who can change that, for whoever reads it. */}
+      {list.data?.length === 0 && (
+        <p className="empty">
+          No credential yet.{admin ? '' : ' An administrator adds the credentials of a workspace.'}
+        </p>
+      )}
       {!!list.data?.length && (
         <div className="scroll">
           <table>
@@ -370,7 +375,11 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                   </td>
                   <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
                   <td>{holds(c)}</td>
-                  <td>{c.usedBy === 0 ? 'nothing' : `${c.usedBy}`}</td>
+                  <td>
+                    {c.usedBy === 0
+                      ? 'nothing'
+                      : `${c.usedBy} launch configuration${c.usedBy === 1 ? '' : 's'}`}
+                  </td>
                   {admin && (
                     <td>
                       <div className="actions">
@@ -385,6 +394,13 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                           type="button"
                           className="danger"
                           aria-label={`Delete ${c.name}`}
+                          // AFS-134: one in use cannot go: the configurations name it.
+                          disabled={c.usedBy > 0}
+                          title={
+                            c.usedBy > 0
+                              ? 'Launch configurations use it: take it out of them first'
+                              : undefined
+                          }
                           onClick={async () => {
                             if (!window.confirm(`Delete the credential "${c.name}"?`)) return;
                             setError(undefined);

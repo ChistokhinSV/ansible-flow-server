@@ -231,14 +231,22 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
         }
       }
       const right = await verifyPassword(request.body.password, account?.password_hash ?? null);
-      if (!account || !right || account.disabled === 1) {
+      if (!account || !right) {
         byLogin.fail(keys[0]);
         byAddress.fail(keys[1]);
         request.log.warn({ login }, 'Sign-in refused');
-        // One answer for a wrong login, a wrong password and a disabled account.
+        // One answer for a wrong login and a wrong password.
         return reply
           .code(401)
           .send({ error: 'invalid_credentials', message: 'The login or the password is wrong' });
+      }
+      // AFS-134: only whoever knows the password learns the account is disabled, and whom to ask.
+      if (account.disabled === 1) {
+        request.log.warn({ login }, 'Sign-in refused: the account is disabled');
+        return reply.code(403).send({
+          error: 'disabled',
+          message: 'This account is disabled: ask an administrator to enable it',
+        });
       }
       byLogin.clear(keys[0]);
       // AFS-30: when people sign in with a provider, passwords may be kept for administrators.

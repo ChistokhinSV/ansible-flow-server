@@ -75,6 +75,9 @@ interface ProjectAccess {
 }
 const RANK: Partial<Record<string, number>> = { ro: 1, operator: 2, rw: 3 };
 const OPERATOR = 2;
+/** AFS-135: rw on the flow: may add and change its launch configurations. */
+const mayManage = (access: ProjectAccess | undefined, file: string): boolean =>
+  !!access && (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= 3);
 const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
   !!access &&
   (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= OPERATOR);
@@ -82,6 +85,24 @@ const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
 /** Opens a page of the application: in the window that holds this frame, when there is one. */
 function go(to: string): void {
   (window.top ?? window).location.assign(to);
+}
+
+/**
+ * AFS-132: Open in Text Editor in the pages: the file on its project's Files tab. Resolves with
+ * false when the project or its workspace cannot be read.
+ */
+async function openInFiles(file: string): Promise<boolean> {
+  const read = async (url: string) => {
+    const reply = await fetch(url, { credentials: 'same-origin' });
+    return reply.ok ? ((await reply.json()) as { key?: string; workspace?: string }) : undefined;
+  };
+  const p = await read(`/api/v1/projects/${encodeURIComponent(project)}`).catch(() => undefined);
+  const w =
+    p?.workspace &&
+    (await read(`/api/v1/workspaces/${encodeURIComponent(p.workspace)}`).catch(() => undefined));
+  if (!p?.key || !w || !w.key) return false;
+  go(`/w/${w.key}/${p.key}/files?path=${encodeURIComponent(file)}`);
+  return true;
 }
 
 async function start(): Promise<void> {
@@ -123,6 +144,7 @@ async function start(): Promise<void> {
 
   const access = await accessAsked;
   const operate = mayOperate(access?.ok ? (access.data as ProjectAccess) : undefined, path);
+  const manage = mayManage(access?.ok ? (access.data as ProjectAccess) : undefined, path);
   // AFS-105: on a run's page the page shows the run (state, hosts, outputs, approvals, Stop, Run
   // again): the canvas does not repeat it. Elsewhere it launches and stops for an operator.
   const embed = { runShown: !!runId, mayRun: operate && !commit, mayStop: operate };
@@ -202,6 +224,7 @@ async function start(): Promise<void> {
     choose: chooseConfig,
     askName,
     go,
+    mayAddConfig: manage,
     launched: (id) => {
       showRun(id, false);
       void runs();
@@ -283,6 +306,17 @@ async function start(): Promise<void> {
           case 'openLink':
             // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
             openWebLink(message.url);
+            return;
+          case 'openText':
+            // The flow's file (the designer names a node in it, which the Files tab cannot show).
+            void openInFiles(path).then((opened) => {
+              if (!opened)
+                send({
+                  type: 'notify',
+                  level: 'error',
+                  text: `${path} could not be opened: open it on the project's Files tab.`,
+                });
+            });
             return;
           case 'catalog': {
             // AFS-118: a step's module docs, from the catalog of the flow's image.

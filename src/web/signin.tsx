@@ -420,6 +420,14 @@ export function SignInPage() {
                   name="local"
                   checked={local.data?.local === v}
                   onChange={async () => {
+                    // AFS-134: this one signs people out of their passwords: asked first.
+                    if (
+                      v === 'admins' &&
+                      !window.confirm(
+                        'Only administrators keep signing in with a password. Everyone else must sign in with a provider or a directory from now on. Go on?',
+                      )
+                    )
+                      return;
                     try {
                       await api.setLocalSignIn(v);
                       local.reload();

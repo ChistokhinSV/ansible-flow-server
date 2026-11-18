@@ -74,7 +74,10 @@ const common = (level: string) => ({
     body: { admin: false, workspace: level, approve: false, flows: {} },
   }),
 });
-const show = () => render(<FlowPage workspace="net" project="core" file={FILE} theme="dark" />);
+const show = () =>
+  render(
+    <FlowPage me={{ login: 'dana' }} workspace="net" project="core" file={FILE} theme="dark" />,
+  );
 const line = () => document.querySelector('.flow-line') as HTMLElement;
 
 describe("a flow's page", () => {

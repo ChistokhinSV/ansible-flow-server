@@ -16,6 +16,8 @@ export interface Gate {
   decidedBy?: string;
   decidedAt?: string;
   comment?: string;
+  /** AFS-133: the hosts that waited here, for whoever decides (from the carried host sets). */
+  hosts?: string[];
   createdAt: string;
 }
 

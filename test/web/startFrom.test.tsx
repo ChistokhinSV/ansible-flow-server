@@ -59,7 +59,7 @@ describe('starting an empty flow from something', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Hello, Ansible' }));
     await waitFor(() => expect(done).toHaveBeenCalled());
     expect(posted()).toEqual([{ sample: 'hello' }]);
-    expect(done.mock.calls[0]?.[0]).toMatch(/Hello, Ansible sample: 4 steps/);
+    expect(done.mock.calls[0]?.[0]).toMatch(/Hello, Ansible sample: 4 steps./);
   });
 
   it('a playbook of the repository', async () => {

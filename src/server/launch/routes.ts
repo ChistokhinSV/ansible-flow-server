@@ -252,9 +252,13 @@ export function registerLaunch(
       const prepared = await prepareLaunch(deps, config, request.query, false);
       // A form with empty required inputs is still a form: only what leaves no form is refused.
       if (prepared.form) return prepared.form;
-      return reply
-        .code(422)
-        .send({ error: 'not_ready', problems: prepared.ok ? [] : prepared.problems });
+      // AFS-132: the first problem as the message (a deleted flow), not a bare status.
+      const problems = prepared.ok ? [] : prepared.problems;
+      return reply.code(422).send({
+        error: 'not_ready',
+        message: problems[0]?.message ?? 'The launch is not ready',
+        problems,
+      });
     },
   );
 
@@ -432,6 +436,9 @@ export function registerLaunch(
           ...(form.inventory ? { inventory: form.inventory } : {}),
           ...(form.eeImage ? { image: form.eeImage } : {}),
           credentials: config.credentials,
+          ...(asked.limit?.trim() || config.limit
+            ? { limit: asked.limit?.trim() || config.limit }
+            : {}),
           ...(groups ? { groups: true } : {}),
         });
         const { facts: _facts, factsError: _why, ...rest } = answer;

@@ -181,7 +181,10 @@ describe('home', () => {
     await screen.findByText('No run yet today. Nothing waits for you.');
     expect(screen.queryByRole('heading', { name: 'Waiting for you' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Launch again' })).toBeNull();
-    expect(screen.getByText(/An administrator makes the first one/)).toBeTruthy();
+    // AFS-135: workspaces may exist that this person has no access to.
+    expect(
+      screen.getByText(/You have no access to a workspace yet: ask an administrator/),
+    ).toBeTruthy();
   });
 });
 

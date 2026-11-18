@@ -97,14 +97,32 @@ export function registerAccess(app: FastifyInstance, deps: { db: Kysely<Schema> 
   app.get<WithId>('/api/v1/workspaces/:id/recipients', { schema: ID }, async (request, reply) => {
     const workspace = await getWorkspace(db, request.params.id);
     if (!workspace) return reply.code(404).send(NO_WORKSPACE);
-    const people = await db
+    // AFS-135: an administrator may tell anyone; others only whom the workspace already has (a
+    // grant on it or its flows, theirs or their group's), not the whole server's directory.
+    const all = request.user?.admin === true;
+    const grants = all ? [] : await listGrants(db, workspace.id);
+    const groupIds = grants.filter((g) => g.principal.type === 'group').map((g) => g.principal.id);
+    const userIds = grants.filter((g) => g.principal.type === 'user').map((g) => g.principal.id);
+    const members = groupIds.length
+      ? await db
+          .selectFrom('group_member')
+          .select('user_id')
+          .where('group_id', 'in', groupIds)
+          .execute()
+      : [];
+    const known = [...new Set([...userIds, ...members.map((m) => m.user_id)])];
+    if (!all && known.length === 0 && groupIds.length === 0) return [];
+    let peopleQuery = db
       .selectFrom('user_account')
       .select(['login', 'name'])
       .where('disabled', '=', 0)
       .where('service', '=', 0)
-      .orderBy('login')
-      .execute();
-    const groups = await db.selectFrom('user_group').select('name').orderBy('name').execute();
+      .orderBy('login');
+    if (!all) peopleQuery = peopleQuery.where('id', 'in', known.length ? known : ['']);
+    const people = await peopleQuery.execute();
+    let groupQuery = db.selectFrom('user_group').select('name').orderBy('name');
+    if (!all) groupQuery = groupQuery.where('id', 'in', groupIds.length ? groupIds : ['']);
+    const groups = await groupQuery.execute();
     return [
       ...groups.map((g) => ({ name: g.name, kind: 'group' as const })),
       ...people.map((p) => ({ name: p.login, kind: 'user' as const, label: p.name })),

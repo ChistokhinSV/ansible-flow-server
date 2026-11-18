@@ -15,7 +15,22 @@ export async function environmentImage(
     .executeTakeFirst();
   if (!env) return { why: 'The environment is gone' };
   const known = { name: env.name, workspace: env.workspace_id };
-  if (env.kind === 'image') return { ...known, ...(env.image ? { image: env.image } : {}) };
+  if (env.kind === 'image') {
+    // AFS-132: an image whose pulls all failed is not one a run can start in: refused at the
+    // launch configuration and the launch, rather than a run that fails at once.
+    const pulls = await db
+      .selectFrom('environment_build')
+      .select('state')
+      .where('environment_id', '=', id)
+      .where('state', 'in', ['done', 'failed'])
+      .execute();
+    if (pulls.length && !pulls.some((p) => p.state === 'done'))
+      return {
+        ...known,
+        why: `The image of the environment ${env.name} could not be pulled: pull it again, or change the image`,
+      };
+    return { ...known, ...(env.image ? { image: env.image } : {}) };
+  }
   const good = await db
     .selectFrom('environment_build')
     .select('image')

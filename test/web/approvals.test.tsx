@@ -85,11 +85,14 @@ describe('approvals', () => {
       .getByRole('heading', { name: 'Waiting for others' })
       .closest('section') as HTMLElement;
     expect(within(others).getByText('Only change-board may decide this approval')).toBeTruthy();
-    expect(within(others).queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(within(others).queryByRole('button', { name: 'Approve…' })).toBeNull();
 
     fireEvent.change(within(yours).getByLabelText('Comment'), {
       target: { value: 'Window confirmed' },
     });
+    // AFS-133: Approve… asks once more, naming what happens next.
+    fireEvent.click(within(yours).getByRole('button', { name: 'Approve…' }));
+    expect(within(yours).getByText(/The hosts waiting here go on/)).toBeTruthy();
     fireEvent.click(within(yours).getByRole('button', { name: 'Approve' }));
     await waitFor(() =>
       expect(asked.find((a) => a.key === 'POST /runs/r1/approvals/N1')?.body).toEqual({
@@ -103,6 +106,39 @@ describe('approvals', () => {
     expect(screen.getByRole('link', { name: /^Approvals/ }).getAttribute('aria-current')).toBe(
       'page',
     );
+  });
+
+  it('rejecting needs a reason and asks once more; then it is said and counted (AFS-133)', async () => {
+    let list = [waiting('r1', true)];
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /approvals': () => ({ body: list }),
+      'POST /runs/r1/approvals/N1': (body) => {
+        list = [];
+        return { body: gate({ status: (body as { decision: string }).decision }) };
+      },
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    const yours = (await screen.findByRole('heading', { name: 'Yours to decide' })).closest(
+      'section',
+    ) as HTMLElement;
+    fireEvent.click(within(yours).getByRole('button', { name: 'Reject…' }));
+    expect(within(yours).getByRole('alert').textContent).toMatch(/Say why you reject it/);
+    fireEvent.change(within(yours).getByLabelText('Comment'), {
+      target: { value: 'No change ticket' },
+    });
+    fireEvent.click(within(yours).getByRole('button', { name: 'Reject…' }));
+    expect(within(yours).getByText(/take the rejected path/)).toBeTruthy();
+    expect(asked.some((x) => x.key.startsWith('POST'))).toBe(false);
+    fireEvent.click(within(yours).getByRole('button', { name: 'Reject' }));
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toMatch(/You rejected .Approve the change/),
+    );
+    expect(asked.find((x) => x.key === 'POST /runs/r1/approvals/N1')?.body).toEqual({
+      decision: 'rejected',
+      comment: 'No change ticket',
+    });
   });
 
   it("a run's page shows its approvals: decided ones with who and why", async () => {

@@ -31,6 +31,20 @@ export type Who =
  * project in the query, or none: then such a token may not call it. `self`: only the caller's
  * own session and tokens; `anyone`: needs no sign-in.
  */
+/** AFS-135: what a route says of something that does not exist, for what it reaches. */
+export function missingOf(reach: Reach): string {
+  if (typeof reach !== 'object') return 'Nothing here';
+  if ('workspace' in reach || 'gitWorkspace' in reach) return 'No such workspace';
+  if ('project' in reach || 'projectQuery' in reach) return 'No such project';
+  if ('config' in reach) return 'No such launch configuration';
+  if ('run' in reach) return 'No such run';
+  if ('credential' in reach) return 'No such credential';
+  if ('environment' in reach) return 'No such environment';
+  if ('grant' in reach) return 'No such grant';
+  if ('draft' in reach) return 'No such draft';
+  return 'Nothing here';
+}
+
 export type Reach =
   | 'self'
   | 'anyone'
@@ -508,7 +522,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Approvals',
     'signed in',
     'server',
-  )('Approvals that wait for a decision, that you may see; each says whether you may decide it'),
+  )(
+    'Approvals that wait for a decision, that you may see; each says whether you may decide it. `?decided=1`: the newest 50 decided ones instead',
+  ),
   'GET /api/v1/runs/:id/approvals': S(
     'Approvals',
     'signed in',
@@ -1185,7 +1201,7 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
       message:
         doc.reach === 'server'
           ? 'This token is for one workspace: it cannot reach this'
-          : 'This token is for another workspace',
+          : 'This token is for one workspace: it cannot reach this',
     });
   });
 
@@ -1213,9 +1229,10 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
             level,
           );
     if (allowed) return;
-    // Who may not see it at all is not told it is there.
+    // Who may not see it at all is not told it is there: the same answer as for one that does
+    // not exist (AFS-135), so neither a key nor an id can be tried for.
     if (!access.sees(target.workspace, target.project))
-      return reply.code(404).send({ error: 'not_found', message: 'Nothing here, or not for you' });
+      return reply.code(404).send({ error: 'not_found', message: missingOf(doc.reach) });
     return reply.code(403).send({
       error: 'forbidden',
       message: `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,

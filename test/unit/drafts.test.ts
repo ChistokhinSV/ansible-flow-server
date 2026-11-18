@@ -166,7 +166,10 @@ describe('editing a flow together', () => {
     expect(refused.status).toBe(422);
     expect(refused.json.message).toMatch(/Someone changed the same place since/);
     // Omar's own last edit goes back to Mia's title; his other edit stays.
-    expect((await call('omar', 'POST', `/drafts/${draft}/undo`)).status).toBe(200);
+    const undone = await call('omar', 'POST', `/drafts/${draft}/undo`);
+    expect(undone.status).toBe(200);
+    // AFS-136: it says what it took back.
+    expect(undone.json.steps).toEqual(['Ping it']);
     const doc = (await call('omar', 'GET', `/drafts/${draft}`)).json.snapshot.doc;
     const titleOf = (id: string) => doc.nodes.find((n: { id: string }) => n.id === id).title;
     expect(titleOf(PING)).toBe('Ping it');
@@ -182,14 +185,44 @@ describe('editing a flow together', () => {
   });
 
   it('Save is one commit on the branch by the saver, with the other as co-author', async () => {
+    // AFS-136: Omar is in the draft: he hears "saving" before the commit is made, so his page
+    // sends what he is typing.
+    await call('omar', 'POST', `/drafts/${draft}/here`, {});
+    await call('mia', 'POST', `/drafts/${draft}/here`, {});
+    const stream = await fetch(`${api()}/drafts/${draft}/events`, {
+      headers: { authorization: `Bearer ${tokens.omar}` },
+    });
+    const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
+    const heard: string[] = [];
+    const listening = (async () => {
+      let buffer = '';
+      while (!heard.includes('saved')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += new TextDecoder().decode(value);
+        const cut = buffer.lastIndexOf('\n\n');
+        if (cut < 0) continue;
+        for (const m of buffer.slice(0, cut).matchAll(/^event: (.*)$/gm))
+          if (m[1]) heard.push(m[1]);
+        buffer = buffer.slice(cut + 2);
+      }
+    })();
     const saved = await call('mia', 'POST', `/drafts/${draft}/save`, {
       message: 'Friendlier titles',
     });
+    await Promise.race([listening, new Promise((r) => setTimeout(r, 3000))]);
+    await reader.cancel().catch(() => undefined);
+    expect(heard.indexOf('saving')).toBeGreaterThan(-1);
+    expect(heard.indexOf('saving')).toBeLessThan(heard.indexOf('saved'));
     expect(saved.status).toBe(200);
     const commit = saved.json.commit as string;
     const git = (...args: string[]) =>
       execFileSync('git', args, { cwd: bare, encoding: 'utf8' }).trim();
     expect(git('rev-parse', 'refs/heads/main')).toBe(commit);
+    // AFS-136: listed with the pushes through this server, by the saver.
+    const pushes = (await call('mia', 'GET', `/projects/${project.id}/pushes`)).json;
+    expect(JSON.stringify(pushes)).toContain(commit);
+    expect(JSON.stringify(pushes)).toContain('mia');
     expect(git('log', '-1', '--format=%an <%ae>%n%B', commit)).toBe(
       'Mia Ortega <mia@example.net>\nFriendlier titles\n\nCo-authored-by: Omar Haddad <omar@example.net>',
     );

@@ -21,6 +21,9 @@ import type { Workdir, Workdirs } from './workdir';
 
 export type { InventoryAnswer, InventoryQuestion };
 
+/** How long the probe may take to read the hosts of a limit. */
+const LIMIT_MS = 30_000;
+
 interface Probe {
   client: ProbeClient;
   label: string;
@@ -68,12 +71,30 @@ export class InventoryProbes {
     }
     const runProbe = { client: probe.client, label: probe.label };
     try {
-      const [found, groups] = await Promise.all([
+      const pattern = q.limit?.trim();
+      const [found, groups, limitHosts] = await Promise.all([
         launchFacts(q.doc, q.inputs, runProbe, q.inventory),
         q.groups ? inventoryGroups(runProbe, q.inventory) : undefined,
+        pattern
+          ? (
+              probe.client.call(
+                'inventory',
+                { inventory: q.inventory, targets: [pattern] },
+                LIMIT_MS,
+              ) as Promise<{ hosts?: string[] }>
+            ).catch(() => undefined)
+          : undefined,
       ]);
+      // AFS-130: what the limit leaves of the targets' hosts; Ansible runs on those only.
+      let limited: InventoryAnswer['limited'];
+      if (pattern && found.ok && limitHosts?.hosts) {
+        const allowed = new Set(limitHosts.hosts);
+        const hosts = found.facts.hosts.filter((h) => allowed.has(h));
+        limited = { pattern, hosts, count: hosts.length };
+      }
       return {
         ...(found.ok ? { facts: found.facts } : { factsError: found.error }),
+        ...(limited ? { limited } : {}),
         ...(groups ? { groups: groups.groups, groupHosts: groups.hosts } : {}),
         environment: probe.label,
       };
