@@ -385,6 +385,8 @@ describe('signed in', () => {
     const section = (await screen.findByRole('heading', { name: 'Delete the project' })).closest(
       'section',
     ) as HTMLElement;
+    // AFS-162: in the red-bordered box of what cannot be undone.
+    expect(section.classList.contains('danger-zone')).toBe(true);
     expect(section.textContent).toMatch(/run history/);
     const button = within(section).getByRole('button', { name: 'Delete the project' });
     expect((button as HTMLButtonElement).disabled).toBe(true);
@@ -517,6 +519,7 @@ describe('signed in', () => {
     const section = (await screen.findByRole('heading', { name: 'Delete the workspace' })).closest(
       'section',
     ) as HTMLElement;
+    expect(section.classList.contains('danger-zone')).toBe(true);
     fireEvent.change(within(section).getByLabelText('Type network to confirm'), {
       target: { value: 'network' },
     });

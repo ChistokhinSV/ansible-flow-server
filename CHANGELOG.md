@@ -43,6 +43,7 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
+- Deleting a project, a workspace, a flow, an execution environment or a launch configuration sits in one red-bordered box, apart from the other settings, in both themes.
 - The setup code line in the server's log names the address to open: the setup page under the public address (or the address the server listens on), with the code filled in.
 - Access levels are said in words everywhere in the pages (read only, operator, read and write, approver), not as ro or rw. Every tab of a project says your access, including a grant on one of its flows ("read only; operator on Hello, Ansible").
 - The Access tab names flows by their titles and projects by their names, in the grants, in **Who can do what** and in the question before taking a grant back; groups are marked as groups in **Who**, and **Through** says "group ops, their own grant".

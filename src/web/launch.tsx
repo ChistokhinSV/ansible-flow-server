@@ -755,8 +755,8 @@ function DeleteConfig({ config, to }: { config: LaunchConfig; to: string }) {
     }
   };
   return (
-    <section className="panel" aria-labelledby="delete-config">
-      <h2 id="delete-config">Delete</h2>
+    <section className="panel danger-zone" aria-labelledby="delete-config">
+      <h2 id="delete-config">Delete the launch configuration</h2>
       <p className="muted">Its runs stay.</p>
       {error && (
         <p className="notice error" role="alert">
