@@ -8,7 +8,7 @@ import { inputText, launchFields, parseInput } from '@ansible-flow/core/run/laun
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { summarizeFlow } from '../flows';
-import { unknownNames } from '../notify/recipients';
+import { namesWithoutAccess, unknownNames } from '../notify/recipients';
 import type { RunNotify } from '../notify/types';
 import { type Git, refProblem } from '../projects/git';
 import { getProject, type Project } from '../projects/store';
@@ -323,6 +323,17 @@ export class LaunchConfigs {
       const unknown = await unknownNames(this.db, to);
       if (unknown.length)
         throw invalid(`No user or group ${unknown.slice(0, 3).join(', ')}`, 'notify');
+      // AFS-145: a run's message says what it did: only to who may see the flow's runs.
+      const outside = await namesWithoutAccess(this.db, to, {
+        workspace: project.workspace,
+        project: project.id,
+        flowFile,
+      });
+      if (outside.length)
+        throw invalid(
+          `${outside.slice(0, 3).join(', ')}${outside.length > 3 ? ' and others' : ''} ${outside.length === 1 ? 'has' : 'have'} no access to this flow: give a grant first, or leave them out`,
+          'notify',
+        );
       if (to.length) notify = { when: input.notify.when, to };
     }
     return {

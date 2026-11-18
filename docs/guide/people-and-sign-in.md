@@ -100,7 +100,8 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
 - The server keeps a hash of the token: it cannot show it again. Lost means revoke and make anew.
 - A token lasts 90 days unless you say otherwise, a year at most. It stops when it is revoked,
   at its end, and while its owner is disabled. A person has at most 50.
-- A read-only token (`"readOnly": true`) reads and changes nothing.
+- A read-only token (`"readOnly": true`) reads and changes nothing: a change is refused
+  (`403 read_only_token`) before what it sent is looked at.
 - An agent with a token made with `"mcpApprovals": true` may decide approvals over MCP (see
   [Agents (MCP)](api-and-mcp.md#agents-mcp)); without it approvals stay with people. Not for a read-only token.
 - A token for one workspace (`"workspace": "net"`, its key or id) reaches that workspace only:

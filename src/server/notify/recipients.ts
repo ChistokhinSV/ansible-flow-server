@@ -3,10 +3,49 @@
 // webhook; a group at its own, or, when it has neither, through each of its members. Disabled
 // accounts are told nothing; an address reached two ways is told once.
 import type { Kysely } from 'kysely';
+import { Access } from '../access/grants';
 import type { Schema } from '../db/schema';
 import type { Outgoing } from './store';
 
 type Db = Kysely<Schema>;
+
+/** A flow in a project of a workspace: what a run's message is about. */
+export interface FlowPlace {
+  workspace: string;
+  project: string;
+  flowFile: string;
+}
+
+/**
+ * AFS-145: whether a person may see a flow's runs (any grant on the flow or its workspace, theirs or
+ * a group's; an administrator always): only they are told of a run, whatever a list names.
+ */
+async function userSees(
+  db: Db,
+  user: { id: string; is_admin: number },
+  place: FlowPlace,
+): Promise<boolean> {
+  const access = await Access.of(db, { id: user.id, admin: user.is_admin === 1 });
+  return access.onFlow(place.workspace, place.project, place.flowFile) !== undefined;
+}
+
+/** AFS-145: whether a grant names the group itself, on the workspace or on the flow. */
+async function groupHasGrant(db: Db, groupId: string, place: FlowPlace): Promise<boolean> {
+  const row = await db
+    .selectFrom('access_grant')
+    .select('id')
+    .where('principal_type', '=', 'group')
+    .where('principal_id', '=', groupId)
+    .where('workspace_id', '=', place.workspace)
+    .where((eb) =>
+      eb.or([
+        eb('project_id', 'is', null),
+        eb.and([eb('project_id', '=', place.project), eb('flow_file', '=', place.flowFile)]),
+      ]),
+    )
+    .executeTakeFirst();
+  return !!row;
+}
 
 interface Contact {
   label: string;
@@ -30,18 +69,22 @@ export function placesOf(contacts: Contact[]): Outgoing[] {
   return [...out.values()];
 }
 
-async function usersById(db: Db, ids: string[]): Promise<Contact[]> {
+async function usersById(db: Db, ids: string[], place?: FlowPlace): Promise<Contact[]> {
   if (!ids.length) return [];
   const rows = await db
     .selectFrom('user_account')
-    .select(['login', 'email', 'webhook_url'])
+    .select(['id', 'is_admin', 'login', 'email', 'webhook_url'])
     .where('id', 'in', ids)
     .where('disabled', '=', 0)
     .execute();
-  return rows.map((r) => ({ label: r.login, email: r.email, webhook_url: r.webhook_url }));
+  const out: Contact[] = [];
+  for (const r of rows)
+    if (!place || (await userSees(db, r, place)))
+      out.push({ label: r.login, email: r.email, webhook_url: r.webhook_url });
+  return out;
 }
 
-async function groupContacts(db: Db, groupIds: string[]): Promise<Contact[]> {
+async function groupContacts(db: Db, groupIds: string[], place?: FlowPlace): Promise<Contact[]> {
   if (!groupIds.length) return [];
   const groups = await db
     .selectFrom('user_group')
@@ -51,7 +94,9 @@ async function groupContacts(db: Db, groupIds: string[]): Promise<Contact[]> {
   const out: Contact[] = [];
   for (const g of groups) {
     if (g.email || g.webhook_url) {
-      out.push({ label: g.name, email: g.email, webhook_url: g.webhook_url });
+      // AFS-145: a group's own address is told only when a grant names the group.
+      if (!place || (await groupHasGrant(db, g.id, place)))
+        out.push({ label: g.name, email: g.email, webhook_url: g.webhook_url });
       continue;
     }
     const members = await db
@@ -63,14 +108,22 @@ async function groupContacts(db: Db, groupIds: string[]): Promise<Contact[]> {
       ...(await usersById(
         db,
         members.map((m) => m.user_id),
+        place,
       )),
     );
   }
   return out;
 }
 
-/** Contacts of logins and group names; names that are neither are left out. */
-export async function contactsOfNames(db: Db, names: string[]): Promise<Contact[]> {
+/**
+ * Contacts of logins and group names; names that are neither are left out. With a place (AFS-145),
+ * only who may see that flow: a list saved before a grant was taken back tells nobody without one.
+ */
+export async function contactsOfNames(
+  db: Db,
+  names: string[],
+  place?: FlowPlace,
+): Promise<Contact[]> {
   const wanted = [...new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean))];
   if (!wanted.length) return [];
   const users = await db
@@ -85,12 +138,58 @@ export async function contactsOfNames(db: Db, names: string[]): Promise<Contact[
     ...(await usersById(
       db,
       users.map((u) => u.id),
+      place,
     )),
     ...(await groupContacts(
       db,
       groups.map((g) => g.id),
+      place,
     )),
   ];
+}
+
+/**
+ * AFS-145: of these logins and group names, the ones without access to the flow: a person who
+ * may not see its runs; a group no grant names, unless it has no address of its own and each of
+ * its members may see them (then the members are told, each as themself).
+ */
+export async function namesWithoutAccess(
+  db: Db,
+  names: string[],
+  place: FlowPlace,
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const name of names) {
+    const lower = name.trim().toLowerCase();
+    const user = await db
+      .selectFrom('user_account')
+      .select(['id', 'is_admin'])
+      .where('login', '=', lower)
+      .executeTakeFirst();
+    if (user) {
+      if (!(await userSees(db, user, place))) out.push(name);
+      continue;
+    }
+    const group = (
+      await db.selectFrom('user_group').select(['id', 'name', 'email', 'webhook_url']).execute()
+    ).find((g) => g.name.toLowerCase() === lower);
+    if (!group || (await groupHasGrant(db, group.id, place))) continue;
+    if (group.email || group.webhook_url) {
+      out.push(name);
+      continue;
+    }
+    const members = await db
+      .selectFrom('group_member')
+      .innerJoin('user_account', 'user_account.id', 'group_member.user_id')
+      .select(['user_account.id as id', 'user_account.is_admin as is_admin'])
+      .where('group_member.group_id', '=', group.id)
+      .where('user_account.disabled', '=', 0)
+      .execute();
+    let all = members.length > 0;
+    for (const m of members) if (all && !(await userSees(db, m, place))) all = false;
+    if (!all) out.push(name);
+  }
+  return out;
 }
 
 /** Of these names, the ones that are no login and no group's name. */

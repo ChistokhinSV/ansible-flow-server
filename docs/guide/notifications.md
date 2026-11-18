@@ -59,6 +59,12 @@ A launch configuration says whom its runs tell (`notify`, see
 { "notify": { "when": "failed", "to": ["network-oncall", "dana"] } }
 ```
 
+A run's message says what it did, so it goes only to who may see the flow's runs: a person with
+a grant on the flow or its workspace (their own or a group's), an administrator, or a group a
+grant names (a group without an address of its own and without a grant: each member who has
+access). Saving a list that names someone without access is refused, naming them. Access taken
+back later counts at once: they are not told.
+
 | Address (under `/api/v1`)         | Does                                                                        | Who                   |
 | --------------------------------- | --------------------------------------------------------------------------- | --------------------- |
 | `GET /notifications`              | The delivery log (`status`, `event`, `run`, `before`, `limit`)              | administrators        |

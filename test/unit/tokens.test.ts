@@ -126,6 +126,7 @@ for (const [name, config] of databases) {
       expect(await tokenUser(db(), short.token, new Date(now.getTime() + DAY))).toBeUndefined();
       expect((await tokenUser(db(), long.token, now))?.token).toEqual({
         id: long.info.id,
+        name: 'long',
         readOnly: true,
       });
 

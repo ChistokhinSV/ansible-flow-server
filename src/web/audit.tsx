@@ -29,6 +29,18 @@ function Who({ entry }: { entry: AuditEntry }) {
   return <span className="muted">{typeof tried === 'string' ? `${tried}?` : 'nobody'}</span>;
 }
 
+/** AFS-145: the token an action was done with, by its name (older entries have its id only). */
+function TokenUsed({ entry }: { entry: AuditEntry }) {
+  const name = entry.detail?.token;
+  if (typeof name === 'string') return <div className="muted">token {name}</div>;
+  if (!entry.token) return null;
+  return (
+    <div className="muted" title={entry.token}>
+      token {entry.token.slice(0, 8)}…
+    </div>
+  );
+}
+
 type Refs = Record<string, AuditRef>;
 
 /** The kinds the server names by id (server/audit/refs.ts): one missing from `refs` is gone. */
@@ -84,7 +96,10 @@ function Value({ k, v, refs }: { k: string; v: unknown; refs: Refs }) {
  */
 function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs }) {
   if (!detail) return null;
-  const shown = Object.entries(detail).filter(([k]) => k !== 'osUser' && k !== 'login');
+  // The token is said beside the source (TokenUsed).
+  const shown = Object.entries(detail).filter(
+    ([k]) => k !== 'osUser' && k !== 'login' && k !== 'token',
+  );
   if (shown.length === 0) return null;
   return (
     // AFS-141: a box of its own width, so a long detail wraps instead of leaving the page.
@@ -229,6 +244,7 @@ export function AuditPage() {
                   </td>
                   <td>
                     {SOURCE_LABEL[e.source] ?? e.source}
+                    <TokenUsed entry={e} />
                     {e.ip && <div className="muted">{e.ip}</div>}
                   </td>
                   <td>

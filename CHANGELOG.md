@@ -26,6 +26,9 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
+- A launch configuration tells of its runs only people and groups with access to the flow: saving one that names someone without access is refused and says who, and someone whose access was taken back later is no longer told.
+- The audit log names the token an action was done with, beside where it came from, and an entry of a token made says what it reaches.
+- A read-only token is refused as such at once, before what it sent is checked.
 - A pinned commit (launch configurations, schedules, a launch) can be given as the pages show it (12 digits) or in full.
 - Keys made from a name keep accented letters as their plain letter (Ünïcödé: unicode) and a long name is cut between words.
 - A cron that cannot be read says which part is out of range and what it takes; a time-zone problem is said at the time zone.

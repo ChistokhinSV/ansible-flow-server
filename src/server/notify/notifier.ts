@@ -405,7 +405,14 @@ export class Notifier {
       await enqueue(
         this.db,
         { kind: 'run.ended', message, run: run.id },
-        placesOf(await contactsOfNames(this.db, notify.to)),
+        // AFS-145: only who may see the flow's runs now, whatever the list said when saved.
+        placesOf(
+          await contactsOfNames(this.db, notify.to, {
+            workspace: run.workspace.id,
+            project: run.project.id,
+            flowFile: run.flowFile,
+          }),
+        ),
       );
     });
   }

@@ -162,6 +162,37 @@ describe('the audit log', () => {
     expect(screen.getAllByText('All of it').length).toBe(3);
   });
 
+  it('names the token an action was done with, beside its source (AFS-145)', async () => {
+    const TOKEN = 'e428a134-1111-4222-8333-944455556666';
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /audit?limit=100': () => ({
+        body: {
+          entries: [
+            entry(1, {
+              source: 'api',
+              token: TOKEN,
+              action: 'project.create',
+              result: 'refused',
+              status: 403,
+              detail: { workspace: 'w1', error: 'read_only_token', token: 'a1-readonly' },
+            }),
+            // Written before tokens were named in the log: its id, short.
+            entry(2, { source: 'api', token: TOKEN, action: 'group.create', detail: {} }),
+          ],
+          refs: {},
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/audit');
+    render(<App />);
+    await screen.findByText('project.create');
+    expect(screen.getByText('token a1-readonly')).toBeTruthy();
+    expect(screen.getByText('token e428a134…')).toBeTruthy();
+    // Said once: not again among the detail.
+    expect(screen.queryByText('token:')).toBeNull();
+  });
+
   it('is not there for someone who is not an administrator', async () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/admin/audit');

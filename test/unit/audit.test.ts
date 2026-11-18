@@ -209,7 +209,8 @@ for (const [name, config] of databases) {
       const { id, token } = made.json() as { id: string; token: string };
       expect(await newest('token.create')).toMatchObject({
         object: { type: 'token', id, name: 'ci' },
-        detail: { expiresInDays: 30 },
+        // AFS-145: what it reaches.
+        detail: { expiresInDays: 30, reaches: 'every workspace' },
       });
       expect(JSON.stringify(await newest('token.create'))).not.toContain(token);
       await app.inject({
@@ -223,6 +224,8 @@ for (const [name, config] of databases) {
         token: id,
         source: 'api',
         object: { type: 'group', name: 'operators' },
+        // AFS-145: and by its name, which stays when the token is revoked.
+        detail: { token: 'ci' },
       });
     });
 

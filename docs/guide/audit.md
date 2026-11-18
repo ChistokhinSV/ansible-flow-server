@@ -11,7 +11,9 @@ name, so a deleted thing is still named), how it ended (`ok`, `refused`, `failed
 HTTP status), the client's address and the request id of the server's log.
 
 - Sign-ins, refused ones too (by the login tried); sign-outs; passwords set or changed.
-- Tokens made and revoked; people and groups made, changed, deleted; who was added to a group
+- Tokens made (with what they reach: one workspace, or every workspace) and revoked. An entry
+  made with a token names it, beside where it came from; the name stays after the token is
+  revoked. People and groups made, changed, deleted; who was added to a group
   and who left it, by login. A person not made is named by the login tried, with the reason.
 - Access grants given and taken back, named with the workspace (or flow) they are on.
 - Workspaces, projects, credentials, launch configurations, schedules and environments made,
