@@ -466,9 +466,15 @@ export const ROUTES: Record<string, RouteDoc> = {
   )('Launch: the run goes in the queue'),
 
   'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
-    "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
+    "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
   ),
-  'GET /api/v1/runs/:id': S('Runs', 'signed in', R)('One run'),
+  'GET /api/v1/runs/:id': S(
+    'Runs',
+    'signed in',
+    R,
+  )(
+    'One run, with its credentials by name (`credentialNames`), the environment its image came from (`environment`) and the targets Ansible skipped because the inventory does not have them (`skippedTargets`)',
+  ),
   'GET /api/v1/runs/:id/output': S(
     'Runs',
     'signed in',

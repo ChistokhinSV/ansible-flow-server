@@ -13,6 +13,7 @@ import { checkInputs } from '@ansible-flow/core/run/launch';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { accessOf, atLeast } from '../access/grants';
 import { signedIn } from '../auth/guards';
+import { environmentImage } from '../environments/image';
 import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
 import { lastRuns, type RunQueue } from '../runs/queue';
@@ -95,6 +96,16 @@ export function registerLaunch(
 ): void {
   const dev = deps.dev ?? { maxBytes: 50 * 1024 * 1024, keepHours: 24 };
   const configs = new LaunchConfigs(deps.db, deps.git);
+  /** AFS-147: the flows on a project's branch now (undefined when it has no commit yet). */
+  const flowFiles = async (projectId: string): Promise<Set<string> | undefined> => {
+    const project = await getProject(deps.db, projectId);
+    if (!project?.commit) return undefined;
+    try {
+      return new Set(await deps.git.files(project.id, project.commit));
+    } catch {
+      return undefined;
+    }
+  };
   const answering =
     <R extends FastifyRequest>(handler: (request: R, reply: FastifyReply) => Promise<unknown>) =>
     async (request: R, reply: FastifyReply) => {
@@ -135,11 +146,19 @@ export function registerLaunch(
     const maySee = (file: string) => !!access?.onFlow(project.workspace, project.id, file);
     // Each with its newest run, of the runs this person may see: read once for the project.
     const last = await lastRuns(deps.db, project.id, 'config', maySee);
+    // AFS-147: a configuration whose flow is not on the project's branch any more says so, so a
+    // list does not offer to launch it as if it could run.
+    const files = await flowFiles(project.id);
     return (await configs.list(project.id))
       .filter((c) => maySee(c.flowFile))
       .map((c) => {
         const lastRun = last.get(c.id);
-        return lastRun ? { ...c, lastRun } : c;
+        const gone = files && !c.commit && !c.gitRef && !files.has(c.flowFile);
+        return {
+          ...c,
+          ...(lastRun ? { lastRun } : {}),
+          ...(gone ? { flowGone: `There is no flow ${c.flowFile} on the project's branch` } : {}),
+        };
       });
   });
 
@@ -187,7 +206,40 @@ export function registerLaunch(
           config.id,
         )
       ).get(config.id);
-    return lastRun ? { ...config, lastRun } : config;
+    // AFS-147: what it runs with, by name, for its page's header.
+    const named = config.credentials.length
+      ? new Map(
+          (
+            await deps.db
+              .selectFrom('credential')
+              .select(['id', 'name'])
+              .where('id', 'in', config.credentials)
+              .execute()
+          ).map((c) => [c.id, c.name]),
+        )
+      : undefined;
+    const env = config.environment
+      ? await environmentImage(deps.db, config.environment)
+      : undefined;
+    const files =
+      project && !config.commit && !config.gitRef ? await flowFiles(project.id) : undefined;
+    return {
+      ...config,
+      ...(lastRun ? { lastRun } : {}),
+      ...(named ? { credentialNames: config.credentials.map((id) => named.get(id) ?? id) } : {}),
+      ...(env
+        ? {
+            environmentInfo: {
+              name: env.name ?? 'an environment that is gone',
+              ...(env.image ? { image: env.image } : {}),
+              ...(env.why ? { why: env.why } : {}),
+            },
+          }
+        : {}),
+      ...(files && !files.has(config.flowFile)
+        ? { flowGone: `There is no flow ${config.flowFile} on the project's branch` }
+        : {}),
+    };
   });
 
   app.patch<WithId & { Body: Partial<LaunchConfigInput> }>(

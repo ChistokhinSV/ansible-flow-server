@@ -373,7 +373,44 @@ describe('a run', () => {
     await limited.ex.start();
     await ended(none2.id);
     await limited.ex.stop();
-    expect((await queue.get(none2.id))?.error).toBe(`The run produced no events: ${LIMIT}`);
+    // AFS-147: said plainly: which targets, which limit, which inventory.
+    expect((await queue.get(none2.id))?.error).toBe(
+      'No host ran: none of the targets (fw-edge-01) is in the inventory',
+    );
+    const limited2 = executor(async (_request, hooks) => {
+      hooks.log?.(LIMIT);
+      return { rc: 1, error: 'The run produced no events' };
+    });
+    const none3 = await launch({ limit: 'nosuchhost' });
+    await limited2.ex.start();
+    await ended(none3.id);
+    await limited2.ex.stop();
+    expect((await queue.get(none3.id))?.error).toBe(
+      'No host ran: the limit nosuchhost matched none of the targets (fw-edge-01) in the inventory',
+    );
+  });
+
+  it('names the targets Ansible skipped, on a run that went well too (AFS-147)', async () => {
+    const { ex } = executor(async (_request, hooks) => {
+      hooks.log?.('[WARNING]: Could not match supplied host pattern, ignoring: nosuchhost');
+      return {
+        rc: 0,
+        summary: {
+          nodes: {},
+          outcome: {},
+          failures: [],
+          unreachable: [],
+          hosts: ['fw-edge-01'],
+          stoppedEarly: false,
+        },
+      };
+    });
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect((await queue.get(run.id))?.state).toBe('succeeded');
+    expect(await queue.view(run.id)).toMatchObject({ skippedTargets: ['nosuchhost'] });
   });
 
   it('fails with the reason when Ansible fails, and when the run cannot start', async () => {
@@ -391,9 +428,10 @@ describe('a run', () => {
     const failed = await launch();
     await ex.start();
     await ended(failed.id);
+    // AFS-147: how many hosts failed, not the exit code.
     expect(await queue.get(failed.id)).toMatchObject({
       state: 'failed',
-      error: 'ansible-playbook ended with 2; 1 host(s) failed',
+      error: '1 of 1 host failed',
     });
     await ex.stop();
 
@@ -437,9 +475,10 @@ describe('a run', () => {
     await until(async () => !!(await queue.get(cancelled.id))?.startedAt);
     await queue.cancel(cancelled.id, 'omar');
     await ended(cancelled.id);
+    // AFS-147: who stopped it (a login the server does not know is said as it is).
     expect(await queue.get(cancelled.id)).toMatchObject({
       state: 'cancelled',
-      error: 'Stopped on request',
+      error: 'Stopped by omar',
       cancelledBy: 'omar',
     });
     await a.ex.stop();

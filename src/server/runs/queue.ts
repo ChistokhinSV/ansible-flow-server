@@ -19,6 +19,7 @@ import { open, seal } from '../secrets/crypto';
 import type { MasterKey } from '../secrets/masterKey';
 import { type LastRun, readBefore } from './cursor';
 import { hostCounts } from './hostCounts';
+import { stoppedBy } from './words';
 
 export type { LastRun };
 
@@ -86,6 +87,14 @@ export interface Run {
   dev?: true;
   /** AFS-34: the schedule that launched it. */
   schedule?: string;
+  /**
+   * AFS-147: on one run's page (GET /runs/:id and its events): its credentials by name (one that
+   * is gone by its id), the environment its image came from, and the targets Ansible skipped
+   * because the inventory does not have them.
+   */
+  credentialNames?: string[];
+  environment?: { id: string; name: string; workspace: string };
+  skippedTargets?: string[];
 }
 
 /** A run as a worker gets it: with its lease, and its inputs in full. */
@@ -114,6 +123,8 @@ export interface RunFilter {
   config?: string;
   /** Runs this person asked for (their login). */
   by?: string;
+  /** AFS-147: text in the flow's name or file, the configuration's name or the launcher's login. */
+  q?: string;
   /** The newest first; at most this many (1 to 200). */
   limit?: number;
   /**
@@ -305,6 +316,21 @@ export class RunQueue {
     if (filter.state) query = query.where('state', '=', filter.state);
     if (filter.config) query = query.where('config_id', '=', filter.config);
     if (filter.by) query = query.where('requested_login', '=', filter.by);
+    const words = filter.q?.trim().toLowerCase();
+    if (words) {
+      // Typed text is matched as it is: % and _ are not wildcards here.
+      const like = `%${words.replace(/[!%_]/g, (c) => `!${c}`)}%`;
+      const number = /^#?(\d+)$/.exec(words)?.[1];
+      query = query.where((eb) =>
+        eb.or([
+          sql<boolean>`lower(flow_name) like ${like} escape '!'`,
+          sql<boolean>`lower(flow_file) like ${like} escape '!'`,
+          sql<boolean>`lower(coalesce(config_name, '')) like ${like} escape '!'`,
+          sql<boolean>`lower(requested_login) like ${like} escape '!'`,
+          ...(number ? [eb('number', '=', Number(number))] : []),
+        ]),
+      );
+    }
     const before = filter.before ? readBefore(filter.before) : undefined;
     const last = before?.run;
     if (before && last)
@@ -605,9 +631,13 @@ export class RunQueue {
       // before the worker could stop it.
       const stopAsked = row.cancel_requested === 1 && outcome === 'succeeded';
       const state: Outcome = stopAsked ? 'cancelled' : outcome;
+      // AFS-147: who stopped it, by the name the pages show people by.
+      const who = row.cancelled_by ? await nameOf(trx, row.cancelled_by) : undefined;
       const why = stopAsked
-        ? `Asked to stop by ${row.cancelled_by ?? 'someone'}; its steps had ended before it could be stopped`
-        : error;
+        ? `Asked to stop by ${who ?? 'someone'}; its steps had ended before it could be stopped`
+        : state === 'cancelled'
+          ? stoppedBy(error, who)
+          : error;
       await trx
         .updateTable('run')
         .set({
@@ -677,6 +707,17 @@ export class RunQueue {
       const row = await trx.selectFrom('run').selectAll().where('id', '=', id).executeTakeFirst();
       if (!row) return undefined;
       endedNow = row.state === 'queued' || row.state === 'waiting';
+      // AFS-147: a run stopped before it went on says who stopped it and where it was.
+      const who = endedNow ? await nameOf(trx, by) : by;
+      const gate =
+        row.state === 'waiting'
+          ? await trx
+              .selectFrom('run_gate')
+              .select(['title', 'node_id'])
+              .where('run_id', '=', id)
+              .where('status', '=', 'waiting')
+              .executeTakeFirst()
+          : undefined;
       if (row.state === 'queued' || row.state === 'waiting')
         await trx
           .updateTable('run')
@@ -686,9 +727,15 @@ export class RunQueue {
             cancelled_by: by,
             ended_at: iso(now),
             updated_at: iso(now),
+            error:
+              row.state === 'queued'
+                ? `Stopped by ${who} before it started`
+                : `Stopped by ${who} while it waited for approval${gate ? ` at ${gate.title}` : ''}`,
             // AFS-110: what the canvas shows of it ends too: a run stopped while it waited for a
             // decision no longer reads as waiting there (nothing else writes its view any more).
-            ...(row.view_json ? { view_json: JSON.stringify(stoppedView(row.view_json, by)) } : {}),
+            ...(row.view_json
+              ? { view_json: JSON.stringify(stoppedView(row.view_json, who, gate?.node_id)) }
+              : {}),
           })
           .where('id', '=', id)
           .execute();
@@ -833,18 +880,23 @@ export async function lastRuns(
  * AFS-110: the view of a run stopped before it ran on (queued, or waiting at an approval): ended,
  * with who stopped it, and no approval waiting any more.
  */
-export function stoppedView(viewJson: string, by: string): unknown {
+export function stoppedView(viewJson: string, by: string, at?: string): unknown {
   const { rc: _rc, ...view } = JSON.parse(viewJson) as {
     state?: string;
     rc?: number;
     error?: string;
     approvals?: Record<string, { status: string }>;
+    summary?: { running?: string };
   };
   const approvals = Object.fromEntries(
     Object.entries(view.approvals ?? {}).filter(([, a]) => a.status !== 'waiting'),
   );
+  // AFS-147: nothing runs any more: no step reads as running, and the step it stopped at is named.
+  const { running: _running, ...summary } = view.summary ?? {};
   return {
     ...view,
+    ...(view.summary ? { summary } : {}),
+    ...(at ? { stoppedAt: at } : {}),
     // An error with the reason, no exit code: the part that ran ended well, the run did not (an
     // exit 0 read as success). The designer then says "Run interrupted" with the reason.
     state: 'error',
@@ -852,4 +904,14 @@ export function stoppedView(viewJson: string, by: string): unknown {
     error: `Stopped by ${by} before it went on`,
     ...(view.approvals ? { approvals } : {}),
   };
+}
+
+/** AFS-147: a person's name by their login; the login when they have no name (or are gone). */
+async function nameOf(db: Db, login: string): Promise<string> {
+  const row = await db
+    .selectFrom('user_account')
+    .select('name')
+    .where('login', '=', login)
+    .executeTakeFirst();
+  return row?.name || login;
 }
