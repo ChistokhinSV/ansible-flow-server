@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Transport = {
   post(message: Record<string, unknown>): void;
+  subscribe?(listener: (message: Record<string, unknown>) => void): void;
 };
 let transport: Transport | undefined;
 vi.mock('@ansible-flow/designer', () => ({
@@ -89,6 +90,22 @@ describe("the draft's frame", () => {
       flush: 'f1',
       stream: 's2',
     });
+  });
+
+  it('selects the step it was opened at once the flow shows (AFS-164)', async () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    editDraft({ root, draft: 'd1', me: 'dana', theme: 'dark', stateKey: 'k', reveal: 'n7' });
+    const heard: Record<string, unknown>[] = [];
+    transport?.subscribe?.((m) => heard.push(m));
+    transport?.post({ type: 'ready' });
+    (FakeSource.last as FakeSource).emit('draft', { snapshot: { doc: { nodes: [] } } });
+    (FakeSource.last as FakeSource).emit('draft', { snapshot: { doc: { nodes: [] } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const types = heard.map((m) => m.type).filter((t) => t === 'snapshot' || t === 'reveal');
+    // Once, after the first flow it shows.
+    expect(types).toEqual(['snapshot', 'reveal', 'snapshot']);
+    expect(heard.find((m) => m.type === 'reveal')).toEqual({ type: 'reveal', node: 'n7' });
   });
 
   it('says what an edit did in a few words', () => {

@@ -6,6 +6,7 @@
 // address; the launch form comes first, and what is rarely typed is folded away.
 import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { errorsLead, type FlowError } from '../server/flowErrors';
 import type { FactsReply } from '../server/launch/facts';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
@@ -955,6 +956,11 @@ export function LaunchConfigPage({
       Object.entries(texts).filter(([name]) => fields.some((f) => f.name === name)),
     ),
   });
+  const formErrors =
+    form.failure instanceof ApiError
+      ? form.failure.details.problems?.find((p) => p.errors?.length)?.errors
+      : undefined;
+  const flowErrors = problems.find((p) => p.errors?.length)?.errors;
   const refused = (e: unknown) => {
     if (e instanceof ApiError && e.details.problems?.length) {
       setProblems(e.details.problems);
@@ -1174,7 +1180,16 @@ export function LaunchConfigPage({
               }}
               aria-describedby={error ? 'launch-error' : undefined}
             >
-              <Loading state={form} />
+              {/* AFS-164: a flow with errors: which, each a link to its step. */}
+              {formErrors ? (
+                <FlowErrorsNote
+                  errors={formErrors}
+                  to={flowAddress(workspace, key, c.flowFile)}
+                  edit={mayManage}
+                />
+              ) : (
+                <Loading state={form} />
+              )}
               {fields.length === 0 && form.data && (
                 <p className="muted">The flow takes no inputs.</p>
               )}
@@ -1301,11 +1316,19 @@ export function LaunchConfigPage({
                   </label>
                 ))}
               </fieldset>
-              {error && (
-                <p className="notice error" role="alert" id="launch-error">
-                  {error}
-                </p>
-              )}
+              {error &&
+                (flowErrors ? (
+                  <FlowErrorsNote
+                    id="launch-error"
+                    errors={flowErrors}
+                    to={flowAddress(workspace, key, c.flowFile)}
+                    edit={mayManage}
+                  />
+                ) : (
+                  <p className="notice error" role="alert" id="launch-error">
+                    {error}
+                  </p>
+                ))}
               {problems.some((p) => p.field && isShown(p.field)) && !error && (
                 <p className="notice error" role="alert">
                   Some fields need a look: see the ones marked.
@@ -1430,7 +1453,11 @@ function ConfigForm({
     tellTo,
     (recipients.data ?? []).map((r) => r.name),
   );
-  const [problem, setProblem] = useState<{ field?: string; message: string }>();
+  const [problem, setProblem] = useState<{
+    field?: string;
+    message: string;
+    errors?: FlowError[];
+  }>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   // AFS-150: what the form holds now against what was saved (or first shown): leaving with a
@@ -1495,6 +1522,7 @@ function ConfigForm({
     } catch (e) {
       setProblem({
         ...(e instanceof ApiError && e.details.field ? { field: e.details.field } : {}),
+        ...(e instanceof ApiError && e.details.errors?.length ? { errors: e.details.errors } : {}),
         message: messageOf(e),
       });
       setBusy(false);
@@ -1588,6 +1616,15 @@ function ConfigForm({
           )}
         </Labelled>
       </div>
+      {/* AFS-164: the flow's errors, each a link to its step, opened for editing. */}
+      {problem?.field === 'flowFile' && problem.errors?.length ? (
+        <FlowErrorsNote
+          errors={problem.errors}
+          to={flowAddress(workspace, project.key, input.flowFile)}
+          edit
+          quiet
+        />
+      ) : null}
       <Labelled label="Description">
         {(props) => (
           <input
@@ -1944,5 +1981,59 @@ export function LaunchConfigEdit({
         />
       </section>
     </>
+  );
+}
+
+/** How many of a flow's errors are listed before "and N more" (AFS-164). */
+const LISTED = 5;
+
+/**
+ * AFS-164: the errors that stop a flow from running, each a link to its step on the flow's page:
+ * opened for editing for who may edit it, else shown. `quiet`: the list only (the field above it
+ * says how many there are).
+ */
+export function FlowErrorsNote({
+  id,
+  errors,
+  to,
+  edit,
+  quiet,
+}: {
+  id?: string;
+  errors: FlowError[];
+  to: string;
+  edit: boolean;
+  quiet?: boolean;
+}) {
+  const at = (node?: string) => {
+    const query = new URLSearchParams();
+    if (node) query.set('step', node);
+    if (edit) query.set('edit', '1');
+    const text = query.toString();
+    return text ? `${to}?${text}` : to;
+  };
+  const shown = errors.slice(0, LISTED);
+  const list = (
+    <ul className="plain flow-errors">
+      {shown.map((e, i) => (
+        // Two errors may be alike (same step, same words): the place in the list tells them apart.
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list, read once
+        <li key={i}>
+          <Link to={at(e.node)}>{e.step ?? 'The flow'}</Link>: {e.message}
+        </li>
+      ))}
+      {errors.length > shown.length && (
+        <li>
+          <Link to={at()}>and {errors.length - shown.length} more</Link>
+        </li>
+      )}
+    </ul>
+  );
+  if (quiet) return list;
+  return (
+    <div className="notice error flow-errors-note" role="alert" id={id}>
+      <p>{errorsLead(errors.length)}:</p>
+      {list}
+    </div>
   );
 }

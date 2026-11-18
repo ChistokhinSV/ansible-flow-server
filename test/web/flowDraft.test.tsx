@@ -2,10 +2,14 @@
 // branch's changes clash with shows both values per place and keeps the side picked; the draft's
 // notes lie over the canvas and the activity line is there before the first edit; a save says
 // its commit and co-authors, and one made in another tab of the same person says "you"; one
-// Discard question names whose edits go.
+// Discard question names whose edits go. AFS-165: one person editing has the canvas right under the
+// head (no line about others, no message field: Save asks for it; the commit is behind "i").
+// AFS-166: Ctrl+S saves the draft, from the page and from the designer's frame. AFS-164: `?step=`
+// selects a step on the canvas.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { discardQuestion, FlowPage } from '../../src/web/flow';
+import { listenForSaveKey, SAVE_KEY } from '../../src/web/saveKey';
 
 const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
 const SAVED = '269d7e7326b8aa1b2c3d4e5f60718293a4b5c6d7';
@@ -49,7 +53,13 @@ beforeEach(() => {
     return { ok: status < 300, status, json: async () => answer.body } as Response;
   });
 });
+let stopKeys: () => void;
+beforeEach(() => {
+  stopKeys = listenForSaveKey();
+});
 afterEach(() => {
+  stopKeys();
+  window.history.replaceState(null, '', '/');
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -81,8 +91,9 @@ const editing = async () => {
     />,
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-  await screen.findByRole('region', { name: 'Editing' });
+  await screen.findByRole('button', { name: 'Stop editing' });
 };
+const saveForm = () => screen.getByRole('form', { name: 'Save the draft' });
 
 describe("a flow's draft on its page (AFS-149)", () => {
   it('shows both values of each clash over the canvas and saves the side picked per place', async () => {
@@ -104,12 +115,14 @@ describe("a flow's draft on its page (AFS-149)", () => {
             },
     };
     await editing();
-    // The activity line is there before anyone changed anything: its first edit moves nothing.
-    expect(document.querySelector('.draft-edits')?.textContent).toMatch(/others change/);
-    fireEvent.click(
-      within(screen.getByRole('region', { name: 'Editing' })).getByRole('button', { name: 'Save' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.change(within(saveForm()).getByLabelText("What changed (the commit's message)"), {
+      target: { value: 'Safer rollback' },
+    });
+    fireEvent.click(within(saveForm()).getByRole('button', { name: 'Save' }));
     const note = await screen.findByRole('alert');
+    // AFS-165: the message asked for goes with the save.
+    expect(bodies['POST /drafts/d1/save']?.[0]).toMatchObject({ message: 'Safer rollback' });
     // Over the canvas, not above it.
     expect(note.closest('.flow-stage')).toBeTruthy();
     expect(note.textContent).toContain('Rollback (a3 draft)');
@@ -166,7 +179,70 @@ describe("a flow's draft on its page (AFS-149)", () => {
     expect(said.textContent).not.toContain('Dana Whitfield');
     expect(said.textContent).toContain('What you were typing here is in it.');
     expect(within(said).getByRole('link').textContent).toBe(SAVED.slice(0, 12));
-    expect(screen.queryByRole('region', { name: 'Editing' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Stop editing' })).toBeNull();
+  });
+
+  it('puts the canvas under the head for one person; the others line only with others (AFS-165)', async () => {
+    routes = base();
+    await editing();
+    // No line about others, no message field, no lead with the commit.
+    expect(screen.queryByRole('region', { name: 'Editing together' })).toBeNull();
+    expect(screen.queryByLabelText("What changed (the commit's message)")).toBeNull();
+    expect(document.querySelector('.page-head p')).toBeNull();
+    // The commit and how saving goes, behind "i" beside Full screen.
+    fireEvent.click(screen.getByRole('button', { name: 'About this draft' }));
+    const info = document.querySelector('.draft-info') as HTMLElement;
+    expect(info.textContent).toContain(`A draft of main at ${COMMIT.slice(0, 12)}`);
+    expect(info.textContent).toContain('Ctrl+Z');
+    // Another tab of the same person: the line shows.
+    tell({
+      type: 'afs-draft-people',
+      people: [{ login: 'dana', name: 'Dana Whitfield', tabs: 2 }],
+    });
+    const line = await screen.findByRole('region', { name: 'Editing together' });
+    expect(line.textContent).toContain('here now: only you (you in other tabs too).');
+  });
+
+  it('saves on Ctrl+S, from the page and from the canvas (AFS-166)', async () => {
+    routes = { ...base(), 'POST /drafts/d1/save': () => ({ body: { commit: SAVED } }) };
+    await editing();
+    const key = () =>
+      act(() => {
+        fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+      });
+    key();
+    // Asked for the message first; nothing is saved yet.
+    expect(saveForm()).toBeTruthy();
+    expect(bodies['POST /drafts/d1/save']).toBeUndefined();
+    // Ctrl+S in the designer's frame comes as a message: it saves what is asked.
+    tell({ type: SAVE_KEY });
+    expect(await screen.findByText(/Saved as/)).toBeTruthy();
+    expect(bodies['POST /drafts/d1/save']).toHaveLength(1);
+    // Not editing now: Ctrl+S does nothing here (and the browser's dialog is kept away).
+    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(bodies['POST /drafts/d1/save']).toHaveLength(1);
+  });
+
+  it('selects the step a link names on the canvas (AFS-164)', async () => {
+    routes = base();
+    window.history.replaceState(null, '', '/?step=01HSTEP&edit=1');
+    render(
+      <FlowPage
+        me={{ login: 'dana', name: 'Dana Whitfield' }}
+        workspace="net"
+        project="core"
+        file={FILE}
+        theme="dark"
+      />,
+    );
+    // Opened for editing, with the step asked for selected in the draft's frame.
+    await screen.findByRole('button', { name: 'Stop editing' });
+    const frame = screen.getByTitle(/on the designer/) as HTMLIFrameElement;
+    const asked = new URL(frame.src, window.location.origin).searchParams;
+    expect(asked.get('draft')).toBe('d1');
+    expect(asked.get('node')).toBe('01HSTEP');
   });
 
   it('asks one Discard question naming whose edits go', () => {

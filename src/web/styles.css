@@ -1141,8 +1141,8 @@ ul.tight {
 .draft-bar p {
   margin: 0 0 0.5rem;
 }
-/* AFS-149: one line, always there, so an edit by someone else never moves the canvas; the
-   earlier ones open over what is under it. */
+/* AFS-149: one line for what the others did; the earlier ones open over what is under it. AFS-165:
+   shown only while someone else (or another tab) is in the draft. */
 .draft-edits {
   position: relative;
   display: flex;
@@ -1251,15 +1251,47 @@ ul.tight {
   gap: 0.5rem;
   align-items: center;
 }
-.draft-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
+/* AFS-165: Save, Stop editing and Discard in the flow's head, as its own buttons. */
+.draft-tools {
+  display: contents;
 }
-.draft-actions input {
-  flex: 1 1 16rem;
-  min-width: 0;
+/* AFS-165: Save asks for the commit's message over the canvas. */
+.draft-save {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: var(--menu-shadow);
+}
+.draft-save label {
+  font-weight: 600;
+}
+.draft-error {
+  margin: 0 0 0.6rem;
+}
+/* AFS-165: the "i" beside Full screen: the draft's commit, in a few lines. */
+.draft-info {
+  width: min(24rem, calc(100vw - 2rem));
+  font-size: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  gap: 0.4rem;
+}
+.draft-info p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* AFS-164: the errors that stop a flow from running, a link to each step. */
+.flow-errors {
+  margin: 0.25rem 0 0;
+}
+.flow-errors li + li {
+  margin-top: 0.15rem;
+}
+.flow-errors-note p {
+  margin: 0;
 }
 
 /* AFS-60: a short list without bullets (host key fingerprints). */

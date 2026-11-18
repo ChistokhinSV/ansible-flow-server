@@ -30,17 +30,23 @@ export const messageOf = (error: unknown): string =>
  * reload is going, so a page does not flash empty.
  */
 export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
-  const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({
+  // `failure`: what the error was, for a page that shows more of it than its words (AFS-164).
+  const [state, setState] = useState<{
+    data?: T;
+    error?: string;
+    failure?: unknown;
+    loading: boolean;
+  }>({
     loading: true,
   });
   const [turn, setTurn] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the caller names what a load depends on
   useEffect(() => {
     let current = true;
-    setState((before) => ({ ...before, loading: true, error: undefined }));
+    setState((before) => ({ ...before, loading: true, error: undefined, failure: undefined }));
     load().then(
       (data) => current && setState({ data, loading: false }),
-      (error) => current && setState({ error: messageOf(error), loading: false }),
+      (error) => current && setState({ error: messageOf(error), failure: error, loading: false }),
     );
     return () => {
       current = false;
@@ -655,7 +661,7 @@ export function Breadcrumb({ children }: { children: ReactNode }) {
 }
 
 /** AFS-107: small line icons for icon buttons (their name is the button's label). */
-export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' }) {
+export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' | 'info' }) {
   return (
     <svg
       className="icon"
@@ -673,6 +679,9 @@ export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' }) {
         <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5H7" />
       ) : name === 'more' ? (
         <path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth="2.5" />
+      ) : name === 'info' ? (
+        // AFS-165: "i" in a circle.
+        <path d="M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5M8 7.25v4M8 4.75h.01" />
       ) : (
         <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
       )}

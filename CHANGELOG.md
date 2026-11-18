@@ -40,6 +40,7 @@ All notable changes to Ansible Flow Server.
 - The draft bar's line of what the others did says what each edit was ("removed Ping", "changed Backup (timeout)", "changed the flow's goal"); **N earlier** lists the ones before.
 - The server shows its own user guide, as it is for its version, at `/help/guide/`: it works without internet. **Help**, the **Help** links beside page titles, the not-found pages and the certificate hint open it; a link in it that leaves the server says it opens GitHub.
 - **Get Started** on an empty canvas opens a new guide page, **Your first flow**: a flow made in the pages, step by step, from New flow to a launch.
+- Ctrl+S (Cmd+S) saves a flow's draft while you edit it, on the page and inside the canvas. On other pages it submits the form you are typing in (not one that deletes); it no longer opens the browser's Save page dialog.
 
 ### Changed
 
@@ -107,6 +108,8 @@ All notable changes to Ansible Flow Server.
 - An image environment with no image yet says "pull it" (not "build it"), and the launch configuration form says "(not pulled yet)"; the environments list says "1 launch configuration" as the environment's page does.
 - A registry host typed as an address (`https://registry.example.net:5000/`) is taken as its host and port. The AWX address error says http:// is accepted too. An email address that is not one is said plainly.
 - A schedule's true-or-false input is picked from a list, as on the launch form.
+- "The flow has N errors" names them (the step and what is wrong, a few, then how many more), and the launch page lists each as a link that opens the flow with that step selected (for editing, when you may edit it).
+- Editing a flow in the pages leaves the canvas right under its head: **Save**, **Stop editing** and **Discard** sit beside the title, **Save** asks for the commit message, the draft's commit is behind **i** beside Full screen, and the line about the others shows only when someone else (or another tab of yours) is in the draft.
 
 ### Fixed
 

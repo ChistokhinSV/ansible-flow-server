@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { summarizeFlow } from '../../src/server/flows';
+import { errorsSentence } from '../../src/server/flowErrors';
+import { checkFlow, summarizeFlow } from '../../src/server/flows';
 
 const fixture = (name: string) => readFileSync(join(__dirname, '../fixtures', name), 'utf8');
 
@@ -39,6 +40,33 @@ describe('summarizeFlow', () => {
     const flow = summarizeFlow('f.flow.yaml', broken);
     expect(flow.ok).toBe(true);
     expect(flow.errors).toBeGreaterThan(0);
+  });
+
+  it('names each error with the step it is on (AFS-164)', () => {
+    // "Read a few facts" takes the key of "Check the host answers".
+    const text = fixture('hello.flow.yaml').replace('key: facts', 'key: ping');
+    const { summary, errors } = checkFlow('f.flow.yaml', text);
+    expect(summary.errors).toBe(1);
+    expect(errors).toEqual([
+      {
+        node: '01M6GPM99KC9TX091MCH61REQV',
+        step: 'Read a few facts',
+        message: 'Duplicate key "ping" in this level',
+      },
+    ]);
+    expect(errorsSentence(summary.errors, errors)).toBe(
+      'The flow has 1 error, so it cannot run until it is fixed: Read a few facts: Duplicate key "ping" in this level.',
+    );
+  });
+
+  it('a long list of errors is named in part, then how many more (AFS-164)', () => {
+    const errors = ['A', 'B', 'C', 'D', 'E'].map((step) => ({ step, node: step, message: 'Bad.' }));
+    expect(errorsSentence(5, errors)).toBe(
+      'The flow has 5 errors, so it cannot run until they are fixed: A: Bad; B: Bad; C: Bad; and 2 more.',
+    );
+    expect(errorsSentence(1, [{ message: 'The flow has no start.' }])).toBe(
+      'The flow has 1 error, so it cannot run until it is fixed: The flow has no start.',
+    );
   });
 
   it('a file that is not a flow says why', () => {
