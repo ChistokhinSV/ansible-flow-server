@@ -67,6 +67,11 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- On a laptop (1024 px wide, or 1280 x 720 with the side menu) a flow's canvas keeps the window's height: the designer's side panel stays beside it, folded to a strip until a step is selected, instead of going under the canvas. Only on a phone does it go under.
+- The canvas opens with the whole flow in view, notes included, at every width and in the editor; a sample opened in the editor is fitted again, and a new note is brought into view. The open fail port question names its step in full and wraps on a narrow window.
+- After a step is clicked on a run's page, the mouse wheel scrolls the page again; a click on the empty canvas still lets it zoom.
+- On a run's canvas a step the run did not reach no longer shows a check beside "not reached", and wires no host took have no "0 hosts" label. Notes read clearly on a flow's page when no run is shown.
+- The **Import…** and **Open Sample Flow…** pickers dim the canvas behind them (a click there closes them), and the AWX picker takes the focus.
 - A rejection without a comment is refused by the server, whatever asks for it (the canvas, the API, an agent), not only by the pages.
 - The Approvals count in the side menu follows a decision made on the canvas, and what the Approvals page shows, at once.
 - The hosts of a run waiting at an approval read as waiting for a decision, not in progress.

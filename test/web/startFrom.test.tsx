@@ -89,6 +89,17 @@ describe('starting an empty flow from something', () => {
     expect(done).toHaveBeenCalledWith();
   });
 
+  it('the canvas steps back under it, and a click there closes it; AWX takes the focus (AFS-148)', async () => {
+    const done = vi.fn();
+    const { container } = render(<StartFrom draft={draft} what="awx" onDone={done} />);
+    const awx = await screen.findByLabelText('AWX');
+    await waitFor(() => expect(document.activeElement).toBe(awx));
+    const backdrop = container.querySelector('.library-pick-backdrop');
+    expect(backdrop).toBeTruthy();
+    fireEvent.click(backdrop as Element);
+    expect(done).toHaveBeenCalledWith();
+  });
+
   it('says how to get something to pick when there is nothing', async () => {
     offered = { samples: [], playbooks: [], awx: [] };
     render(<StartFrom draft={draft} what="awx" onDone={() => undefined} />);
