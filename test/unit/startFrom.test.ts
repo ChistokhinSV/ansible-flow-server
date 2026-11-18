@@ -9,6 +9,9 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { samplesDir } from '@ansible-flow/assets';
+import { parseFlow } from '@ansible-flow/core/flow/document';
+import type { FlowDocument } from '@ansible-flow/core/flow/types';
+import type { SourceIO } from '@ansible-flow/core/import/read';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -17,6 +20,7 @@ import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
+import { missingSampleRoles, sampleFlowText } from '../../src/server/drafts/startFrom';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
@@ -81,6 +85,7 @@ beforeAll(async () => {
     'flows/one/one.flow.yaml': EMPTY('one'),
     'flows/two/two.flow.yaml': EMPTY('two'),
     'flows/three/three.flow.yaml': EMPTY('three'),
+    'flows/four/four.flow.yaml': EMPTY('four'),
   });
   const bare = join(root, 'source.git');
   execFileSync('git', ['clone', '--quiet', '--bare', source.dir, bare]);
@@ -200,6 +205,21 @@ describe('an empty flow starts from something', () => {
     expect(
       (await call('lena', 'POST', `/drafts/${id}/start-from`, { sample: 'hello' })).status,
     ).toBe(403);
+  });
+
+  it('a sample names the roles the project lacks, and none it has (AFS-137)', async () => {
+    // This repository has the Edge baseline roles: nothing to say.
+    const done = await call('mia', 'POST', `/drafts/${await draftOf('four')}/start-from`, {
+      sample: 'edge-baseline',
+    });
+    expect(done.status).toBe(200);
+    expect(done.json.notes).toEqual([]);
+    // A repository without them: each is named.
+    const doc = parseFlow(sampleFlowText('edge-baseline')).doc as FlowDocument;
+    const empty = { read: async () => undefined, list: async () => [] } as unknown as SourceIO;
+    const notes = (await missingSampleRoles(doc, empty)).join(' ');
+    expect(notes).toMatch(/role netops_backup, which this project does not have/);
+    expect(notes).toMatch(/role push_baseline/);
   });
 
   it('a sample: its steps in the flow, the flow keeps its key; then refused, the flow has steps', async () => {

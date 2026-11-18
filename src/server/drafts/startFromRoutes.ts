@@ -21,6 +21,7 @@ import {
   awxTemplates,
   fromAwx,
   fromPlaybook,
+  missingSampleRoles,
   playbooksIn,
   repositoryIO,
   StartFromError,
@@ -184,6 +185,7 @@ export function registerStartFrom(
               from = `the ${body.sample} sample`;
               const doc = parseFlow(sampleFlowText(body.sample)).doc as FlowDocument;
               steps = doc.nodes.filter((n) => n.type !== 'start' && n.type !== 'end').length;
+              notes = await missingSampleRoles(doc, io);
               return asDraftFlow(current, doc);
             }
             const made =

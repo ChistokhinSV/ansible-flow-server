@@ -79,6 +79,16 @@ describe('starting an empty flow from something', () => {
     expect(posted()).toEqual([{ awx: { credential: 'c1', kind: 'job', id: 3 } }]);
   });
 
+  it('takes the focus when it opens; Escape closes it wherever the focus is (AFS-137)', async () => {
+    const done = vi.fn();
+    render(<StartFrom draft={draft} what="sample" onDone={done} />);
+    await screen.findByRole('button', { name: 'Hello, Ansible' });
+    expect(document.activeElement?.classList.contains('library-pick')).toBe(true);
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(done).toHaveBeenCalledWith();
+  });
+
   it('says how to get something to pick when there is nothing', async () => {
     offered = { samples: [], playbooks: [], awx: [] };
     render(<StartFrom draft={draft} what="awx" onDone={() => undefined} />);

@@ -52,6 +52,7 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- An empty flow's **Get Started** opens the guide's part on building a flow in the pages. The pickers of **Import …** and **Open Sample Flow…** take the focus when they open and close with Escape. A sample opened in a project that lacks its roles says which roles to copy.
 - A flow's page shows its newest run on the canvas, as **Latest runs** above it lists it; before, the Run panel said there was no run. A run the canvas launches, or one that ends while shown, updates **Latest runs** and the canvas's run list, and a run that is still going is listed as running, not "did not finish". The Run panel names a run of the server as one, with its number, not as a local run (with designer 1.0.1-rc.7).
 - Every time on the pages names its time zone (yours), in one format: search results showed runs in UTC, other pages in local time without saying so.
 - Schedules: the **At** of a one-time schedule is in the schedule's **Time zone**, as its hint now says (before, it was in the browser's zone whatever the field said). The cron and **At** hints name the zone they are read in, and the next times are shown in your time zone, named.

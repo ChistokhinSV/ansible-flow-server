@@ -66,6 +66,27 @@ export function sampleFlowText(key: string): string {
   return readFileSync(join(samplesDir, flow.from), 'utf8');
 }
 
+/**
+ * AFS-137: a sample's flow goes into the draft alone: the roles it uses that the project does not
+ * have, in words, so its first run does not fail on a missing role unexplained.
+ */
+export async function missingSampleRoles(doc: FlowDocument, io: SourceIO): Promise<string[]> {
+  const roles = [
+    ...new Set(doc.nodes.flatMap((n) => (n.impl?.kind === 'role' ? [n.impl.ref] : []))),
+  ];
+  const notes: string[] = [];
+  for (const role of roles) {
+    const has =
+      (await io.read(`roles/${role}/tasks/main.yml`)) ||
+      (await io.read(`roles/${role}/tasks/main.yaml`));
+    if (!has)
+      notes.push(
+        `It uses the role ${role}, which this project does not have: copy the sample's roles/${role} into the project, or start a new project from the sample.`,
+      );
+  }
+  return notes;
+}
+
 /** The project's files at a commit, as the designer's importers read them. */
 export function repositoryIO(git: Git, projectId: string, commit: string): SourceIO {
   let files: Promise<string[]> | undefined;

@@ -1,6 +1,6 @@
 // AFS-126: the designer's empty canvas offers to start from a sample, playbooks or an AWX template;
 // in the pages that is picked here, over the canvas, and the server makes the draft's flow of it.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type Draft } from './api';
 import { Loading, messageOf, useLoad } from './ui';
 
@@ -39,7 +39,7 @@ export function StartFrom({
         // AFS-136: the importer counts tasks; the canvas counts steps with subflows and ends.
         `The flow was made from ${name}: ${done.steps} ${'sample' in body ? 'step' : 'task'}${done.steps === 1 ? '' : 's'}${'sample' in body ? '' : ' became steps'}.${
           done.notes.length
-            ? ` What did not map one to one: ${done.notes.slice(0, 3).join(' ')}${done.notes.length > 3 ? ' …' : ''}`
+            ? `${'sample' in body ? ' Before it runs: ' : ' What did not map one to one: '}${done.notes.slice(0, 3).join(' ')}${done.notes.length > 3 ? ' …' : ''}`
             : ''
         }`,
       );
@@ -50,14 +50,32 @@ export function StartFrom({
   };
   const match = (text: string) => text.toLowerCase().includes(filter.trim().toLowerCase());
   const data = offered.data;
+  // AFS-137: the picker takes the focus when it opens (it stays in the designer's frame
+  // otherwise), and Escape closes it wherever the focus is: in the page or in the frame.
+  const box = useRef<HTMLElement>(null);
+  const done = useRef(onDone);
+  done.current = onDone;
+  useEffect(() => {
+    box.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') done.current();
+    };
+    const frames = [...document.querySelectorAll('iframe')]
+      .map((f) => {
+        try {
+          return f.contentDocument;
+        } catch {
+          return null;
+        }
+      })
+      .filter((d): d is Document => !!d);
+    for (const d of [document, ...frames]) d.addEventListener('keydown', onKey);
+    return () => {
+      for (const d of [document, ...frames]) d.removeEventListener('keydown', onKey);
+    };
+  }, []);
   return (
-    <section
-      className="library-pick"
-      aria-labelledby="start-from"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onDone();
-      }}
-    >
+    <section ref={box} tabIndex={-1} className="library-pick" aria-labelledby="start-from">
       <div className="library-pick-head">
         <h2 id="start-from">{TITLE[what]}</h2>
         <button type="button" className="link" onClick={() => onDone()}>

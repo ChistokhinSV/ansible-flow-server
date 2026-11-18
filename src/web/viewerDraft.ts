@@ -4,6 +4,7 @@
 // around the frame (the flow page) is told who is there and what each changed.
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
+import { guide } from './guide';
 
 interface Edit {
   revision: number;
@@ -25,9 +26,11 @@ export type DraftNotice =
   /** AFS-126: the empty canvas's Import / Open Sample: the page picks what to start from. */
   | { type: 'afs-draft-start-from'; what: 'sample' | 'playbooks' | 'awx' };
 
-/** AFS-126: Get Started on the empty canvas: the guide's walkthrough of a first project. */
-export const GET_STARTED =
-  'https://github.com/ChistokhinSV/ansible-flow-server/blob/main/docs/guide/first-project.md';
+/**
+ * AFS-126: Get Started on the empty canvas: the guide. AFS-137: its part on building a flow in the
+ * pages (steps, wires, saving), not the walkthrough of a first project.
+ */
+export const GET_STARTED = guide('web-pages.md#editing-flows-in-the-pages');
 
 const json = (method: string, url: string, body?: unknown) =>
   fetch(url, {
