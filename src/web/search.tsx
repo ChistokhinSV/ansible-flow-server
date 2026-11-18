@@ -238,6 +238,12 @@ export function SearchBox({ me }: { me: User }) {
           )}
         </div>
       )}
+      {/* AFS-140: one character finds nothing on purpose: it says so. */}
+      {open && q.trim().length === 1 && (
+        <div className="search-results" role="status">
+          <div className="search-hit muted">Type at least 2 characters to search.</div>
+        </div>
+      )}
     </div>
   );
 }

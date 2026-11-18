@@ -87,6 +87,27 @@ type Row = Schema['launch_config'];
 const now = () => new Date().toISOString();
 const invalid = (message: string, field?: string) => new LaunchError('invalid', message, field);
 export const COMMIT = /^[0-9a-f]{40}$/;
+/** AFS-140: a commit as people copy it: the 12 digits the pages show, or more, or all 40. */
+export const SHORT_COMMIT = /^[0-9a-f]{7,40}$/;
+
+/**
+ * AFS-140: a commit typed in full or short, as its full id; or why it is not one of the
+ * repository's commits.
+ */
+export async function fullCommit(
+  git: Pick<Git, 'commitOf'>,
+  projectId: string,
+  typed: string,
+): Promise<{ commit: string } | { problem: string }> {
+  const asked = typed.trim().toLowerCase();
+  if (!SHORT_COMMIT.test(asked))
+    return { problem: 'A commit is its id: 7 to 40 hex digits, like c300821e56a6.' };
+  const commit = await git.commitOf(projectId, asked).catch(() => undefined);
+  // A branch named like the digits is not taken for the commit.
+  if (!commit || !COMMIT.test(commit) || !commit.startsWith(asked))
+    return { problem: `The repository has no commit ${asked.slice(0, 12)}.` };
+  return { commit };
+}
 /** The kinds of credential a run can be given; a git token is for a repository, not a run. */
 const RUN_KINDS: CredentialKind[] = ['ssh_key', 'login', 'become', 'vault', 'registry', 'env'];
 /** A run signs in to machines one way, and becomes another user one way. */
@@ -198,10 +219,9 @@ export class LaunchConfigs {
   ): Promise<string> {
     if (gitRef && commit) throw invalid('Name a branch or pin a commit, not both', 'commit');
     if (commit) {
-      if (!COMMIT.test(commit)) throw invalid('A commit is its full 40-character id', 'commit');
-      if (!(await this.git.hasCommit(project.id, commit)))
-        throw invalid(`The repository has no commit ${commit.slice(0, 12)}`, 'commit');
-      return commit;
+      const found = await fullCommit(this.git, project.id, commit);
+      if ('problem' in found) throw invalid(found.problem, 'commit');
+      return found.commit;
     }
     if (gitRef) {
       const problem = refProblem(gitRef);
@@ -310,7 +330,8 @@ export class LaunchConfigs {
       description: input.description?.trim() || null,
       flow_file: flowFile,
       git_ref: gitRef ?? null,
-      commit_id: commit ?? null,
+      // AFS-140: a short commit is kept as its full id.
+      commit_id: commit ? at : null,
       inventory: inventory ?? null,
       ee_image: eeImage ?? null,
       environment_id: environment ?? null,

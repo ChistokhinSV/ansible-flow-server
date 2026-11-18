@@ -12,7 +12,7 @@ import type { Group } from '../server/auth/users';
 import { api } from './api';
 import { followKey } from './flowFiles';
 import { MappingRows } from './signin';
-import { Field, Form, Loading, messageOf, Time, useLoad } from './ui';
+import { Field, Form, Labelled, Loading, messageOf, Time, useLoad } from './ui';
 
 type Draft = DirectoryInput & { id?: string; replacePassword: boolean };
 
@@ -77,6 +77,23 @@ function DirectoryForm({
       required={required}
       {...(hint ? { hint } : {})}
     />
+  );
+  // AFS-140: a filter is long (Active Directory's person filter): several lines, the whole width.
+  const filter = (label: string, key: 'userFilter' | 'groupFilter', hint: string) => (
+    <Labelled label={label} hint={hint} name={key}>
+      {(props) => (
+        <textarea
+          {...props}
+          name={key}
+          className="mono filter-text"
+          rows={3}
+          spellCheck={false}
+          value={String(d[key] ?? '')}
+          onChange={(e) => set({ [key]: e.target.value } as Partial<Draft>)}
+          required
+        />
+      )}
+    </Labelled>
   );
   return (
     <section className="panel sheet" aria-label={d.id ? `Change ${d.name}` : 'Add a directory'}>
@@ -164,7 +181,7 @@ function DirectoryForm({
           </p>
         )}
         {text('Where people are', 'userBase', 'OU=Staff,DC=example,DC=net')}
-        {text('Person filter', 'userFilter', '{login} is where the typed login goes')}
+        {filter('Person filter', 'userFilter', '{login} is where the typed login goes')}
         {text(
           'Id attribute',
           'idAttr',
@@ -187,7 +204,7 @@ function DirectoryForm({
         {d.groupMode === 'search' && (
           <>
             {text('Where groups are', 'groupBase')}
-            {text('Group filter', 'groupFilter', "{dn} is where the person's DN goes")}
+            {filter('Group filter', 'groupFilter', "{dn} is where the person's DN goes")}
           </>
         )}
         <label className="check">

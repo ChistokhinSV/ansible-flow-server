@@ -5,9 +5,17 @@
 // private key can come from a file. And the choice of the credential a project's git source signs
 // in with.
 import { useId, useState } from 'react';
-import { type CredentialKind, GIT_KINDS, KINDS, SPEC } from '../server/secrets/kinds';
+import {
+  BECOME_METHODS,
+  type CredentialKind,
+  fieldProblem,
+  GIT_KINDS,
+  KINDS,
+  privateKeyProblem,
+  SPEC,
+} from '../server/secrets/kinds';
 import { api, type Credential } from './api';
-import { Field, Loading, messageOf, useLoad } from './ui';
+import { Field, Form, Labelled, Loading, messageOf, refuse, useLoad } from './ui';
 
 export const KIND_LABEL: Record<CredentialKind, string> = {
   ssh_key: 'SSH key',
@@ -64,25 +72,15 @@ function SecretField({
   onChange(v: string): void;
   required: boolean;
 }) {
-  const id = useId();
   const label = FIELD_LABEL[name] ?? name;
   if (MULTILINE.has(name))
     return (
-      <div className="field">
-        <label htmlFor={id}>{label}</label>
-        <textarea
-          id={id}
-          rows={5}
-          className="mono"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          required={required}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-        />
-        <small className="muted">
-          <label className="inline">
+      <Labelled
+        label={label}
+        name={name}
+        hint={
+          // AFS-140: the words and the file input stay on one line.
+          <label className="inline file-pick">
             Or a file:{' '}
             <input
               type="file"
@@ -90,12 +88,28 @@ function SecretField({
               onChange={(e) => void e.target.files?.[0]?.text().then(onChange)}
             />
           </label>
-        </small>
-      </div>
+        }
+      >
+        {(props) => (
+          <textarea
+            {...props}
+            name={name}
+            rows={5}
+            className="mono"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            required={required}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+          />
+        )}
+      </Labelled>
     );
   return (
     <Field
       label={label}
+      name={name}
       type="password"
       autoComplete="off"
       value={value}
@@ -123,9 +137,11 @@ function Variables({
         <div key={i} className="row">
           <Field
             label={`Name ${i + 1}`}
+            name={`variable-${i}`}
             value={r.name}
             onChange={(e) => set(i, 'name', e.target.value)}
             pattern="[A-Za-z_][A-Za-z0-9_]*"
+            title="Letters, digits and underscores, not starting with a digit"
             required
             autoComplete="off"
           />
@@ -178,9 +194,8 @@ function CredentialForm({
   );
   // A change keeps the secret unless asked to replace it.
   const [replace, setReplace] = useState(!editing);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
   const kindId = useId();
+  const becomeList = useId();
   const spec = SPEC[kind];
   const secretPart = () =>
     kind === 'env'
@@ -190,36 +205,54 @@ function CredentialForm({
       : Object.fromEntries(Object.entries(secret).filter(([, v]) => v !== ''));
   const visible = () =>
     Object.fromEntries(spec.fields.map((f) => [f, (fields[f] ?? '').trim()]).filter(([, v]) => v));
+  // AFS-140: what the server would refuse is found here first, and said at its field.
+  const check = () => {
+    if (!name.trim()) refuse('name', 'A name is needed.');
+    for (const f of spec.fields) {
+      const problem = fieldProblem(f, fields[f] ?? '');
+      if (problem) refuse(f, problem);
+    }
+    if (!replace) return;
+    if (kind === 'env') {
+      const seen = new Map<string, number>();
+      for (const [i, v] of variables.entries()) {
+        const n = v.name.trim();
+        if (!n) continue;
+        const before = seen.get(n);
+        if (before !== undefined)
+          refuse(
+            `variable-${i}`,
+            `${n} is given twice (also as variable ${before + 1}): one value would be lost.`,
+          );
+        seen.set(n, i);
+      }
+    }
+    const keyProblem = secret.privateKey ? privateKeyProblem(secret.privateKey) : undefined;
+    if (keyProblem) refuse('privateKey', keyProblem);
+  };
   return (
-    <form
-      className="form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (busy) return;
-        setBusy(true);
-        setError(undefined);
-        try {
-          if (editing)
-            await api.changeCredential(editing.id, {
-              name: name.trim(),
-              description: description.trim() || null,
-              ...(kind === 'env' ? {} : { fields: visible() }),
-              ...(replace ? { secret: secretPart() } : {}),
-            });
-          else
-            await api.addCredential(workspace, {
-              name: name.trim(),
-              kind,
-              ...(description.trim() ? { description: description.trim() } : {}),
-              ...(kind === 'env' ? {} : { fields: visible() }),
-              secret: secretPart(),
-            });
-          onDone();
-        } catch (err) {
-          setError(messageOf(err));
-        } finally {
-          setBusy(false);
-        }
+    <Form
+      open
+      submit={editing ? 'Save' : 'Add credential'}
+      onCancel={onCancel}
+      onSubmit={async () => {
+        check();
+        if (editing)
+          await api.changeCredential(editing.id, {
+            name: name.trim(),
+            description: description.trim() || null,
+            ...(kind === 'env' ? {} : { fields: visible() }),
+            ...(replace ? { secret: secretPart() } : {}),
+          });
+        else
+          await api.addCredential(workspace, {
+            name: name.trim(),
+            kind,
+            ...(description.trim() ? { description: description.trim() } : {}),
+            ...(kind === 'env' ? {} : { fields: visible() }),
+            secret: secretPart(),
+          });
+        onDone();
       }}
     >
       {!editing && (
@@ -244,6 +277,7 @@ function CredentialForm({
       )}
       <Field
         label="Name"
+        name="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
@@ -260,6 +294,8 @@ function CredentialForm({
         <Field
           key={f}
           label={FIELD_LABEL[f] ?? f}
+          name={f}
+          list={f === 'method' ? becomeList : undefined}
           value={fields[f] ?? ''}
           onChange={(e) => setFields({ ...fields, [f]: e.target.value })}
           required={spec.required.includes(f)}
@@ -293,20 +329,14 @@ function CredentialForm({
           Kept encrypted on the server; nobody can read it back, here or over the API.
         </p>
       )}
-      {error && (
-        <p className="notice error" role="alert">
-          {error}
-        </p>
+      {spec.fields.includes('method') && (
+        <datalist id={becomeList}>
+          {BECOME_METHODS.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
       )}
-      <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>
-          {busy ? 'Working…' : editing ? 'Save' : 'Add credential'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={busy}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    </Form>
   );
 }
 

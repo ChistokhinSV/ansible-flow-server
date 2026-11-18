@@ -234,7 +234,10 @@ for (const [name, config] of databases) {
       expect(await make({ gitRef: 'no-such-branch' })).toMatch(
         /^invalid\/gitRef: The repository has no branch/,
       );
-      expect(await make({ commit: 'abc123' })).toMatch(/^invalid\/commit: A commit is its full/);
+      expect(await make({ commit: 'abc12' })).toMatch(/^invalid\/commit: A commit is its id/);
+      expect(await make({ commit: 'f'.repeat(12) })).toMatch(
+        /^invalid\/commit: The repository has no commit/,
+      );
       expect(await make({ commit: 'f'.repeat(40) })).toMatch(
         /^invalid\/commit: The repository has no commit/,
       );
@@ -267,6 +270,16 @@ for (const [name, config] of databases) {
       expect(await make({ credentials: [ssh, second.id] })).toMatch(/one ssh_key credential/);
       expect(await refused(() => configs.create('nothing', base))).toMatch(/^not_found/);
       expect(await configs.list(project.id)).toHaveLength(1);
+    });
+
+    it('AFS-140: pins a commit given as the pages show it (12 digits), keeping its full id', async () => {
+      const pinned = await configs.create(project.id, {
+        name: 'Pinned short',
+        flowFile: 'ping.flow.yaml',
+        commit: first.slice(0, 12).toUpperCase(),
+      } as never);
+      expect(pinned.commit).toBe(first);
+      await configs.delete(pinned.id);
     });
 
     it('changes one thing and checks the whole again', async () => {

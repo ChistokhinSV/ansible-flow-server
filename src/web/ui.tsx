@@ -8,13 +8,18 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError, api } from './api';
 import { guide } from './guide';
-import { Link } from './router';
+import { holdUnsaved, Link } from './router';
+
+/** AFS-140: a commit as the pages show it (12 digits), or more, or all 40. */
+export const COMMIT_PATTERN = '[0-9a-fA-F]{7,40}';
+export const COMMIT_TITLE = 'A commit id: 7 to 40 hex digits, like c300821e56a6';
 
 /** Words fit to show for anything that went wrong. */
 export const messageOf = (error: unknown): string =>
@@ -65,28 +70,119 @@ export function Loading({
   ) : null;
 }
 
-export function Field({
+/**
+ * AFS-140: a refusal that is about one field. A page throws it from a form's `onSubmit` when it
+ * finds a problem before asking the server; the server's refusals carry their field the same way.
+ */
+export const refuse = (field: string, message: string): never => {
+  throw new ApiError(0, 'invalid', message, { field });
+};
+
+/** AFS-140: the field a form's refusal is about, and what the form's fields say they are. */
+const FormProblems = createContext<{
+  problem?: { field?: string; message: string };
+  claim(field: string): () => void;
+}>({ claim: () => () => undefined });
+
+/**
+ * AFS-140: the problem of a form's refusal when it is about the field `name` (the field shows it,
+ * not the bottom of the form). `own` is a problem the page found itself; it comes first.
+ */
+export function useFieldProblem(name?: string, own?: string): string | undefined {
+  const { problem, claim } = useContext(FormProblems);
+  useEffect(() => (name ? claim(name) : undefined), [name, claim]);
+  return own || (name && problem?.field === name ? problem.message : undefined);
+}
+
+/** AFS-140: scrolls something into view (smoothly where the browser can) and focuses it. */
+export function reveal(element: Element | null | undefined, focus?: HTMLElement | null): void {
+  if (!element) return;
+  element.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  (focus ?? (element as HTMLElement)).focus?.({ preventScroll: true });
+}
+
+/** AFS-140: the first field of a form or panel that takes typing, to put the cursor in. */
+export const firstField = (root: Element | null | undefined): HTMLElement | null =>
+  root?.querySelector<HTMLElement>(
+    'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])',
+  ) ?? null;
+
+/**
+ * AFS-140: something opened by a click (a form, a result) is scrolled into view, and the cursor goes
+ * to its first field. Give the returned ref to the thing opened.
+ */
+export function useReveal<T extends HTMLElement>(when: unknown = true, focus = true) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    if (when) reveal(ref.current, focus ? firstField(ref.current) : undefined);
+  }, [when, focus]);
+  return ref;
+}
+
+/**
+ * A field of a form, with its hint and its problem said under it and to a screen reader. The
+ * problem is the page's own (`problem`) or that of the form's refusal about the field `name`.
+ */
+export function Labelled({
   label,
   hint,
-  ...input
-}: { label: string; hint?: string } & InputHTMLAttributes<HTMLInputElement>) {
+  problem,
+  name,
+  children,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  problem?: string;
+  name?: string;
+  children: (props: {
+    id: string;
+    'aria-describedby'?: string;
+    'aria-invalid'?: boolean;
+  }) => ReactNode;
+}) {
   const id = useId();
+  const shown = useFieldProblem(name, problem);
+  const described = [hint && `${id}-hint`, shown && `${id}-problem`].filter(Boolean).join(' ');
   return (
-    <div className="field">
+    <div className={`field${shown ? ' invalid' : ''}`}>
       <label htmlFor={id}>{label}</label>
-      <input id={id} aria-describedby={hint ? `${id}-hint` : undefined} {...input} />
+      {children({
+        id,
+        ...(described ? { 'aria-describedby': described } : {}),
+        ...(shown ? { 'aria-invalid': true } : {}),
+      })}
       {hint && (
         <small id={`${id}-hint`} className="muted">
           {hint}
+        </small>
+      )}
+      {shown && (
+        <small id={`${id}-problem`} className="bad-text">
+          {shown}
         </small>
       )}
     </div>
   );
 }
 
+export function Field({
+  label,
+  hint,
+  problem,
+  ...input
+}: { label: string; hint?: ReactNode; problem?: string } & InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <Labelled label={label} hint={hint} problem={problem} name={input.name}>
+      {(props) => <input {...props} {...input} />}
+    </Labelled>
+  );
+}
+
 /**
  * A form that sends once, shows why it was refused, and says so to a screen reader. `onSubmit`
- * rejects with the reason.
+ * rejects with the reason. AFS-140: a reason about one of its fields is shown at that field, which
+ * is scrolled to and focused; it goes when that field is changed. Typing not sent yet is asked
+ * about before the page is left.
  */
 export function Form({
   onSubmit,
@@ -96,6 +192,7 @@ export function Form({
   quiet,
   wide,
   more,
+  open,
 }: {
   onSubmit: () => Promise<void>;
   submit: string;
@@ -107,28 +204,70 @@ export function Form({
   quiet?: boolean;
   /** AFS-101: other buttons in the same row as the submit button. */
   more?: ReactNode;
+  /** AFS-140: the form was opened by a click: it is scrolled into view, its first field focused. */
+  open?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [problem, setProblem] = useState<{ field?: string; message: string }>();
+  const form = useRef<HTMLFormElement>(null);
+  const notice = useRef<HTMLParagraphElement>(null);
+  const claimed = useRef(new Map<string, number>());
+  const claim = useCallback((field: string) => {
+    claimed.current.set(field, (claimed.current.get(field) ?? 0) + 1);
+    return () => {
+      const n = (claimed.current.get(field) ?? 1) - 1;
+      if (n > 0) claimed.current.set(field, n);
+      else claimed.current.delete(field);
+    };
+  }, []);
+  // The form stands for itself among the forms holding unsaved typing.
+  const [self] = useState(() => ({}));
+  useEffect(() => () => holdUnsaved(self, false), [self]);
+  useEffect(() => {
+    if (open) reveal(form.current, firstField(form.current));
+  }, [open]);
+  useEffect(() => {
+    if (!problem) return;
+    const named = problem.field ? form.current?.elements.namedItem(problem.field) : null;
+    const at = named instanceof HTMLElement ? named : null;
+    // A field folded away is unfolded, so its problem can be seen.
+    at?.closest('details')?.setAttribute('open', '');
+    if (at) reveal(at.closest('.field') ?? at, at);
+    else reveal(notice.current);
+  }, [problem]);
   const send = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
-    setError(undefined);
+    setProblem(undefined);
+    // What is being sent is not lost: a page that moves on after it does not ask.
+    holdUnsaved(self, false);
     try {
       await onSubmit();
     } catch (e) {
-      setError(messageOf(e));
+      const field = e instanceof ApiError ? e.details.field : undefined;
+      setProblem({
+        message: messageOf(e),
+        ...(field && claimed.current.has(field) ? { field } : {}),
+      });
+      if (form.current?.isConnected) holdUnsaved(self, true);
     } finally {
       setBusy(false);
     }
   };
+  // Typing marks the form unsaved, and a refusal goes once what it is about is changed.
+  const changed = (event: FormEvent<HTMLFormElement>) => {
+    holdUnsaved(self, true);
+    const name = (event.target as HTMLInputElement).name;
+    if (problem && (!problem.field || problem.field === name)) setProblem(undefined);
+  };
+  const context = useMemo(() => ({ problem, claim }), [problem, claim]);
   return (
-    <form onSubmit={send} className={wide ? 'form wide' : 'form'}>
-      {children}
-      {error && (
-        <p className="notice error" role="alert">
-          {error}
+    <form ref={form} onSubmit={send} onChange={changed} className={wide ? 'form wide' : 'form'}>
+      <FormProblems.Provider value={context}>{children}</FormProblems.Provider>
+      {problem && !problem.field && (
+        <p className="notice error" role="alert" ref={notice} tabIndex={-1}>
+          {problem.message}
         </p>
       )}
       <div className="actions">

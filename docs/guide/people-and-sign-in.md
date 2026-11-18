@@ -38,7 +38,9 @@ just user add dana --name "Dana Whitfield" --admin
 | `GET /users/:id/access`                                    | What one person reaches, workspace by workspace (below)             | administrators                    |
 | `GET /groups/:id/grants`                                   | The grants that name a group, in every workspace (below)            | administrators                    |
 
-- A password has at least 12 characters and is kept only as an argon2id hash.
+- A password has at least 12 characters, at least 5 different ones, and does not contain the
+  login. The pages say these rules under every password field and check them before sending. It
+  is kept only as an argon2id hash.
 - A session lasts 8 hours without use and 7 days at most. Its cookie is not readable by scripts
   and is sent over HTTPS only.
 - After five wrong passwords for a login in fifteen minutes, sign-in for it waits.
@@ -124,7 +126,8 @@ administrator adds a provider:
 | Mappings      | A value of the groups claim and what it is here: a server group, or administrator         |
 
 Register the address the page shows (`https://flows.example.net/api/v1/auth/oidc/<key>/callback`)
-as the client's redirect URI at the provider, and Test the provider. Then:
+as the client's redirect URI at the provider, and Test the provider. The address shows while the
+provider is added, as soon as its key is typed. Then:
 
 - The sign-in page has a button per provider. The sign-in is the authorization code flow with
   PKCE, state and nonce; the ID token's signature, issuer and audience are checked.

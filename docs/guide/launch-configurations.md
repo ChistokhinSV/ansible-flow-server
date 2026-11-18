@@ -46,7 +46,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 | ------------- | --------------------------------------------------------------------------- |
 | `flowFile`    | The flow's file in the repository                                           |
 | `gitRef`      | Another branch than the project's to take the newest commit of              |
-| `commit`      | One commit, always (a pin). Not together with `gitRef`                      |
+| `commit`      | One commit, always (a pin): 7 to 40 hex digits. Not together with `gitRef`  |
 | `inventory`   | The inventory's path in the repository; left out: what `ansible.cfg` names  |
 | `eeImage`     | The execution environment's image; left out: the server's default           |
 | `mode`        | `check` (a skeleton run, the default) or `real`                             |

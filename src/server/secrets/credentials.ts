@@ -10,7 +10,7 @@ import type { Schema } from '../db/schema';
 import { SEALED_SETTINGS, settingContext } from '../notify/settings';
 import { resealHookSecrets } from '../projects/store';
 import { open, seal } from './crypto';
-import { type CredentialKind, KINDS, SPEC } from './kinds';
+import { type CredentialKind, fieldProblem, KINDS, privateKeyProblem, SPEC } from './kinds';
 import type { MasterKey } from './masterKey';
 
 export type { CredentialKind } from './kinds';
@@ -48,6 +48,8 @@ export class CredentialError extends Error {
   constructor(
     readonly code: 'invalid' | 'not_found' | 'taken' | 'in_use',
     message: string,
+    /** AFS-140: the field the problem is about, so a page shows it there. */
+    readonly field?: string,
   ) {
     super(message);
     this.name = 'CredentialError';
@@ -66,12 +68,21 @@ type Db = Kysely<Schema>;
 type Row = Schema['credential'];
 const now = () => new Date().toISOString();
 const context = (id: string) => `credential:${id}`;
-const invalid = (message: string) => new CredentialError('invalid', message);
+const invalid = (message: string, field?: string) => new CredentialError('invalid', message, field);
+/** AFS-140: a field's name as the form labels it. */
+const LABEL: Record<string, string> = {
+  username: 'a user name',
+  password: 'a password',
+  privateKey: 'a private key',
+  token: 'a token',
+  host: 'a registry host',
+  url: 'an AWX address',
+};
 
 function checkedName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length < 1 || trimmed.length > 100)
-    throw invalid('A credential has a name of 1 to 100 characters');
+    throw invalid('A name of 1 to 100 characters is needed.', 'name');
   return trimmed;
 }
 
@@ -85,7 +96,7 @@ function checked(
   if (!spec) throw invalid(`There is no kind ${kind}: use one of ${KINDS.join(', ')}`);
   const text = (value: unknown, what: string, max: number) => {
     if (typeof value !== 'string') throw invalid(`${what} must be text`);
-    if (value.length > max) throw invalid(`${what} is too long`);
+    if (value.length > max) throw invalid(`${what} is too long`, what);
     return value;
   };
   if (kind === 'env') {
@@ -105,6 +116,8 @@ function checked(
     if (!spec.fields.includes(name))
       throw invalid(`A ${kind} credential has no field "${name.slice(0, 40)}"`);
     const trimmed = text(value, name, 500).trim();
+    const problem = fieldProblem(name, trimmed);
+    if (problem) throw invalid(problem, name);
     if (trimmed) cleanFields[name] = trimmed;
   }
   const cleanSecret: Record<string, string> = {};
@@ -115,14 +128,9 @@ function checked(
   }
   for (const name of spec.required)
     if (!(cleanFields[name] ?? cleanSecret[name]))
-      throw invalid(`A ${kind} credential needs ${name}`);
-  if (
-    cleanSecret.privateKey &&
-    !/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]+-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(
-      cleanSecret.privateKey,
-    )
-  )
-    throw invalid('privateKey is not a private key in PEM or OpenSSH form');
+      throw invalid(`This credential needs ${LABEL[name] ?? name}.`, name);
+  const keyProblem = cleanSecret.privateKey ? privateKeyProblem(cleanSecret.privateKey) : undefined;
+  if (keyProblem) throw invalid(keyProblem, 'privateKey');
   return { fields: cleanFields, secret: cleanSecret };
 }
 

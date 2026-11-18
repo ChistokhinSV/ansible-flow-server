@@ -119,6 +119,8 @@ describe('the files page', () => {
     expect(sent('POST /projects/p1/files')[0]).toEqual({
       branch: 'main',
       base: COMMIT,
+      // AFS-140: no message typed: the placeholder's words are the commit's.
+      message: 'Move templates/web.conf.j2 to roles/web/templates/web.conf.j2',
       changes: [
         { op: 'move', from: 'templates/web.conf.j2', to: 'roles/web/templates/web.conf.j2' },
       ],
@@ -130,8 +132,49 @@ describe('the files page', () => {
       body: { branch: 'main', commit: 'a'.repeat(40), files: ['x', 'y'] },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save to main' }));
-    expect(await screen.findByText(/Saved 2 files as aaaaaaaaaaaa on main/)).toBeTruthy();
+    expect(await screen.findByText(/Saved 1 change as aaaaaaaaaaaa on main/)).toBeTruthy();
     expect(screen.queryByText(/Changes not saved/)).toBeNull();
+  });
+
+  it('AFS-140: keeps every file of an upload, checks paths when typed, says a delete is pending', async () => {
+    window.history.replaceState(null, '', '/w/net/core/files?path=templates%2Fweb.conf.j2');
+    render(<App />);
+    await screen.findByText(/last changed by/);
+    // Three files picked at once: three changes.
+    const picked = ['a7-one.txt', 'a7-two.txt', 'a7-three.txt'].map(
+      (name) => new File([name], name, { type: 'text/plain' }),
+    );
+    fireEvent.change(screen.getByLabelText('Files to upload'), { target: { files: picked } });
+    expect(await screen.findByText('Changes not saved (3)')).toBeTruthy();
+    for (const name of ['a7-one.txt', 'a7-two.txt', 'a7-three.txt'])
+      expect(screen.getByText(`Upload templates/${name}`)).toBeTruthy();
+
+    // A new file outside the project, or onto one that is there, is refused as it is typed.
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }));
+    const name = screen.getByRole('textbox', { name: 'New file' });
+    fireEvent.change(name, { target: { value: '../a7-escape.txt' } });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/inside the project/);
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    fireEvent.change(name, { target: { value: 'roles/web/tasks/main.yml' } });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/There is a file .* already/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // A rename onto a file that is there is refused, not hiding it.
+    fireEvent.click(screen.getByRole('button', { name: 'Rename or move' }));
+    const to = screen.getByRole('textbox', { name: 'New path' });
+    fireEvent.change(to, { target: { value: 'roles/web/tasks/main.yml' } });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/already/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Deleted but not saved: said so, not "there is no ...".
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText(/is marked for deletion/)).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText(/Upload templates\/a7-one.txt and 3 more changes/),
+    ).toBeTruthy();
   });
 
   it('read-only people read, and get no buttons that change', async () => {

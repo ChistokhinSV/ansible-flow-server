@@ -87,6 +87,8 @@ const look = EditorView.theme({
 
 export interface Editor {
   text(): string;
+  /** AFS-140: puts the cursor in the text. */
+  focus(): void;
   destroy(): void;
 }
 
@@ -126,7 +128,13 @@ export function createEditor(
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorState.readOnly.of(!options.editable),
         EditorView.editable.of(options.editable),
-        EditorView.contentAttributes.of({ 'aria-label': options.label }),
+        // AFS-140: a labelled text box for assistive technology, also inside the shadow root.
+        EditorView.contentAttributes.of({
+          'aria-label': options.label,
+          role: 'textbox',
+          'aria-multiline': 'true',
+          ...(options.editable ? {} : { 'aria-readonly': 'true' }),
+        }),
         EditorView.lineWrapping,
         look,
         ...languageOf(options.path),
@@ -138,6 +146,7 @@ export function createEditor(
   });
   return {
     text: () => view.state.doc.toString(),
+    focus: () => view.focus(),
     destroy: () => {
       view.destroy();
       host.remove();

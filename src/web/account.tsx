@@ -1,9 +1,10 @@
 // My account: the profile and the access tokens of who is signed in, each on its own tab (AFS-88).
 import { useState } from 'react';
+import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
 import { api, type User } from './api';
 import { Link } from './router';
 import { TokensPanel } from './tokens';
-import { Field, Form, PageHead, Tabs, useLoad } from './ui';
+import { Field, Form, PageHead, refuse, Tabs, useLoad } from './ui';
 
 /** A webhook's address as a page shows it to someone who may not change it: its host only. */
 const hookHost = (url: string) => {
@@ -130,7 +131,7 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
       ) : (
         <>
           <Profile me={mine} onSaved={setMine} />
-          {!mine.service && <PasswordForm />}
+          {!mine.service && <PasswordForm login={mine.login} />}
         </>
       )}
     </>
@@ -141,7 +142,7 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
  * AFS-104: your own password (people an administrator was told can change it here). Directory and
  * organisation sign-ins change theirs where they come from.
  */
-function PasswordForm() {
+function PasswordForm({ login }: { login: string }) {
   const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [again, setAgain] = useState('');
@@ -160,6 +161,9 @@ function PasswordForm() {
           setDone(false);
           setMismatch(password !== again);
           if (password !== again) return;
+          // AFS-140: the rules are checked here first.
+          const problem = passwordProblem(password, login);
+          if (problem) refuse('password', `${problem}.`);
           await api.changePassword(current, password);
           setCurrent('');
           setPassword('');
@@ -177,6 +181,7 @@ function PasswordForm() {
         />
         <Field
           label="New password"
+          name="password"
           type="password"
           autoComplete="new-password"
           value={password}
@@ -185,6 +190,7 @@ function PasswordForm() {
             setPassword(e.target.value);
           }}
           required
+          hint={PASSWORD_RULES}
         />
         <Field
           label="New password again"

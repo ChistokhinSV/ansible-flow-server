@@ -53,7 +53,7 @@ const LAUNCH = {
   ),
   mode: { type: 'string', enum: ['check', 'real'], description: 'check (nothing changes) or real' },
   ref: str('Another branch to run the newest commit of (needs rw on the flow)'),
-  commit: str('A commit to run, its 40-character id (needs rw on the flow)'),
+  commit: str('A commit to run, its id: 7 to 40 hex digits (needs rw on the flow)'),
   limit: str("Ansible's --limit"),
   inputs: {
     type: 'object',

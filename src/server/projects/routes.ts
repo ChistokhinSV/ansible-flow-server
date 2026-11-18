@@ -106,7 +106,9 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         return await handler(request, reply);
       } catch (e) {
         if (e instanceof ProjectError)
-          return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
+          return reply
+            .code(STATUS[e.code])
+            .send({ error: e.code, message: e.message, ...(e.field ? { field: e.field } : {}) });
         if (e instanceof StartRefused)
           return reply.code(400).send({ error: 'invalid', message: e.message });
         if (e instanceof BranchRefused)

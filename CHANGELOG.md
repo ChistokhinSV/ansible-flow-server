@@ -14,9 +14,24 @@ All notable changes to Ansible Flow Server.
 - A flow's draft can be discarded from the flow page, without opening it. In full screen, **Exit full screen** stays in sight.
 - **Help** in the side menu (also at `/help`) lists the user guide's pages and the API reference, and most pages link their part of the guide with **Help** beside the title.
 - An empty project's Overview shows how to clone it. The clone help says what to do when git does not trust a self-signed certificate, and anyone can download the certificate in use at `/api/v1/certificate.pem`.
+- A refused form says why at the field it is about, which is marked, scrolled to and focused; the words go once that field is changed. Messages use the fields' labels, not internal names or the server's schema wording.
+- Forms opened by a button (Give access, Add credential, Change, Add schedule, New flow, Copy the flow, Add project, Add workspace) come into view with the cursor in their first field. **What would run** brings its answer into view.
+- Leaving a page with typing not sent in a form (a link, a tab, Back, closing the tab) asks first.
+- Credentials are checked before they are sent: the become method (with the usual ones offered), the registry host, the AWX address, the vault id, the private key, and two variables of one name.
+- Password fields state the rules (12 characters, 5 different ones, not the login) and check them before sending.
+- **Add a provider** shows the redirect address while the key is typed. LDAP filters are typed in a box of several lines.
+- An external project whose source cannot be read when it is added opens on Settings, which says why; its repository address can be changed there. **Look at the source now** says what it found.
+- Starting a project from a sample or an archive says what its first commit holds, and when it has playbooks, how to make a flow of one.
+- Search says it needs at least two characters.
 
 ### Changed
 
+- A pinned commit (launch configurations, schedules, a launch) can be given as the pages show it (12 digits) or in full.
+- Keys made from a name keep accented letters as their plain letter (Ünïcödé: unicode) and a long name is cut between words.
+- A cron that cannot be read says which part is out of range and what it takes; a time-zone problem is said at the time zone.
+- A file saved on the Files page without a message is committed with the words the Message field showed, and the note after it counts the changes.
+- **Add a launch configuration** on a project without flows says so instead of offering an empty list.
+- **Delete the environment** cannot be clicked while launch configurations use it, and says why beside it.
 - **Add workspace** and **Add project** make the key from the name as you type it (lower case, other characters as dashes); a key you type yourself stays. The same for a new directory or sign-in provider.
 - **Approve** and **Reject** ask once more and say where the hosts go; rejecting needs a comment. The Approvals page says what you just decided, the sidebar count goes down at once, and every approval says who may decide it. The audit log keeps the approval's name and the comment.
 - A real launch, disabling a person and **Administrators only** for passwords ask first. Password sign-in cannot be limited to administrators while no sign-in provider or directory is enabled.
@@ -45,6 +60,12 @@ All notable changes to Ansible Flow Server.
 - **Last used** of access tokens follows a token's use elsewhere when you come back to the page, and every half minute while it is open.
 - A run is named the same everywhere: its flow and #number (the run page, its breadcrumb, search, the home page).
 - **What the flow needs** says that a configuration without an environment runs on the server's default image, as **What would run** does.
+- **Upload files** with several files picked at once keeps every file, not only the last.
+- A new file or a rename onto a path outside the project (`../`) or onto a file that is there is refused when typed, not at **Save**, and no longer hides that file.
+- **Copy the flow** says what is wrong with the file (outside the project, not `.flow.yaml`, already there) and offers a name that is free, instead of "Something went wrong".
+- A file deleted but not saved yet is said to be marked for deletion, not missing. **New file** puts the cursor in the new file's editor, and the editor is a labelled text box for screen readers.
+- A schedule's cron problem is said once, not three times.
+
 - **Limit** is applied: a run limited to some hosts runs on those only. Before, it ran on every host it targeted.
 - **Stop** stops a running run at once, and a run asked to stop never ends as succeeded; its hosts show as stopped.
 - A run that reached no host (none of its targets is in the inventory) fails, saying so, rather than "went well".

@@ -48,6 +48,8 @@ export class ProjectError extends Error {
   constructor(
     readonly code: 'taken' | 'not_found' | 'not_empty' | 'invalid',
     message: string,
+    /** AFS-140: the field the problem is about, so a page shows it there. */
+    readonly field?: string,
   ) {
     super(message);
     this.name = 'ProjectError';
@@ -255,13 +257,16 @@ export async function createProject(
   const gitUrl = input.gitUrl?.trim() ?? '';
   // A hosted project has no source to look at on a timer.
   const pollSeconds = gitUrl ? (input.pollSeconds ?? POLL_SECONDS) : 0;
-  const problem =
-    keyProblem(key) ??
-    nameProblem(input.name) ??
-    (gitUrl ? gitUrlProblem(gitUrl, allowLocal) : undefined) ??
-    refProblem(gitRef) ??
-    pollProblem(pollSeconds);
-  if (problem) throw new ProjectError('invalid', problem);
+  // AFS-140: each problem with the field it is about.
+  const problems: [string | undefined, string][] = [
+    [keyProblem(key), 'key'],
+    [nameProblem(input.name), 'name'],
+    [gitUrl ? gitUrlProblem(gitUrl, allowLocal) : undefined, 'gitUrl'],
+    [refProblem(gitRef), 'gitRef'],
+    [pollProblem(pollSeconds), 'pollSeconds'],
+  ];
+  const [problem, field] = problems.find(([why]) => why) ?? [];
+  if (problem) throw new ProjectError('invalid', problem, field);
   const workspace = await db
     .selectFrom('workspace')
     .select('key')
@@ -298,7 +303,7 @@ export async function createProject(
     .onConflict((c) => c.columns(['workspace_id', 'key']).doNothing())
     .executeTakeFirst();
   if (!done.numInsertedOrUpdatedRows)
-    throw new ProjectError('taken', `The workspace has a project ${key} already`);
+    throw new ProjectError('taken', `The workspace has a project ${key} already`, 'key');
   return projectOf(row, workspace.key);
 }
 
