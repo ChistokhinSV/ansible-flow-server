@@ -141,6 +141,53 @@ describe('approvals', () => {
     });
   });
 
+  it('the card names who decides, the inputs and people by name; the confirmation keeps the comment and names where the hosts go (AFS-146)', async () => {
+    const list = [
+      {
+        ...waiting('r1', true),
+        requestedByName: 'Dana Ruiz',
+        run: {
+          ...waiting('r1', true).run,
+          projectName: 'Edge',
+          workspaceName: 'Network',
+          mode: 'real',
+          inputs: { target_version: '7.4.2', password: '***' },
+        },
+        gate: gate({
+          deciders: ['Change Board', 'Omar Haddad'],
+          next: { approved: 'Upgrade', rejected: 'Not approved' },
+        }),
+      },
+    ];
+    let counted = 0;
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /approvals': () => {
+        counted += 1;
+        return { body: list };
+      },
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    const yours = (await screen.findByRole('heading', { name: 'Yours to decide' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(within(yours).getByText('Dana Ruiz')).toBeTruthy();
+    expect(within(yours).getByText(/decided by Change Board or Omar Haddad/)).toBeTruthy();
+    expect(within(yours).getByText(/Inputs:/).textContent).toMatch(/target_version = 7\.4\.2/);
+    expect(within(yours).getByText(/real run/)).toBeTruthy();
+    // The badge reads again once the page has its list: both say the same.
+    await waitFor(() => expect(counted).toBeGreaterThanOrEqual(3));
+
+    fireEvent.change(within(yours).getByLabelText('Comment'), {
+      target: { value: 'No NOC slot' },
+    });
+    fireEvent.click(within(yours).getByRole('button', { name: 'Reject…' }));
+    expect(within(yours).getByText(/go to "Not approved", not on to the change/)).toBeTruthy();
+    expect(within(yours).getByText('No NOC slot')).toBeTruthy();
+    expect(within(yours).getByRole('button', { name: 'Keep waiting' }).className).toBe('neutral');
+  });
+
   it("a run's page shows its approvals: decided ones with who and why", async () => {
     const run = {
       id: 'r1',
@@ -172,6 +219,7 @@ describe('approvals', () => {
             ...gate({
               status: 'rejected',
               decidedBy: 'omar',
+              decidedByName: 'Omar Haddad',
               decidedAt: '2026-11-13T10:20:00.000Z',
               comment: 'Not during the freeze',
             }),
@@ -187,6 +235,8 @@ describe('approvals', () => {
     ) as HTMLElement;
     expect(within(section).getByText('rejected', { selector: '.badge' })).toBeTruthy();
     expect(within(section).getByText('Not during the freeze')).toBeTruthy();
+    // AFS-146: people by name.
+    expect(within(section).getByText('Omar Haddad')).toBeTruthy();
     expect(within(section).queryByRole('button', { name: 'Approve' })).toBeNull();
   });
 });

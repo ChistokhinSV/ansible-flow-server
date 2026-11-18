@@ -285,11 +285,12 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
     case 'run': {
       const run = await db
         .selectFrom('run')
-        .select('number')
+        .select(['number', 'flow_name'])
         .where('id', '=', id)
         .executeTakeFirst()
         .catch(() => undefined);
-      return run ? `#${run.number}` : undefined;
+      // AFS-146: as the pages name a run (its flow and number), on every run's entry.
+      return run ? `${run.flow_name} #${run.number}` : undefined;
     }
     default:
       return undefined;
@@ -444,8 +445,26 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
         detail.decision = said.decision;
       // AFS-133: the approval by its title, and the comment the decision was given with.
       const gate = answer as { node?: { title?: unknown; key?: unknown } };
+      // AFS-146: a refused decision names the approval by its title too, not by its key.
+      const asked =
+        params.id && params.node
+          ? await db
+              .selectFrom('run_gate')
+              .select('title')
+              .where('run_id', '=', params.id)
+              .where((eb) =>
+                eb.or([
+                  eb('node_id', '=', params.node as string),
+                  eb('node_key', '=', params.node as string),
+                ]),
+              )
+              .executeTakeFirst()
+              .catch(() => undefined)
+          : undefined;
       detail.approval =
-        typeof gate.node?.title === 'string' ? gate.node.title : (params.node ?? undefined);
+        typeof gate.node?.title === 'string'
+          ? gate.node.title
+          : (asked?.title ?? params.node ?? undefined);
       if (typeof said?.comment === 'string' && said.comment.trim() && status < 400)
         detail.comment = said.comment.trim().slice(0, 500);
     }

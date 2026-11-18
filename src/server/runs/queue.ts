@@ -86,6 +86,11 @@ export interface Run {
   dev?: true;
   /** AFS-34: the schedule that launched it. */
   schedule?: string;
+  /**
+   * AFS-146: a failed run that failed because its approval was rejected (or nobody decided in
+   * time): the pages say so, not "failed". Added by the API (runs/routes.ts).
+   */
+  decidedAgainst?: 'rejected' | 'timed out';
 }
 
 /** A run as a worker gets it: with its lease, and its inputs in full. */

@@ -44,7 +44,9 @@ export function waitingHosts(carriedJson: string | null, key: string): string[] 
 }
 
 const gateOf = (row: Row): Gate => {
-  const approval = (row.approval_json ? JSON.parse(row.approval_json) : {}) as ApprovalFields;
+  const approval = (row.approval_json ? JSON.parse(row.approval_json) : {}) as ApprovalFields & {
+    next?: Gate['next'];
+  };
   const hosts = waitingHosts(row.carried_json, row.node_key);
   return {
     id: row.id,
@@ -60,6 +62,7 @@ const gateOf = (row: Row): Gate => {
     ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
     ...(row.comment ? { comment: row.comment } : {}),
     ...(hosts ? { hosts } : {}),
+    ...(approval.next && Object.keys(approval.next).length ? { next: approval.next } : {}),
     createdAt: row.created_at,
   };
 };
@@ -72,6 +75,8 @@ export interface NewGate {
   carried: Record<string, unknown>;
   deadline?: Date;
   approval?: ApprovalFields;
+  /** AFS-146: where each decision sends the waiting hosts, by the next step's title. */
+  next?: Gate['next'];
 }
 
 /** A run reached an approval: the gate waits. */
@@ -86,7 +91,10 @@ export async function openGate(db: Db, input: NewGate, now = new Date()): Promis
     status: 'waiting',
     carried_json: JSON.stringify(input.carried),
     deadline: input.deadline ? input.deadline.toISOString() : null,
-    approval_json: input.approval ? JSON.stringify(input.approval) : null,
+    approval_json:
+      input.approval || input.next
+        ? JSON.stringify({ ...input.approval, ...(input.next ? { next: input.next } : {}) })
+        : null,
     decided_by: null,
     decided_at: null,
     comment: null,
@@ -103,7 +111,12 @@ export async function gatesOf(db: Db, run: string): Promise<Gate[]> {
     .where('run_id', '=', run)
     .orderBy('created_at')
     .execute();
-  return rows.map(gateOf);
+  // AFS-146: whoever decided, by name too.
+  const names = await namesOf(
+    db,
+    rows.map((r) => r.decided_by ?? ''),
+  );
+  return rows.map((r) => withNames(gateOf(r), names));
 }
 
 /** The gate a run decided last (or waits at): what its next segment starts from. */
@@ -117,7 +130,9 @@ export async function lastGate(
     .where('run_id', '=', run)
     .orderBy('created_at', 'desc')
     .executeTakeFirst();
-  return row ? { ...gateOf(row), carried: JSON.parse(row.carried_json) } : undefined;
+  if (!row) return undefined;
+  const names = await namesOf(db, [row.decided_by ?? '']);
+  return { ...withNames(gateOf(row), names), carried: JSON.parse(row.carried_json) };
 }
 
 /**
@@ -166,7 +181,9 @@ export function approvalsOf(
     if (g.status === 'cancelled') continue;
     out[g.node.id] = {
       status: g.status,
-      ...(g.decidedBy ? { by: g.decidedBy } : {}),
+      // AFS-146: the hosts that wait (or waited) here, for the node's Run tab.
+      ...(g.hosts?.length ? ({ hosts: g.hosts } as object) : {}),
+      ...(g.decidedBy ? { by: g.decidedByName ?? g.decidedBy } : {}),
       ...(g.decidedAt ? { at: g.decidedAt } : {}),
       ...(g.comment ? { comment: g.comment } : {}),
       ...(g.status === 'waiting' && mayDecide?.(g) ? { mayDecide: true } : {}),
@@ -178,6 +195,76 @@ export function approvalsOf(
 export interface Decider {
   user: { id: string; login: string; admin: boolean; groups: string[] };
   access: Access;
+}
+
+/** AFS-146: display names of these logins (a login without one names itself). */
+export async function namesOf(db: Db, logins: string[]): Promise<Map<string, string>> {
+  const wanted = [...new Set(logins.filter(Boolean).map((l) => l.toLowerCase()))];
+  if (!wanted.length) return new Map();
+  const rows = await db
+    .selectFrom('user_account')
+    .select(['login', 'name'])
+    .where('login', 'in', wanted)
+    .execute();
+  return new Map(rows.filter((r) => r.name).map((r) => [r.login, r.name]));
+}
+
+/** A gate with its decider named as the pages name people. */
+export function withNames(gate: Gate, names: Map<string, string>): Gate {
+  const name = gate.decidedBy ? names.get(gate.decidedBy.toLowerCase()) : undefined;
+  return name ? { ...gate, decidedByName: name } : gate;
+}
+
+/**
+ * AFS-146: who may decide a gate, by name, for whoever waits on it: the approval's approvers
+ * (people by display name, groups by name), else the people and groups holding approve on the
+ * flow or its workspace. Who launched the run is left out when the workspace does not let them
+ * decide. Administrators may always decide and are not listed.
+ */
+export async function decidersOf(
+  db: Db,
+  gate: Gate,
+  place: { workspace: string; project: string; flowFile: string },
+  except?: { id: string; login: string },
+): Promise<string[]> {
+  const out: string[] = [];
+  if (gate.approvers.length) {
+    const names = await namesOf(db, gate.approvers);
+    for (const a of gate.approvers)
+      if (a.toLowerCase() !== except?.login.toLowerCase())
+        out.push(names.get(a.toLowerCase()) ?? a);
+    return out;
+  }
+  const grants = await db
+    .selectFrom('access_grant')
+    .leftJoin('user_account', 'user_account.id', 'access_grant.principal_id')
+    .leftJoin('user_group', 'user_group.id', 'access_grant.principal_id')
+    .select([
+      'access_grant.principal_type as type',
+      'access_grant.principal_id as id',
+      'user_account.login',
+      'user_account.name as person',
+      'user_account.disabled',
+      'user_group.name as group',
+    ])
+    .where('access_grant.level', '=', 'approve')
+    .where('access_grant.workspace_id', '=', place.workspace)
+    .where((eb) =>
+      eb.or([
+        eb('access_grant.project_id', 'is', null),
+        eb.and([
+          eb('access_grant.project_id', '=', place.project),
+          eb('access_grant.flow_file', '=', place.flowFile),
+        ]),
+      ]),
+    )
+    .execute();
+  for (const g of grants) {
+    if (g.type === 'group' && g.group) out.push(g.group);
+    else if (g.type === 'user' && g.login && !g.disabled && g.id !== except?.id)
+      out.push(g.person || g.login);
+  }
+  return [...new Set(out)].sort((a, b) => a.localeCompare(b));
 }
 
 /** Why this person may not decide this gate; undefined when they may. */
@@ -197,7 +284,8 @@ export function whyNot(
     }
   }
   if (!selfApprove && run.requestedBy === who.user.id)
-    return 'Who launched the run does not decide its approvals here';
+    // AFS-146: and how that changes: the workspace's own setting.
+    return 'Who launched the run does not decide its approvals here. The workspace can allow it on its Access page';
   return undefined;
 }
 

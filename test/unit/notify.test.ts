@@ -271,8 +271,24 @@ for (const [name, config] of databases) {
       await database?.close();
     });
 
-    const launch = (by: 'dana' | 'omar', inputs: Record<string, unknown> = {}) =>
-      queue.enqueue(launchOf(project, inputs), {}, { id: ids[by] as string, login: by }, 'Upgrade');
+    /** A mail's text as read: quoted-printable soft breaks and escapes undone. */
+    const readable = (data: string) =>
+      data
+        .replace(/=\r?\n/g, '')
+        .replace(/=([0-9A-F]{2})/g, (_, hex: string) =>
+          String.fromCharCode(Number.parseInt(hex, 16)),
+        );
+    const launch = (
+      by: 'dana' | 'omar',
+      inputs: Record<string, unknown> = {},
+      shown: Record<string, unknown> = {},
+    ) =>
+      queue.enqueue(
+        launchOf(project, inputs),
+        shown,
+        { id: ids[by] as string, login: by },
+        'Upgrade',
+      );
     const gate = (run: string, approval: object = {}) =>
       openGate(db(), {
         run,
@@ -295,14 +311,23 @@ for (const [name, config] of databases) {
     it('a waiting approval asks who holds approve (not who launched it) and whom it names to tell', async () => {
       const mails = smtp.received.length;
       const calls = receiver.got.length;
-      const run = await launch('dana', { api_password: 'hunter2-never-sent' });
+      const run = await launch(
+        'dana',
+        { api_password: 'hunter2-never-sent', target_version: '7.4.2' },
+        { api_password: '***', target_version: '7.4.2' },
+      );
       const g = await gate(run.id, { notify: ['NOC'], message: 'Check the change ticket first' });
       notifier.approvalWaiting(run.id, g.id);
       await notifier.idle();
       expect(sentTo(mails).sort()).toEqual(['noc@example.net', 'omar@example.net']);
-      const mail = smtp.received.at(-1)?.data ?? '';
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
       expect(mail).toContain('Check the change ticket first');
       expect(mail).toContain(`https://flows.example.net/runs/${run.id}`);
+      // AFS-146: what the approver needs to decide: the inputs, secret-looking ones as ***.
+      expect(mail).toContain('Inputs:');
+      expect(mail).toContain('api_password = ***');
+      expect(mail).toContain('target_version = 7.4.2');
+      expect(mail).not.toContain('hunter2');
       const [hook] = hooksSince(calls);
       expect(hook?.path).toBe('/ok/omar-secret');
       expect(hook?.body).toMatchObject({
@@ -334,7 +359,11 @@ for (const [name, config] of databases) {
       notifier.approvalDecided(run.id, g.id);
       await notifier.idle();
       expect(sentTo(mails).sort()).toEqual(['dana@example.net', 'noc@example.net']);
-      expect(smtp.received.at(-1)?.data).toContain('Not during the freeze');
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
+      expect(mail).toContain('Not during the freeze');
+      // AFS-146: who decided, without a stray comma.
+      expect(mail).toMatch(/was rejected by [^,]+?\./);
+      expect(mail).not.toContain('usually to a rollback');
     });
 
     it("a launch configuration's runs tell as it says: only failures, or every end", async () => {

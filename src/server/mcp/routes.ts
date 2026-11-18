@@ -160,14 +160,14 @@ export const SERVER_TOOLS: ServerTool[] = [
     name: 'approval_decide',
     title: 'Decide an approval',
     description:
-      'Approve or reject an approval a run waits at, with a comment. Only with a token made to allow it, and only when the user has told you to decide it',
+      'Approve or reject an approval a run waits at, with a comment (a rejection needs one). Only with a token made to allow it, and only when the user has told you to decide it',
     readOnly: false,
     inputSchema: object(
       {
         run: str('The run id'),
         node: str("The approval's node key or id"),
         decision: { type: 'string', enum: ['approved', 'rejected'] },
-        comment: str('Why, for the record'),
+        comment: str('Why, for the record; required to reject'),
       },
       ['run', 'node', 'decision'],
     ),

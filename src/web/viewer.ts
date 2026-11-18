@@ -215,16 +215,31 @@ async function start(): Promise<void> {
       () => undefined,
     );
     if (!gates?.ok) return approvals;
-    const may = new Set(
-      (gates.data as { node: { id: string }; mayDecide: boolean }[])
-        .filter((g) => g.mayDecide)
-        .map((g) => g.node.id),
-    );
+    type Told = {
+      node: { id: string };
+      mayDecide: boolean;
+      deciders?: string[];
+      hosts?: string[];
+      next?: Record<string, string>;
+    };
+    const told = new Map((gates.data as Told[]).map((g) => [g.node.id, g]));
     return Object.fromEntries(
-      Object.entries(approvals).map(([node, a]) => [
-        node,
-        a.status === 'waiting' && may.has(node) ? { ...a, mayDecide: true } : a,
-      ]),
+      Object.entries(approvals).map(([node, a]) => {
+        const g = told.get(node);
+        if (a.status !== 'waiting' || !g) return [node, a];
+        // AFS-146: and who may decide it, the hosts that wait, and where each decision sends
+        // them, for the node's Run tab.
+        return [
+          node,
+          {
+            ...a,
+            ...(g.mayDecide ? { mayDecide: true } : {}),
+            ...(g.deciders ? { deciders: g.deciders } : {}),
+            ...(g.hosts?.length ? { hosts: g.hosts } : {}),
+            ...(g.next ? { next: g.next } : {}),
+          },
+        ];
+      }),
     );
   };
 
@@ -426,7 +441,16 @@ async function start(): Promise<void> {
                 body: JSON.stringify({ decision, ...(comment ? { comment } : {}) }),
               },
             ).then(async (reply) => {
-              if (reply.ok) return;
+              if (reply.ok) {
+                // AFS-146: the page around the frame counts what waits again at once (its
+                // Approvals badge) and reads the run's approvals again.
+                if (window.parent !== window)
+                  window.parent.postMessage(
+                    { type: 'afs-approvals-changed' },
+                    window.location.origin,
+                  );
+                return;
+              }
               const why = (await reply.json().catch(() => undefined))?.message;
               send({ type: 'notify', level: 'error', text: why ?? 'The decision was not taken' });
             });

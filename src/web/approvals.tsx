@@ -15,9 +15,12 @@ export const APPROVALS_CHANGED = 'afs-approvals-changed';
  */
 function DecideForm({
   title,
+  next,
   onDecide,
 }: {
   title: string;
+  /** AFS-146: where each decision sends the waiting hosts. */
+  next?: Gate['next'] | undefined;
   onDecide(decision: 'approved' | 'rejected', comment: string): Promise<void>;
 }) {
   const id = useId();
@@ -52,9 +55,17 @@ function DecideForm({
       <fieldset className="form decide" aria-label="Confirm the decision">
         <p>
           {asking === 'approved'
-            ? `Approve "${title}"? The hosts waiting here go on to the next steps.`
-            : `Reject "${title}"? The hosts waiting here take the rejected path (usually a rollback or a failed end).`}
+            ? `Approve "${title}"? The hosts waiting here go on to ${next?.approved ? `"${next.approved}"` : 'the next steps'}.`
+            : `Reject "${title}"? The hosts waiting here ${next?.rejected ? `go to "${next.rejected}"` : 'take the rejected path'}, not on to the change.`}
         </p>
+        {/* AFS-146: what will be kept with the decision stays in sight while it is confirmed. */}
+        {comment.trim() ? (
+          <p data-confirm-comment>
+            Your comment: <q className="comment">{comment.trim()}</q>
+          </p>
+        ) : (
+          <p className="muted">No comment.</p>
+        )}
         {error && (
           <p className="notice error" role="alert">
             {error}
@@ -69,7 +80,12 @@ function DecideForm({
           >
             {asking === 'approved' ? 'Approve' : 'Reject'}
           </button>
-          <button type="button" disabled={busy} onClick={() => setAsking(undefined)}>
+          <button
+            type="button"
+            className="neutral"
+            disabled={busy}
+            onClick={() => setAsking(undefined)}
+          >
             Keep waiting
           </button>
         </div>
@@ -102,6 +118,36 @@ function DecideForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/** AFS-146: who may decide a gate, by name, as a phrase. */
+export function decidersText(gate: Gate): string {
+  const names = gate.deciders ?? gate.approvers;
+  if (!names.length) return 'An administrator';
+  if (names.length === 1) return names[0] as string;
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+}
+
+/** AFS-146: a run's inputs as the approver reads them, secrets already shown as ***. */
+function InputsLine({ inputs }: { inputs?: Record<string, unknown> | undefined }) {
+  const entries = Object.entries(inputs ?? {});
+  if (!entries.length) return null;
+  const shown = (v: unknown) => {
+    const t = typeof v === 'string' ? v : JSON.stringify(v);
+    return t.length > 80 ? `${t.slice(0, 80)}…` : t;
+  };
+  return (
+    <p className="muted" data-approval-inputs>
+      Inputs:{' '}
+      {entries.slice(0, 8).map(([name, value], i) => (
+        <span key={name}>
+          {i > 0 && ', '}
+          <span className="mono">{name}</span> = {shown(value)}
+        </span>
+      ))}
+      {entries.length > 8 ? ', …' : ''}
+    </p>
   );
 }
 
@@ -153,11 +199,8 @@ function GateCard({
               · times out <Time at={gate.deadline} />
             </>
           )}
-          {/* AFS-133: who may decide, always: the node's approvers, else the workspace's. */} ·
-          decided by{' '}
-          {gate.approvers.length > 0
-            ? gate.approvers.join(', ')
-            : 'whoever has approve on the flow or its workspace'}
+          {/* AFS-133, AFS-146: who may decide, always, by name. */} · decided by{' '}
+          {decidersText(gate)}
         </p>
       ) : (
         <p className="muted">
@@ -166,7 +209,8 @@ function GateCard({
       )}
       {gate.status !== 'waiting' && (
         <p>
-          {gate.status} by {gate.decidedBy ?? 'nobody'}
+          {gate.status} by{' '}
+          <span title={gate.decidedBy}>{gate.decidedByName ?? gate.decidedBy ?? 'nobody'}</span>
           {gate.decidedAt && (
             <>
               , <Time at={gate.decidedAt} />
@@ -177,9 +221,9 @@ function GateCard({
       )}
       {gate.status === 'waiting' &&
         (mayDecide ? (
-          <DecideForm title={gate.node.title} onDecide={onDecide} />
+          <DecideForm title={gate.node.title} next={gate.next} onDecide={onDecide} />
         ) : (
-          <p className="muted">{why ?? 'Someone allowed to approve decides it.'}</p>
+          <p className="muted">{why ?? `${decidersText(gate)} decides it.`}</p>
         ))}
     </div>
   );
@@ -222,6 +266,12 @@ export function ApprovalsPage() {
     return () => clearInterval(timer);
   }, [list.reload]);
   const decidedList = useLoad(() => api.decidedApprovals().catch(() => []), [decided]);
+  // AFS-146: the sidebar's count follows what this page reads (a run that arrived, one decided
+  // elsewhere), not its own slower look.
+  const count = list.data?.filter((a) => a.mayDecide).length;
+  useEffect(() => {
+    if (count !== undefined) window.dispatchEvent(new Event(APPROVALS_CHANGED));
+  }, [count]);
   const mine = list.data?.filter((a) => a.mayDecide) ?? [];
   const others = list.data?.filter((a) => !a.mayDecide) ?? [];
   // Yours: each a tinted box with the decision in it (AFS-82). Others': plain rows with why not.
@@ -231,8 +281,19 @@ export function ApprovalsPage() {
         <Link to={`/runs/${a.run.id}`}>
           {a.run.flow.name} #{a.run.number}
         </Link>{' '}
-        <span className="muted">· launched by {a.requestedBy}</span>
+        <span className="muted">
+          · launched by <span title={a.requestedBy}>{a.requestedByName ?? a.requestedBy}</span>
+          {a.run.projectName && (
+            <>
+              {' '}
+              · {a.run.workspaceName ? `${a.run.workspaceName} / ` : ''}
+              {a.run.projectName}
+            </>
+          )}
+          {a.run.mode && <> · {a.run.mode === 'real' ? 'real run' : 'check run'}</>}
+        </span>
       </p>
+      <InputsLine inputs={a.run.inputs} />
       <GateCard
         gate={a.gate}
         mayDecide={a.mayDecide}
@@ -295,7 +356,7 @@ export function ApprovalsPage() {
                     {a.gate.status}
                   </span>{' '}
                   <span className="muted">
-                    {a.gate.decidedBy ? `by ${a.gate.decidedBy}` : ''}
+                    {a.gate.decidedBy ? `by ${a.gate.decidedByName ?? a.gate.decidedBy}` : ''}
                     {a.gate.decidedAt && (
                       <>
                         , <Time at={a.gate.decidedAt} />

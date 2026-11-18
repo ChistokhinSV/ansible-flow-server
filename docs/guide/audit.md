@@ -16,13 +16,16 @@ HTTP status), the client's address and the request id of the server's log.
 - Access grants given and taken back, named with the workspace (or flow) they are on.
 - Workspaces, projects, credentials, launch configurations, schedules and environments made,
   changed, deleted; syncs and push hooks. A change names only the fields whose values changed.
-- Runs launched, stopped, run again. Pushes through the server with the branches they moved;
+- Runs launched, stopped, run again, named by their flow and number (`Firewall firmware upgrade
+  #5`). Approvals decided: the decision, the approval by its title, and the comment it was given
+  with. Pushes through the server with the branches they moved;
   refused pushes.
 - The `user`, `cert` and `secrets` commands that change something, with the machine's user.
 - Exports of the log itself.
 
 An entry never holds a secret: of what a request sent it keeps the names of the changed fields
-and the yes/no and number values, never text. A refusal of a change to people, groups, workspaces,
+and the yes/no and number values, never text (the one exception is an approval's comment, which
+is kept as the record of why it was decided). A refusal of a change to people, groups, workspaces,
 projects, grants, launch configurations, schedules, environments, runs or approvals keeps the
 server's reason. On the page, **About** filters by kind (access grants, schedules, approvals and
 the rest). Entries are only added; those older than

@@ -59,6 +59,10 @@ interface RunFacts {
   configName: string | null;
   requestedBy: string;
   requestedLogin: string;
+  /** AFS-146: who launched it, by display name (the login when they have none). */
+  requestedName: string;
+  /** The inputs, secret-looking values as ***. */
+  inputs: Record<string, unknown>;
   error: string | null;
   project: { id: string; key: string; name: string };
   workspace: { id: string; key: string; name: string };
@@ -196,6 +200,7 @@ export class Notifier {
         'run.config_name',
         'run.requested_by',
         'run.requested_login',
+        'run.inputs_shown_json',
         'run.error',
         'project.id as project_id',
         'project.key as project_key',
@@ -207,6 +212,17 @@ export class Notifier {
       .where('run.id', '=', id)
       .executeTakeFirst();
     if (!row) return undefined;
+    const person = await this.db
+      .selectFrom('user_account')
+      .select('name')
+      .where('id', '=', row.requested_by)
+      .executeTakeFirst();
+    let inputs: Record<string, unknown> = {};
+    try {
+      inputs = JSON.parse(row.inputs_shown_json) as Record<string, unknown>;
+    } catch {
+      // No inputs to tell.
+    }
     return {
       id: row.id,
       number: row.number,
@@ -218,6 +234,8 @@ export class Notifier {
       configName: row.config_name,
       requestedBy: row.requested_by,
       requestedLogin: row.requested_login,
+      requestedName: person?.name || row.requested_login,
+      inputs,
       error: row.error,
       project: { id: row.project_id, key: row.project_key, name: row.project_name },
       workspace: { id: row.workspace_id, key: row.workspace_key, name: row.workspace_name },
@@ -288,10 +306,17 @@ export class Notifier {
           );
       const told = await contactsOfNames(this.db, approval.notify ?? []);
       const link = this.link(`/runs/${run.id}`);
+      // AFS-146: what the approver needs to decide: the run's inputs (secrets as ***), and
+      // whether it changes anything.
+      const inputs = Object.entries(run.inputs).map(
+        ([name, value]) =>
+          `  ${name} = ${(typeof value === 'string' ? value : JSON.stringify(value)).slice(0, 200)}`,
+      );
       const lines = [
         `${this.where(run)} waits for a decision at "${gate.title}".`,
         ...(approval.message ? ['', approval.message, ''] : []),
-        `Launched by ${run.requestedLogin}.`,
+        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'}).`,
+        ...(inputs.length ? ['Inputs:', ...inputs] : []),
         ...(gate.deadline ? [`Nobody deciding by ${readable(gate.deadline)}: it times out.`] : []),
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',
       ];
@@ -330,19 +355,35 @@ export class Notifier {
       if (!run || !gate || gate.status === 'waiting' || gate.status === 'cancelled') return;
       const approval = (gate.approval_json ? JSON.parse(gate.approval_json) : {}) as {
         notify?: string[];
+        next?: { approved?: string; rejected?: string; timeout?: string };
       };
       const link = this.link(`/runs/${run.id}`);
-      const by = gate.status === 'timed out' ? 'nobody decided in time' : `by ${gate.decided_by}`;
-      const lines = [
-        `"${gate.title}" of ${this.where(run)} was ${gate.status}, ${by}.`,
-        ...(gate.comment && gate.status !== 'timed out' ? [`Comment: ${gate.comment}`] : []),
-        // AFS-133: what happens next depends on the decision: the hosts go where the flow sends
-        // them (an approval's rejected and timeout ports usually lead to a failed end).
+      // AFS-146: the decider by name; the hosts' next step by its title, as the flow names it.
+      const decider = gate.decided_by
+        ? ((
+            await this.db
+              .selectFrom('user_account')
+              .select('name')
+              .where('login', '=', gate.decided_by)
+              .executeTakeFirst()
+          )?.name ?? gate.decided_by)
+        : undefined;
+      const next =
         gate.status === 'approved'
-          ? 'The run goes on with the approved hosts.'
-          : 'The hosts go where the flow sends them when it is ' +
-            (gate.status === 'rejected' ? 'rejected' : 'not decided in time') +
-            ': usually to a rollback or a failed end, not on to the change.',
+          ? approval.next?.approved
+          : gate.status === 'rejected'
+            ? approval.next?.rejected
+            : (approval.next?.timeout ?? approval.next?.rejected);
+      const lines = [
+        gate.status === 'timed out'
+          ? `"${gate.title}" of ${this.where(run)} timed out: nobody decided in time.`
+          : `"${gate.title}" of ${this.where(run)} was ${gate.status} by ${decider ?? 'nobody'}.`,
+        ...(gate.comment && gate.status !== 'timed out' ? [`Comment: ${gate.comment}`] : []),
+        gate.status === 'approved'
+          ? `The run goes on with the approved hosts${next ? `, to "${next}"` : ''}.`
+          : next
+            ? `The hosts that waited go to "${next}", not on to the change.`
+            : 'The hosts that waited go where the flow sends them, not on to the change.',
         ...(link ? [link] : []),
       ];
       const message: Message = {
@@ -390,7 +431,7 @@ export class Notifier {
       const lines = [
         `${this.where(run)} ${ENDED_WORDS[run.state] ?? run.state}.`,
         ...(run.configName ? [`Launch configuration: ${run.configName}.`] : []),
-        `Launched by ${run.requestedLogin}.`,
+        `Launched by ${run.requestedName}.`,
         ...(run.error && run.state !== 'succeeded' ? [`Why: ${run.error}`] : []),
         ...(link ? [link] : []),
       ];

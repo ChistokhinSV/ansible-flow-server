@@ -208,9 +208,16 @@ function Side({
     const timer = setInterval(approvals.reload, 30_000);
     // AFS-133: a decision made on any page counts at once.
     window.addEventListener(APPROVALS_CHANGED, approvals.reload);
+    // AFS-146: and one made on a run's canvas (the designer's frame says so).
+    const fromFrame = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if ((event.data as { type?: string } | null)?.type === APPROVALS_CHANGED) approvals.reload();
+    };
+    window.addEventListener('message', fromFrame);
     return () => {
       clearInterval(timer);
       window.removeEventListener(APPROVALS_CHANGED, approvals.reload);
+      window.removeEventListener('message', fromFrame);
     };
   }, [approvals.reload]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.

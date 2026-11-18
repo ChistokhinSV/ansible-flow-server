@@ -792,7 +792,8 @@ export class Executor {
       let segInputs = gate ? segmentInputs(inputs, gate.carried, decision) : inputs;
       let decidedAgainst: string | undefined;
       if (gate) {
-        const by = gate.decidedBy ? ` by ${gate.decidedBy}` : '';
+        // AFS-146: people by their names, as the pages name them.
+        const by = gate.decidedBy ? ` by ${gate.decidedByName ?? gate.decidedBy}` : '';
         const said = gate.comment ? `: ${gate.comment}` : '';
         line(`Approval ${gate.node.title}: ${gate.status}${by}${said}`);
         if (gate.status === 'rejected')
@@ -852,6 +853,7 @@ export class Executor {
             carried: outcome.carried,
             ...(seconds ? { deadline: new Date(Date.now() + seconds * 1000) } : {}),
             ...(node?.approval ? { approval: node.approval } : {}),
+            next: nextSteps(doc, current.gate),
           });
           const waiting: RunView = {
             ...whole,
@@ -931,4 +933,24 @@ function hasApproval(nodes: readonly { type: string; subflow?: { nodes?: unknown
       n.type === 'approval' ||
       hasApproval((n.subflow?.nodes ?? []) as { type: string; subflow?: { nodes?: unknown[] } }[]),
   );
+}
+
+/**
+ * AFS-146: where each decision of an approval sends its waiting hosts, by the next step's title
+ * (approvals are on the top level): what the decider and the mails name.
+ */
+function nextSteps(
+  doc: {
+    nodes: { id: string; title: string }[];
+    edges?: { from: { node: string; port: string }; to: { node: string } }[];
+  },
+  gate: string,
+): { approved?: string; rejected?: string; timeout?: string } {
+  const out: Record<string, string> = {};
+  for (const port of ['approved', 'rejected', 'timeout']) {
+    const edge = doc.edges?.find((e) => e.from.node === gate && e.from.port === port);
+    const title = edge && doc.nodes.find((n) => n.id === edge.to.node)?.title;
+    if (title) out[port] = title;
+  }
+  return out;
 }

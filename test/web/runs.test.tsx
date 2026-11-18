@@ -391,6 +391,58 @@ describe('a run', () => {
     expect(screen.getByText(/1 with a problem/)).toBeTruthy();
   });
 
+  it('a run its approval rejected reads as rejected; a held run has its hosts waiting (AFS-146)', async () => {
+    const view = (outcome: Record<string, string>) => ({
+      body: {
+        id: 'r1',
+        mode: 'real',
+        state: 'running',
+        startedAt: run.startedAt,
+        summary: {
+          nodes: {},
+          outcome,
+          failures: [],
+          unreachable: [],
+          hosts: ['localhost'],
+          stoppedEarly: false,
+        },
+      },
+    });
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs/r1': () => ({
+        body: {
+          ...run,
+          state: 'failed',
+          decidedAgainst: 'rejected',
+          error: 'Rejected at Change approval by Sam Reyes: no NOC slot',
+          endedAt: '2026-11-13T12:03:02.000Z',
+        },
+      }),
+      'GET /runs/r1/view': () =>
+        view({ localhost: 'Ended at [not-approved] Not approved (outcome: failed)' }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const hosts = (await screen.findByRole('heading', { name: 'Hosts' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(hosts.querySelector('li')?.textContent).toBe(
+      'localhostEnded at Not approved (rejected)',
+    );
+    expect(screen.getByText('rejected', { selector: '.badge' })).toBeTruthy();
+    expect(screen.getByText(/1 not approved/)).toBeTruthy();
+    cleanup();
+
+    routes['GET /runs/r1'] = () => ({ body: { ...run, state: 'waiting' } });
+    routes['GET /runs/r1/view'] = () => view({});
+    render(<App />);
+    const held = (await screen.findByRole('heading', { name: 'Hosts' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(held.querySelector('li')?.textContent).toBe('localhostwaiting for a decision');
+  });
+
   it('leads through where the run belongs: workspace, project, configuration (AFS-86)', async () => {
     routes = {
       'GET /session': () => ({ body: omar }),
@@ -414,7 +466,8 @@ describe('a run', () => {
     ).toEqual([
       ['Workspaces', '/workspaces'],
       ['Network operations', '/w/netops'],
-      ['edge', '/w/netops/edge'],
+      // AFS-146: the project by its name too.
+      ['Edge firewalls', '/w/netops/edge'],
       ['Nightly check', '/w/netops/edge/launch/c1'],
     ]);
     expect(crumbs.textContent).toMatch(/#7$/);
@@ -459,7 +512,7 @@ describe('a run', () => {
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
     const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
-    await within(crumbs).findByRole('link', { name: 'edge' });
+    await within(crumbs).findByRole('link', { name: 'Edge firewalls' });
     expect(within(crumbs).queryByRole('link', { name: 'Nightly check' })).toBeNull();
     expect(screen.getByText(/from “Nightly check”/)).toBeTruthy();
     // The flow is not in the project now: its name stays, without a link.
