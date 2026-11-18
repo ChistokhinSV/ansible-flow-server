@@ -124,7 +124,7 @@ function TestForm({ onSent }: { onSent(): void }) {
         hint={`Empty: your own ${channel === 'email' ? 'email address' : 'webhook'}`}
       />
       {result && (
-        <p className={`notice ${result.status === 'sent' ? '' : 'error'}`} role="status">
+        <p className={`notice ${result.status === 'sent' ? 'ok' : 'error'}`} role="status">
           {result.status === 'sent'
             ? `Sent to ${result.target}.`
             : `Not sent: ${result.lastError ?? 'no answer yet'}`}
@@ -250,8 +250,9 @@ function DeliveryLog({
                   </td>
                   <td>
                     {d.recipient}
+                    {/* AFS-144: a test is sent to an address, not a person: said once. */}
                     <div className="muted">
-                      {d.channel}: {d.target}
+                      {d.target === d.recipient ? d.channel : `${d.channel}: ${d.target}`}
                     </div>
                   </td>
                   <td>

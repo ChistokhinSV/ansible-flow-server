@@ -253,6 +253,9 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
   // The tab whose add form is open; going to the other tab leaves it closed there.
   const [adding, setAdding] = useState<'people' | 'groups'>();
   const [added, setAdded] = useState<{ to: string; name: string }>();
+  // AFS-144: the "Added" note belongs to the tab it was added on: another tab clears it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
+  useEffect(() => setAdded(undefined), [tab]);
   const open = adding === tab;
   const done = (to: string, name: string, reload: () => void) => {
     setAdding(undefined);

@@ -188,6 +188,25 @@ describe('home', () => {
   });
 });
 
+describe('home, your own runs at a gate (AFS-144)', () => {
+  it('says that a run of yours waits for someone else to decide', async () => {
+    const omar = { ...dana, id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false };
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs?limit=100': () => ({ body: [] }),
+      // Two gates of the same run: one run waits.
+      'GET /approvals': () => ({
+        body: [gate('g1', 'Change approval', false), gate('g2', 'Security sign-off', false)],
+      }),
+      'GET /workspaces': () => ({ body: [] }),
+    };
+    render(<App />);
+    await screen.findByText(
+      "No run yet today. Nothing waits for you. 1 run of yours waits for someone else's decision.",
+    );
+  });
+});
+
 describe('the sign-in page', () => {
   it('shows a picture with no words in it, and the card', async () => {
     routes = {

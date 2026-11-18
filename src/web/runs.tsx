@@ -17,7 +17,7 @@ import {
 import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
-import { ago, Breadcrumb, Loading, PageHead, span, Time, useLoad } from './ui';
+import { ago, Breadcrumb, Loading, PageHead, span, Time, useLoad, WorkspaceName } from './ui';
 
 const ACTIVE = ['queued', 'running', 'waiting'];
 /** How many runs the list asks for at once. */
@@ -413,6 +413,19 @@ export function RunsPage({ me }: { me: User }) {
                 : project
                   ? 'No run of this project yet.'
                   : 'No run yet. Runs start from a launch configuration of a project.'}
+          {/* AFS-144: a way back from choices that leave nothing. */}
+          {(state || project || mine) && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="link"
+                onClick={() => setChoices({ state: '', project: '', config: '', mine: false })}
+              >
+                Show all runs
+              </button>
+            </>
+          )}
         </p>
       )}
       {!!rows?.length && <RunList runs={rows} me={me} />}
@@ -796,7 +809,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             {where ? (
               <>
                 <Link to="/workspaces">Workspaces</Link> /{' '}
-                <Link to={`/w/${part(where.workspace)}`}>{where.workspace}</Link> /{' '}
+                <Link to={`/w/${part(where.workspace)}`}>
+                  <WorkspaceName workspace={where.workspace} />
+                </Link>{' '}
+                /{' '}
                 <Link to={`/w/${part(where.workspace)}/${part(where.project)}`}>
                   {where.project}
                 </Link>{' '}
@@ -815,7 +831,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             )}
             <span aria-current="page">run {run.number}</span>
           </Breadcrumb>
-          <h1>{title}</h1>
+          <h1 tabIndex={-1}>{title}</h1>
           <p>
             <StateBadge state={run.state} /> {standing(run)} · started by {by} ·{' '}
             {run.mode === 'real' ? 'real run' : 'check run'}

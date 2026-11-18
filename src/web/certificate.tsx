@@ -527,7 +527,8 @@ export function CertificatePage() {
             </div>
           )}
           <History turn={turn} />
-          <div ref={replace}>
+          {/* AFS-144: a section of its own, ruled off from the history above it. */}
+          <div ref={replace} className="panel">
             <Replace way={way} onWay={setWay}>
               {way === 'request' && (
                 <RequestForm

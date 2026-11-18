@@ -5,7 +5,18 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { api, type Environment, type EnvironmentBuild, type EnvironmentSpec } from './api';
 import { Link, navigate } from './router';
-import { Breadcrumb, Field, Fold, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Field,
+  Fold,
+  Form,
+  Loading,
+  messageOf,
+  PageHead,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 const STATE_TONE: Record<string, string> = {
   done: 'ok',
@@ -529,8 +540,11 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
   const onDraft = useCallback((save: SaveSpec | undefined) => setUnsaved(() => save), []);
   const crumbs = (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <span aria-current="page">{env?.name ?? 'environment'}</span>
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      / <span aria-current="page">{env?.name ?? 'environment'}</span>
     </Breadcrumb>
   );
   if (!env)
@@ -778,7 +792,7 @@ function CollectionSearch({ onAdd, onBlank }: { onAdd(name: string): void; onBla
       )}
       {found && found.length === 0 && <p className="muted">Nothing found.</p>}
       {found && found.length > 0 && (
-        <ul className="tight" aria-label="Collections found">
+        <ul className="found" aria-label="Collections found">
           {found.map((c) => (
             <li key={c.name}>
               <button type="button" onClick={() => onAdd(c.name)} aria-label={`Add ${c.name}`}>

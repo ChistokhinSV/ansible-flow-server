@@ -94,7 +94,11 @@ export const ROUTES: Record<string, RouteDoc> = {
   )('Make the first administrator with the setup code from the log'),
 
   'POST /api/v1/session': S('Session', 'anyone', 'anyone')('Sign in with a login and password'),
-  'GET /api/v1/session': S('Session', 'signed in', 'self')('Who is signed in'),
+  'GET /api/v1/session': S(
+    'Session',
+    'signed in',
+    'self',
+  )('Who is signed in (with the header X-AFS-Session: optional, 204 when nobody is)'),
   'DELETE /api/v1/session': S('Session', 'anyone', 'self')('Sign out'),
   'PATCH /api/v1/session': S(
     'Session',

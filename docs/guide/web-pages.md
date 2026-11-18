@@ -48,11 +48,12 @@ into tabs; each tab has its own address. At phone width it folds into **Menu**.
 - **Search** at the top of every page (`/` or Ctrl+K): as you type, the workspaces, projects, flows (by name,
   key or file), launch configurations, runs (by number, flow or configuration), environments and
   pages the person may see; people and groups for administrators. Arrows and Enter open one, Esc
-  closes. The same over the API: `GET /api/v1/search?q=` (a token made for one workspace searches
+  empties the field. `/` and Ctrl+K work while the flow canvas has the focus too. The same over the API: `GET /api/v1/search?q=` (a token made for one workspace searches
   there only).
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
   The flow canvas keeps the designer's own look in the same theme.
-- Works at phone width and with a keyboard and a screen reader.
+- Works at phone width and with a keyboard and a screen reader. After a page change the focus is
+  on the new page's title; Esc closes the phone menu.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
 - **When someone changes a flow you have open** (a push, through the server or to the source the
   server looks at), a bar on the canvas says who and how much ("Mia Ortega changed this flow: 3
@@ -95,7 +96,8 @@ Code. Everyone who edits the same flow edits one shared draft:
   save), so nobody's work is saved over unknowingly. When others are in the draft, **Save** names
   them first, and their pages send what they are still typing before the commit is made.
   Saves are listed among the project's pushes (Branches).
-- **New flow** (a project's Flows) makes the file in one commit and opens it for editing. An empty
+- **New flow** (a project's Flows) makes the file in one commit and opens it for editing. The file
+  is `flows/<key>/<key>.flow.yaml` unless you type another, as the samples keep theirs. An empty
   project the server hosts offers it too: the flow is the project's first commit.
 - **An empty flow starts from something.** The canvas of a flow with no step yet offers what VS
   Code does, and each makes the flow in one edit (Ctrl+Z takes it back); the flow keeps its file,

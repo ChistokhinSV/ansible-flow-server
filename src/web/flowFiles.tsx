@@ -57,8 +57,21 @@ export function copiedFlowText(text: string, name: string, key: string, id: stri
 function fileProblem(path: string): string | undefined {
   if (!/\.flow\.yaml$/.test(path)) return 'A flow file ends in .flow.yaml';
   if (path.startsWith('/') || path.split('/').some((p) => p === '..' || p === ''))
-    return 'A path inside the project, such as flows/patch-web.flow.yaml';
+    return 'A path inside the project, such as flows/patch-web/patch-web.flow.yaml';
   return undefined;
+}
+
+/**
+ * AFS-144: where a new flow's file goes, as the samples lay theirs out: a folder of its own under
+ * flows/ (its scenarios file goes beside it). A copy of a flow kept that way gets a folder too; a
+ * copy of one kept otherwise stays beside it.
+ */
+export function flowFileFor(key: string, from?: string): string {
+  if (!from) return `flows/${key}/${key}.flow.yaml`;
+  const own = /^(.*\/)?([^/]+)\/\2\.flow\.yaml$/.exec(from);
+  if (own) return `${own[1] ?? ''}${key}/${key}.flow.yaml`;
+  const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
+  return `${folder}${key}.flow.yaml`;
 }
 
 /** New flow, on a project's page. */
@@ -74,7 +87,7 @@ export function NewFlowForm({
   const [name, setName] = useState('');
   const [path, setPath] = useState<string>();
   const key = keyOf(name);
-  const file = path ?? (key ? `flows/${key}.flow.yaml` : '');
+  const file = path ?? (key ? flowFileFor(key) : '');
   return (
     <section className="panel sheet" aria-label="New flow">
       <Form
@@ -109,7 +122,7 @@ export function NewFlowForm({
           onChange={(e) => setPath(e.target.value)}
           required
           spellCheck={false}
-          hint={`One commit on ${project.gitRef}${project.commit ? '' : ', the first of the project'}. It starts with Start wired to Done and a host list input, and opens for editing.`}
+          hint={`Made from the name: a folder of its own under flows/, as the samples have. One commit on ${project.gitRef}${project.commit ? '' : ', the first of the project'}. It starts with Start wired to Done and a host list input, and opens for editing.`}
         />
       </Form>
     </section>
@@ -148,9 +161,8 @@ export function FlowFileActions({
     }
   }, [doing]);
   const copyKey = keyOf(copyName);
-  const folder = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
   const [copyPath, setCopyPath] = useState<string>();
-  const copyFile = copyPath ?? (copyKey ? `${folder}${copyKey}.flow.yaml` : '');
+  const copyFile = copyPath ?? (copyKey ? flowFileFor(copyKey, file) : '');
   const [error, setError] = useState<string>();
   // AFS-134: one delete at a time (a double click sent two).
   const [deleting, setDeleting] = useState(false);

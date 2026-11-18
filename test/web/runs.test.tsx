@@ -192,8 +192,14 @@ describe('the runs list', () => {
     expect(window.location.pathname + window.location.search).toBe('/runs?mine=1');
     // With a state beside it, both are asked for.
     fireEvent.click(screen.getByLabelText('Failed'));
-    await screen.findByText('No run for these choices.');
+    await screen.findByText(/^No run for these choices\./);
     expect(window.location.search).toBe('?state=failed&mine=1');
+    // AFS-144: a way back from choices that leave nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Show all runs' }));
+    await screen.findByRole('link', { name: /#2/ });
+    expect(window.location.search).toBe('');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Mine' }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: /#2/ })).toBeNull());
 
     // Opened again at that address, the choice is made from the start.
     cleanup();

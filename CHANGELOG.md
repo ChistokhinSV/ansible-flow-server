@@ -25,6 +25,10 @@ All notable changes to Ansible Flow Server.
 - Ctrl+Z in a draft says which step it took back. While a draft is edited it has no Run buttons (runs use saved flows).
 - **Save as Launch Configuration** in the canvas's launch dialog is offered only to those who may add one. Empty lists say who adds things, someone without access to any workspace is told to ask an administrator, and fields that cannot be used look it.
 - The Access tab names people by their names and flows by theirs; taking access back names the flow.
+- **New flow** puts the file in a folder of its own, `flows/<key>/<key>.flow.yaml`, as the samples do; a copy of such a flow gets a folder too.
+- Breadcrumbs name the workspace ("Network team"), not its key.
+- Home says when a run of yours waits for someone else's approval. A runs list emptied by its filters offers **Show all runs**.
+- **Add a provider** sits at the head of the Providers section, as **Add a directory** does at its own.
 
 ### Fixed
 
@@ -39,6 +43,10 @@ All notable changes to Ansible Flow Server.
 - Saves of a flow's draft are listed among the pushes through the server. After **Copy the flow**, the copy's page closes the form and shows the new commit. The notice of what a flow was imported from goes once the import is taken back.
 - **Delete the flow** cannot be sent twice; signing out leaves the address of the last page; the token form starts from its defaults; a credential that launch configurations use cannot be deleted; deleting an environment returns to Environments.
 - A project started from the **Edge baseline** sample runs: its steps use the roles the sample brings. Before, its first run failed with "the role netops.baseline.push_ntp_aaa was not found", and Push baseline showed as an empty subflow. A project made from it before keeps that flow; start a new one, or copy the sample's flow over it.
+- After going to another page, the keyboard focus is on the new page's title, not at the top of the document. Esc in the search field empties it and leaves the cursor there; `/` and Ctrl+K open the search while the flow canvas has the focus too. Esc closes the phone menu, whose button says **Close menu** while it is open.
+- Screen readers hear which schedule a **Change**, **Pause** or **Delete** button is for.
+- The sign-in page no longer logs an error in the browser's console, and its card no longer shows the picture through it.
+- Small layout fixes: the dot of a status line sits outside the "active" badge; the "Added …" note goes when you switch tabs; **Launch…** and a branch's buttons line up at the right of their rows; tabs keep their width when opened; unchosen radio buttons show in the dark theme; file choosers follow the theme; a flow's long name is shortened on one line beside its buttons; a run's title lines up with its breadcrumbs; gaps under hints and fact lists; **Replace the certificate** is ruled off from the history; a sent test message is shown in green; the delivery log no longer repeats an address; collections found have no list bullets.
 - Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
 
 ## 1.0.0 — First release

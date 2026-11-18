@@ -111,7 +111,7 @@ describe('People and groups', () => {
       },
     };
     window.history.replaceState(null, '', '/admin/people');
-    render(<PeoplePage tab="people" />);
+    const view = render(<PeoplePage tab="people" />);
     await screen.findByText('Omar Haddad');
     fireEvent.click(screen.getByRole('button', { name: 'Add a person' }));
     const add = screen.getByRole('region', { name: 'Add a person or service account' });
@@ -134,6 +134,9 @@ describe('People and groups', () => {
     expect(screen.getByRole('status').textContent).toBe('Added rita.');
     expect(window.location.pathname).toBe('/admin/people');
     expect(screen.getByRole('button', { name: 'Add a person' })).toBeTruthy();
+    // AFS-144: the note goes with another tab.
+    view.rerender(<PeoplePage tab="groups" />);
+    await waitFor(() => expect(screen.queryByText(/^Added /)).toBeNull());
   });
 
   it('adds a group from the button on the groups tab', async () => {

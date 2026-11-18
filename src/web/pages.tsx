@@ -29,6 +29,7 @@ import {
   Tabs,
   Time,
   useLoad,
+  WorkspaceName,
 } from './ui';
 
 // --- workspaces
@@ -289,7 +290,8 @@ export function Workspace({
   return (
     <>
       <Breadcrumb>
-        <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
+        <Link to="/workspaces">Workspaces</Link> /{' '}
+        <span aria-current="page">{space.data?.name ?? workspace}</span>
       </Breadcrumb>
       <PageHead
         title={space.data?.name ?? workspace}
@@ -804,7 +806,7 @@ function BranchesPanel({
                 <th scope="col">Newest commit</th>
                 <th scope="col">Not on {project.gitRef}</th>
                 {(mayChange || admin) && (
-                  <th scope="col">
+                  <th scope="col" className="act">
                     <span className="sr-only">Actions</span>
                   </th>
                 )}
@@ -833,22 +835,25 @@ function BranchesPanel({
                   </td>
                   <td>{b.project ? '' : b.ahead ? `${b.ahead}` : 'none'}</td>
                   {(mayChange || admin) && (
-                    <td className="actions">
-                      {admin && !b.project && (
-                        <button type="button" onClick={() => void makeRun(b)}>
-                          Make it the project's branch
-                        </button>
-                      )}
-                      {mayChange && !b.project && !b.configurations && (
-                        <button
-                          type="button"
-                          className="danger"
-                          aria-label={`Delete ${b.name}`}
-                          onClick={() => void remove(b)}
-                        >
-                          Delete
-                        </button>
-                      )}
+                    <td className="act">
+                      {/* AFS-144: the buttons in a box of their own: the cell stays a cell. */}
+                      <div className="actions">
+                        {admin && !b.project && (
+                          <button type="button" onClick={() => void makeRun(b)}>
+                            Make it the project's branch
+                          </button>
+                        )}
+                        {mayChange && !b.project && !b.configurations && (
+                          <button
+                            type="button"
+                            className="danger"
+                            aria-label={`Delete ${b.name}`}
+                            onClick={() => void remove(b)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -1064,8 +1069,11 @@ export function ProjectPage({
   };
   const crumbs = (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <span aria-current="page">{key}</span>
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      / <span aria-current="page">{key}</span>
     </Breadcrumb>
   );
   if (!project)

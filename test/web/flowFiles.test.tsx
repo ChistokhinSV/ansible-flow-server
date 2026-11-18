@@ -7,6 +7,7 @@ import {
   copiedFlowText,
   FlowFileActions,
   FlowFileMenu,
+  flowFileFor,
   keyOf,
   NewFlowForm,
 } from '../../src/web/flowFiles';
@@ -86,15 +87,18 @@ describe('flows in the pages', () => {
     expect(keyOf('Patch DB servers!')).toBe('patch-db-servers');
   });
 
-  it('New flow writes the template at flows/<key>.flow.yaml and opens it', async () => {
+  it('New flow writes the template at flows/<key>/<key>.flow.yaml and opens it', async () => {
     render(<NewFlowForm workspace="net" project={project} onCancel={() => undefined} />);
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Patch web servers' } });
+    // AFS-144: a folder of its own, as the samples have.
     expect((screen.getByLabelText('File') as HTMLInputElement).value).toBe(
-      'flows/patch-web-servers.flow.yaml',
+      'flows/patch-web-servers/patch-web-servers.flow.yaml',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Make the flow' }));
     await waitFor(() =>
-      expect(window.location.pathname).toBe('/w/net/edge/flow/flows/patch-web-servers.flow.yaml'),
+      expect(window.location.pathname).toBe(
+        '/w/net/edge/flow/flows/patch-web-servers/patch-web-servers.flow.yaml',
+      ),
     );
     const body = saved[0] as {
       branch: string;
@@ -105,9 +109,19 @@ describe('flows in the pages', () => {
     expect(body.message).toBe('Add the flow Patch web servers');
     expect(body.changes[0]).toMatchObject({
       op: 'write',
-      path: 'flows/patch-web-servers.flow.yaml',
+      path: 'flows/patch-web-servers/patch-web-servers.flow.yaml',
     });
     expect(body.changes[0]?.text).toMatch(/key: patch-web-servers\n {2}name: Patch web servers/);
+  });
+
+  it('a copy of a flow in a folder of its own gets one too; others stay beside the flow', () => {
+    expect(flowFileFor('patch-db')).toBe('flows/patch-db/patch-db.flow.yaml');
+    expect(flowFileFor('patch-db', 'flows/hello/hello.flow.yaml')).toBe(
+      'flows/patch-db/patch-db.flow.yaml',
+    );
+    expect(flowFileFor('patch-db', 'flows/patch-web.flow.yaml')).toBe('flows/patch-db.flow.yaml');
+    expect(flowFileFor('patch-db', 'site.flow.yaml')).toBe('patch-db.flow.yaml');
+    expect(flowFileFor('b', 'flows/a/other.flow.yaml')).toBe('flows/a/b.flow.yaml');
   });
 
   it('Copy writes the copy beside it; Delete says who runs it and deletes the file', async () => {
