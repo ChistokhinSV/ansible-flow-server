@@ -351,7 +351,8 @@ export async function saveFiles(
       .where('id', '=', by.id)
       .executeTakeFirst();
     // AFS-140: without a message, the words the page showed as its placeholder.
-    const subject = input.message?.trim() || defaultMessage(changes);
+    const had = new Set(entries.map((e) => e.path));
+    const subject = input.message?.trim() || defaultMessage(changes, (path) => had.has(path));
     const commit = await deps.git.commitChanges(project.id, {
       parent: head.commit,
       writes,
