@@ -18,6 +18,7 @@ export type DraftNotice =
   | { type: 'afs-draft-edit'; by: string; steps: string[] }
   | { type: 'afs-draft-saved'; commit?: string; by?: string }
   | { type: 'afs-draft-saving'; by: string; sent: boolean }
+  | { type: 'afs-draft-undone' }
   | { type: 'afs-draft-gone'; by?: string }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
   | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } }
@@ -142,7 +143,16 @@ export function editDraft(options: {
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     e.preventDefault();
     void json('POST', `${base}/undo`).then((r) => {
-      if (!r.ok) notify(String(r.data?.message ?? 'Nothing to undo'), 'info');
+      if (!r.ok) return notify(String(r.data?.message ?? 'Nothing to undo'), 'info');
+      tellPage({ type: 'afs-draft-undone' });
+      // AFS-136: what was taken back, said each time.
+      const steps = (r.data?.steps as string[] | undefined) ?? [];
+      notify(
+        steps.length
+          ? `Took back your change to ${steps.join(', ')}`
+          : 'Took back your last move on the canvas',
+        'info',
+      );
     });
   });
 

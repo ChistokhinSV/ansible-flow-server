@@ -22,7 +22,7 @@ import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { FLOW_FILE } from '../projects/flows';
 import type { Git } from '../projects/git';
-import { getProject, type Project } from '../projects/store';
+import { getProject, type Project, recordPushes } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
 import { hasNoSteps } from './startFrom';
 
@@ -327,7 +327,7 @@ export class Drafts {
    * version before it, so what others changed since stays. Refused when they changed the same
    * place.
    */
-  async undo(id: string, by: Editor): Promise<{ revision: number }> {
+  async undo(id: string, by: Editor): Promise<{ revision: number; steps: string[] }> {
     return this.one(id, async () => {
       const current = await this.text(id);
       if (!current) throw new DraftError('not_found', 'No such draft');
@@ -355,7 +355,17 @@ export class Drafts {
         .set({ undone: 1 })
         .where('id', '=', last.id)
         .execute();
-      return { revision };
+      // AFS-136: what was taken back, by the steps' titles (none: a move on the canvas).
+      const titles = new Map(
+        [...(doc(last.before_text).nodes ?? []), ...(doc(last.after_text).nodes ?? [])].map((n) => [
+          n.id,
+          n.title,
+        ]),
+      );
+      const steps = changedNodes(last.before_text, last.after_text).map(
+        (n) => titles.get(n) ?? 'a step',
+      );
+      return { revision, steps };
     });
   }
 
@@ -442,6 +452,10 @@ export class Drafts {
           commit,
           project.gitUrl ? { url: project.gitUrl, auth: await sync.auth(project) } : undefined,
         );
+        // AFS-136: a save is a push through this server, listed with the others.
+        await recordPushes(this.deps.db, project.id, { id: by.id, login: by.login }, [
+          { ref: project.gitRef, from: head, to: commit },
+        ]);
         await sync.refresh(project.id);
         await this.drop(id);
         this.tell(id, { kind: 'saved', commit, by });

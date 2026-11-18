@@ -166,7 +166,10 @@ describe('editing a flow together', () => {
     expect(refused.status).toBe(422);
     expect(refused.json.message).toMatch(/Someone changed the same place since/);
     // Omar's own last edit goes back to Mia's title; his other edit stays.
-    expect((await call('omar', 'POST', `/drafts/${draft}/undo`)).status).toBe(200);
+    const undone = await call('omar', 'POST', `/drafts/${draft}/undo`);
+    expect(undone.status).toBe(200);
+    // AFS-136: it says what it took back.
+    expect(undone.json.steps).toEqual(['Check it answers']);
     const doc = (await call('omar', 'GET', `/drafts/${draft}`)).json.snapshot.doc;
     const titleOf = (id: string) => doc.nodes.find((n: { id: string }) => n.id === id).title;
     expect(titleOf(PING)).toBe('Ping it');
@@ -216,6 +219,10 @@ describe('editing a flow together', () => {
     const git = (...args: string[]) =>
       execFileSync('git', args, { cwd: bare, encoding: 'utf8' }).trim();
     expect(git('rev-parse', 'refs/heads/main')).toBe(commit);
+    // AFS-136: listed with the pushes through this server, by the saver.
+    const pushes = (await call('mia', 'GET', `/projects/${project.id}/pushes`)).json;
+    expect(JSON.stringify(pushes)).toContain(commit);
+    expect(JSON.stringify(pushes)).toContain('mia');
     expect(git('log', '-1', '--format=%an <%ae>%n%B', commit)).toBe(
       'Mia Ortega <mia@example.net>\nFriendlier titles\n\nCo-authored-by: Omar Haddad <omar@example.net>',
     );

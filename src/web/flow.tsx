@@ -92,6 +92,16 @@ export function FlowPage({
   };
   const stop = useRef(stopEditing);
   stop.current = stopEditing;
+  // AFS-136: another flow of the page (a copy just made): its forms close and the project is
+  // read again, for the commit that has it.
+  const lastFile = useRef(file);
+  useEffect(() => {
+    if (lastFile.current === file) return;
+    lastFile.current = file;
+    setFileAction(undefined);
+    setSaid(undefined);
+    reloadAll.current();
+  }, [file]);
   // AFS-75: the designer's frame says which commit it shows after an Update.
   const [shown, setShown] = useState<string>();
   useEffect(() => {
@@ -116,6 +126,8 @@ export function FlowPage({
         setEdits((e) => [{ by, steps, at: new Date().toISOString() }, ...e].slice(0, 5));
         setChanged((n) => n + 1);
       }
+      // AFS-136: a notice about the last thing done (an import) goes once it is taken back.
+      if (data?.type === 'afs-draft-undone') setSaid(undefined);
       if (data?.type === 'afs-draft-saving')
         setSaid(
           `${data.by ?? 'Someone'} is saving the draft${data.sent ? ': what you were typing is in it' : ''}.`,
