@@ -144,6 +144,7 @@ export async function tokenUser(
     .innerJoin('user_account', 'user_account.id', 'api_token.user_id')
     .select([
       'api_token.id as token_id',
+      'api_token.name as token_name',
       'api_token.read_only',
       'api_token.workspace_id',
       'api_token.mcp_approve',
@@ -174,6 +175,7 @@ export async function tokenUser(
     admin: row.is_admin === 1,
     token: {
       id: row.token_id,
+      name: row.token_name,
       readOnly: row.read_only === 1,
       ...(row.workspace_id ? { workspace: row.workspace_id } : {}),
       ...(row.mcp_approve === 1 ? { mcpApprovals: true } : {}),

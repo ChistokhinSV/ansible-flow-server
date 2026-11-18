@@ -360,10 +360,12 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     workspace: text(64, 1),
   });
   /** What a token is made with, the workspace named by its id or its key, checked. */
-  const tokenInput = async (input: TokenBody) => {
+  const tokenInput = async (input: TokenBody, request: FastifyRequest) => {
     const workspace = input.workspace ? await getWorkspace(db, input.workspace) : undefined;
     if (input.workspace && !workspace)
       throw new UserError('invalid', `No workspace ${input.workspace}`);
+    // AFS-145: the audit says what the token reaches.
+    request.auditDetail = { reaches: workspace ? workspace.key : 'every workspace' };
     return {
       name: input.name,
       days: input.expiresInDays,
@@ -380,7 +382,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       // Not with a token: a token that leaked must not be able to make itself a successor.
       const me = inSession(request, reply);
       if (!me) return reply;
-      const made = await createToken(db, me.id, await tokenInput(request.body));
+      const made = await createToken(db, me.id, await tokenInput(request.body, request));
       request.log.info({ login: me.login, name: made.info.name }, 'Access token made');
       // The token is in this answer and nowhere else, ever.
       return reply.code(201).send({ ...made.info, token: made.token });
@@ -416,7 +418,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
           'invalid',
           'Tokens are made by the person themself; administrators make them for service accounts only',
         );
-      const made = await createToken(db, account.id, await tokenInput(request.body));
+      const made = await createToken(db, account.id, await tokenInput(request.body, request));
       request.log.info(
         { by: me.login, login: account.login, name: made.info.name },
         'Access token made for a service account',

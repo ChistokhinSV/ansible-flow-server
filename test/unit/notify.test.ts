@@ -6,7 +6,7 @@ import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createGrant } from '../../src/server/access/grants';
+import { createGrant, deleteGrant } from '../../src/server/access/grants';
 import { buildApp } from '../../src/server/app';
 import { decideGate, openGate } from '../../src/server/approvals/gates';
 import { listAudit } from '../../src/server/audit/store';
@@ -19,7 +19,12 @@ import type { PreparedLaunch } from '../../src/server/launch/prepare';
 import { createLogger } from '../../src/server/log';
 import { emailChannel, type Message, webhookChannel } from '../../src/server/notify/channels';
 import { Notifier } from '../../src/server/notify/notifier';
-import { contactsOfNames, placesOf, unknownNames } from '../../src/server/notify/recipients';
+import {
+  contactsOfNames,
+  namesWithoutAccess,
+  placesOf,
+  unknownNames,
+} from '../../src/server/notify/recipients';
 import { setSmtp, smtpForSending, webhookKey } from '../../src/server/notify/settings';
 import {
   enqueue,
@@ -292,6 +297,40 @@ for (const [name, config] of databases) {
       expect(await unknownNames(db(), ['omar', 'NOC', 'nobody'])).toEqual(['nobody']);
     });
 
+    it('about a flow, only who may see its runs: a group no grant names is not told at its own address', async () => {
+      const place = {
+        workspace: ids.workspace as string,
+        project,
+        flowFile: 'flows/upgrade.flow.yaml',
+      };
+      // omar and gary approve through the change board; dana administers; the NOC has no grant.
+      expect(
+        await namesWithoutAccess(db(), ['change-board', 'NOC', 'omar', 'gary', 'dana'], place),
+      ).toEqual(['NOC']);
+      const places = placesOf(await contactsOfNames(db(), ['NOC', 'omar', 'dana'], place));
+      expect(places.map((p) => `${p.channel}:${p.recipient}`).sort()).toEqual([
+        'email:dana',
+        'email:omar',
+        'webhook:omar',
+      ]);
+      // A group without an address of its own and without a grant: each member as themself.
+      const loose = await createGroup(db(), { name: 'loose' });
+      await setMembers(db(), loose.id, [ids.omar as string, ids.gary as string]);
+      expect(await namesWithoutAccess(db(), ['loose'], place)).toEqual([]);
+      const other = await createUser(db(), {
+        login: 'eve',
+        name: 'eve',
+        password: PASSWORD,
+        email: 'eve@example.net',
+      });
+      await setMembers(db(), loose.id, [ids.omar as string, other.id]);
+      expect(await namesWithoutAccess(db(), ['loose', 'eve'], place)).toEqual(['loose', 'eve']);
+      expect(placesOf(await contactsOfNames(db(), ['loose'], place)).map((p) => p.target)).toEqual([
+        'omar@example.net',
+        `${receiver.url}/ok/omar-secret`,
+      ]);
+    });
+
     it('a waiting approval asks who holds approve (not who launched it) and whom it names to tell', async () => {
       const mails = smtp.received.length;
       const calls = receiver.got.length;
@@ -377,7 +416,17 @@ for (const [name, config] of databases) {
       const mails = smtp.received.length;
       await finishOne('succeeded');
       expect(sentTo(mails)).toEqual([]);
+      // AFS-145: the NOC has no grant (taken back after the list was saved): it is not told.
       await finishOne('failed');
+      expect(sentTo(mails)).toEqual([]);
+      const grant = await createGrant(
+        db(),
+        ids.workspace as string,
+        { group: 'NOC', level: 'ro' },
+        'dana',
+      );
+      await finishOne('failed');
+      await deleteGrant(db(), grant.id);
       expect(sentTo(mails)).toEqual(['noc@example.net']);
       expect(smtp.received.at(-1)?.data).toContain('fw-edge-01 failed');
 

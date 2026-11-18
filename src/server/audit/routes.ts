@@ -402,6 +402,8 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     const detail = detailOfBody(request.method, request.body);
     if (spec.parent && params.id) detail[spec.parent] = params.id;
     Object.assign(detail, request.auditDetail);
+    // AFS-145: the token by its name, as it was then: a revoked token's row is gone.
+    if (request.user?.token) detail.token = request.user.token.name;
     if (result !== 'ok' && typeof answer.error === 'string') detail.error = answer.error;
     // AFS-141: why, in the server's words, where those words echo nothing secret.
     if (result !== 'ok' && REASONED.has(type) && typeof answer.message === 'string')

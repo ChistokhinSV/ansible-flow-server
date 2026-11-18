@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import type { SessionUser } from '../auth/sessions';
 import type { Schema } from '../db/schema';
 
 import {
@@ -188,8 +189,11 @@ declare module 'fastify' {
 
 /** The signed-in person's access, read once per request; nobody signed in has none. */
 export async function accessOf(db: Db, request: FastifyRequest): Promise<Access | undefined> {
-  if (!request.user) return undefined;
-  request.access ??= await Access.of(db, request.user);
+  // Typed here, not through auth/routes.ts's declaration: the pages' build reaches this file
+  // (through the launch configurations) without the server's routes (AFS-145).
+  const user = (request as { user?: SessionUser }).user;
+  if (!user) return undefined;
+  request.access ??= await Access.of(db, user);
   return request.access;
 }
 

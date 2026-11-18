@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf, atLeast, type Level } from '../access/grants';
+import { READS } from '../audit/routes';
 import type { Schema } from '../db/schema';
 import { serverMeta } from '../meta';
 
@@ -1193,6 +1194,20 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
         throw new Error(`${key} is not described in api/catalog.ts: say what it does and reaches`);
       seen.push({ method, url: route.url, ...(route.schema ? { schema: route.schema } : {}) });
     }
+  });
+
+  // AFS-145: a read-only token is refused before its body is checked: it must not learn what a
+  // write would need, nor fill the audit with refusals of its form. The routes still refuse it
+  // themselves (signedIn); this only answers first. A POST that changes nothing is the route's
+  // to judge (asking what a launch would run is open to a read-only token).
+  app.addHook('preValidation', async (request, reply) => {
+    if (!request.user?.token?.readOnly || ['GET', 'HEAD', 'OPTIONS'].includes(request.method))
+      return;
+    const route = request.routeOptions.url;
+    const key = `${request.method} ${route}`;
+    const doc = route ? ROUTES[key] : undefined;
+    if (!doc || doc.who === 'anyone' || doc.who === 'push hook token' || READS.has(key)) return;
+    return reply.code(403).send({ error: 'read_only_token', message: 'This token may only read' });
   });
 
   // A token made for one workspace reaches that workspace only: what is not in it, or not in
