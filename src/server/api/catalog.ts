@@ -659,6 +659,20 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     E,
   )('The environment as ansible-builder v3 reads it, for AWX or AAP'),
+  'GET /api/v1/default-environment': S(
+    'Environments',
+    'signed in',
+    'self',
+  )(
+    "The server's default image: what runs get when their launch configuration names no environment or image; the environment picked for it, else AFS_EE_IMAGE",
+  ),
+  'PUT /api/v1/default-environment': S(
+    'Environments',
+    'administrators',
+    'server',
+  )(
+    "Pick the environment whose image is the server's default (`environment`: its id), or null for AFS_EE_IMAGE",
+  ),
   'GET /api/v1/search': S(
     'Search',
     'signed in',

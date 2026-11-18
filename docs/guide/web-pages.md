@@ -132,7 +132,7 @@ Code. Everyone who edits the same flow edits one shared draft:
   from the branch, so a draft runs only once saved: while you edit, the canvas has no Run buttons
   and its Run tab says to save, then launch.
 - **Binding steps** searches the module catalog of the flow's image (its launch configuration's
-  environment or image, else the server's default `AFS_EE_IMAGE`). The first time an image is
+  environment or image, else the server's default image). The first time an image is
   asked for, the server reads its plugin docs with the designer's probe (a few minutes; the
   catalog's state shows meanwhile) and keeps the index in the data folder. A repository's own
   roles and playbooks are not offered yet.

@@ -21,6 +21,7 @@ import type {
 } from '../server/auth/oidc/types';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { Group, User } from '../server/auth/users';
+import type { ServerDefault } from '../server/environments/serverDefault';
 import type {
   Environment,
   EnvironmentBuild,
@@ -92,6 +93,7 @@ export type {
   Schedule,
   ScheduleInput,
   SearchHit,
+  ServerDefault,
   SmtpSecurity,
   SmtpSettings,
   TokenInfo,
@@ -540,6 +542,10 @@ export const api = {
   search: (q: string) => call<SearchHit[]>('GET', `/search?${queryOf({ q })}`),
 
   // What a flow needs from its environment (AFS-33).
+  /** AFS-163: the server's default image, and the environment picked for it. */
+  defaultEnvironment: () => call<ServerDefault>('GET', '/default-environment'),
+  setDefaultEnvironment: (environment: string | null) =>
+    call<ServerDefault>('PUT', '/default-environment', { environment }),
   galaxySearch: (q: string) =>
     call<{ name: string; version: string; description?: string; requiresAnsible?: string }[]>(
       'GET',

@@ -124,6 +124,7 @@ export const ACTIONS: Record<string, Action> = {
   'PATCH /api/v1/environments/:id': { action: 'environment.change', id: at() },
   'DELETE /api/v1/environments/:id': { action: 'environment.delete', id: at() },
   'POST /api/v1/environments/:id/builds': { action: 'environment.build', id: at() },
+  'PUT /api/v1/default-environment': { action: 'environment.server-default', id: 'none' },
   'POST /api/v1/launch-configs/:id/schedules': {
     action: 'schedule.create',
     id: 'reply',

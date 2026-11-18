@@ -1209,6 +1209,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                   <>
                     {' '}
                     · <code>{run.eeImage}</code>
+                    {/* AFS-163: the image came from the server's default, not the configuration. */}
+                    {run.serverDefault && <span className="muted"> (the server's default)</span>}
                   </>
                 ) : (
                   <span className="muted"> · the server's default image</span>

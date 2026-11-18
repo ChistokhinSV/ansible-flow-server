@@ -34,6 +34,7 @@ import {
   specProblems,
 } from './dockerfile';
 import { exactVersion, type Galaxy, GalaxyError, resolveVersion } from './galaxy';
+import { DEFAULT_EE_IMAGE, isServerDefault } from './serverDefault';
 import type {
   BuildState,
   Environment,
@@ -151,6 +152,8 @@ export interface EnvironmentDeps {
   runner?: Runner;
   /** AFS-37: told how long each build took. */
   metrics?: MetricsSink;
+  /** AFS-163: AFS_EE_IMAGE, the server's default image while no environment is picked for it. */
+  defaultImage?: string;
 }
 
 export class Environments {
@@ -170,6 +173,11 @@ export class Environments {
   /** The collection server builds settle versions against (AFS-33 searches it too). */
   get galaxy(): Galaxy {
     return this.deps.galaxy;
+  }
+
+  /** AFS-163: AFS_EE_IMAGE. */
+  get configuredImage(): string {
+    return this.deps.defaultImage ?? DEFAULT_EE_IMAGE;
   }
 
   // --- the environments
@@ -377,6 +385,11 @@ export class Environments {
       throw new EnvironmentError(
         'in_use',
         `${env.usedBy} launch configuration${env.usedBy === 1 ? ' runs' : 's run'} in it: give ${env.usedBy === 1 ? 'it' : 'them'} another first`,
+      );
+    if (await isServerDefault(this.db, id))
+      throw new EnvironmentError(
+        'in_use',
+        "It is the server's default image: pick another one for that first",
       );
     const builds = await this.db
       .selectFrom('environment_build')

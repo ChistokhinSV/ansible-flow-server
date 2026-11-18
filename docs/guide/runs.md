@@ -75,7 +75,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 
 - The repository at the run's commit; the flow's code is generated fresh from the flow at that
   commit (a hand-edited `generated/` file has no effect).
-- In the launch's image, else `AFS_EE_IMAGE`. Without a container engine (or with
+- In the launch's image, else the server's default image (an environment an administrator picked,
+  else `AFS_EE_IMAGE`; see [Execution environments](environments.md)). Without a container engine (or with
   `AFS_CONTAINER_ENGINE=off`) runs wait in the queue.
 - **The repository's files and config:** before Ansible starts, the designer's probe reads the
   repository's `ansible.cfg` in the run's image (for a moment, without the run's credentials).

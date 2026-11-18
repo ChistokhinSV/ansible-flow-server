@@ -5,7 +5,16 @@
 The image a run happens in. A workspace keeps its own **execution environments**: built by the
 server from a spec, or an image that exists already. A launch configuration chooses one, and each
 launch gets that environment's newest good build (the run records the exact image). Without one, a
-launch configuration's own image, else `AFS_EE_IMAGE`, is used as before.
+launch configuration's own image, else the server's default image, is used.
+
+**The server's default image** is what runs get when their launch configuration names no
+environment or image. It starts as `AFS_EE_IMAGE`. An administrator can make an environment the
+default instead (**Make it the server's default** on its page; **Go back to AFS_EE_IMAGE** undoes
+it): build one with the collections the team always needs, and runs without an environment get its
+newest good image. While the environment picked has no image yet, `AFS_EE_IMAGE` is used. The
+environments list and each environment's page say which image is the default; a run's **What ran**
+names the image it got, marked as the server's default. The default environment cannot be deleted
+until another is picked.
 
 - **A spec**: ansible-core (`2.19` is the newest 2.19.x), collections each with a version, a range
   as `requirements.yml` writes it (`>=8.0.0,<9`) or `latest`, Python packages (pip requirements),
@@ -27,13 +36,15 @@ launch configuration's own image, else `AFS_EE_IMAGE`, is used as before.
 - `ro` on the workspace reads environments, builds and logs; `rw` adds, changes, builds and deletes
   them. An environment a launch configuration uses cannot be deleted.
 
-| Address (under `/api/v1`)                         | Does                                                                      | Who                         |
-| ------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------- |
-| `GET`, `POST /workspaces/:id/environments`        | A workspace's environments; add one (`kind`: `spec` or `image`)           | `ro`, `rw` on the workspace |
-| `GET`, `PATCH`, `DELETE /environments/:id`        | One environment: what runs get now (`current`), what it holds (`catalog`) | `ro`, `rw`                  |
-| `GET`, `POST /environments/:id/builds`            | Its builds (state, image, lock, catalog); build now                       | `ro`, `rw`                  |
-| `GET /environments/:id/builds/:build/log`         | A build's log                                                             | `ro`                        |
-| `GET /environments/:id/execution-environment.yml` | The ansible-builder file                                                  | `ro`                        |
+| Address (under `/api/v1`)                         | Does                                                                           | Who                         |
+| ------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------- |
+| `GET`, `POST /workspaces/:id/environments`        | A workspace's environments; add one (`kind`: `spec` or `image`)                | `ro`, `rw` on the workspace |
+| `GET`, `PATCH`, `DELETE /environments/:id`        | One environment: what runs get now (`current`), what it holds (`catalog`)      | `ro`, `rw`                  |
+| `GET`, `POST /environments/:id/builds`            | Its builds (state, image, lock, catalog); build now                            | `ro`, `rw`                  |
+| `GET /environments/:id/builds/:build/log`         | A build's log                                                                  | `ro`                        |
+| `GET /environments/:id/execution-environment.yml` | The ansible-builder file                                                       | `ro`                        |
+| `GET /default-environment`                        | The server's default image, and the environment picked for it                  | signed in                   |
+| `PUT /default-environment`                        | `{"environment": id}` makes it the default; `null` goes back to `AFS_EE_IMAGE` | administrators              |
 
 ```json
 {
@@ -57,9 +68,12 @@ a step chosen from the designer's module catalog asks for at least the version i
 and the project's `collections/requirements.yml`, which wins. Each collection is in the image at a
 fitting version, at another, or missing. **Make an environment for this flow** adds one whose spec
 is exactly those needs and builds it. In a spec, the collections are a table of names and versions; **Add a collection** searches
-`AFS_GALAXY_URL`, and **Add an empty row** is for typing a name and version (also when the
-collection server cannot be reached). The base image and extra certificate authorities are folded
-under the packages. **Delete the environment** is the last section of the page.
+`AFS_GALAXY_URL` (collections already in the spec are not offered; one removed is offered again),
+and **Add an empty row** is for typing a name and version (also when the collection server cannot
+be reached). The base image and extra certificate authorities are folded under the packages.
+**Save the spec** and **Build** sit together at the bottom of the spec and stay in sight while it is
+long; with changes not saved, **Save and build** saves them first. **Delete the environment** is
+the last section of the page.
 
 | Address (under `/api/v1`)                   | Does                                                                   | Who                                |
 | ------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
