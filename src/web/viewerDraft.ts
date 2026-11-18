@@ -45,10 +45,10 @@ export type DraftNotice =
   | { type: 'afs-draft-start-from'; what: 'sample' | 'playbooks' | 'awx' };
 
 /**
- * AFS-126: Get Started on the empty canvas: the guide. AFS-137: its part on building a flow in the
- * pages (steps, wires, saving), not the walkthrough of a first project.
+ * AFS-126: Get Started on the empty canvas: the guide. AFS-155: its walkthrough of a first flow in
+ * the pages, as this server serves it (no internet needed).
  */
-export const GET_STARTED = guide('web-pages.md#editing-flows-in-the-pages');
+export const GET_STARTED = guide('first-flow.md');
 
 /** AFS-149: a field's name as the activity line says it (`settings.timeout` -> timeout). */
 const fieldWord = (field: string) =>
@@ -327,7 +327,8 @@ export function editDraft(options: {
             openWebLink(message.url);
             return;
           case 'startFrom':
-            if (message.what === 'tour') openWebLink(GET_STARTED);
+            if (message.what === 'tour')
+              openWebLink(new URL(GET_STARTED, window.location.origin).href);
             else tellPage({ type: 'afs-draft-start-from', what: message.what });
             return;
           case 'insertShared':

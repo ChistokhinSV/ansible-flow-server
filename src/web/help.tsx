@@ -1,5 +1,5 @@
 // AFS-143: the Help page: the user guide's pages and the API reference, and how a page that is
-// not found says what was looked for.
+// not found says what was looked for. AFS-155: the guide is this server's own (guidePage.tsx).
 import { Fragment, type ReactNode } from 'react';
 import { GUIDE_PAGES, guide } from './guide';
 import { Link } from './router';
@@ -14,21 +14,19 @@ export function HelpPage() {
         title="Help"
         lead={
           <>
-            The <a href={guide()}>user guide</a> explains every page; the pages link their part of
-            it with <strong>Help</strong> beside the title.
+            The <Link to={guide()}>user guide</Link> of this server's version explains every page;
+            the pages link their part of it with <strong>Help</strong> beside the title.
           </>
         }
       />
       {GUIDE_PAGES.map((pages, i) => (
         <section className="panel" key={GROUPS[i]} aria-labelledby={`help-${i}`}>
           <h2 id={`help-${i}`}>{GROUPS[i]}</h2>
-          <dl className="facts">
+          <dl className="facts guide-list">
             {pages.map((p) => (
               <Fragment key={p.page}>
                 <dt>
-                  <a href={guide(p.page)} target="_blank" rel="noreferrer">
-                    {p.title}
-                  </a>
+                  <Link to={guide(p.page)}>{p.title}</Link>
                 </dt>
                 <dd>{p.about}</dd>
               </Fragment>
@@ -77,11 +75,7 @@ export function Missing({
         {what} is not here, or is not shared with you. <Link to={back.to}>{back.label}</Link>
       </p>
       <p className="muted">
-        An administrator of the workspace gives access. See{' '}
-        <a href={guide(help)} target="_blank" rel="noreferrer">
-          the guide
-        </a>
-        .
+        An administrator of the workspace gives access. See <Link to={guide(help)}>the guide</Link>.
       </p>
     </>
   );

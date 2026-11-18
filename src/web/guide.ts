@@ -1,7 +1,11 @@
-// AFS-143: the user guide, published with the server's sources. Pages link the guide page that
-// is about them; the Help page lists them all.
+// AFS-143: the user guide. Pages link the guide page that is about them; the Help page lists them
+// all. AFS-155: the server shows the guide of its own version at /help/guide/<page> (the pages
+// carry it, guidePage.tsx), so it is there without internet and says what this server does.
 
-export const GUIDE = 'https://github.com/ChistokhinSV/ansible-flow-server/blob/main/docs/guide/';
+export const GUIDE = '/help/guide/';
+
+/** Where the guide's sources are published, for what is not part of the guide. */
+export const SOURCES = 'https://github.com/ChistokhinSV/ansible-flow-server';
 
 /** The address of a guide page (`runs.md`, `people-and-sign-in.md#access-tokens`). */
 export const guide = (page = 'README.md') => `${GUIDE}${page}`;
@@ -9,6 +13,11 @@ export const guide = (page = 'README.md') => `${GUIDE}${page}`;
 /** The guide's pages, as the Help page lists them. */
 export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
   [
+    {
+      title: 'Your first flow',
+      page: 'first-flow.md',
+      about: 'A flow made in the pages: steps, wires, what happens when a step fails, save, launch',
+    },
     {
       title: 'Your first project',
       page: 'first-project.md',

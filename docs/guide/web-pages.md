@@ -14,7 +14,9 @@ nothing about the server (the page is public). Signed in, a side menu leads to H
 Approvals (with how many wait for you), Library, each workspace and, for administrators, the
 administration's pages; **Help**, your name, the theme and Sign out are at its end. **Help**
 (`/help`) lists this guide's pages and the API reference, and most pages link the guide page
-about them with **Help** beside their title. A page that is not there, or not shared with you,
+about them with **Help** beside their title. The server shows this guide itself, as it was for its
+version, at `/help/guide/<page>`: it needs no internet. A link in it that leaves the server says
+where it goes (GitHub). A page that is not there, or not shared with you,
 says what was looked for and the way back. Long pages are split into tabs; each tab has its own
 address. At phone width it folds into **Menu**.
 
@@ -55,7 +57,8 @@ address. At phone width it folds into **Menu**.
   there only).
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
   The flow canvas keeps the designer's own look in the same theme.
-- Works at phone width and with a keyboard and a screen reader. After a page change the focus is
+- Works at phone width and with a keyboard and a screen reader. At phone width a table shows each
+  row as a card, each value named by its column, with the row's buttons under it. After a page change the focus is
   on the new page's title; Esc closes the phone menu.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
 - **When someone changes a flow you have open** (a push, through the server or to the source the
@@ -119,7 +122,7 @@ Code. Everyone who edits the same flow edits one shared draft:
     steps.
   - **Open Sample Flow…** fills the flow with one of the samples (Hello, Edge baseline, Firewall
     upgrade). Only the flow: a sample's roles come with a project started from it.
-  - **Get Started** opens the [first project](first-project.md) walkthrough in a new tab.
+  - **Get Started** opens the [first flow](first-flow.md) walkthrough in a new tab.
     Once the flow has a step, starting from something is refused: it never writes over work.
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
   by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard the draft** there

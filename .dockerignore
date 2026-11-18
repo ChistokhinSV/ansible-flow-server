@@ -7,6 +7,8 @@ data
 coverage
 design
 docs
+# AFS-155: the pages carry the user guide; the image is built from it.
+!docs/guide
 test
 *.log
 .env
