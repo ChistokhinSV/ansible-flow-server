@@ -21,12 +21,20 @@ const dayAfter = (day: string) =>
   new Date(Date.parse(`${day}T00:00:00`) + 24 * 60 * 60 * 1000).toISOString();
 
 function Who({ entry }: { entry: AuditEntry }) {
-  if (entry.actor) return <>{entry.actor.login}</>;
+  if (entry.actor) return <span className="login">{entry.actor.login}</span>;
   const os = entry.detail?.osUser;
   if (entry.source === 'cli')
     return <span className="muted">on the server{typeof os === 'string' ? ` (${os})` : ''}</span>;
   const tried = entry.detail?.login;
-  return <span className="muted">{typeof tried === 'string' ? `${tried}?` : 'nobody'}</span>;
+  // AFS-153: nobody was signed in: the login someone typed, said as such.
+  if (typeof tried === 'string')
+    return (
+      <>
+        <span className="login">{tried}</span>
+        <div className="muted">login typed, not signed in</div>
+      </>
+    );
+  return <span className="muted">nobody</span>;
 }
 
 /** AFS-145: the token an action was done with, by its name (older entries have its id only). */
@@ -117,11 +125,40 @@ function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs
   );
 }
 
+/** AFS-153: the filter in the address, so it stays on a reload and in a shared link. */
+const KEYS = ['who', 'about', 'result', 'from', 'since', 'until'] as const;
+type Choices = Record<(typeof KEYS)[number], string>;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function choicesInAddress(): Choices {
+  const query = new URLSearchParams(window.location.search);
+  const one = (k: string) => (query.get(k) ?? '').slice(0, 64);
+  const day = (k: string) => (DAY.test(one(k)) ? one(k) : '');
+  return {
+    who: one('who'),
+    about: Object.hasOwn(OBJECTS, one('about')) ? one('about') : '',
+    result: ['ok', 'refused', 'failed'].includes(one('result')) ? one('result') : '',
+    from: Object.hasOwn(SOURCE_LABEL, one('from')) ? one('from') : '',
+    since: day('since'),
+    until: day('until'),
+  };
+}
+
+const filterOf = (c: Choices): AuditFilter => ({
+  ...(c.who.trim() ? { actor: c.who.trim().toLowerCase() } : {}),
+  ...(c.about ? { action: c.about } : {}),
+  ...(c.result ? { result: c.result as AuditFilter['result'] } : {}),
+  ...(c.from ? { source: c.from as AuditFilter['source'] } : {}),
+  ...(c.since ? { from: new Date(`${c.since}T00:00:00`).toISOString() } : {}),
+  ...(c.until ? { to: dayAfter(c.until) } : {}),
+});
+
 export function AuditPage() {
-  const [filter, setFilter] = useState<AuditFilter>({});
-  const [who, setWho] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [choices, setChoices] = useState<Choices>(choicesInAddress);
+  const filter = filterOf(choices);
+  const [who, setWho] = useState(choices.who);
+  const [from, setFrom] = useState(choices.since);
+  const [to, setTo] = useState(choices.until);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [refs, setRefs] = useState<Refs>({});
   const [next, setNext] = useState<string | undefined>();
@@ -139,21 +176,25 @@ export function AuditPage() {
       setState({ loading: false, error: messageOf(e) });
     }
   };
+  const key = JSON.stringify(choices);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new filter is a new first page
   useEffect(() => {
     void load();
-  }, [filter]);
+    // The router reads the path only, so the filter can live in the query.
+    const query = new URLSearchParams(
+      Object.entries(choices).filter(([, v]) => v !== ''),
+    ).toString();
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    );
+  }, [key]);
 
-  const set = (key: keyof AuditFilter, value: string) =>
-    setFilter(({ [key]: _, ...rest }) => (value ? { ...rest, [key]: value } : rest));
+  const set = (k: keyof Choices, value: string) => setChoices((c) => ({ ...c, [k]: value }));
   const apply = (event: FormEvent) => {
     event.preventDefault();
-    setFilter(({ actor: _a, from: _f, to: _t, ...rest }) => ({
-      ...rest,
-      ...(who.trim() ? { actor: who.trim().toLowerCase() } : {}),
-      ...(from ? { from: new Date(`${from}T00:00:00`).toISOString() } : {}),
-      ...(to ? { to: dayAfter(to) } : {}),
-    }));
+    setChoices((c) => ({ ...c, who: who.trim(), since: from, until: to }));
   };
 
   return (
@@ -172,11 +213,16 @@ export function AuditPage() {
       </PageHead>
       <form className="filters" onSubmit={apply} aria-label="Filter the audit log">
         <label className="inline">
-          Who <input value={who} onChange={(e) => setWho(e.target.value)} placeholder="login" />
+          Who{' '}
+          <input
+            value={who}
+            onChange={(e) => setWho(e.target.value)}
+            placeholder="login or name, or part of one"
+          />
         </label>
         <label className="inline">
           About{' '}
-          <select value={filter.action ?? ''} onChange={(e) => set('action', e.target.value)}>
+          <select value={choices.about} onChange={(e) => set('about', e.target.value)}>
             <option value="">everything</option>
             {Object.entries(OBJECTS).map(([value, label]) => (
               <option key={value} value={value}>
@@ -187,7 +233,7 @@ export function AuditPage() {
         </label>
         <label className="inline">
           Result{' '}
-          <select value={filter.result ?? ''} onChange={(e) => set('result', e.target.value)}>
+          <select value={choices.result} onChange={(e) => set('result', e.target.value)}>
             <option value="">all</option>
             <option value="ok">ok</option>
             <option value="refused">refused</option>
@@ -196,7 +242,7 @@ export function AuditPage() {
         </label>
         <label className="inline">
           From{' '}
-          <select value={filter.source ?? ''} onChange={(e) => set('source', e.target.value)}>
+          <select value={choices.from} onChange={(e) => set('from', e.target.value)}>
             <option value="">anywhere</option>
             {Object.entries(SOURCE_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
@@ -239,7 +285,7 @@ export function AuditPage() {
                   <td>
                     <Time at={e.at} />
                   </td>
-                  <td>
+                  <td className="audit-who">
                     <Who entry={e} />
                   </td>
                   <td>

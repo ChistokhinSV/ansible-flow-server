@@ -270,7 +270,11 @@ export function editDraft(options: {
           case 'ready':
             ready = true;
             // AFS-136: a draft does not run (runs use saved commits): no Run buttons while editing.
-            send({ type: 'config', testMode: false, embed: { mayRun: false } } as HostMessage);
+            send({
+              type: 'config',
+              testMode: false,
+              embed: { mayRun: false, words: 'server' },
+            } as HostMessage);
             if (latest) send({ type: 'snapshot', snapshot: latest } as unknown as HostMessage);
             void catalogStatus();
             return;

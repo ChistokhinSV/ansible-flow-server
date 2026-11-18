@@ -5,7 +5,7 @@
 // AFS-85: a configuration's page is four tabs (Launch, Runs, Schedules, Settings), each with an
 // address; the launch form comes first, and what is rarely typed is folded away.
 import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FactsReply } from '../server/launch/facts';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
@@ -104,6 +104,7 @@ export function LaunchConfigsSection({
 }) {
   const list = useLoad(() => api.launchConfigs(project.id), [project.id]);
   const access = useProjectAccess(project.id).data;
+  const flowNames = useFlowNames(project.id);
   // Who has rw on the workspace, or on one of its flows, may add a configuration for it.
   const mayAdd =
     me.admin ||
@@ -149,7 +150,7 @@ export function LaunchConfigsSection({
                       <Link to={launchAddress(workspace, project.key, c.id)}>{c.name}</Link>
                     </td>
                     <td>
-                      <code>{c.flowFile}</code>
+                      <FlowLabel file={c.flowFile} names={flowNames} />
                       {/* AFS-147: a flow deleted from the branch: its configuration cannot run. */}
                       {c.flowGone && (
                         <span className="warn-text" title={c.flowGone}>
@@ -233,6 +234,24 @@ function useProject(workspace: string, key: string) {
     async () => (await api.projects(workspace)).find((p) => p.key === key),
     [workspace, key],
   );
+}
+
+/** AFS-153: a project's flows by their names, for what names a flow by its file. */
+function useFlowNames(projectId: string | undefined): Map<string, string> {
+  const flows = useLoad(
+    async () => (projectId ? (await api.flows(projectId)).flows : []),
+    [projectId],
+  );
+  return useMemo(
+    () => new Map((flows.data ?? []).flatMap((f) => (f.name ? [[f.file, f.name]] : []))),
+    [flows.data],
+  );
+}
+
+/** A flow by its name, its file on hover; by its file while the name is not known. */
+function FlowLabel({ file, names }: { file: string; names: Map<string, string> }) {
+  const name = names.get(file);
+  return name ? <span title={file}>{name}</span> : <code>{file}</code>;
 }
 
 function Crumbs({
@@ -648,11 +667,12 @@ function SettingsFacts({
   project: Project;
   workspace: string;
 }) {
+  const flowNames = useFlowNames(project.id);
   return (
     <dl className="facts">
       <dt>Flow</dt>
       <dd>
-        <code>{c.flowFile}</code>
+        <FlowLabel file={c.flowFile} names={flowNames} />
       </dd>
       <dt>Runs</dt>
       <dd>
@@ -770,6 +790,7 @@ export function LaunchConfigPage({
   tab: LaunchTab;
 }) {
   const project = useProject(workspace, key);
+  const flowNames = useFlowNames(project.data?.id);
   const config = useLoad(() => api.launchConfig(id), [id]);
   const access = useProjectAccess(project.data?.id).data;
   const branches = useLoad(
@@ -1051,7 +1072,7 @@ export function LaunchConfigPage({
         <span>
           Flow{' '}
           <Link to={flowAddress(workspace, key, c.flowFile)}>
-            <code>{c.flowFile}</code>
+            <FlowLabel file={c.flowFile} names={flowNames} />
           </Link>
         </span>
         <span>
@@ -1684,7 +1705,8 @@ function ConfigForm({
               {environments.data?.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.name}
-                  {e.current ? '' : ' (not built yet)'}
+                  {/* AFS-153: an image is pulled, a definition is built. */}
+                  {e.current ? '' : e.kind === 'spec' ? ' (not built yet)' : ' (not pulled yet)'}
                 </option>
               ))}
               <option value={IMAGE_BY_NAME}>an image by name…</option>

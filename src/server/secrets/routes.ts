@@ -5,6 +5,7 @@
 //   /api/v1/credentials/:id
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { changedKeys } from '../audit/changes';
 import { administrator, signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { getWorkspace } from '../projects/store';
@@ -144,7 +145,17 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
     answering(async (request, reply) => {
       const me = administrator(request, reply);
       if (!me) return reply;
+      const before = await getCredential(db, request.params.id);
       const changed = await updateCredential(db, key, request.params.id, request.body);
+      // AFS-153: the fields whose values changed; a secret sent is a new secret (it is never
+      // read back to compare).
+      const { secret, ...open } = request.body;
+      request.auditDetail = {
+        changed: [
+          ...changedKeys(open, before, changed),
+          ...(secret && Object.keys(secret).length ? ['secret'] : []),
+        ],
+      };
       request.log.info(
         {
           by: me.login,

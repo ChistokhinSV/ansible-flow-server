@@ -2,7 +2,7 @@
 // added; the one thing that removes them is the keeping period (AFS_AUDIT_KEEP_DAYS). An entry
 // never holds a secret value: what a request sent is named by its fields, not their values.
 import { randomUUID } from 'node:crypto';
-import type { Kysely } from 'kysely';
+import { type Kysely, sql } from 'kysely';
 import type { AuditEntryTable, Schema } from '../db/schema';
 
 export const SOURCES = ['ui', 'api', 'mcp', 'git', 'cli', 'server'] as const;
@@ -75,7 +75,10 @@ const entryOf = (row: AuditEntryTable): AuditEntry => ({
 });
 
 export interface AuditFilter {
-  /** The login of who did it. */
+  /**
+   * Who did it: part of their login or name, any case (AFS-153); a refused sign-in by the login
+   * tried.
+   */
   actor?: string;
   /** An action, or its object part: `run` finds `run.launch`, `run.stop`, ... */
   action?: string;
@@ -99,7 +102,30 @@ export async function listAudit(
 ): Promise<{ entries: AuditEntry[]; next?: string }> {
   const limit = Math.min(Math.max(filter.limit ?? 100, 1), 50_000);
   let query = db.selectFrom('audit_entry').selectAll();
-  if (filter.actor) query = query.where('actor_login', '=', filter.actor);
+  if (filter.actor?.trim()) {
+    // The typed text as itself: LIKE's own characters escaped with "!".
+    const typed = filter.actor
+      .trim()
+      .toLowerCase()
+      .replace(/[!%_]/g, (c) => `!${c}`);
+    const like = (column: string, pattern: string) =>
+      sql<boolean>`lower(${sql.ref(column)}) like ${pattern} escape '!'`;
+    query = query.where((eb) =>
+      eb.or([
+        like('actor_login', `%${typed}%`),
+        eb(
+          'actor_id',
+          'in',
+          eb
+            .selectFrom('user_account')
+            .select('id')
+            .where(like('name', `%${typed}%`)),
+        ),
+        // A refused sign-in has nobody; the login tried is in its detail.
+        eb.and([eb('actor_login', 'is', null), like('detail_json', `%"login":"%${typed}%`)]),
+      ]),
+    );
+  }
   if (filter.action)
     query = filter.action.includes('.')
       ? query.where('action', '=', filter.action)

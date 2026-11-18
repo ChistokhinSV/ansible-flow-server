@@ -203,7 +203,9 @@ for (const [name, config] of databases) {
           `run Hello, Ansible #${runNumber}`,
         ]),
       );
-      expect(hello.some((h) => h.detail.startsWith('ops/'))).toBe(false);
+      expect(hello.some((h) => h.detail.startsWith('Operations'))).toBe(false);
+      // AFS-153: where a hit is, by name, and a run's state in the run pages' words.
+      expect(hello.find((h) => h.kind === 'run')?.detail).toBe('Network / Edge routers · queued');
       const flow = hello.find((h) => h.kind === 'flow');
       expect(flow?.to).toBe('/w/net/edge/flow/flows/hello.flow.yaml');
       expect((await find('rita', 'edge rout'))[0]).toMatchObject({

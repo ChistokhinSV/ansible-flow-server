@@ -106,6 +106,17 @@ const signedInAs = (user: typeof dana) => ({
           },
         },
         {
+          file: 'flows/blank.flow.yaml',
+          ok: true,
+          key: 'blank',
+          name: 'Blank',
+          version: 1,
+          format: 2,
+          steps: 0,
+          errors: 0,
+          warnings: 0,
+        },
+        {
           file: 'old/broken.flow.yaml',
           ok: false,
           problem:
@@ -560,6 +571,11 @@ describe('signed in', () => {
     // A flow the server cannot read is listed with the reason, and is not a link.
     expect(screen.getByText(/Upgrade the server/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: /broken/ })).toBeNull();
+    // AFS-153: a flow with no step is not shown as healthy.
+    const blank = (screen.getByRole('link', { name: /Blank/ }).closest('li') as HTMLElement)
+      .textContent;
+    expect(blank).toContain('no steps yet');
+    expect(blank).not.toContain('no findings');
 
     fireEvent.click(link);
     await screen.findByRole('heading', { name: 'OS upgrade' });

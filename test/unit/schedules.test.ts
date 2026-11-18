@@ -194,7 +194,10 @@ for (const [name, config] of databases) {
         expect([1, 2]).toContain(d.getUTCHours());
         expect([0, 6]).not.toContain(new Date(d.getTime() + 3 * 3_600_000).getUTCDay());
       }
-      expect((await call('omar', 'GET', at())).json()).toHaveLength(1);
+      const listed = (await call('omar', 'GET', at())).json();
+      expect(listed).toHaveLength(1);
+      // AFS-153: the owner by name too, for the pages.
+      expect(listed[0].owner).toMatchObject({ login: 'rita', name: 'rita' });
       const times = (
         await call(
           'omar',
@@ -288,7 +291,7 @@ for (const [name, config] of databases) {
         400,
       );
       const handed = await call('dana', 'PATCH', at(`/${s.id}`), { owner: ids.ci });
-      expect(handed.json().owner).toEqual({ id: ids.ci, login: 'ci' });
+      expect(handed.json().owner).toEqual({ id: ids.ci, login: 'ci', name: 'CI' });
       await createGrant(db(), workspace, { user: 'rita', level: 'rw' }, 'test');
       // rita may change the schedule, not hand it on.
       expect((await call('rita', 'PATCH', at(`/${s.id}`), { owner: ids.rita })).statusCode).toBe(

@@ -51,6 +51,7 @@ const form = {
     { name: 'devices', type: 'host_list', required: true, secret: false, text: 'fw-edge-01' },
     { name: 'api_password', type: 'string', required: false, secret: true, text: '' },
     { name: 'retries', type: 'integer', required: false, secret: false, text: '3' },
+    { name: 'dry_run', type: 'boolean', required: false, secret: false, text: 'true' },
   ],
 };
 const weekdays = {
@@ -156,6 +157,11 @@ describe('schedules of a launch configuration', () => {
     // Secret inputs are not offered: a schedule keeps none.
     expect(within(box).queryByLabelText('api_password')).toBeNull();
     fireEvent.change(within(box).getByLabelText('retries'), { target: { value: '5' } });
+    // AFS-153: true or false is picked, as on the launch form.
+    const dry = within(box).getByLabelText('dry_run') as HTMLSelectElement;
+    expect(dry.tagName).toBe('SELECT');
+    expect(dry.options[0]?.textContent).toBe('the start value (true)');
+    fireEvent.change(dry, { target: { value: 'false' } });
     fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
     // AFS-140: said once, at the field it is about, which is marked.
     const cron = within(box).getByLabelText('Cron');
@@ -173,7 +179,7 @@ describe('schedules of a launch configuration', () => {
       commit: null,
       missed: 'once',
       overlap: 'skip',
-      inputs: { retries: '5' },
+      inputs: { retries: '5', dry_run: 'false' },
     });
 
     const first = within(box).getByRole('article', { name: 'Weekdays at three' });

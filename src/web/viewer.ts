@@ -144,7 +144,13 @@ async function start(): Promise<void> {
   const manage = mayManage(access?.ok ? (access.data as ProjectAccess) : undefined, path);
   // AFS-105: on a run's page the page shows the run (state, hosts, outputs, approvals, Stop, Run
   // again): the canvas does not repeat it. Elsewhere it launches and stops for an operator.
-  const embed = { runShown: !!runId, mayRun: operate && !commit, mayStop: operate };
+  // AFS-153: the canvas tells runs in the pages' words (check run, went well, stopped).
+  const embed = {
+    runShown: !!runId,
+    mayRun: operate && !commit,
+    mayStop: operate,
+    words: 'server' as const,
+  };
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.

@@ -400,6 +400,11 @@ export function FilesPage({
     });
   };
 
+  // AFS-153: a file the listing does not have is added, not edited, in the change's words.
+  const existed = useMemo(() => {
+    const had = new Set((listing.data?.files ?? []).map((f) => f.path));
+    return (path: string) => had.has(path);
+  }, [listing.data]);
   const shown = useMemo(
     () => applyChanges(listing.data?.files ?? [], set.changes),
     [listing.data, set.changes],
@@ -504,7 +509,7 @@ export function FilesPage({
         branch,
         ...(set.base ? { base: set.base } : {}),
         // AFS-140: the message is what the placeholder showed when none is typed.
-        message: message.trim() || defaultMessage(set.changes),
+        message: message.trim() || defaultMessage(set.changes, existed),
         // AFS-150: an archive replaces files that are there only once the person said it may.
         changes: replace
           ? set.changes.map((c) => (c.op === 'unpack' ? { ...c, replace: true } : c))
@@ -667,12 +672,12 @@ export function FilesPage({
           <ul className="change-list">
             {set.changes.map((c, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: a change is its place in the set
-              <li key={`${i}-${describe(c)}`}>
-                {describe(c)}{' '}
+              <li key={`${i}-${describe(c, existed)}`}>
+                {describe(c, existed)}{' '}
                 <button
                   type="button"
                   className="link"
-                  aria-label={`Take back: ${describe(c)}`}
+                  aria-label={`Take back: ${describe(c, existed)}`}
                   onClick={() => {
                     setSaid(undefined);
                     update({ ...set, changes: set.changes.filter((_, j) => j !== i) });
@@ -690,7 +695,7 @@ export function FilesPage({
                 <input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder={defaultMessage(set.changes)}
+                  placeholder={defaultMessage(set.changes, existed)}
                   size={50}
                 />
               </label>{' '}

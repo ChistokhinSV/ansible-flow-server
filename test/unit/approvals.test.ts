@@ -411,7 +411,7 @@ describe('a run of a flow with an approval', () => {
       // The refused try names the approval by its title in the audit log, not by its key, and
       // the run by its flow and number.
       const refusedEntry = (
-        await listAudit(database.db, { action: 'approval.decide', result: 'failed' })
+        await listAudit(database.db, { action: 'approval.decide', result: 'refused' })
       ).entries.find((e) => e.object.id === run.id);
       expect(refusedEntry?.detail?.approval).toBe('Approve the change');
       expect(refusedEntry?.object.name).toBe(`Engine test · approval segments #${run.number}`);

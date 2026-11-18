@@ -5,7 +5,7 @@ import { fieldLabel, plainInvalid } from '../../src/server/api/invalid';
 import { collectionProblem } from '../../src/server/environments/collections';
 import { changeWords, defaultMessage } from '../../src/server/projects/changeWords';
 import { plainCron } from '../../src/server/schedules/schedules';
-import { fieldProblem, privateKeyProblem } from '../../src/server/secrets/kinds';
+import { fieldProblem, fieldValue, privateKeyProblem } from '../../src/server/secrets/kinds';
 
 describe('plain words for refusals', () => {
   it('names fields as the forms label them', () => {
@@ -46,7 +46,14 @@ describe('credential fields', () => {
     expect(fieldProblem('method', 'community.general.doas')).toBeUndefined();
     expect(fieldProblem('method', 'notamethod!!')).toMatch(/become method/);
     expect(fieldProblem('host', 'registry.example.net:5000')).toBeUndefined();
-    expect(fieldProblem('host', 'https://bad host/with path')).toMatch(/without https/);
+    expect(fieldProblem('host', 'https://bad host/with path')).toMatch(/without a path/);
+    // AFS-153: an address typed for a registry host is taken as its host and port.
+    expect(fieldProblem('host', 'https://registry.example.net:5000/')).toBeUndefined();
+    expect(fieldValue('host', ' https://registry.example.net:5000/ ')).toBe(
+      'registry.example.net:5000',
+    );
+    expect(fieldProblem('url', 'http://awx.example.net')).toBeUndefined();
+    expect(fieldProblem('url', 'ftp://awx.example.net')).toMatch(/https:\/\/ or http:\/\//);
     expect(fieldProblem('url', 'https://awx.example.net')).toBeUndefined();
     expect(fieldProblem('url', 'not a url')).toMatch(/https:\/\//);
     expect(fieldProblem('vaultId', 'prod')).toBeUndefined();
@@ -82,5 +89,38 @@ describe('the rest', () => {
         { op: 'delete', path: 'd' },
       ]),
     ).toBe('Delete a and 3 more changes');
+  });
+});
+
+describe('change words of a new file (AFS-153)', () => {
+  const had = new Set(['playbooks/site.yml']);
+  const existed = (path: string) => had.has(path);
+
+  it('a new file typed is added; a file that was there is edited; an upload is an upload', () => {
+    expect(changeWords({ op: 'write', path: 'playbooks/new.yml', text: '' }, existed)).toBe(
+      'Add playbooks/new.yml',
+    );
+    expect(changeWords({ op: 'write', path: 'playbooks/site.yml', text: 'x' }, existed)).toBe(
+      'Edit playbooks/site.yml',
+    );
+    expect(changeWords({ op: 'write', path: 'a.bin', base64: 'AA==' }, existed)).toBe(
+      'Upload a.bin',
+    );
+    // Without knowing what was there, a write of text is an edit, as before.
+    expect(changeWords({ op: 'write', path: 'playbooks/new.yml', text: '' })).toBe(
+      'Edit playbooks/new.yml',
+    );
+  });
+
+  it('the default commit message says the same', () => {
+    expect(
+      defaultMessage(
+        [
+          { op: 'write', path: 'playbooks/new.yml', text: '- hosts: all' },
+          { op: 'delete', path: 'playbooks/site.yml' },
+        ],
+        existed,
+      ),
+    ).toBe('Add playbooks/new.yml; Delete playbooks/site.yml');
   });
 });

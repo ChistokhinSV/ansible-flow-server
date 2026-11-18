@@ -154,7 +154,12 @@ export function WorkspaceEnvironments({
                   <td>
                     <BuildBadge build={e.latest} />
                   </td>
-                  <td>{e.usedBy || 'nothing'}</td>
+                  {/* AFS-153: one way of saying it in every row. */}
+                  <td>
+                    {e.usedBy
+                      ? `${e.usedBy} launch configuration${e.usedBy === 1 ? '' : 's'}`
+                      : 'nothing'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -698,7 +703,10 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
               {env.current ? (
                 <code className="wrap">{env.current}</code>
               ) : (
-                <span className="muted">none yet: build it</span>
+                <span className="muted">
+                  {/* AFS-153: the action is the environment's own: an image is pulled. */}
+                  none yet: {env.kind === 'spec' ? 'build it' : 'pull it'}
+                </span>
               )}
             </dd>
             <dt>ansible-core</dt>

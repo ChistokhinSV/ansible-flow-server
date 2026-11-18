@@ -83,16 +83,26 @@ if (typeof window !== 'undefined') {
   });
 }
 
-/** Goes to a path of this application. */
-export function navigate(path: string, options: { replace?: boolean } = {}): void {
+/**
+ * Goes to a path of this application. AFS-153: `note` is what the page there says first (what
+ * was just done, such as "Deleted a1-nora."): kept with that history entry, read by noteHere.
+ */
+export function navigate(path: string, options: { replace?: boolean; note?: string } = {}): void {
   if (path === window.location.pathname) return;
   if (!mayLeave(path.split(/[?#]/)[0] ?? path)) return;
   shownPath = path.split(/[?#]/)[0] ?? path;
-  if (options.replace) window.history.replaceState(null, '', path);
-  else window.history.pushState(null, '', path);
+  const state = options.note ? { note: options.note } : null;
+  if (options.replace) window.history.replaceState(state, '', path);
+  else window.history.pushState(state, '', path);
   for (const listener of listeners) listener();
   window.scrollTo?.(0, 0);
 }
+
+/** AFS-153: the note navigate left for this page, if any. */
+export const noteHere = (): string | undefined => {
+  const note = (window.history.state as { note?: unknown } | null)?.note;
+  return typeof note === 'string' ? note : undefined;
+};
 
 /** The path the address bar shows. */
 export const usePath = () => useSyncExternalStore(subscribe, () => window.location.pathname);

@@ -34,7 +34,7 @@ function SmtpForm({
 }: {
   settings: NotifySettings;
   onSaved(): void;
-  /** AFS-101: Send no email, in the same row as Save. */
+  /** AFS-101: Turn email off, in the same row as Save. */
   more?: ReactNode;
 }) {
   const smtp = settings.smtp;
@@ -340,15 +340,22 @@ function Settings({
             onSaved={onChanged}
             more={
               settings.smtp && (
+                // AFS-153: what it does said on it, in its hint and in its question.
                 <button
                   type="button"
+                  title="Forget the mail server: the server sends no email to anyone until one is saved again. Webhooks still go."
                   onClick={async () => {
-                    if (!window.confirm('Send no email any more?')) return;
+                    if (
+                      !window.confirm(
+                        'Turn email off for the whole server? The mail server settings are removed, and nobody gets email until a mail server is saved again. Webhooks still go.',
+                      )
+                    )
+                      return;
                     await api.clearSmtp().catch(() => undefined);
                     onChanged();
                   }}
                 >
-                  Send no email
+                  Turn email off
                 </button>
               )
             }

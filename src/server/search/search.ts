@@ -13,6 +13,7 @@ import { listGroups, listUsers } from '../auth/users';
 import type { Schema } from '../db/schema';
 import type { ProjectFlows } from '../projects/flows';
 import { listProjects, listWorkspaces } from '../projects/store';
+import { stateWord } from '../runs/words';
 import type { SearchHit, SearchKind } from './types';
 
 export type { SearchHit, SearchKind } from './types';
@@ -27,6 +28,8 @@ const FLOW_PROJECTS = 50;
 const RECENT_RUNS = 500;
 
 const enc = encodeURIComponent;
+/** AFS-153: where a hit is, by name: "Network / Edge switches". */
+const where = (ws: { name: string }, p: { name: string }) => `${ws.name} / ${p.name}`;
 const flowAddress = (ws: string, project: string, file: string) =>
   `/w/${enc(ws)}/${enc(project)}/flow/${file.split('/').map(enc).join('/')}`;
 
@@ -98,7 +101,7 @@ export async function search(
   const wsById = new Map(workspaces.map((w) => [w.id, w]));
   for (const w of workspaces)
     add(
-      { kind: 'workspace', title: w.name, detail: w.key, to: `/w/${enc(w.key)}` },
+      { kind: 'workspace', title: w.name, detail: 'workspace', to: `/w/${enc(w.key)}` },
       score(q, [w.name, w.key]),
     );
 
@@ -113,7 +116,7 @@ export async function search(
       {
         kind: 'project',
         title: p.name,
-        detail: `${ws.key}/${p.key}`,
+        detail: `${ws.name} · project`,
         to: `/w/${enc(ws.key)}/${enc(p.key)}`,
       },
       score(q, [p.name, p.key]),
@@ -131,7 +134,7 @@ export async function search(
         {
           kind: 'flow',
           title: f.name ?? f.file,
-          detail: `${ws.key}/${p.key} · ${f.file}`,
+          detail: `${where(ws, p)} · ${f.file}`,
           to: flowAddress(ws.key, p.key, f.file),
         },
         score(q, [f.name, f.key, f.file]),
@@ -151,7 +154,7 @@ export async function search(
       {
         kind: 'launch-config',
         title: c.name,
-        detail: `${ws.key}/${p.key} · ${c.flow_file}`,
+        detail: `${where(ws, p)} · ${c.flow_file}`,
         to: `/w/${enc(ws.key)}/${enc(p.key)}/launch/${enc(c.id)}`,
       },
       score(q, [c.name, c.flow_file]),
@@ -200,7 +203,8 @@ export async function search(
         kind: 'run',
         // AFS-139: named as the run lists name it; the time goes as a time, for the page to show.
         title: `${r.flow_name} #${r.number}`,
-        detail: `${ws.key}/${p.key} · ${r.state}`,
+        // AFS-153: names, not keys, and the state in the words of the run pages.
+        detail: `${where(ws, p)} · ${stateWord(r.state)}`,
         to: `/runs/${enc(r.id)}`,
         at: r.created_at,
       },
@@ -220,7 +224,7 @@ export async function search(
       {
         kind: 'environment',
         title: e.name,
-        detail: `${ws.key} · execution environment`,
+        detail: `${ws.name} · execution environment`,
         to: `/w/${enc(ws.key)}/environments/${enc(e.id)}`,
       },
       score(q, [e.name]),

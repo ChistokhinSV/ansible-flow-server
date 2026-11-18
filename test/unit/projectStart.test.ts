@@ -312,10 +312,10 @@ describe('starting a hosted project over the API', () => {
     const audit = (await listAudit(database.db, { action: 'project.start' })).entries;
     // With the refused second start of the sample project before.
     expect(audit.map((a) => `${a.actor?.login ?? ''} ${a.result} ${a.status}`).sort()).toEqual([
-      'dana failed 409',
+      'dana refused 409',
       'lina refused 403',
-      'omar failed 400',
       'omar ok 201',
+      'omar refused 400',
     ]);
   });
 

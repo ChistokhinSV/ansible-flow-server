@@ -1760,7 +1760,15 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
             {flow.warnings} {flow.warnings === 1 ? 'warning' : 'warnings'}
           </span>
         )}
-        {flow.errors === 0 && flow.warnings === 0 && <span className="badge ok">no findings</span>}
+        {/* AFS-153: a flow with no step is not healthy, it is not started. */}
+        {flow.errors === 0 && flow.warnings === 0 && flow.steps === 0 && (
+          <span className="badge" title="Open it and choose Edit to add steps">
+            no steps yet
+          </span>
+        )}
+        {flow.errors === 0 && flow.warnings === 0 && flow.steps !== 0 && (
+          <span className="badge ok">no findings</span>
+        )}
       </span>
     </div>
   );

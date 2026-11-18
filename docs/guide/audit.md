@@ -7,8 +7,9 @@
 Everything that changes something, or tries to, leaves an entry: who (the user, and the token
 when one was used), from where (`ui`: the pages, `api`: a token, `git`, `cli`: the server's
 commands), what (`run.launch`, `user.change`, `session.sign-in`, ...), to what (by id and by
-name, so a deleted thing is still named), how it ended (`ok`, `refused`, `failed`, with the
-HTTP status), the client's address and the request id of the server's log.
+name, so a deleted thing is still named), how it ended (`ok`; `refused`: the server said no,
+such as no access, a field that is not right or a login already taken; `failed`: it could not do
+it; with the HTTP status), the client's address and the request id of the server's log.
 
 - Sign-ins, refused ones too (by the login tried); sign-outs; passwords set or changed.
 - Tokens made (with what they reach: one workspace, or every workspace) and revoked. An entry

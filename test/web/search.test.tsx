@@ -12,13 +12,13 @@ const HITS = [
   {
     kind: 'flow',
     title: 'Hello, Ansible',
-    detail: 'net/edge · flows/hello.flow.yaml',
+    detail: 'Network / Edge · flows/hello.flow.yaml',
     to: '/w/net/edge/flow/flows/hello.flow.yaml',
   },
   {
     kind: 'run',
     title: 'Hello, Ansible #7',
-    detail: 'net/edge · succeeded',
+    detail: 'Network / Edge · went well',
     to: '/runs/r7',
     at: '2026-11-18T00:44:00.000Z',
   },
@@ -84,9 +84,9 @@ describe('the search field', () => {
     await within(list).findByText('Hello, Ansible');
     const options = within(list).getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
-      'flowHello, Ansiblenet/edge · flows/hello.flow.yaml',
+      'flowHello, AnsibleNetwork / Edge · flows/hello.flow.yaml',
       // AFS-139: the run's time in this browser's zone, named, as the run page shows it.
-      `runHello, Ansible #7net/edge · succeeded · ${formatTime('2026-11-18T00:44:00.000Z')}`,
+      `runHello, Ansible #7Network / Edge · went well · ${formatTime('2026-11-18T00:44:00.000Z')}`,
     ]);
     fireEvent.keyDown(field, { key: 'ArrowDown' });
     fireEvent.keyDown(field, { key: 'ArrowDown' });

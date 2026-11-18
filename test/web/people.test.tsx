@@ -301,6 +301,24 @@ describe('People and groups', () => {
     await waitFor(() => expect(sent('DELETE /users/u2/tokens/t1')).toHaveLength(1));
   });
 
+  it("a person's groups link to their pages; deleting says so on the list (AFS-153)", async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /users/u2': () => ({ body: omar }),
+      'GET /users/u2/tokens': () => ({ body: [] }),
+      'GET /workspaces': () => ({ body: [] }),
+      'GET /groups': () => ({ body: [netops] }),
+      'GET /users': () => ({ body: [dana] }),
+      'DELETE /users/u2': () => ({ status: 204 }),
+    };
+    open('/admin/people/u2');
+    const link = await screen.findByRole('link', { name: 'netops' });
+    expect(link.getAttribute('href')).toBe('/admin/groups/g1');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect((await screen.findByText('Deleted Omar Haddad.')).getAttribute('role')).toBe('status');
+    expect(window.location.pathname).toBe('/admin/people');
+  });
+
   it('a service account gets its tokens here, shown once; it has no password', async () => {
     routes = {
       'GET /session': () => ({ body: dana }),
@@ -376,7 +394,7 @@ describe('People and groups', () => {
 
     // The group's grants, each leading to its workspace.
     const named = screen
-      .getByRole('heading', { name: 'Where it is named' })
+      .getByRole('heading', { name: 'Access this group gives' })
       .closest('section') as HTMLElement;
     const space = await within(named).findByRole('link', { name: 'Operations' });
     expect(space.getAttribute('href')).toBe('/w/ops');

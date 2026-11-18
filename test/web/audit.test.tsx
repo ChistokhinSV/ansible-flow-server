@@ -93,7 +93,9 @@ describe('the audit log', () => {
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
     await screen.findByText('workspace.change');
-    expect(screen.getByText('mallory?')).toBeTruthy();
+    // AFS-153: the login typed for a refused sign-in, said as such, on one line.
+    expect(screen.getByText('mallory').className).toBe('login');
+    expect(screen.getByText('login typed, not signed in')).toBeTruthy();
     expect(screen.getByText('refused 401')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Older entries' }));
@@ -105,6 +107,24 @@ describe('the audit log', () => {
     expect(screen.getByRole('link', { name: 'Export CSV' }).getAttribute('href')).toBe(
       '/api/v1/audit/export?result=refused&format=csv',
     );
+  });
+
+  it('keeps the filter in the address, and reads it from there (AFS-153)', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /audit?actor=a1&action=user&limit=100': () => ({ body: { entries: [entry(1)] } }),
+      'GET /audit?actor=a1&action=user&result=refused&limit=100': () => ({
+        body: { entries: [] },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/audit?who=a1&about=user&bogus=1');
+    render(<App />);
+    await screen.findByText('workspace.change');
+    expect(asked).toContain('GET /audit?actor=a1&action=user&limit=100');
+    expect((screen.getByLabelText(/Who/) as HTMLInputElement).value).toBe('a1');
+    fireEvent.change(screen.getByLabelText(/Result/), { target: { value: 'refused' } });
+    await waitFor(() => expect(window.location.search).toBe('?who=a1&about=user&result=refused'));
+    await screen.findByText('Nothing in the log matches.');
   });
 
   it('names what an entry is about, linked while it exists; a push as its branches (AFS-106)', async () => {

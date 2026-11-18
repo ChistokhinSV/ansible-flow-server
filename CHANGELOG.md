@@ -95,6 +95,18 @@ All notable changes to Ansible Flow Server.
 - Breadcrumbs name the project, not its key.
 - A button that cannot be pressed looks it: faded, unfilled, with a dashed edge.
 - A field cut at its length (a pasted name of more than 100 characters) says so under it.
+- The canvas on the server's pages tells a run in the pages' words: **Run a Check** (not **Run as Skeleton**), "check run", "went well", "failed" and "stopped" (no exit code, no "Run interrupted"), "1 host", and the earlier runs with the time and its zone. A stopped run's status is "stopped", with who stopped it as its **Why**.
+- Search names workspaces and projects by name, not by key, and says a run's state as the run pages do ("went well", "stopped").
+- Breadcrumbs name the project, schedules name their owner, and launch configurations name their flow, by name (the key, login or file on hover).
+- The audit log's **Who** finds part of a login or a name, in any case, and a refused sign-in by the login typed; the filters are kept in the address, so a reload or a shared link shows the same entries. A login stays on one line, and a refused sign-in says the login was typed, not signed in. A request the server turned down (a field that is not right, a login already taken) is **refused**, as a missing access is; **failed** is for what the server could not do.
+- The audit log's entry for a changed credential lists only the fields whose values changed (and `secret` when a new secret was given).
+- Deleting a person or a group says so on the list it leads back to. A person's groups link to their pages; a group's page calls its grants **Access this group gives**.
+- **Send no email** is now **Turn email off**, says on hover that nobody gets email until a mail server is saved again, and asks first in those words.
+- A new file made on the Files page is "Add <file>" in the change list and in the commit message, not "Edit".
+- A flow with no steps is "no steps yet" in the project's list (not "no findings"), and its page says to Edit to add them.
+- An image environment with no image yet says "pull it" (not "build it"), and the launch configuration form says "(not pulled yet)"; the environments list says "1 launch configuration" as the environment's page does.
+- A registry host typed as an address (`https://registry.example.net:5000/`) is taken as its host and port. The AWX address error says http:// is accepted too. An email address that is not one is said plainly.
+- A schedule's true-or-false input is picked from a list, as on the launch form.
 
 ### Fixed
 

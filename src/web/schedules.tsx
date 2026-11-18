@@ -20,6 +20,7 @@ import {
   COMMIT_TITLE,
   Field,
   Form,
+  Labelled,
   Loading,
   messageOf,
   Time,
@@ -307,27 +308,48 @@ function ScheduleForm({
       {fields.length > 0 && (
         <fieldset>
           <legend>Inputs</legend>
-          {fields.map((f) => (
-            <Field
-              key={f.name}
-              label={f.name}
-              // AFS-150: a refusal about this input is shown at it.
-              name={`inputs.${f.name}`}
-              value={inputs[f.name] ?? ''}
-              placeholder={f.text}
-              onChange={(e) => setInputs({ ...inputs, [f.name]: e.target.value })}
-              hint={[
-                f.description,
-                f.text
-                  ? "Empty: the configuration's start value."
-                  : f.required
-                    ? 'Needed: there is no start value.'
-                    : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            />
-          ))}
+          {fields.map((f) => {
+            const hint = [
+              f.description,
+              f.text
+                ? "Empty: the configuration's start value."
+                : f.required
+                  ? 'Needed: there is no start value.'
+                  : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+            const onChange = (e: { target: { value: string } }) =>
+              setInputs({ ...inputs, [f.name]: e.target.value });
+            // AFS-153: true or false is picked, as on the launch form, not typed.
+            return f.type === 'boolean' ? (
+              <Labelled
+                key={f.name}
+                label={f.name}
+                name={`inputs.${f.name}`}
+                hint={hint || undefined}
+              >
+                {(props) => (
+                  <select {...props} value={inputs[f.name] ?? ''} onChange={onChange}>
+                    <option value="">{f.text ? `the start value (${f.text})` : '(not set)'}</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                )}
+              </Labelled>
+            ) : (
+              <Field
+                key={f.name}
+                label={f.name}
+                // AFS-150: a refusal about this input is shown at it.
+                name={`inputs.${f.name}`}
+                value={inputs[f.name] ?? ''}
+                placeholder={f.text}
+                onChange={onChange}
+                hint={hint}
+              />
+            );
+          })}
         </fieldset>
       )}
       <div className="field">
@@ -543,7 +565,7 @@ export function SchedulesSection({
               </div>
             </dd>
             <dt>Owner</dt>
-            <dd>{s.owner.login}</dd>
+            <dd title={s.owner.login}>{s.owner.name || s.owner.login}</dd>
             <dt>Last</dt>
             <dd>
               {s.last ? (
