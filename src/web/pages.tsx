@@ -1029,8 +1029,13 @@ export function ProjectPage({
   const project = found.data;
   const id = project?.id;
   const access = useProjectAccess(id).data;
-  const branchList = useLoad(async () => (id ? await api.branches(id) : undefined), [id]);
-  const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
+  // AFS-139: read again when the project's commit moves (a start from a sample or an archive, a
+  // push, a branch made elsewhere): the Branches tab and its count follow without a reload.
+  const branchList = useLoad(
+    async () => (id ? await api.branches(id) : undefined),
+    [id, project?.commit],
+  );
+  const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id, project?.commit]);
   const runs = useLoad(async () => (id ? api.runs({ project: id, limit: RUNS_SHOWN }) : []), [id]);
   const flows = useLoad(
     async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),

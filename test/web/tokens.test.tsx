@@ -67,6 +67,25 @@ describe('My account', () => {
     expect(screen.queryByLabelText('Display name')).toBeNull();
   });
 
+  it('Last used follows a use elsewhere when the page is looked at again (AFS-139)', async () => {
+    let used: string | undefined;
+    routes = {
+      'GET /tokens': () => ({ body: [{ ...made, ...(used ? { lastUsedAt: used } : {}) }] }),
+      'GET /workspaces': () => ({ body: [] }),
+    };
+    render(<Account me={omar} tab="tokens" />);
+    const row = (await screen.findByText('…Xk3Q')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('never')).toBeTruthy();
+    used = '2026-11-18T09:00:00.000Z';
+    fireEvent.focus(window);
+    await waitFor(() => expect(within(row).queryByText('never')).toBeNull());
+    expect(
+      within(row).getByText(
+        (_, el) => el?.tagName === 'TIME' && el.getAttribute('datetime') === used,
+      ),
+    ).toBeTruthy();
+  });
+
   it('makes a token from a button: the form closes and the token is shown once', async () => {
     let have: unknown[] = [];
     routes = {

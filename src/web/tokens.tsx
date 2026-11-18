@@ -3,7 +3,7 @@
 // may do. The list comes first: making a token is behind a button (AFS-88).
 import { type ReactNode, useId, useState } from 'react';
 import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
-import { Copyable, Field, Form, Loading, Time, useLoad } from './ui';
+import { Copyable, Field, Form, Loading, Time, useLoad, useRefresh } from './ui';
 
 export function TokensPanel({
   load,
@@ -29,6 +29,8 @@ export function TokensPanel({
   onChanged?: () => void;
 }) {
   const list = useLoad(load, []);
+  // AFS-139: Last used follows a token's use elsewhere (the API, an MCP client).
+  useRefresh(list.reload, 30_000);
   const workspaces = useLoad(api.workspaces, []);
   const fresh = { name: '', days: 90, readOnly: false, workspace: '', mcpApprovals: false };
   const [input, setInput] = useState(fresh);
