@@ -5,5 +5,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },
-  "include": ["src/web", "test/web", "vite.config.mts", "vitest.config.mts"]
+  "include": ["src/web", "test/web", "test/layout", "vite.config.mts", "vitest.config.mts"]
 }

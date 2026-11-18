@@ -19,3 +19,5 @@ Thumbs.db
 out/
 # What the end-to-end browser suite leaves after a failure (traces, screenshots)
 .e2e-results/
+# What the layout check leaves (signed-in states, traces, screenshots after a failure)
+.layout-results/
