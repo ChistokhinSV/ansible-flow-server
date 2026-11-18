@@ -823,6 +823,15 @@ describe('signed in', () => {
     window.history.replaceState(null, '', '/w/network/lab');
     render(<App />);
     await screen.findByRole('heading', { name: 'Start this project' });
+    // AFS-159: files go in before the first flow: the Files tab is there, and the start says so.
+    expect(
+      within(screen.getByRole('navigation', { name: 'Project' }))
+        .getByRole('link', { name: 'Files' })
+        .getAttribute('href'),
+    ).toBe('/w/network/lab/files');
+    expect(document.querySelector('[data-own-playbooks]')?.textContent).toMatch(
+      /Add them in Files .* then make a New flow and start it from one/,
+    );
     // Nothing to choose "start empty" from: it is empty already.
     expect(screen.queryByLabelText(/Nothing: the first push/)).toBeNull();
     await screen.findByText('The smallest useful flow.');

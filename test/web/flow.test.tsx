@@ -158,4 +158,55 @@ describe("a flow's page", () => {
     expect(await screen.findByText('No launch configuration')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'Add a launch configuration' })).toBeNull();
   });
+
+  it('opens a flow just made for editing, even when its list comes after the access (AFS-160)', async () => {
+    window.history.replaceState(null, '', `/w/net/core/flow/${FILE}?edit=1`);
+    let listed: (() => void) | undefined;
+    const late = new Promise<void>((done) => {
+      listed = done;
+    });
+    routes = {
+      ...common('rw'),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, ok: true, steps: 0 }] } }),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'rw', approve: false, flows: { [FILE]: 'rw' } },
+      }),
+      'GET /projects/p1/launch-configs': () => ({ body: [] }),
+      [RUNS]: () => ({ body: [] }),
+      'POST /projects/p1/drafts?path=flows%2Fupgrade.flow.yaml': () => ({
+        status: 201,
+        body: { id: 'd1', project: 'p1', file: FILE, baseCommit: COMMIT, editors: [] },
+      }),
+    };
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      // The flow list answers last: the access is known before the page knows the flow is there.
+      if (url.endsWith('/projects/p1/flows')) await late;
+      return answer(url, init);
+    });
+    show();
+    await vi.waitFor(() => expect(asked).toContain('GET /projects/p1/access'));
+    await new Promise((r) => setTimeout(r, 20));
+    listed?.();
+    await vi.waitFor(() =>
+      expect(asked).toContain('POST /projects/p1/drafts?path=flows%2Fupgrade.flow.yaml'),
+    );
+    expect(window.location.search).toBe('');
+  });
+
+  it('offers Edit first on a flow with no steps yet to who may edit (AFS-160)', async () => {
+    window.history.replaceState(null, '', `/w/net/core/flow/${FILE}`);
+    routes = {
+      ...common('rw'),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, ok: true, steps: 0 }] } }),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'rw', approve: false, flows: { [FILE]: 'rw' } },
+      }),
+      'GET /projects/p1/launch-configs': () => ({ body: [] }),
+      [RUNS]: () => ({ body: [] }),
+    };
+    show();
+    const edit = await screen.findByRole('button', { name: 'Edit' });
+    expect(edit.className).toContain('primary');
+  });
 });

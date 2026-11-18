@@ -986,7 +986,16 @@ export function ProjectDetails({
 }
 
 /** AFS-58: an empty hosted project gets its first commit from a sample or an archive. */
-function StartPanel({ project, onStarted }: { project: Project; onStarted(): void }) {
+function StartPanel({
+  project,
+  files,
+  onStarted,
+}: {
+  project: Project;
+  /** AFS-159: the project's Files tab, where playbooks are added before the first flow. */
+  files: string;
+  onStarted(): void;
+}) {
   const [start, setStart] = useState<{
     from: 'empty' | 'sample' | 'archive';
     sample: string;
@@ -1005,6 +1014,10 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
         or push one to {project.gitRef} with git:
       </p>
       <CloneHelp project={project} />
+      <p className="muted" data-own-playbooks>
+        Your own playbooks? Add them in <Link to={files}>Files</Link> (upload them, or a zip of the
+        folder), then make a New flow and start it from one.
+      </p>
       {refused && (
         <p className="notice error" role="alert">
           The archive was refused: {refused}
@@ -1475,7 +1488,10 @@ export function ProjectPage({
           { key: '', label: 'Overview' },
           { key: 'runs', label: 'Runs' },
           // Everything else in the repository (AFS-78) is a page of its own.
-          ...(project.commit ? [{ key: 'files', label: 'Files' }] : []),
+          // AFS-159: an empty project the server hosts takes files before its first flow too.
+          ...(project.commit || (project.hosted && mayPush)
+            ? [{ key: 'files', label: 'Files' }]
+            : []),
           {
             key: 'branches',
             label: 'Branches',
@@ -1488,7 +1504,7 @@ export function ProjectPage({
       {tab === '' && (
         <>
           {project.hosted && !project.commit && mayPush && (
-            <StartPanel project={project} onStarted={found.reload} />
+            <StartPanel project={project} files={`${base}/files`} onStarted={found.reload} />
           )}
           {project.commit && <StartedNote />}
 
@@ -1517,9 +1533,11 @@ export function ProjectPage({
             {flows.data?.flows.length === 0 && (
               <p className="muted">
                 {project.commit
-                  ? 'No flow in this project: a flow is a file named *.flow.yaml.'
+                  ? mayPush
+                    ? 'No flow yet: make a New flow and start it from a playbook of the project, a sample or an AWX template.'
+                    : 'No flow in this project: a flow is a file named *.flow.yaml.'
                   : project.hosted && mayPush
-                    ? 'Nothing yet: the project has no commit. Start it from a sample or an archive, or make a New flow.'
+                    ? 'Nothing yet: the project has no commit. Add your playbooks in Files, then make a New flow and start it from one; or start the project from a sample or an archive.'
                     : 'Nothing yet: the project has no commit.'}
               </p>
             )}

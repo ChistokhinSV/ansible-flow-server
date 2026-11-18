@@ -371,7 +371,11 @@ export function FilesPage({
     [id, ownFlows],
   );
   const branch = params.get('branch') || project?.gitRef || 'main';
-  const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
+  // AFS-159: read again when a save moves the branch (the first one makes it).
+  const branches = useLoad(
+    async () => (id ? (await api.branches(id)).branches : []),
+    [id, project?.commit],
+  );
   const listing = useLoad(async () => (id ? api.files(id, branch) : undefined), [id, branch]);
   const [set, setSet] = useState<ChangeSet>({ changes: [] });
   useEffect(() => {

@@ -313,4 +313,34 @@ describe('the files of a project', () => {
     });
     expect(next.statusCode, next.body).toBe(201);
   });
+
+  it('takes playbooks, uploaded or unpacked, as the first commit of an empty project (AFS-159)', async () => {
+    const empty = (
+      await call(dana, 'POST', '/api/v1/workspaces/net/projects', { key: 'books', name: 'Books' })
+    ).json();
+    // The Files page of an empty project lists nothing, without an error.
+    const none = await call(lina, 'GET', `/api/v1/projects/${empty.id}/files`);
+    expect(none.statusCode, none.body).toBe(200);
+    expect(none.json()).toEqual({ branch: 'main', files: [] });
+    const zip = Buffer.from(
+      zipSync({
+        'site.yml': strToU8('- hosts: all\n  tasks: []\n'),
+        'roles/ntp/tasks/main.yml': strToU8('- debug: msg=ntp\n'),
+      }),
+    ).toString('base64');
+    const r = await call(omar, 'POST', `/api/v1/projects/${empty.id}/files`, {
+      branch: 'main',
+      changes: [
+        { op: 'unpack', path: 'playbooks', base64: zip },
+        { op: 'write', path: 'README.md', text: '# Books\n' },
+      ],
+    });
+    expect(r.statusCode, r.body).toBe(201);
+    const there = (await call(lina, 'GET', `/api/v1/projects/${empty.id}/files`)).json();
+    expect(there.files.map((f: { path: string }) => f.path).sort()).toEqual([
+      'README.md',
+      'playbooks/roles/ntp/tasks/main.yml',
+      'playbooks/site.yml',
+    ]);
+  });
 });
