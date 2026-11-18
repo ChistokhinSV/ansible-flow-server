@@ -343,6 +343,31 @@ export const api = {
   /** AFS-79: one of the designer's commands, applied to the draft. */
   draftCommand: (id: string, command: Record<string, unknown>) =>
     call<{ created?: string }>('POST', `/drafts/${id}/commands`, { command }),
+  /** AFS-126: what an empty flow's draft can start from. */
+  draftStartFrom: (id: string) =>
+    call<{
+      samples: { key: string; name: string; description: string }[];
+      playbooks: string[];
+      awx: { id: string; name: string; url: string }[];
+    }>('GET', `/drafts/${id}/start-from`),
+  /** AFS-126: the workflow and job templates of an AWX credential's AWX. */
+  draftAwxTemplates: (id: string, credential: string) =>
+    call<{
+      templates: { kind: 'workflow' | 'job'; id: number; name: string; description?: string }[];
+    }>('GET', `/drafts/${id}/start-from/awx?credential=${encodeURIComponent(credential)}`),
+  /** AFS-126: the draft's (empty) flow made from a sample, a playbook or an AWX template. */
+  draftStart: (
+    id: string,
+    body:
+      | { sample: string }
+      | { playbook: string }
+      | { awx: { credential: string; kind: 'workflow' | 'job'; id: number } },
+  ) =>
+    call<{ revision: number; steps: number; notes: string[] }>(
+      'POST',
+      `/drafts/${id}/start-from`,
+      body,
+    ),
   /** AFS-79: a flow at the project's commit, as the designer shows it. */
   flowView: (id: string, path: string) =>
     call<{ commit: string; snapshot: { doc?: FlowDocLike } }>(

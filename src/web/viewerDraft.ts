@@ -19,7 +19,13 @@ export type DraftNotice =
   | { type: 'afs-draft-saved'; commit?: string; by?: string }
   | { type: 'afs-draft-gone'; by?: string }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
-  | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } };
+  | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } }
+  /** AFS-126: the empty canvas's Import / Open Sample: the page picks what to start from. */
+  | { type: 'afs-draft-start-from'; what: 'sample' | 'playbooks' | 'awx' };
+
+/** AFS-126: Get Started on the empty canvas: the guide's walkthrough of a first project. */
+export const GET_STARTED =
+  'https://github.com/ChistokhinSV/ansible-flow-server/blob/main/docs/guide/first-project.md';
 
 const json = (method: string, url: string, body?: unknown) =>
   fetch(url, {
@@ -192,6 +198,10 @@ export function editDraft(options: {
           case 'openLink':
             // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
             openWebLink(message.url);
+            return;
+          case 'startFrom':
+            if (message.what === 'tour') openWebLink(GET_STARTED);
+            else tellPage({ type: 'afs-draft-start-from', what: message.what });
             return;
           case 'insertShared':
             tellPage({

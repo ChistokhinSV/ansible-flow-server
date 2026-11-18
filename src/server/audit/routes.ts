@@ -66,6 +66,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/projects/:id/files': { action: 'project.files-save', id: at() },
   'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
   'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },
+  'POST /api/v1/drafts/:id/start-from': { action: 'draft.start', id: at() },
   'POST /api/v1/projects/:id/branches': { action: 'project.branch-create', id: at() },
   'DELETE /api/v1/projects/:id/branches': { action: 'project.branch-delete', id: at() },
   'POST /api/v1/projects/:id/hook': { action: 'project.hook-set', id: at() },

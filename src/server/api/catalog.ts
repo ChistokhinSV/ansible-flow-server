@@ -333,6 +333,21 @@ export const ROUTES: Record<string, RouteDoc> = {
     "Save the draft as one commit on the project's branch (merged first when the branch moved; `force` keeps the draft's side of conflicts)",
   ),
   'DELETE /api/v1/drafts/:id': S('Editing', 'signed in', D)('Discard the draft'),
+  'GET /api/v1/drafts/:id/start-from': S(
+    'Editing',
+    'signed in',
+    D,
+  )("What an empty flow can start from: samples, the repository's playbooks, AWX credentials"),
+  'GET /api/v1/drafts/:id/start-from/awx': S(
+    'Editing',
+    'signed in',
+    D,
+  )("An AWX credential's workflow and job templates (`credential`)"),
+  'POST /api/v1/drafts/:id/start-from': S(
+    'Editing',
+    'signed in',
+    D,
+  )('An empty flow made from a sample, a playbook of the repository or an AWX template'),
   'POST /api/v1/drafts/:id/catalog': S(
     'Editing',
     'signed in',
@@ -826,6 +841,9 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/save': 'rw',
   'DELETE /api/v1/drafts/:id': 'rw',
   'POST /api/v1/drafts/:id/catalog': 'ro',
+  'GET /api/v1/drafts/:id/start-from': 'rw',
+  'GET /api/v1/drafts/:id/start-from/awx': 'rw',
+  'POST /api/v1/drafts/:id/start-from': 'rw',
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'GET /api/v1/projects/:id/files': 'ro',

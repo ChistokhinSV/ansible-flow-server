@@ -30,15 +30,16 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 }
 ```
 
-| Kind        | Open part            | Secret part                | For                              |
-| ----------- | -------------------- | -------------------------- | -------------------------------- |
-| `ssh_key`   | `username`           | `privateKey`, `passphrase` | Machines over SSH                |
-| `login`     | `username`           | `password`                 | Machines; a git host over HTTPS  |
-| `become`    | `method`, `username` | `password`                 | Becoming another user (sudo)     |
-| `vault`     | `vaultId`            | `password`                 | An Ansible vault                 |
-| `git_token` | `username`           | `token`                    | A git host over HTTPS            |
-| `registry`  | `host`, `username`   | `password`                 | A container registry             |
-| `env`       | the variables' names | the variables' values      | Variables of a run's environment |
+| Kind        | Open part            | Secret part                | For                                                          |
+| ----------- | -------------------- | -------------------------- | ------------------------------------------------------------ |
+| `ssh_key`   | `username`           | `privateKey`, `passphrase` | Machines over SSH                                            |
+| `login`     | `username`           | `password`                 | Machines; a git host over HTTPS                              |
+| `become`    | `method`, `username` | `password`                 | Becoming another user (sudo)                                 |
+| `vault`     | `vaultId`            | `password`                 | An Ansible vault                                             |
+| `git_token` | `username`           | `token`                    | A git host over HTTPS                                        |
+| `registry`  | `host`, `username`   | `password`                 | A container registry                                         |
+| `awx`       | `url`                | `token`                    | Importing an AWX workflow or job template into an empty flow |
+| `env`       | the variables' names | the variables' values      | Variables of a run's environment                             |
 
 | Address (under `/api/v1`)     | Does                                                     | Who                                                 |
 | ----------------------------- | -------------------------------------------------------- | --------------------------------------------------- |

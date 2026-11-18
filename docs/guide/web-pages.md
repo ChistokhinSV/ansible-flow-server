@@ -95,6 +95,19 @@ Code. Everyone who edits the same flow edits one shared draft:
   save), so nobody's work is saved over unknowingly.
 - **New flow** (a project's Flows) makes the file in one commit and opens it for editing. An empty
   project the server hosts offers it too: the flow is the project's first commit.
+- **An empty flow starts from something.** The canvas of a flow with no step yet offers what VS
+  Code does, and each makes the flow in one edit (Ctrl+Z takes it back); the flow keeps its file,
+  key and name:
+  - **Import Ansible Playbooks…** lists the playbooks of the project's repository (at the draft's
+    commit); the one you pick becomes a step per task, with the repository's roles and task files.
+  - **Import AWX Workflow or Job Template…** asks which AWX (a workspace credential of kind
+    `awx`: its address and a token, see [Credentials](credentials.md)), lists its workflow and job
+    templates, and imports the one you pick; a job's playbook that the repository has becomes its
+    steps.
+  - **Open Sample Flow…** fills the flow with one of the samples (Hello, Edge baseline, Firewall
+    upgrade). Only the flow: a sample's roles come with a project started from it.
+  - **Get Started** opens the [first project](first-project.md) walkthrough in a new tab.
+    Once the flow has a step, starting from something is refused: it never writes over work.
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
   by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard** it. Runs take
   the flow from the branch, so a draft runs only once saved.
@@ -106,7 +119,11 @@ Code. Everyone who edits the same flow edits one shared draft:
 - Over the API: `POST /api/v1/projects/<id>/drafts?path=` opens a flow's draft;
   `GET /api/v1/drafts/<id>/events` follows it (server-sent events: `draft`, `edit`, `people`,
   `saved`, `discarded`); `POST /api/v1/drafts/<id>/commands` (the designer's commands), `/undo`,
-  `/tidy`, `/here`, `/catalog`, `/save`; `DELETE /api/v1/drafts/<id>` discards.
+  `/tidy`, `/here`, `/catalog`, `/save`; `DELETE /api/v1/drafts/<id>` discards;
+  `GET /api/v1/drafts/<id>/start-from` (samples, playbooks, AWX credentials),
+  `GET /api/v1/drafts/<id>/start-from/awx?credential=` (templates) and
+  `POST /api/v1/drafts/<id>/start-from` with `{"sample"}`, `{"playbook"}` or
+  `{"awx": {"credential", "kind", "id"}}` start an empty flow.
 
 Not there yet: colours per person and selections on the canvas, Follow, and VS Code joining a
 draft (designer AFD-285).

@@ -24,6 +24,7 @@ import { FLOW_FILE } from '../projects/flows';
 import type { Git } from '../projects/git';
 import { getProject, type Project } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
+import { hasNoSteps } from './startFrom';
 
 export interface Editor {
   id: string;
@@ -278,6 +279,34 @@ export class Drafts {
       if (planned.text === current.text) return { revision: current.revision, ...extra };
       const kind = cmd.kind === 'tidyUp' ? 'layout' : 'command';
       return { revision: await this.write(id, by, kind, current, planned.text), ...extra };
+    });
+  }
+
+  /**
+   * AFS-126: the draft's flow replaced by one made from something (a sample, a playbook, an AWX
+   * template), as one edit Ctrl+Z takes back. Only while the flow has no step: it never writes
+   * over someone's work.
+   */
+  async replace(
+    id: string,
+    by: Editor,
+    make: (current: string) => Promise<string>,
+  ): Promise<{ revision: number }> {
+    return this.one(id, async () => {
+      const current = await this.text(id);
+      if (!current) throw new DraftError('not_found', 'No such draft');
+      if (!hasNoSteps(current.text))
+        throw new DraftError(
+          'refused',
+          'The flow has steps already: start from something only in an empty flow',
+        );
+      let text: string;
+      try {
+        text = await make(current.text);
+      } catch (e) {
+        throw new DraftError('refused', (e as Error).message);
+      }
+      return { revision: await this.write(id, by, 'command', current, text) };
     });
   }
 
