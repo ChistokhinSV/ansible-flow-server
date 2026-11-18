@@ -16,11 +16,13 @@ import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad } from '.
  * (viewer.html), shown here in a frame under the application's bar.
  */
 export function FlowPage({
+  me,
   workspace,
   project: key,
   file,
   theme,
 }: {
+  me: { login: string };
   workspace: string;
   project: string;
   file: string;
@@ -203,7 +205,7 @@ export function FlowPage({
         >
           {mayEdit && !editing && project?.commit ? (
             <button type="button" onClick={() => void edit()}>
-              {waiting ? 'Open the draft' : 'Edit'}
+              {waiting?.editors.length ? 'Open the draft' : 'Edit'}
             </button>
           ) : null}
           {/* AFS-107: the canvas the whole screen (viewing or editing), or on a page of its own
@@ -287,17 +289,19 @@ export function FlowPage({
             {said}
           </p>
         ) : null}
-        {!editing && waiting ? (
+        {/* AFS-136: a draft nobody changed is not "unsaved edits" (opening it joins it). */}
+        {!editing && waiting && waiting.editors.length > 0 ? (
           <p className="notice" role="status">
             Unsaved edits in the pages by{' '}
-            {waiting.editors.length ? waiting.editors.map((e) => e.name).join(', ') : 'nobody yet'}{' '}
-            (a draft since <Time at={waiting.createdAt} />
+            {waiting.editors.map((e) => (e.login === me.login ? 'you' : e.name)).join(', ')} (a
+            draft since <Time at={waiting.createdAt} />
             ).
           </p>
         ) : null}
         {editing ? (
           <DraftBar
             draft={editing}
+            frame={() => stage.current?.querySelector('iframe') ?? null}
             people={people}
             edits={edits}
             onDone={stopEditing}
@@ -365,14 +369,27 @@ export function FlowPage({
  * Save (one commit, with a message) and Discard. A Save the branch's changes stand in the way of
  * lists the conflicts and offers to save with the draft's side.
  */
+/**
+ * AFS-136: what is being typed in the designer (a field commits when it is left) is sent before
+ * a Save: the field is left, and the edit has a moment to reach the server.
+ */
+async function sendTyping(frame: HTMLIFrameElement | null): Promise<void> {
+  const typing = frame?.contentDocument?.activeElement as HTMLElement | null | undefined;
+  if (!typing || typing === frame?.contentDocument?.body) return;
+  typing.blur();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+}
+
 function DraftBar({
   draft,
+  frame,
   people,
   edits,
   onDone,
   outside,
 }: {
   draft: Draft;
+  frame(): HTMLIFrameElement | null;
   people: { login: string; name: string }[];
   edits: { by: string; steps: string[]; at: string }[];
   onDone(words?: string): void;
@@ -383,10 +400,20 @@ function DraftBar({
   const [conflicts, setConflicts] = useState<{ id: string; label: string }[]>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const others = people.map((p) => p.name).join(', ');
   const save = async (force = false) => {
+    // AFS-136: saving ends the draft for everyone in it: whoever else is here is named first.
+    if (
+      people.length &&
+      !window.confirm(
+        `${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too. Saving makes the commit and ends the draft for everyone: what they are typing and have not left yet is not in it. Save now?`,
+      )
+    )
+      return;
     setBusy(true);
     setError(undefined);
     try {
+      await sendTyping(frame());
       const done = await api.saveDraft(draft.id, {
         ...(message.trim() ? { message: message.trim() } : {}),
         ...(force ? { force } : {}),
@@ -404,7 +431,8 @@ function DraftBar({
     }
   };
   const discard = async () => {
-    if (!window.confirm("Discard the draft? Everyone's unsaved edits go.")) return;
+    const whose = people.length ? `Your edits and ${others}'s go.` : 'Your edits go.';
+    if (!window.confirm(`Discard the draft for everyone? ${whose}`)) return;
     try {
       await api.discardDraft(draft.id);
       onDone('The draft is discarded.');
@@ -412,6 +440,18 @@ function DraftBar({
       setError(messageOf(e));
     }
   };
+  /** AFS-136: leaving a draft nobody changed (and nobody else is in) drops it. */
+  const leave = async () => {
+    if (!people.length) {
+      const now = (await api.drafts(draft.project).catch(() => [] as Draft[])).find(
+        (d) => d.id === draft.id,
+      );
+      if (now && now.editors.length === 0) await api.discardDraft(draft.id).catch(() => undefined);
+    }
+    onDone();
+  };
+  // AFS-136: the newest edit only, on one line, so the canvas under the bar stays where it is.
+  const newest = edits[0];
   return (
     <section className="panel draft-bar" aria-label="Editing">
       <p>
@@ -419,14 +459,11 @@ function DraftBar({
         {people.length ? people.map((p) => p.name).join(', ') : 'only you'}. Edits are shared at
         once; Ctrl+Z takes back your own last one.
       </p>
-      {edits.length ? (
-        <ul className="muted draft-edits">
-          {edits.map((e) => (
-            <li key={`${e.at}${e.by}`}>
-              {e.by} changed {e.steps.length ? e.steps.join(', ') : 'the flow'} (<Time at={e.at} />)
-            </li>
-          ))}
-        </ul>
+      {newest ? (
+        <p className="muted draft-edits" aria-live="polite">
+          {newest.by} changed {newest.steps.length ? newest.steps.join(', ') : 'the flow'} (
+          <Time at={newest.at} />){edits.length > 1 ? ` · ${edits.length - 1} earlier` : ''}
+        </p>
       ) : null}
       {outside && !conflicts ? (
         <p className="notice warn" role="status">
@@ -479,7 +516,7 @@ function DraftBar({
         <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
           Save
         </button>
-        <button type="button" disabled={busy} onClick={() => onDone()}>
+        <button type="button" disabled={busy} onClick={() => void leave()}>
           Stop editing
         </button>
         <button type="button" className="danger" disabled={busy} onClick={() => void discard()}>

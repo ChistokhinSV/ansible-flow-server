@@ -660,8 +660,15 @@ describe('signed in', () => {
     await waitFor(() => expect(bar.textContent).toContain('here now: Mia Ortega'));
     expect(bar.textContent).toContain('Mia Ortega changed Pre-checks');
     type("What changed (the commit's message)", 'Safer pre-checks');
+    // AFS-136: with Mia here, Save names her first.
+    const asked: string[] = [];
+    window.confirm = (text?: string) => {
+      asked.push(String(text));
+      return true;
+    };
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Upgrade: title')).toBeTruthy();
+    expect(asked[0]).toMatch(/^Mia Ortega is editing this draft too/);
     fireEvent.click(screen.getByRole('button', { name: "Save with the draft's side" }));
     expect(await screen.findByText('Saved as 41d7a0c93be2.')).toBeTruthy();
     expect(saves).toBe(2);

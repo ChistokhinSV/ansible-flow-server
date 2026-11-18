@@ -47,7 +47,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
     try {
       const [workspace, project, file] = flow.slice(1).map(decodeURIComponent);
       if (workspace && project && file)
-        return <FlowPage workspace={workspace} project={project} file={file} theme={theme} />;
+        return (
+          <FlowPage me={me} workspace={workspace} project={project} file={file} theme={theme} />
+        );
     } catch {
       return <NotFound />;
     }
