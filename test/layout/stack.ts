@@ -188,6 +188,9 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     help: '/help',
     // AFS-155: the guide the server serves, a page with a wide table.
     guide: '/help/guide/web-pages.md',
+    // AFS-162: settings that end with a danger zone.
+    projectSettings: '/w/network/hello/settings',
+    launchSettings: `/w/network/hello/launch/${config.id}/settings`,
   };
 }
 
