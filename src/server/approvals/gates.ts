@@ -24,8 +24,28 @@ type Row = Schema['run_gate'];
 export const DECISIONS = ['approved', 'rejected'] as const;
 export type Decision = (typeof DECISIONS)[number];
 
+/**
+ * AFS-133: the hosts waiting at a gate: the carried set `flow_<key>_waiting` (the designer's
+ * name for the approval's waiting hosts), else any `_waiting` set.
+ */
+export function waitingHosts(carriedJson: string | null, key: string): string[] | undefined {
+  if (!carriedJson) return undefined;
+  try {
+    const sets = (JSON.parse(carriedJson) as { afd_hostsets?: Record<string, unknown> })
+      .afd_hostsets;
+    if (!sets) return undefined;
+    const own = sets[`flow_${key.replace(/[^A-Za-z0-9_]/g, '_')}_waiting`];
+    const any = Object.entries(sets).find(([name]) => name.endsWith('_waiting'))?.[1];
+    const hosts = Array.isArray(own) ? own : Array.isArray(any) ? any : undefined;
+    return hosts?.filter((h): h is string => typeof h === 'string');
+  } catch {
+    return undefined;
+  }
+}
+
 const gateOf = (row: Row): Gate => {
   const approval = (row.approval_json ? JSON.parse(row.approval_json) : {}) as ApprovalFields;
+  const hosts = waitingHosts(row.carried_json, row.node_key);
   return {
     id: row.id,
     run: row.run_id,
@@ -39,6 +59,7 @@ const gateOf = (row: Row): Gate => {
     ...(row.decided_by ? { decidedBy: row.decided_by } : {}),
     ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
     ...(row.comment ? { comment: row.comment } : {}),
+    ...(hosts ? { hosts } : {}),
     createdAt: row.created_at,
   };
 };

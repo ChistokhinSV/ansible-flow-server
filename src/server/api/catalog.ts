@@ -522,7 +522,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Approvals',
     'signed in',
     'server',
-  )('Approvals that wait for a decision, that you may see; each says whether you may decide it'),
+  )(
+    'Approvals that wait for a decision, that you may see; each says whether you may decide it. `?decided=1`: the newest 50 decided ones instead',
+  ),
   'GET /api/v1/runs/:id/approvals': S(
     'Approvals',
     'signed in',

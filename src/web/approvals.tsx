@@ -135,6 +135,14 @@ function GateCard({
         </span>
       </p>
       {gate.message && <p>{gate.message}</p>}
+      {/* AFS-133: what is being decided: the hosts that wait here. */}
+      {gate.hosts && gate.hosts.length > 0 && (
+        <p data-gate-hosts>
+          {gate.status === 'waiting' ? 'Hosts waiting' : 'Hosts it was for'} ({gate.hosts.length}
+          ): {gate.hosts.slice(0, 12).join(', ')}
+          {gate.hosts.length > 12 ? ', …' : ''}
+        </p>
+      )}
       <p className="muted">
         Waiting since <Time at={gate.createdAt} />
         {gate.deadline && (
@@ -206,6 +214,7 @@ export function ApprovalsPage() {
     const timer = setInterval(list.reload, 15_000);
     return () => clearInterval(timer);
   }, [list.reload]);
+  const decidedList = useLoad(() => api.decidedApprovals().catch(() => []), [decided]);
   const mine = list.data?.filter((a) => a.mayDecide) ?? [];
   const others = list.data?.filter((a) => !a.mayDecide) ?? [];
   // Yours: each a tinted box with the decision in it (AFS-82). Others': plain rows with why not.
@@ -261,6 +270,35 @@ export function ApprovalsPage() {
         <section aria-labelledby="others">
           <h2 id="others">Waiting for others</h2>
           <ul className="approvals list">{others.map((a) => card(a, false))}</ul>
+        </section>
+      )}
+      {decidedList.data && decidedList.data.length > 0 && (
+        <section aria-labelledby="decided">
+          <h2 id="decided">Decided lately</h2>
+          <ul className="approvals list">
+            {decidedList.data.slice(0, 20).map((a) => (
+              <li key={a.gate.id} className="approval-row" data-decided={a.gate.status}>
+                <p className="approval-run">
+                  <Link to={`/runs/${a.run.id}`}>
+                    {a.run.flow.name} #{a.run.number}
+                  </Link>{' '}
+                  <span className="muted">· {a.gate.node.title}</span>{' '}
+                  <span className={`badge ${STATUS_TONE[a.gate.status] ?? ''}`}>
+                    {a.gate.status}
+                  </span>{' '}
+                  <span className="muted">
+                    {a.gate.decidedBy ? `by ${a.gate.decidedBy}` : ''}
+                    {a.gate.decidedAt && (
+                      <>
+                        , <Time at={a.gate.decidedAt} />
+                      </>
+                    )}
+                  </span>
+                </p>
+                {a.gate.comment && <q className="comment">{a.gate.comment}</q>}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </>
