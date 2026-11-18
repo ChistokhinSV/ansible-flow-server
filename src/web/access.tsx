@@ -30,6 +30,22 @@ const LEVEL_WORDS: Record<GrantLevel, string> = {
   approve: 'approve: decides approval gates',
 };
 
+/** AFS-135: one's own level, said where it applies (a workspace, a project). */
+export function YourAccess({ level }: { level: Level | 'admin' | null | undefined }) {
+  if (level === undefined) return null;
+  const words =
+    level === 'admin'
+      ? 'administrator: everything'
+      : level
+        ? LEVEL_WORDS[level]
+        : 'no level of your own here: some flows only';
+  return (
+    <span className="your-access" data-your-access={level ?? 'none'}>
+      Your access: {words}
+    </span>
+  );
+}
+
 /** A workspace's grants and who can do what: for administrators. */
 export function WorkspaceAccess({
   workspace,

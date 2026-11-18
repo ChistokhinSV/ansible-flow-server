@@ -2,7 +2,7 @@
 // do is shown only to them (the server decides either way).
 
 import { useEffect, useState } from 'react';
-import { useProjectAccess, WorkspaceAccess } from './access';
+import { useProjectAccess, WorkspaceAccess, YourAccess } from './access';
 import {
   api,
   type Branch,
@@ -290,7 +290,17 @@ export function Workspace({
       <Breadcrumb>
         <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
       </Breadcrumb>
-      <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
+      <PageHead
+        title={space.data?.name ?? workspace}
+        lead={
+          space.data && (
+            <>
+              {space.data.description && <>{space.data.description} · </>}
+              <YourAccess level={me.admin ? 'admin' : space.data.level} />
+            </>
+          )
+        }
+      >
         {/* AFS-94: the head's action is the tab's own: the other tabs have theirs. */}
         {me.admin && space.data && !adding && tab === '' && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
@@ -1074,7 +1084,17 @@ export function ProjectPage({
       {crumbs}
       <PageHead
         title={project.name}
-        lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+        lead={
+          <>
+            {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+            {access && (
+              <>
+                {' · '}
+                <YourAccess level={access.admin ? 'admin' : access.workspace} />
+              </>
+            )}
+          </>
+        }
       >
         {mayPush && !project.hosted && (
           <button type="button" onClick={look} disabled={looking}>

@@ -39,7 +39,9 @@ export function FlowPage({
   const title = flow?.name ?? file.split('/').at(-1) ?? file;
   // AFS-76: editing the flow's draft (rw on the flow), and the drafts there are.
   const access = useProjectAccess(project?.id).data;
-  const mayEdit = !!access && (access.admin || access.flows?.[file] === 'rw');
+  // AFS-135: only a flow that is there (not a missing one) offers editing and configurations.
+  const exists = !!flow;
+  const mayEdit = exists && !!access && (access.admin || access.flows?.[file] === 'rw');
   const drafts = useLoad(
     async () => (project ? api.drafts(project.id) : ([] as Draft[])),
     [project?.id, project?.commit],
@@ -58,7 +60,7 @@ export function FlowPage({
     [project?.id, file],
   );
   // As on the project's page: rw on the flow adds a configuration for it.
-  const mayAdd = !!access && flowLevel(access, file) === 'rw';
+  const mayAdd = exists && !!access && flowLevel(access, file) === 'rw';
   // AFS-109: copying and deleting the file is a change of the project's files (rw on the workspace).
   const mayChangeFiles = !!access && (access.admin || access.workspace === 'rw');
   const here = `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(key)}`;

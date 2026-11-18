@@ -449,6 +449,15 @@ for (const [name, config] of databases) {
       expect(names.some((n) => n.kind === 'group')).toBe(true);
       expect(JSON.stringify(names)).not.toMatch(/@|https?:/);
       expect(await status('april', 'GET', '/api/v1/workspaces/net/recipients')).toBe(403);
+      // AFS-135: only whom the workspace has; an administrator may pick from everyone.
+      expect(names.map((n) => n.name)).not.toContain('nina');
+      expect(names.map((n) => n.name)).toContain('gary');
+      const all = await app.inject({
+        method: 'GET',
+        url: '/api/v1/workspaces/net/recipients',
+        headers: { authorization: `Bearer ${token.dana}` },
+      });
+      expect((all.json() as { name: string }[]).map((n) => n.name)).toContain('nina');
     });
 
     it('no route that reaches a workspace is open to anyone merely signed in', () => {
