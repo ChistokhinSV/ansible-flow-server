@@ -596,7 +596,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Notifications',
     'administrator session',
     'server',
-  )('Send no email'),
+  )('Turn email off (forget the mail server)'),
   'POST /api/v1/notifications/webhook-key': S(
     'Notifications',
     'administrator session',

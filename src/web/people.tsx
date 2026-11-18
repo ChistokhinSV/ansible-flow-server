@@ -4,10 +4,10 @@
 // AFS-87: people and groups are two tabs, each a table first with its add form behind a button; a
 // person's page starts with what they reach and ends with disable and delete; a group's page
 // starts with its members and the workspaces that name it.
-import { useEffect, useId, useState } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
 import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
 import { api, type Group, type User } from './api';
-import { Link, navigate } from './router';
+import { Link, navigate, noteHere } from './router';
 import { TokensPanel } from './tokens';
 import {
   Breadcrumb,
@@ -272,9 +272,14 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
   // The tab whose add form is open; going to the other tab leaves it closed there.
   const [adding, setAdding] = useState<'people' | 'groups'>();
   const [added, setAdded] = useState<{ to: string; name: string }>();
+  // AFS-153: what was done on the page before (a person or group deleted).
+  const [deleted, setDeleted] = useState(noteHere);
   // AFS-144: the "Added" note belongs to the tab it was added on: another tab clears it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
-  useEffect(() => setAdded(undefined), [tab]);
+  useEffect(() => {
+    setAdded(undefined);
+    setDeleted(noteHere());
+  }, [tab]);
   const open = adding === tab;
   const done = (to: string, name: string, reload: () => void) => {
     setAdding(undefined);
@@ -329,6 +334,11 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
       {added && (
         <p className="notice ok" role="status">
           Added <Link to={added.to}>{added.name}</Link>.
+        </p>
+      )}
+      {deleted && !added && (
+        <p className="notice ok" role="status">
+          {deleted}
         </p>
       )}
       {tab === 'people' ? (
@@ -509,7 +519,7 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
                 )
                   return;
                 await api.deleteUser(user.id);
-                navigate('/admin/people');
+                navigate('/admin/people', { note: `Deleted ${user.name || user.login}.` });
               })
             }
           >
@@ -518,6 +528,25 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
         </div>
       )}
     </section>
+  );
+}
+
+/** AFS-153: a person's groups by name, each linked to its page. */
+function GroupLinks({ names }: { names: string[] }) {
+  const groups = useLoad(api.groups, []);
+  const idOf = new Map((groups.data ?? []).map((g) => [g.name, g.id]));
+  return (
+    <>
+      {names.map((name, i) => {
+        const id = idOf.get(name);
+        return (
+          <Fragment key={name}>
+            {i > 0 && ', '}
+            {id ? <Link to={`/admin/groups/${id}`}>{name}</Link> : name}
+          </Fragment>
+        );
+      })}
+    </>
   );
 }
 
@@ -613,7 +642,7 @@ export function UserPage({ id, me }: { id: string; me: User }) {
               <p className="muted">In no group. Members are chosen on a group's page.</p>
             ) : (
               <p>
-                {user.groups.join(', ')}{' '}
+                <GroupLinks names={user.groups} />{' '}
                 <span className="muted">· members are chosen on a group's page</span>
               </p>
             )}
@@ -771,7 +800,7 @@ function NamedIn({ group }: { group: Group }) {
   const rows = load.data ?? [];
   return (
     <section className="panel" aria-labelledby="named-in">
-      <h2 id="named-in">Where it is named</h2>
+      <h2 id="named-in">Access this group gives</h2>
       <Loading state={load} />
       {load.data && rows.length === 0 && (
         <p className="muted">No workspace gives this group a level.</p>
@@ -846,7 +875,7 @@ export function GroupPage({ id }: { id: string }) {
                   return;
                 try {
                   await api.deleteGroup(group.id);
-                  navigate('/admin/groups');
+                  navigate('/admin/groups', { note: `Deleted the group ${group.name}.` });
                 } catch (e) {
                   setError(messageOf(e));
                 }
