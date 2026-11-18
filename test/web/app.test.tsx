@@ -648,7 +648,14 @@ describe('signed in', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         origin: window.location.origin,
-        data: { type: 'afs-draft-people', people: [{ login: 'mia', name: 'Mia Ortega' }] },
+        // The list has the person looking too (AFS-136: not named as someone else).
+        data: {
+          type: 'afs-draft-people',
+          people: [
+            { login: omar.login, name: omar.name },
+            { login: 'mia', name: 'Mia Ortega' },
+          ],
+        },
       }),
     );
     window.dispatchEvent(
@@ -657,7 +664,7 @@ describe('signed in', () => {
         data: { type: 'afs-draft-edit', by: 'Mia Ortega', steps: ['Pre-checks'] },
       }),
     );
-    await waitFor(() => expect(bar.textContent).toContain('here now: Mia Ortega'));
+    await waitFor(() => expect(bar.textContent).toContain('here now: you, Mia Ortega.'));
     expect(bar.textContent).toContain('Mia Ortega changed Pre-checks');
     type("What changed (the commit's message)", 'Safer pre-checks');
     // AFS-136: with Mia here, Save names her first.

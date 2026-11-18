@@ -341,7 +341,8 @@ export function FlowPage({
           <DraftBar
             draft={editing}
             frame={() => stage.current?.querySelector('iframe') ?? null}
-            people={people}
+            // AFS-136: the others; the page's list has this person too.
+            people={people.filter((p) => p.login !== me.login)}
             edits={edits}
             onDone={stopEditing}
             {...(outside
@@ -504,8 +505,9 @@ function DraftBar({
     <section className="panel draft-bar" aria-label="Editing">
       <p>
         <strong>Editing</strong> · here now:{' '}
-        {people.length ? people.map((p) => p.name).join(', ') : 'only you'}. Edits are shared at
-        once; Ctrl+Z takes back your own last one. Runs use saved flows: Save, then launch.
+        {people.length ? `you, ${people.map((p) => p.name).join(', ')}` : 'only you'}. Edits are
+        shared at once; Ctrl+Z takes back your own last one. Runs use saved flows: Save, then
+        launch.
       </p>
       {newest ? (
         <p className="muted draft-edits" aria-live="polite">
