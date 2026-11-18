@@ -84,15 +84,17 @@ Code. Everyone who edits the same flow edits one shared draft:
   the order it gets them, and everyone's canvas shows the result. Changes to different steps all
   apply; when two people change the same field, the later one wins. The draft bar says who is
   here and what the others changed last.
-- **Ctrl+Z takes back your own last edit**, and leaves the others' alone. When someone changed the
-  same place after you, it is refused with what they changed.
+- **Ctrl+Z takes back your own last edit**, says which step it was, and leaves the others' alone.
+  When someone changed the same place after you, it is refused with what they changed.
 - **Save** makes one commit on the project's branch, with your message, by you, and
   `Co-authored-by` for everyone else who edited. For a project with an external repository the
   commit is pushed there first, only if the branch there has not moved. When the branch moved
   since the draft began, the draft is merged onto it step by step first; places both changed are
   listed, and **Save with the draft's side** takes the draft's version of those. While you edit,
   a note says when someone changes or removes the flow on the branch (a push from VS Code, another
-  save), so nobody's work is saved over unknowingly.
+  save), so nobody's work is saved over unknowingly. When others are in the draft, **Save** names
+  them first, and their pages send what they are still typing before the commit is made.
+  Saves are listed among the project's pushes (Branches).
 - **New flow** (a project's Flows) makes the file in one commit and opens it for editing. An empty
   project the server hosts offers it too: the flow is the project's first commit.
 - **An empty flow starts from something.** The canvas of a flow with no step yet offers what VS
@@ -109,8 +111,9 @@ Code. Everyone who edits the same flow edits one shared draft:
   - **Get Started** opens the [first project](first-project.md) walkthrough in a new tab.
     Once the flow has a step, starting from something is refused: it never writes over work.
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
-  by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard** it. Runs take
-  the flow from the branch, so a draft runs only once saved.
+  by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard the draft** there
+  without opening it. A draft nobody changed is dropped when you stop editing it. Runs take the flow
+  from the branch, so a draft runs only once saved: while you edit, the canvas has no Run buttons.
 - **Binding steps** searches the module catalog of the flow's image (its launch configuration's
   environment or image, else the server's default `AFS_EE_IMAGE`). The first time an image is
   asked for, the server reads its plugin docs with the designer's probe (a few minutes; the

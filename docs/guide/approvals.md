@@ -41,8 +41,8 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
   -d '{"decision":"approved","comment":"Window confirmed with the NOC"}'
 ```
 
-| Address (under `/api/v1`)        | Does                                                                          | Who                          |
-| -------------------------------- | ----------------------------------------------------------------------------- | ---------------------------- |
-| `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide  | signed in                    |
-| `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom, when, why; `mayDecide`, `why` | `ro`                         |
-| `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key       | `approve`, and the approvers |
+| Address (under `/api/v1`)        | Does                                                                                                                                    | Who                          |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided | signed in                    |
+| `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom, when, why; `mayDecide`, `why`                                                           | `ro`                         |
+| `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                 | `approve`, and the approvers |

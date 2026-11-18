@@ -10,6 +10,8 @@ All notable changes to Ansible Flow Server.
 - A project started from a sample comes with a launch configuration of its flow, inputs filled in for the sample's hosts, so **Launch** runs it at once.
 - The launch page says how many of the hosts a **Limit** leaves (and warns when it leaves none), and names targets that are not in the inventory.
 - Workspace and project pages say what your own access there is.
+- An approval shows the hosts waiting at it. The Approvals page lists the approvals decided lately, with who decided and why (`GET /api/v1/approvals?decided=1`).
+- A flow's draft can be discarded from the flow page, without opening it. In full screen, **Exit full screen** stays in sight.
 
 ### Changed
 
@@ -17,9 +19,12 @@ All notable changes to Ansible Flow Server.
 - **Approve** and **Reject** ask once more and say where the hosts go; rejecting needs a comment. The Approvals page says what you just decided, the sidebar count goes down at once, and every approval says who may decide it. The audit log keeps the approval's name and the comment.
 - A real launch, disabling a person and **Administrators only** for passwords ask first. Password sign-in cannot be limited to administrators while no sign-in provider or directory is enabled.
 - A disabled person who types the right password is told the account is disabled, not that the password is wrong.
-- **Save** and **Discard** of a flow's draft name who else is editing it before they go ahead, and **Save** takes in the field you are still typing in. The latest change by someone else shows on one line, so the canvas no longer moves down. A draft nobody changed is not shown as unsaved edits, and is dropped when you stop editing it.
+- **Save** and **Discard** of a flow's draft name who else is editing it before they go ahead. **Save** takes in what everyone in the draft is still typing: the others' pages send it first. The latest change by someone else shows on one line, so the canvas no longer moves down. A draft nobody changed is not shown as unsaved edits, and is dropped when you stop editing it.
 - The notification recipients a launch configuration offers are the people and groups of its workspace (administrators still see everyone).
 - Something you may not see gets the same "No such …" answer as something that does not exist.
+- Ctrl+Z in a draft says which step it took back. While a draft is edited it has no Run buttons (runs use saved flows).
+- **Save as Launch Configuration** in the canvas's launch dialog is offered only to those who may add one. Empty lists say who adds things, someone without access to any workspace is told to ask an administrator, and fields that cannot be used look it.
+- The Access tab names people by their names and flows by theirs; taking access back names the flow.
 
 ### Fixed
 
@@ -31,6 +36,7 @@ All notable changes to Ansible Flow Server.
 - While a run goes on after an approval, the steps before it keep their results on the canvas.
 - **Open in Text Editor** on a run's or flow's canvas opens the flow's file on the project's Files tab.
 - The launch page of a configuration whose flow was deleted says why it cannot launch, not "The server answered 422"; a missing flow's page offers no **Edit** or new configuration.
+- Saves of a flow's draft are listed among the pushes through the server. After **Copy the flow**, the copy's page closes the form and shows the new commit. The notice of what a flow was imported from goes once the import is taken back.
 - **Delete the flow** cannot be sent twice; signing out leaves the address of the last page; the token form starts from its defaults; a credential that launch configurations use cannot be deleted; deleting an environment returns to Environments.
 - A project started from the **Edge baseline** sample runs: its steps use the roles the sample brings. Before, its first run failed with "the role netops.baseline.push_ntp_aaa was not found", and Push baseline showed as an empty subflow. A project made from it before keeps that flow; start a new one, or copy the sample's flow over it.
 - Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
