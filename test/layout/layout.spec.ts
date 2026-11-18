@@ -2,7 +2,8 @@
 // two Playwright projects). On each page: nothing scrolls the page sideways, the breadcrumb stays
 // on a line or two, no control is off the side of the window, nothing spills out of the page's
 // column, and the flow's canvas has room. The checks come from the exploration rig's layout look
-// (AFS-127, test/explore/hub.mjs).
+// (AFS-127, test/explore/hub.mjs). AFS-154: every page ends at one right edge, and no table cell is
+// covered (by a button column that stays in place).
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -73,6 +74,58 @@ function look() {
     }
     for (const s of spills) out.push(`spills out of the page: ${s}`);
   }
+
+  // AFS-154: one frame. Every page ends where the top bar (its search box) ends, and nothing on it
+  // reaches past that edge: a flow, a run's side panel, the files, a box that says not found.
+  const bar = document.querySelector('.bar');
+  if (main && bar) {
+    const inner = (e: Element) =>
+      e.getBoundingClientRect().right - (Number.parseFloat(getComputedStyle(e).paddingRight) || 0);
+    const frame = inner(bar);
+    const page = inner(main);
+    if (Math.abs(frame - page) > 1)
+      out.push(`the page ends at x=${Math.round(page)}, the top bar at x=${Math.round(frame)}`);
+    const past = new Set<string>();
+    for (const e of main.querySelectorAll('*')) {
+      if (past.size > 5) break;
+      if (e.closest('svg') || !vis(e)) continue;
+      const r = e.getBoundingClientRect();
+      if (r.right > frame + 1 && !contained(e, main))
+        past.add(`${name(e)} at x=${Math.round(r.right)}`);
+    }
+    for (const s of past) out.push(`past the frame's right edge (x=${Math.round(frame)}): ${s}`);
+  }
+
+  // AFS-154: no table cell lies under another: a button column that stays in place (sticky)
+  // covered the values beside it on a phone.
+  const covered = new Set<string>();
+  for (const row of document.querySelectorAll('main tr')) {
+    const cells = [...row.children].filter(vis);
+    for (const held of cells.filter((c) => getComputedStyle(c).position === 'sticky')) {
+      const a = held.getBoundingClientRect();
+      for (const c of cells) {
+        if (c === held) continue;
+        const b = c.getBoundingClientRect();
+        const wide = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const tall = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (wide > 2 && tall > 2) covered.add(`${name(c)} lies under ${name(held)}`);
+      }
+    }
+  }
+  // And what is in sight: a point inside each cell shows that cell, not something over it.
+  for (const c of document.querySelectorAll('main td')) {
+    if (covered.size > 5 || !vis(c)) continue;
+    const r = c.getBoundingClientRect();
+    const x = r.left + Math.min(r.width / 2, 12);
+    const y = r.top + r.height / 2;
+    if (x < 0 || x > W || y < 0 || y > window.innerHeight) continue;
+    const box = contained(c, document.body)?.getBoundingClientRect();
+    if (box && (x < box.left || x > box.right)) continue;
+    const hit = document.elementFromPoint(x, y);
+    if (hit && !c.contains(hit) && !hit.contains(c))
+      covered.add(`${name(c)} lies under ${name(hit)}`);
+  }
+  for (const s of covered) out.push(`a table cell is covered: ${s}`);
 
   return [...new Set(out)];
 }

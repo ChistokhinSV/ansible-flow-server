@@ -13,7 +13,9 @@ endpoint for agents.
    Hub) or as a Linux service.
 2. **[Your first project](first-project.md)**: make the first administrator, a workspace and a
    project from a sample, launch a flow, and decide its approval. 15 minutes.
-3. Give people access: **[People, groups and sign-in](people-and-sign-in.md)**.
+3. **[Your first flow](first-flow.md)**: a flow made in the web pages, saved and launched. 10
+   minutes.
+4. Give people access: **[People, groups and sign-in](people-and-sign-in.md)**.
 
 ## Running flows
 

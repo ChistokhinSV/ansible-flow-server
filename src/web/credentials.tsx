@@ -16,7 +16,7 @@ import {
 } from '../server/secrets/kinds';
 import { api, type Credential } from './api';
 import { Link } from './router';
-import { Field, Form, Labelled, Loading, messageOf, refuse, useLoad } from './ui';
+import { Field, Form, Labelled, Loading, messageOf, refuse, Scroll, useLoad } from './ui';
 
 export const KIND_LABEL: Record<CredentialKind, string> = {
   ssh_key: 'SSH key',
@@ -436,7 +436,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
         </p>
       )}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -504,7 +504,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       {admin &&
         list.data?.map(

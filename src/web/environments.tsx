@@ -16,6 +16,7 @@ import {
   messageOf,
   PageHead,
   refuse,
+  Scroll,
   Time,
   useFieldProblem,
   useLoad,
@@ -122,7 +123,7 @@ export function WorkspaceEnvironments({
         <p className="empty">No environment yet: runs use the server's default image.</p>
       )}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -158,7 +159,7 @@ export function WorkspaceEnvironments({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );
@@ -463,7 +464,7 @@ function Builds({
   if (!builds.length) return <p className="empty">Not built yet.</p>;
   return (
     <>
-      <div className="scroll">
+      <Scroll>
         <table>
           <thead>
             <tr>
@@ -505,7 +506,7 @@ function Builds({
             ))}
           </tbody>
         </table>
-      </div>
+      </Scroll>
       {open && (
         <>
           <h3>Log of build {builds.find((b) => b.id === open)?.number}</h3>
@@ -912,7 +913,7 @@ export function EnvironmentCheck({
           {c.lines.length === 0 ? (
             <p className="muted">Only what comes with ansible-core.</p>
           ) : (
-            <div className="scroll">
+            <Scroll>
               <table>
                 <thead>
                   <tr>
@@ -954,7 +955,7 @@ export function EnvironmentCheck({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Scroll>
           )}
           {c.environment && c.lines.length > 0 && (
             <p className={`notice ${c.ok ? 'ok' : 'error'}`} role="status">

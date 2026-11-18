@@ -3,7 +3,7 @@
 // may do. The list comes first: making a token is behind a button (AFS-88).
 import { type ReactNode, useId, useState } from 'react';
 import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
-import { Copyable, Field, Form, Loading, Time, useLoad, useRefresh } from './ui';
+import { Copyable, Field, Form, Loading, Scroll, Time, useLoad, useRefresh } from './ui';
 
 export function TokensPanel({
   load,
@@ -66,7 +66,7 @@ export function TokensPanel({
       <Loading state={list} />
       {list.data?.length === 0 && <p className="muted">{none}</p>}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -119,7 +119,7 @@ export function TokensPanel({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       {add && adding && (
         <section className="panel sheet" aria-label="Make a token">

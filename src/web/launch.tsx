@@ -34,9 +34,12 @@ import {
   Fold,
   Labelled,
   Loading,
+  limitNote,
   messageOf,
   PageHead,
+  ProjectName,
   reveal,
+  Scroll,
   Tabs,
   Time,
   useLoad,
@@ -124,7 +127,7 @@ export function LaunchConfigsSection({
         </p>
       )}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -189,7 +192,7 @@ export function LaunchConfigsSection({
               })}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );
@@ -249,7 +252,11 @@ function Crumbs({
       <Link to={`/w/${workspace}`}>
         <WorkspaceName workspace={workspace} />
       </Link>{' '}
-      / <Link to={base(workspace, project)}>{project}</Link> /{' '}
+      /{' '}
+      <Link to={base(workspace, project)}>
+        <ProjectName workspace={workspace} project={project} />
+      </Link>{' '}
+      /{' '}
       {config && (
         <>
           <Link to={launchAddress(workspace, project, config.id)}>{config.name}</Link> /{' '}
@@ -1528,7 +1535,7 @@ function ConfigForm({
     <form className="form wide" onSubmit={save} ref={formRef}>
       {/* AFS-94: fields that belong together share a row; what is chosen first comes first. */}
       <div className="pair">
-        <Labelled label="Name" problem={at('name')}>
+        <Labelled label="Name" problem={at('name')} hint={limitNote(input.name, 100)}>
           {(props) => (
             <input
               {...props}
@@ -1721,7 +1728,10 @@ function ConfigForm({
                 )
               }
             />
-            {k.name} <span className="muted">· {KIND_LABEL[k.kind] ?? k.kind}</span>
+            {/* AFS-154: the name and its kind wrap as one text beside the box. */}
+            <span>
+              {k.name} <span className="muted">· {KIND_LABEL[k.kind] ?? k.kind}</span>
+            </span>
           </label>
         ))}
         <small id="credentials-hint" className="muted">

@@ -11,7 +11,17 @@ import { Link } from './router';
 import { ACTIVE, RunWords } from './runs';
 import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
-import { Breadcrumb, Icon, Loading, messageOf, PageHead, Time, useLoad, WorkspaceName } from './ui';
+import {
+  Breadcrumb,
+  Icon,
+  Loading,
+  messageOf,
+  PageHead,
+  ProjectName,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 /**
  * One flow on the designer's canvas, read-only. The designer is a page of its own
@@ -292,8 +302,11 @@ export function FlowPage({
           <Link to={`/w/${workspace}`}>
             <WorkspaceName workspace={workspace} />
           </Link>{' '}
-          / <Link to={`/w/${workspace}/${key}`}>{key}</Link> /{' '}
-          <span aria-current="page">{file}</span>
+          /{' '}
+          <Link to={`/w/${workspace}/${key}`}>
+            <ProjectName workspace={workspace} project={key} />
+          </Link>{' '}
+          / <span aria-current="page">{file}</span>
         </Breadcrumb>
         <PageHead
           title={!found.loading && !project ? 'Not found' : title}

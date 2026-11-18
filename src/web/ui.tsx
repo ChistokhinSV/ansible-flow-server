@@ -165,6 +165,29 @@ export function Labelled({
   );
 }
 
+/**
+ * AFS-154: what a field says once its text is as long as it may be: a longer paste was cut there
+ * by the browser without a word.
+ */
+export function limitNote(value: unknown, max: number | undefined): string | undefined {
+  return typeof value === 'string' && max !== undefined && max > 0 && value.length >= max
+    ? `At most ${max} characters: anything after that is left out.`
+    : undefined;
+}
+
+/** A field's hint, and the note of `limitNote` after it. */
+export function withLimit(hint: ReactNode, value: unknown, max: number | undefined): ReactNode {
+  const note = limitNote(value, max);
+  if (!note) return hint;
+  return hint ? (
+    <>
+      {hint} {note}
+    </>
+  ) : (
+    note
+  );
+}
+
 export function Field({
   label,
   hint,
@@ -172,7 +195,12 @@ export function Field({
   ...input
 }: { label: string; hint?: ReactNode; problem?: string } & InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <Labelled label={label} hint={hint} problem={problem} name={input.name}>
+    <Labelled
+      label={label}
+      hint={withLimit(hint, input.value, input.maxLength)}
+      problem={problem}
+      name={input.name}
+    >
       {(props) => <input {...props} {...input} />}
     </Labelled>
   );
@@ -465,10 +493,13 @@ export function PageHead({
   );
 }
 
-/** AFS-143: a link to the guide page about where it is, opened beside the app. */
+/**
+ * AFS-143: a link to the guide page about where it is, opened beside the app. AFS-155: the guide
+ * this server serves.
+ */
 export function HelpLink({ page }: { page: string }) {
   return (
-    <a className="help-link" href={guide(page)} target="_blank" rel="noreferrer">
+    <a className="help-link" href={guide(page)} target="_blank" rel="noopener">
       Help
     </a>
   );
@@ -577,6 +608,40 @@ export function WorkspaceName({ workspace }: { workspace: string }) {
   return <>{name ?? workspace}</>;
 }
 
+/** The projects' names by workspace and key, read once per workspace for the breadcrumbs. */
+const projectNames = new Map<string, Promise<Map<string, string>>>();
+
+/** AFS-154: a project in a breadcrumb by its name ("Edge switches"), not its key ("edge"). */
+export function ProjectName({ workspace, project }: { workspace: string; project: string }) {
+  const [name, setName] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    let asked = projectNames.get(workspace);
+    if (!asked) {
+      asked = api.projects(workspace).then(
+        (list) => new Map(list.map((p) => [p.key, p.name])),
+        () => new Map(),
+      );
+      projectNames.set(workspace, asked);
+    }
+    const names = asked;
+    void names.then((known) => {
+      const found = known.get(project);
+      // A project made since is read again next time.
+      if (!found && projectNames.get(workspace) === names) projectNames.delete(workspace);
+      if (live) setName(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, [workspace, project]);
+  return (
+    <span className="crumb-name" title={name ?? project}>
+      {name ?? project}
+    </span>
+  );
+}
+
 /** A page's breadcrumbs: in the top bar beside the search box, so the page starts with its title. */
 export function Breadcrumb({ children }: { children: ReactNode }) {
   const slot = useContext(BarSlot);
@@ -612,5 +677,54 @@ export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' }) {
         <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
       )}
     </svg>
+  );
+}
+
+/**
+ * AFS-154: each cell of the tables in `box` carries the name of its column (`data-label`), which
+ * a phone shows beside the value when the table's rows stack into cards. A column whose heading
+ * is only for screen readers (a row's buttons) gets none.
+ */
+export function labelCells(box: HTMLElement): void {
+  for (const table of box.querySelectorAll('table')) {
+    const heads = [...(table.tHead?.rows[0]?.cells ?? [])].map((th) =>
+      th.classList.contains('sr-only') || th.querySelector(':scope > .sr-only:only-child')
+        ? ''
+        : (th.textContent ?? '').trim(),
+    );
+    for (const body of table.tBodies)
+      for (const row of body.rows) {
+        let column = 0;
+        for (const cell of row.cells) {
+          const label = cell.colSpan === 1 ? (heads[column] ?? '') : '';
+          if (label) {
+            if (cell.dataset.label !== label) cell.dataset.label = label;
+          } else if (cell.dataset.label !== undefined) delete cell.dataset.label;
+          column += cell.colSpan;
+        }
+      }
+  }
+}
+
+/**
+ * A box for a table that may be wider than the page: it scrolls sideways with a shade at the side
+ * that has more. AFS-154: on a phone its rows stack instead (styles.css), each value named by its
+ * column.
+ */
+export function Scroll({ children, className }: { children: ReactNode; className?: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const at = box.current;
+    if (!at) return;
+    labelCells(at);
+    // Rows come and go with what is loaded; setting the labels is not a change watched here.
+    const watch = new MutationObserver(() => labelCells(at));
+    watch.observe(at, { childList: true, subtree: true, characterData: true });
+    return () => watch.disconnect();
+  }, []);
+  return (
+    <div ref={box} className={className ? `scroll ${className}` : 'scroll'}>
+      {children}
+    </div>
   );
 }

@@ -10,7 +10,7 @@ import {
   type MyAccess,
   type ProjectAccess,
 } from './api';
-import { Loading, messageOf, useLoad, useReveal } from './ui';
+import { Loading, messageOf, Scroll, useLoad, useReveal } from './ui';
 
 const RANK: Record<Level, number> = { ro: 1, operator: 2, rw: 3 };
 /** True when `have` is at least `need`. */
@@ -264,7 +264,7 @@ export function WorkspaceAccess({
       <h3>Who can do what</h3>
       <Loading state={who} />
       {!!who.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -299,7 +299,7 @@ export function WorkspaceAccess({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
 
       <div className="panel-head">
@@ -321,7 +321,7 @@ export function WorkspaceAccess({
         <p className="muted">No grants yet: only administrators see this workspace.</p>
       )}
       {!!grants.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -379,7 +379,7 @@ export function WorkspaceAccess({
               })}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
 
       {giving && (

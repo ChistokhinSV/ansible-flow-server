@@ -38,6 +38,8 @@ All notable changes to Ansible Flow Server.
 - After a save, the page says the commit (a link to the flow at it) and the co-authors. The Branches tab's pushes name the person, say how each came (git push, draft saved, files changed, branch, project started) and show the new commit's message.
 - Full screen has a **Save** while editing a draft.
 - The draft bar's line of what the others did says what each edit was ("removed Ping", "changed Backup (timeout)", "changed the flow's goal"); **N earlier** lists the ones before.
+- The server shows its own user guide, as it is for its version, at `/help/guide/`: it works without internet. **Help**, the **Help** links beside page titles, the not-found pages and the certificate hint open it; a link in it that leaves the server says it opens GitHub.
+- **Get Started** on an empty canvas opens a new guide page, **Your first flow**: a flow made in the pages, step by step, from New flow to a launch.
 
 ### Changed
 
@@ -88,6 +90,11 @@ All notable changes to Ansible Flow Server.
 - The Run tab of a flow being edited says runs use the saved flow (save, then launch), not AWX or the local environment.
 - "Reading the hosts from the inventory…" shows only when reading takes a while, and no longer stays over the launch dialog.
 - **New configuration…** from the canvas's Run goes back to the flow once the configuration is saved.
+- Every page has the same width and right edge as the top bar: the flow page, the Files tab, a run's page (its side panel too) and the not-found box no longer reach further. On a very wide screen every page widens alike.
+- On a phone, tables show each row as a card, each value named by its column, with the row's buttons under it: Take back, Launch, Revoke, Change and Delete no longer cover other columns.
+- Breadcrumbs name the project, not its key.
+- A button that cannot be pressed looks it: faded, unfilled, with a dashed edge.
+- A field cut at its length (a pasted name of more than 100 characters) says so under it.
 
 ### Fixed
 
@@ -167,6 +174,11 @@ All notable changes to Ansible Flow Server.
 - After **Save with the draft's side** (now: per place), the flow's page shows the new commit at once, not the one shown before editing.
 - Your own push to the branch while you edit is "You changed this flow", not your name and "theirs"; your own save made in another tab says "You saved the draft".
 - Ctrl+Z with nothing to undo, and a save that clashes with the branch, no longer log errors in the browser's console.
+- A status line that wraps (a project's, a launch configuration's) no longer starts a line with a dot.
+- A long credential name on a launch configuration's form wraps, instead of making the page scroll sideways.
+- The Files tab no longer makes the window scroll by a few pixels; after deleting the picked file or folder and saving, the pane no longer says it is not there.
+- The Help page's descriptions line up in every section; the side menu's **Workspaces** link is as easy to hit as the others.
+- A field with a problem keeps its red mark while it has the focus.
 
 ## 1.0.0 — First release
 

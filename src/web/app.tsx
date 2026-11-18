@@ -13,6 +13,7 @@ import { Entry, Setup, SignIn } from './entry';
 import { EnvironmentPage } from './environments';
 import { FilesPage } from './files';
 import { FlowPage } from './flow';
+import { GuidePage } from './guidePage';
 import { HelpPage } from './help';
 import { Home } from './home';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
@@ -65,6 +66,10 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/docs/api') return <ApiDocs />;
   // AFS-143: help, at the addresses people try.
   if (path === '/help' || path === '/guide' || path === '/docs') return <HelpPage />;
+  // AFS-155: the guide of this server's version, served by the server itself.
+  if (path === '/help/guide' || path === '/help/guide/') return <GuidePage page="README.md" />;
+  const guidePage = match('/help/guide/:page', path);
+  if (guidePage?.page) return <GuidePage page={guidePage.page} />;
   if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/library') return <LibraryPage />;
   // AFS-87: the side menu lists the administration's pages; its own address opens the first.
