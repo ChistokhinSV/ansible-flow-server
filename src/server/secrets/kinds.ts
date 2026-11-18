@@ -61,11 +61,20 @@ export const BECOME_METHODS = [
 ];
 
 /**
+ * AFS-153: a visible field's value as kept: a registry host typed as an address
+ * (https://registry.example.net:5000/) is its host and port.
+ */
+export function fieldValue(name: string, value: string): string {
+  const v = value.trim();
+  return name === 'host' ? v.replace(/^https?:\/\//i, '').replace(/\/+$/, '') : v;
+}
+
+/**
  * AFS-140: what is wrong with a visible field's value, in words, or undefined. The pages check
  * with it before sending; the server checks with it again.
  */
 export function fieldProblem(name: string, value: string): string | undefined {
-  const v = value.trim();
+  const v = fieldValue(name, value);
   if (!v) return undefined;
   switch (name) {
     case 'method':
@@ -76,7 +85,7 @@ export function fieldProblem(name: string, value: string): string | undefined {
     case 'host':
       return /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?$/.test(v)
         ? undefined
-        : 'A registry host is a name with a port if needed (registry.example.net:5000), without https:// or a path.';
+        : 'A registry host is a name with a port if needed (registry.example.net:5000), without a path.';
     case 'url': {
       let url: URL | undefined;
       try {
@@ -86,7 +95,7 @@ export function fieldProblem(name: string, value: string): string | undefined {
       }
       return url && (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname
         ? undefined
-        : 'An AWX address starts with https:// (https://awx.example.net).';
+        : 'An AWX address starts with https:// or http:// (https://awx.example.net).';
     }
     case 'vaultId':
       return /^[A-Za-z0-9_.-]{1,100}$/.test(v)

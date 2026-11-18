@@ -10,7 +10,14 @@ import type { Schema } from '../db/schema';
 import { SEALED_SETTINGS, settingContext } from '../notify/settings';
 import { resealHookSecrets } from '../projects/store';
 import { open, seal } from './crypto';
-import { type CredentialKind, fieldProblem, KINDS, privateKeyProblem, SPEC } from './kinds';
+import {
+  type CredentialKind,
+  fieldProblem,
+  fieldValue,
+  KINDS,
+  privateKeyProblem,
+  SPEC,
+} from './kinds';
 import type { MasterKey } from './masterKey';
 
 export type { CredentialKind } from './kinds';
@@ -131,7 +138,7 @@ function checked(
   for (const [name, value] of Object.entries(fields)) {
     if (!spec.fields.includes(name))
       throw invalid(`A ${kind} credential has no field "${name.slice(0, 40)}"`);
-    const trimmed = text(value, name, 500).trim();
+    const trimmed = fieldValue(name, text(value, name, 500));
     const problem = fieldProblem(name, trimmed);
     if (problem) throw invalid(problem, name);
     if (trimmed) cleanFields[name] = trimmed;

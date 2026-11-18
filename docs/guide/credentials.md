@@ -48,7 +48,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 
 - **The open part is checked:** a become method is a plugin's name (`sudo`, `su`,
   `community.general.doas`; the form offers the usual ones), a registry host is a host name with a
-  port if needed and no `https://` or path, an AWX address starts with `https://` or `http://`, a
+  port if needed and no path (a typed `https://` and a slash at the end are left out), an AWX address starts with `https://` or `http://`, a
   vault id is one word. A private key is the whole key, from `-----BEGIN` to the `-----END` line.
   The form checks these before sending and says a problem at its field; two variables of one name,
   and a variable with no value (refused by the server too), are refused there too.

@@ -1654,7 +1654,8 @@ function ConfigForm({
               {environments.data?.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.name}
-                  {e.current ? '' : ' (not built yet)'}
+                  {/* AFS-153: an image is pulled, a definition is built. */}
+                  {e.current ? '' : e.kind === 'spec' ? ' (not built yet)' : ' (not pulled yet)'}
                 </option>
               ))}
               <option value={IMAGE_BY_NAME}>an image by name…</option>

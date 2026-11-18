@@ -86,7 +86,9 @@ describe('execution environments', () => {
         status: 201,
         body: { ...env, id: 'e2', ...(body as object) },
       }),
-      'GET /environments/e2': () => ({ body: { ...env, id: 'e2', name: 'awx' } }),
+      'GET /environments/e2': () => ({
+        body: { ...env, id: 'e2', name: 'awx', kind: 'image', current: undefined },
+      }),
       'GET /environments/e2/builds': () => ({ body: [] }),
     };
     open('/w/net/-/environments');
@@ -94,6 +96,8 @@ describe('execution environments', () => {
       await screen.findByRole('heading', { name: 'Execution environments' })
     ).closest('section') as HTMLElement;
     expect(await within(section).findByText(IMAGE)).toBeTruthy();
+    // AFS-153: Used by in words in every row.
+    expect(within(section).getByText('1 launch configuration')).toBeTruthy();
     fireEvent.click(within(section).getByRole('button', { name: 'Add environment' }));
     fireEvent.change(within(section).getByLabelText('Name'), { target: { value: 'awx' } });
     fireEvent.change(within(section).getByLabelText('Kind'), { target: { value: 'image' } });
@@ -102,6 +106,8 @@ describe('execution environments', () => {
     });
     fireEvent.click(within(section).getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(window.location.pathname).toBe('/w/net/environments/e2'));
+    // AFS-153: an image is pulled, not built.
+    expect(await screen.findByText(/none yet: pull it/)).toBeTruthy();
     expect(sent('POST /workspaces/net/environments')).toEqual([
       { name: 'awx', kind: 'image', image: 'quay.io/ansible/awx-ee:24.6.1' },
     ]);
