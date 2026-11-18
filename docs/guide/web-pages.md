@@ -149,7 +149,9 @@ With `rw` on the workspace you change files: edit text, **New file**, **Upload f
 move** and **Delete** (files and folders). A path is checked as you type it: it stays inside the
 project and does not land on a file or folder that is there. The changes are listed until
 **Save**, which makes one commit of them on the branch, with your message (left empty, the words
-the Message field shows), by you; this browser keeps them meanwhile, and **Take back** drops one. When the branch moved since your first change, Save goes on top of it,
+the Message field shows), by you; this browser keeps them meanwhile, **Take back** drops one, and **Discard all** drops
+them all once you say so. An archive does not replace files that are there without asking: Save
+lists the files it would replace, and **Replace them and save** saves. When the branch moved since your first change, Save goes on top of it,
 unless the branch changed one of the same files: then nothing is saved and those files are
 listed. For a project with an external repository the commit is pushed there first. A Save is
 listed with the pushes and in the audit log (`project.files-save`).
@@ -179,7 +181,9 @@ download); `GET /api/v1/projects/<id>/files/history?commit=&path=` the commits t
 ```
 
 A write takes `text` or `base64`, and `executable: true` for a program. A refusal because the branch
-changed the same files is `409` with `files`.
+changed the same files is `409` with `files`. An `unpack` that would replace files that are there
+(with other content) is refused, `409` with `error: "replaces"` and those `files`, unless it says
+`"replace": true`.
 
 Not there yet: a diff before Save, and a link from a step's template in the designer to its file.
 

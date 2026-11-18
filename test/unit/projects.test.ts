@@ -149,6 +149,16 @@ for (const [name, config] of databases) {
       const moved = await updateProject(db(), made.id, { gitRef: 'release' }, false);
       expect(moved).toMatchObject({ gitRef: 'release', sync: { state: 'never' } });
       expect(moved.commit).toBeUndefined();
+      // AFS-150: a description, kept and taken away; a problem names its field.
+      expect(
+        (await updateProject(db(), made.id, { description: ' Edge firewalls ' }, false))
+          .description,
+      ).toBe('Edge firewalls');
+      expect(
+        (await updateProject(db(), made.id, { description: null }, false)).description,
+      ).toBeUndefined();
+      const bad = await updateProject(db(), made.id, { gitRef: 'a..b' }, false).catch((e) => e);
+      expect(bad).toMatchObject({ code: 'invalid', field: 'gitRef' });
     });
 
     it('a project is due when its time has passed, and never with polling off', async () => {

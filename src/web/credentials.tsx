@@ -15,6 +15,7 @@ import {
   SPEC,
 } from '../server/secrets/kinds';
 import { api, type Credential } from './api';
+import { Link } from './router';
 import { Field, Form, Labelled, Loading, messageOf, refuse, useLoad } from './ui';
 
 export const KIND_LABEL: Record<CredentialKind, string> = {
@@ -133,8 +134,9 @@ function Variables({
     <fieldset>
       <legend>Variables</legend>
       {rows.map((r, i) => (
+        // AFS-150: a grid of fixed columns, so a problem under one field does not move the others.
         // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity but their place
-        <div key={i} className="row">
+        <div key={i} className="variable-row">
           <Field
             label={`Name ${i + 1}`}
             name={`variable-${i}`}
@@ -147,19 +149,26 @@ function Variables({
           />
           <Field
             label={`Value ${i + 1}`}
+            name={`variable-value-${i}`}
             type="password"
             autoComplete="off"
             value={r.value}
             onChange={(e) => set(i, 'value', e.target.value)}
           />
           {rows.length > 1 && (
-            <button
-              type="button"
-              aria-label={`Remove variable ${i + 1}`}
-              onClick={() => onChange(rows.filter((_, j) => j !== i))}
-            >
-              Remove
-            </button>
+            <div className="field">
+              {/* The space of a label, so the button lines up with the inputs. */}
+              <span className="label-space" aria-hidden="true">
+                &nbsp;
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove variable ${i + 1}`}
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              >
+                Remove
+              </button>
+            </div>
           )}
         </div>
       ))}
@@ -209,15 +218,27 @@ function CredentialForm({
   const check = () => {
     if (!name.trim()) refuse('name', 'A name is needed.');
     for (const f of spec.fields) {
+      // AFS-150: said at the field, not as the browser's tooltip.
+      if (spec.required.includes(f) && !(fields[f] ?? '').trim())
+        refuse(f, `${FIELD_LABEL[f] ?? f} is needed.`);
       const problem = fieldProblem(f, fields[f] ?? '');
       if (problem) refuse(f, problem);
     }
     if (!replace) return;
+    for (const f of spec.secret)
+      if (spec.required.includes(f) && !secret[f]) refuse(f, `${FIELD_LABEL[f] ?? f} is needed.`);
     if (kind === 'env') {
       const seen = new Map<string, number>();
       for (const [i, v] of variables.entries()) {
         const n = v.name.trim();
-        if (!n) continue;
+        if (!n) {
+          if (v.value) refuse(`variable-${i}`, 'A name is needed for this value.');
+          continue;
+        }
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
+          refuse(`variable-${i}`, 'Letters, digits and underscores, not starting with a digit.');
+        // AFS-150: an empty value is most likely one forgotten (a Replace gives them all again).
+        if (!v.value) refuse(`variable-value-${i}`, `${n} has no value: give one, or remove it.`);
         const before = seen.get(n);
         if (before !== undefined)
           refuse(
@@ -233,6 +254,7 @@ function CredentialForm({
   return (
     <Form
       open
+      noValidate
       submit={editing ? 'Save' : 'Add credential'}
       onCancel={onCancel}
       onSubmit={async () => {
@@ -340,6 +362,39 @@ function CredentialForm({
   );
 }
 
+/**
+ * AFS-150: what uses a credential: named and linked when the server names them (to
+ * administrators), else counted.
+ */
+function UsedBy({ credential: c, workspace }: { credential: Credential; workspace: string }) {
+  if (c.usedBy === 0) return <>nothing</>;
+  if (!c.uses?.length) return <>{`${c.usedBy} ${c.usedBy === 1 ? 'use' : 'uses'}`}</>;
+  return (
+    <ul className="plain">
+      {c.uses.map((u) => (
+        <li key={`${u.kind}-${u.id ?? u.project}`}>
+          {u.kind === 'launch' && u.id ? (
+            <Link
+              to={`/w/${encodeURIComponent(workspace)}/${encodeURIComponent(u.project)}/launch/${encodeURIComponent(u.id)}/settings`}
+            >
+              {u.name}
+            </Link>
+          ) : (
+            <Link
+              to={`/w/${encodeURIComponent(workspace)}/${encodeURIComponent(u.project)}/settings`}
+            >
+              {u.name}
+            </Link>
+          )}{' '}
+          <span className="muted">
+            {u.kind === 'launch' ? `launch configuration in ${u.project}` : 'its repository'}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** A workspace's credentials. Shown to whoever may see the workspace; changed by administrators. */
 export function WorkspaceCredentials({ workspace, admin }: { workspace: string; admin: boolean }) {
   const list = useLoad(() => api.credentials(workspace), [workspace]);
@@ -406,9 +461,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                   <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
                   <td className="long">{holds(c)}</td>
                   <td>
-                    {c.usedBy === 0
-                      ? 'nothing'
-                      : `${c.usedBy} launch configuration${c.usedBy === 1 ? '' : 's'}`}
+                    <UsedBy credential={c} workspace={workspace} />
                   </td>
                   {admin && (
                     <td>
@@ -428,7 +481,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                           disabled={c.usedBy > 0}
                           title={
                             c.usedBy > 0
-                              ? 'Launch configurations use it: take it out of them first'
+                              ? 'In use (see Used by): take it out of what uses it first'
                               : undefined
                           }
                           onClick={async () => {

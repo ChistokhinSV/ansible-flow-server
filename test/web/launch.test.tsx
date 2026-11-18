@@ -677,6 +677,99 @@ describe('what a level shows', () => {
   });
 });
 
+describe('AFS-150: leaving with typing not saved', () => {
+  const LEAVE = 'Leave this page? What you typed is not saved.';
+  const tab = (name: string) =>
+    within(screen.getByRole('navigation', { name: 'Launch configuration' })).getByRole('link', {
+      name,
+    });
+  const settingsRoutes = () => ({
+    ...common(dana),
+    'GET /projects/p1/access': () => ({
+      body: { admin: true, workspace: 'rw', approve: true, flows: {} },
+    }),
+    'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
+    'GET /workspaces/net/credentials': () => ({ body: [] }),
+    'GET /workspaces/net/environments': () => ({ body: [] }),
+  });
+
+  it("a configuration's Settings ask before a tab loses the typing; typing it back does not", async () => {
+    routes = settingsRoutes();
+    const questions: string[] = [];
+    let answer = false;
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return answer;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1/settings');
+    render(<App />);
+    const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+    fireEvent.change(name, { target: { value: 'a10 lc one' } });
+    fireEvent.click(tab('Launch'));
+    expect(questions).toEqual([LEAVE]);
+    expect(window.location.pathname).toBe('/w/net/core/launch/c1/settings');
+    expect(name.value).toBe('a10 lc one');
+    // As it was saved: nothing to lose, nothing asked.
+    fireEvent.change(name, { target: { value: 'Nightly check' } });
+    fireEvent.click(tab('Runs'));
+    expect(questions).toHaveLength(1);
+    await waitFor(() => expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs'));
+    answer = true;
+  });
+
+  it('the launch page asks when the configuration is left, not on its own tabs', async () => {
+    routes = {
+      ...settingsRoutes(),
+      'GET /runs?config=c1&limit=100': () => ({ body: [] }),
+    };
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/^retries/), { target: { value: '5' } });
+    // Runs is a tab of the same page, which keeps the typing.
+    fireEvent.click(tab('Runs'));
+    await waitFor(() => expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs'));
+    expect(questions).toEqual([]);
+    // The project's page does not.
+    fireEvent.click(screen.getByRole('link', { name: 'core' }));
+    expect(questions).toEqual([LEAVE]);
+    expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs');
+  });
+
+  it('a new configuration asks before the page is left', async () => {
+    routes = settingsRoutes();
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Upgrade' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(questions).toEqual([LEAVE]);
+    expect(window.location.pathname).toBe('/w/net/core/launch/new');
+  });
+
+  it('an operator who types the address is told it needs rw, not given the form', async () => {
+    routes = {
+      ...common(omar),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: { [flow.file]: 'operator' } },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    expect(await screen.findByText(/needs rw on the flow it runs/)).toBeTruthy();
+    expect(screen.queryByLabelText('Name')).toBeNull();
+    expect(asked.some((a) => a.key.startsWith('GET /workspaces/net/recipients'))).toBe(false);
+  });
+});
+
 describe('adding a launch configuration', () => {
   it('offers the flows, branches and run credentials, and shows a refusal at its field', async () => {
     routes = {

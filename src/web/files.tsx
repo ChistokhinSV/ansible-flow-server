@@ -58,10 +58,7 @@ export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[]
     [...tree.keys()].filter((p) => p === path || p.startsWith(`${path}/`));
   for (const c of changes) {
     if (c.op === 'write') {
-      const size =
-        c.text !== undefined
-          ? new Blob([c.text]).size
-          : Math.floor(((c.base64 ?? '').length * 3) / 4);
+      const size = c.text !== undefined ? new Blob([c.text]).size : base64Size(c.base64 ?? '');
       const was = tree.get(c.path);
       tree.set(c.path, {
         ...(was ?? {}),
@@ -87,6 +84,13 @@ export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[]
       }
   }
   return [...tree.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** AFS-150: the bytes base64 stands for: its padding (= at the end) stands for none. */
+export function base64Size(base64: string): number {
+  const clean = base64.replace(/\s+/g, '');
+  const pad = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - pad);
 }
 
 /** Words for one change in the list (AFS-140: the same words the server commits with). */
@@ -362,7 +366,9 @@ export function FilesPage({
   };
   // AFS-140: each change is added to the set as it is then, so several files picked at once (one
   // change each, made one after the other) are all kept.
-  const change = (c: FileChange, replaceWriteOf?: string) =>
+  const change = (c: FileChange, replaceWriteOf?: string) => {
+    // AFS-150: what the last save said goes once a new change starts.
+    setSaid(undefined);
     setSet((before) => {
       const base = before.base ?? listing.data?.commit;
       const changes =
@@ -375,6 +381,7 @@ export function FilesPage({
       if (id) keepSet(id, branch, next);
       return next;
     });
+  };
 
   const shown = useMemo(
     () => applyChanges(listing.data?.files ?? [], set.changes),
@@ -444,7 +451,13 @@ export function FilesPage({
   const [made, setMade] = useState<string>();
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [said, setSaid] = useState<{ ok?: string; error?: string; files?: string[] }>();
+  const [said, setSaid] = useState<{
+    ok?: string;
+    error?: string;
+    files?: string[];
+    /** AFS-150: `files` are what an archive would replace, asked about before it does. */
+    replaces?: boolean;
+  }>();
   const uploads = useRef<HTMLInputElement>(null);
   const archive = useRef<HTMLInputElement>(null);
   const join = (folderPath: string, name: string) => (folderPath ? `${folderPath}/${name}` : name);
@@ -465,7 +478,7 @@ export function FilesPage({
     e.target.value = '';
     if (f) change({ op: 'unpack', path: here, base64: await base64Of(f) });
   };
-  const save = async () => {
+  const save = async (replace = false) => {
     if (!id || !set.changes.length) return;
     setBusy(true);
     setSaid(undefined);
@@ -475,7 +488,10 @@ export function FilesPage({
         ...(set.base ? { base: set.base } : {}),
         // AFS-140: the message is what the placeholder showed when none is typed.
         message: message.trim() || defaultMessage(set.changes),
-        changes: set.changes,
+        // AFS-150: an archive replaces files that are there only once the person said it may.
+        changes: replace
+          ? set.changes.map((c) => (c.op === 'unpack' ? { ...c, replace: true } : c))
+          : set.changes,
       });
       const n = set.changes.length;
       update({ changes: [] });
@@ -491,6 +507,7 @@ export function FilesPage({
       setSaid({
         error: messageOf(e),
         ...(e instanceof ApiError && e.details.files ? { files: e.details.files } : {}),
+        ...(e instanceof ApiError && e.code === 'replaces' ? { replaces: true } : {}),
       });
     } finally {
       setBusy(false);
@@ -572,7 +589,23 @@ export function FilesPage({
       {said?.error && (
         <div className="notice error" role="alert">
           <p>{said.error}</p>
-          {said.files && (
+          {said.files && said.replaces ? (
+            <>
+              <ul>
+                {said.files.map((f) => (
+                  <li key={f}>
+                    <code>{f}</code>
+                  </li>
+                ))}
+              </ul>
+              <p>Nothing is saved yet. Replace them with the archive's files, or take it back.</p>
+              <p className="actions">
+                <button type="button" onClick={() => void save(true)} disabled={busy}>
+                  Replace them and save
+                </button>
+              </p>
+            </>
+          ) : said.files ? (
             <>
               <ul>
                 {said.files.map((f) => (
@@ -586,7 +619,7 @@ export function FilesPage({
                 now.
               </p>
             </>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -602,7 +635,10 @@ export function FilesPage({
                   type="button"
                   className="link"
                   aria-label={`Take back: ${describe(c)}`}
-                  onClick={() => update({ ...set, changes: set.changes.filter((_, j) => j !== i) })}
+                  onClick={() => {
+                    setSaid(undefined);
+                    update({ ...set, changes: set.changes.filter((_, j) => j !== i) });
+                  }}
                 >
                   Take back
                 </button>
@@ -620,13 +656,24 @@ export function FilesPage({
                   size={50}
                 />
               </label>{' '}
-              <button type="button" className="primary" onClick={save} disabled={busy}>
+              <button type="button" className="primary" onClick={() => void save()} disabled={busy}>
                 {busy ? 'Saving…' : `Save to ${branch}`}
               </button>{' '}
               <button
                 type="button"
                 className="link"
-                onClick={() => update({ changes: [] })}
+                onClick={() => {
+                  // AFS-150: every change goes, and cannot be brought back: asked first.
+                  const n = set.changes.length;
+                  if (
+                    !window.confirm(
+                      `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
+                    )
+                  )
+                    return;
+                  setSaid(undefined);
+                  update({ changes: [] });
+                }}
                 disabled={busy}
               >
                 Discard all

@@ -6,6 +6,9 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- A project's name, description and branch can be changed on its **Settings** tab.
+- A one-time schedule shows its **At** in your own time too.
+- The credentials list names what uses each credential, with links (for administrators).
 - Each approval names who may decide it: its approvers, or the people and groups with approve on the flow or its workspace (`deciders` in the API). The Approvals page shows the run's inputs (secret-looking values as `***`), its workspace and project, and whether it is a real run; the request email carries the inputs too.
 - An empty flow edited in the pages starts from what its canvas offers: **Import Ansible Playbooks…** (a playbook of the project's repository), **Import AWX Workflow or Job Template…** (through a new credential kind, `awx`: an address and a token), **Open Sample Flow…** and **Get Started**. Before, only **Add a Step** did anything.
 - A project started from a sample comes with a launch configuration of its flow, inputs filled in for the sample's hosts, so **Launch** runs it at once.
@@ -32,6 +35,10 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
+- **Upload a folder (zip)** no longer replaces files that are there without asking: Save lists them and **Replace them and save** saves. Over the API an `unpack` that would replace files is refused unless it says `replace: true`.
+- **Discard all** on the Files tab asks first.
+- Deleting a flow turns off the schedules that would fire it, and says so. A schedule whose flow is gone is turned off at its next fire instead of failing every time.
+- A variable of a credential with no value is refused.
 - A launch configuration tells of its runs only people and groups with access to the flow: saving one that names someone without access is refused and says who, and someone whose access was taken back later is no longer told. The same goes for the people an approval in a flow names to ask or to tell.
 - The audit log names the token an action was done with, beside where it came from, and an entry of a token made says what it reaches.
 - A read-only token is refused as such at once, before what it sent is checked.
@@ -67,6 +74,16 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- Leaving a launch configuration's Settings, the launch page or a new launch configuration with changes not saved asks first; switching between a configuration's own tabs keeps the launch form's typing and does not ask. Typing in **Send a test** of Notifications no longer asks.
+- Pending uploads show each file's own size.
+- The note of the last save on the Files tab goes once a new change starts.
+- A field's problem no longer pushes the other fields of a credential's variable row or of a collection row out of line. The private key's problem marks the key box, not the file chooser.
+- A credential name that is taken, an empty token or password, and a schedule's missing input are said at their field, not as a banner or the browser's tooltip. A schedule's input hint says when there is no start value.
+- A schedule with no commit of its own says it runs the configuration's pinned commit when the configuration has one, not the newest commit.
+- A wrong time zone and a wrong cron are both said at once, and checking them as they are typed no longer logs errors in the browser's console. The cron's hint no longer repeats a wrong zone.
+- An operator who opens the address of a new launch configuration is told it needs rw, instead of a form refused at Add.
+- On an external project's Settings, the reason its source cannot be read is said once, under Source.
+- Deleting a project with a run going says to stop the run, as the pages do.
 - A rejection without a comment is refused by the server, whatever asks for it (the canvas, the API, an agent), not only by the pages.
 - The Approvals count in the side menu follows a decision made on the canvas, and what the Approvals page shows, at once.
 - The hosts of a run waiting at an approval read as waiting for a decision, not in progress.

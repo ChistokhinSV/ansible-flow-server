@@ -284,7 +284,13 @@ export const api = {
   /** `gitCredential: null`: the source is read without signing in. */
   changeProject: (
     id: string,
-    input: { gitCredential?: string | null; gitRef?: string; gitUrl?: string },
+    input: {
+      gitCredential?: string | null;
+      gitRef?: string;
+      gitUrl?: string;
+      name?: string;
+      description?: string | null;
+    },
   ) => call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
   /** A push hook for the git host: its token (the secret GitHub signs with) is shown once. */
@@ -539,7 +545,10 @@ export const api = {
       `/launch-configs/${encodeURIComponent(config)}/schedules/${encodeURIComponent(id)}`,
     ),
   scheduleTimes: (cron: string, timezone: string) =>
-    call<{ times: string[] }>('GET', `/schedule-times?${queryOf({ cron, timezone })}`),
+    call<{ times: string[]; problems?: { field?: string; message: string }[] }>(
+      'GET',
+      `/schedule-times?${queryOf({ cron, timezone, check: '1' })}`,
+    ),
   launch: (id: string, request: LaunchRequest) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 

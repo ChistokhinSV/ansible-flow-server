@@ -13,6 +13,7 @@ import {
   CredentialError,
   type CredentialInput,
   createCredential,
+  credentialUses,
   deleteCredential,
   getCredential,
   KINDS,
@@ -70,11 +71,16 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
   type WithId = { Params: { id: string } };
 
   app.get<WithId>('/api/v1/workspaces/:id/credentials', { schema: ID }, async (request, reply) => {
-    if (!signedIn(request, reply)) return reply;
+    const me = signedIn(request, reply);
+    if (!me) return reply;
     const workspace = await getWorkspace(db, request.params.id);
     if (!workspace)
       return reply.code(404).send({ error: 'not_found', message: 'No such workspace' });
-    return listCredentials(db, workspace.id);
+    const list = await listCredentials(db, workspace.id);
+    if (!me.admin) return list;
+    // AFS-150: an administrator (who may delete one) is told what uses each, by name.
+    const uses = await credentialUses(db, workspace.id);
+    return list.map((c) => (uses.has(c.id) ? { ...c, uses: uses.get(c.id) } : c));
   });
 
   app.post<WithId & { Body: CredentialInput }>(

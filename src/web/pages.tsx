@@ -25,6 +25,7 @@ import {
   Copyable,
   Field,
   Form,
+  Labelled,
   Loading,
   messageOf,
   PageHead,
@@ -132,7 +133,18 @@ function SyncBadge({ project }: { project: Project }) {
  * AFS-84: the project's state in one line; what it is set up with is on Settings. It is on every
  * tab of the project, Files too (AFS-94), so the tabs stay where they are.
  */
-export function ProjectStatus({ project, me, base }: { project: Project; me: User; base: string }) {
+export function ProjectStatus({
+  project,
+  me,
+  base,
+  quiet,
+}: {
+  project: Project;
+  me: User;
+  base: string;
+  /** AFS-150: the source's error is said elsewhere on the page (Settings, under Source). */
+  quiet?: boolean;
+}) {
   return (
     <p className="statusline">
       <SyncBadge project={project} />
@@ -154,12 +166,12 @@ export function ProjectStatus({ project, me, base }: { project: Project; me: Use
         </span>
       )}
       {project.library && <span className="badge">library</span>}
-      {project.sync.error && (
+      {project.sync.error && (!quiet || needsSignIn(project.sync.error)) && (
         <span className="bad-text">
-          {project.sync.error}
+          {quiet ? '' : project.sync.error}
           {needsSignIn(project.sync.error) && (
             <>
-              {' '}
+              {quiet ? '' : ' '}
               The repository asks for a sign-in
               {me.admin ? (
                 <>
@@ -828,9 +840,10 @@ function SourceRefusal() {
     return why;
   });
   return said ? (
+    // AFS-150: why is said once, under Last look.
     <p className="notice error" role="alert">
-      The project was added, but its source cannot be read: {said} Check the address and what it
-      signs in with below.
+      The project was added, but its source cannot be read. Check the address and what it signs in
+      with below.
     </p>
   ) : null;
 }
@@ -857,6 +870,106 @@ function SourceAddress({ project, onSaved }: { project: Project; onSaved(): void
         spellCheck={false}
         hint="https://, ssh:// or git@host:path. The project's commit is read again from it."
       />
+    </Form>
+  );
+}
+
+/**
+ * AFS-150: a project's name, description and branch, changed by administrators. A new branch is
+ * what its flows and runs are of from then on.
+ */
+export function ProjectDetails({
+  project,
+  branches,
+  onSaved,
+}: {
+  project: Project;
+  branches: string[];
+  onSaved(): void;
+}) {
+  const [name, setName] = useState(project.name);
+  const [description, setDescription] = useState(project.description ?? '');
+  const [branch, setBranch] = useState(project.gitRef);
+  const [saved, setSaved] = useState(false);
+  return (
+    <Form
+      quiet
+      submit="Save"
+      onSubmit={async () => {
+        setSaved(false);
+        if (!name.trim()) refuse('name', 'A name is needed.');
+        const change = {
+          ...(name.trim() !== project.name ? { name: name.trim() } : {}),
+          ...(description.trim() !== (project.description ?? '')
+            ? { description: description.trim() || null }
+            : {}),
+          ...(branch !== project.gitRef ? { gitRef: branch } : {}),
+        };
+        if (Object.keys(change).length === 0) refuse('name', 'Nothing is changed.');
+        if (
+          change.gitRef &&
+          !window.confirm(
+            `Run ${change.gitRef} instead of ${project.gitRef}? Flows, launches and schedules that name no branch take ${change.gitRef} from now on.`,
+          )
+        )
+          return;
+        await api.changeProject(project.id, change);
+        setSaved(true);
+        onSaved();
+      }}
+    >
+      <Field
+        label="Name"
+        name="name"
+        value={name}
+        onChange={(e) => {
+          setSaved(false);
+          setName(e.target.value);
+        }}
+        maxLength={200}
+      />
+      <Field
+        label="Description"
+        name="description"
+        value={description}
+        onChange={(e) => {
+          setSaved(false);
+          setDescription(e.target.value);
+        }}
+        maxLength={1000}
+        hint="What the project is for, in a line."
+      />
+      <Labelled
+        label="Branch"
+        name="gitRef"
+        hint="The branch whose commits run: flows, launch configurations and schedules that name no other."
+      >
+        {(props) => (
+          <select
+            {...props}
+            name="gitRef"
+            value={branch}
+            onChange={(e) => {
+              setSaved(false);
+              setBranch(e.target.value);
+            }}
+          >
+            {!branches.includes(project.gitRef) && (
+              <option value={project.gitRef}>{project.gitRef}</option>
+            )}
+            {branches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        )}
+      </Labelled>
+      {saved && (
+        <p className="notice ok" role="status">
+          Saved.
+        </p>
+      )}
     </Form>
   );
 }
@@ -1313,6 +1426,7 @@ export function ProjectPage({
         title={project.name}
         lead={
           <>
+            {project.description && <>{project.description} · </>}
             {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
             {access && (
               <>
@@ -1329,10 +1443,18 @@ export function ProjectPage({
           </button>
         )}
       </PageHead>
-      <ProjectStatus project={project} me={me} base={base} />
+      <ProjectStatus
+        project={project}
+        me={me}
+        base={base}
+        quiet={tab === 'settings' && !project.hosted}
+      />
       {looked && (
         <p className={looked.ok ? 'notice' : 'notice error'} role="status">
-          {looked.text}
+          {/* AFS-150: on Settings the reason is under Last look: said there only. */}
+          {!looked.ok && tab === 'settings'
+            ? 'Looked again: the source still cannot be read (see Last look under Source).'
+            : looked.text}
         </p>
       )}
       <Tabs
@@ -1486,6 +1608,19 @@ export function ProjectPage({
 
       {tab === 'settings' && (
         <>
+          {me.admin && (
+            <section className="panel" aria-labelledby="details">
+              <h2 id="details">Name and branch</h2>
+              <ProjectDetails
+                project={project}
+                branches={(branchList.data?.details ?? []).map((b) => b.name)}
+                onSaved={() => {
+                  found.reload();
+                  branchList.reload();
+                }}
+              />
+            </section>
+          )}
           {/* The repository holds every flow: it is for who has a level on the workspace. */}
           {(me.admin || access?.workspace) && (
             <section className="panel" aria-labelledby="git">

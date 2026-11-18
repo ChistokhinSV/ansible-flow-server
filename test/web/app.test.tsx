@@ -342,7 +342,7 @@ describe('signed in', () => {
               status: 409,
               body: {
                 error: 'not_empty',
-                message: 'Run 41 of the project is still going: cancel it first',
+                message: 'Run 41 of the project is still going: stop it first',
               },
             }
           : { status: 204 },
@@ -365,12 +365,61 @@ describe('signed in', () => {
     fireEvent.click(button);
     expect(await within(section).findByRole('alert')).toHaveProperty(
       'textContent',
-      'Run 41 of the project is still going: cancel it first',
+      'Run 41 of the project is still going: stop it first',
     );
     refuse = false;
     fireEvent.click(button);
     await waitFor(() => expect(window.location.pathname).toBe('/w/network'));
     expect(calls.filter((c) => c === 'DELETE /projects/p1')).toHaveLength(2);
+  });
+
+  it("AFS-150: an administrator changes a project's name, description and branch in Settings", async () => {
+    let now = { ...edge };
+    const sent: unknown[] = [];
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces/network/projects': () => ({ body: [now, lab] }),
+      'PATCH /projects/p1': (body) => {
+        sent.push(body);
+        now = { ...now, ...(body as object) };
+        return { body: now };
+      },
+    };
+    vi.stubGlobal('confirm', () => true);
+    window.history.replaceState(null, '', '/w/network/edge/settings');
+    render(<App />);
+    const section = (await screen.findByRole('heading', { name: 'Name and branch' })).closest(
+      'section',
+    ) as HTMLElement;
+    fireEvent.change(within(section).getByLabelText('Name'), { target: { value: 'Edge' } });
+    fireEvent.change(within(section).getByLabelText('Description'), {
+      target: { value: 'Edge switches and firewalls' },
+    });
+    await within(section).findByRole('option', { name: 'try/idea' });
+    fireEvent.change(within(section).getByLabelText('Branch'), { target: { value: 'try/idea' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Save' }));
+    expect(await within(section).findByText('Saved.')).toBeTruthy();
+    expect(sent).toEqual([
+      { name: 'Edge', description: 'Edge switches and firewalls', gitRef: 'try/idea' },
+    ]);
+  });
+
+  it('AFS-150: a source that cannot be read is said once on Settings, under Source', async () => {
+    const why = 'fatal: unable to access the repository: Could not resolve host';
+    const broken = { ...edge, commit: undefined, sync: { state: 'error', error: why } };
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces/network/projects': () => ({ body: [broken, lab] }),
+      'POST /projects/p1/sync': () => ({ body: broken }),
+    };
+    window.history.replaceState(null, '', '/w/network/edge/settings');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Source' });
+    const count = () => document.body.textContent?.split(why).length ?? 0;
+    expect(count() - 1).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Look at the source now' }));
+    expect(await screen.findByText(/still cannot be read \(see Last look/)).toBeTruthy();
+    expect(count() - 1).toBe(1);
   });
 
   it('My account changes the password; the two new ones must agree (AFS-104)', async () => {

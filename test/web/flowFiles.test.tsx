@@ -153,4 +153,51 @@ describe('flows in the pages', () => {
       changes: [{ op: 'delete', path: 'flows/patch-web.flow.yaml' }],
     });
   });
+  it('AFS-150: Delete names the schedules that fire it and turns them off with it', async () => {
+    const asked: { key: string; body?: unknown }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      const key = `${init.method ?? 'GET'} ${url.replace('/api/v1', '')}`;
+      asked.push({ key, ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) });
+      const body =
+        key === 'GET /launch-configs/c1'
+          ? { id: 'c1', name: 'Nightly patch', flowFile: 'flows/patch-web.flow.yaml' }
+          : key === 'GET /launch-configs/c2'
+            ? { id: 'c2', name: 'Pinned', commit: 'c'.repeat(40) }
+            : key === 'GET /launch-configs/c1/schedules'
+              ? [
+                  { id: 's1', config: 'c1', name: 'Every night', enabled: true },
+                  { id: 's2', config: 'c1', name: 'Paused one', enabled: false },
+                ]
+              : key === 'GET /launch-configs/c2/schedules'
+                ? [{ id: 's3', config: 'c2', name: 'On the pin', enabled: true }]
+                : { branch: 'main', commit: 'b'.repeat(40), files: [] };
+      return { ok: true, status: 200, json: async () => body } as Response;
+    });
+    render(
+      <FlowFileActions
+        workspace="net"
+        project={project}
+        file="flows/patch-web.flow.yaml"
+        name="Patch web servers"
+        commit={project.commit as string}
+        usedBy={['Nightly patch', 'Pinned']}
+        configIds={['c1', 'c2']}
+        doing="delete"
+        onDone={() => undefined}
+      />,
+    );
+    const del = screen.getByRole('region', { name: 'Delete the flow' });
+    // Only the one that would fire and fail: a paused one, or one on a pinned commit, stays.
+    await waitFor(() =>
+      expect(del.querySelector('[data-schedules]')?.textContent).toMatch(
+        /The schedule Every night fires it: it is turned off with it/,
+      ),
+    );
+    fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
+    await waitFor(() =>
+      expect(asked.filter((a) => a.key.startsWith('PATCH'))).toEqual([
+        { key: 'PATCH /launch-configs/c1/schedules/s1', body: { enabled: false } },
+      ]),
+    );
+  });
 });
