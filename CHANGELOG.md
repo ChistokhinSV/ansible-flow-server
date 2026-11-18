@@ -8,13 +8,30 @@ All notable changes to Ansible Flow Server.
 
 - An empty flow edited in the pages starts from what its canvas offers: **Import Ansible Playbooks…** (a playbook of the project's repository), **Import AWX Workflow or Job Template…** (through a new credential kind, `awx`: an address and a token), **Open Sample Flow…** and **Get Started**. Before, only **Add a Step** did anything.
 - A project started from a sample comes with a launch configuration of its flow, inputs filled in for the sample's hosts, so **Launch** runs it at once.
+- The launch page says how many of the hosts a **Limit** leaves (and warns when it leaves none), and names targets that are not in the inventory.
+- Workspace and project pages say what your own access there is.
 
 ### Changed
 
 - **Add workspace** and **Add project** make the key from the name as you type it (lower case, other characters as dashes); a key you type yourself stays. The same for a new directory or sign-in provider.
+- **Approve** and **Reject** ask once more and say where the hosts go; rejecting needs a comment. The Approvals page says what you just decided, the sidebar count goes down at once, and every approval says who may decide it. The audit log keeps the approval's name and the comment.
+- A real launch, disabling a person and **Administrators only** for passwords ask first. Password sign-in cannot be limited to administrators while no sign-in provider or directory is enabled.
+- A disabled person who types the right password is told the account is disabled, not that the password is wrong.
+- **Save** and **Discard** of a flow's draft name who else is editing it before they go ahead, and **Save** takes in the field you are still typing in. The latest change by someone else shows on one line, so the canvas no longer moves down. A draft nobody changed is not shown as unsaved edits, and is dropped when you stop editing it.
+- The notification recipients a launch configuration offers are the people and groups of its workspace (administrators still see everyone).
+- Something you may not see gets the same "No such …" answer as something that does not exist.
 
 ### Fixed
 
+- **Limit** is applied: a run limited to some hosts runs on those only. Before, it ran on every host it targeted.
+- **Stop** stops a running run at once, and a run asked to stop never ends as succeeded; its hosts show as stopped.
+- A run that reached no host (none of its targets is in the inventory) fails, saying so, rather than "went well".
+- A run whose image could not be pulled says why, not only "The run produced no events". An image environment whose pulls all failed is refused at launch, and its page no longer says runs get an earlier build.
+- A run that fails after an approval was rejected says who rejected it and why, not Ansible's exit code; the email about a rejection no longer says "The run goes on."
+- While a run goes on after an approval, the steps before it keep their results on the canvas.
+- **Open in Text Editor** on a run's or flow's canvas opens the flow's file on the project's Files tab.
+- The launch page of a configuration whose flow was deleted says why it cannot launch, not "The server answered 422"; a missing flow's page offers no **Edit** or new configuration.
+- **Delete the flow** cannot be sent twice; signing out leaves the address of the last page; the token form starts from its defaults; a credential that launch configurations use cannot be deleted; deleting an environment returns to Environments.
 - A project started from the **Edge baseline** sample runs: its steps use the roles the sample brings. Before, its first run failed with "the role netops.baseline.push_ntp_aaa was not found", and Push baseline showed as an empty subflow. A project made from it before keeps that flow; start a new one, or copy the sample's flow over it.
 - Two runs of different projects that started in the same second could not both run: the second failed with "The run produced no events" (its container's name was taken). Each run's container now has a name of its own.
 
