@@ -441,6 +441,7 @@ export function CertificatePage() {
   return (
     <>
       <PageHead
+        help="certificates.md"
         title="Server certificate"
         lead="What browsers, git and the VS Code extension see when they connect over HTTPS."
       />

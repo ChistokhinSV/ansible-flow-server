@@ -268,7 +268,7 @@ describe('a run', () => {
     routes = { 'GET /session': () => ({ body: omar }), 'GET /runs/r1': () => ({ body: run }) };
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
-    await screen.findByRole('heading', { name: 'Hello, Ansible · run 7' });
+    await screen.findByRole('heading', { name: 'Hello, Ansible #7' });
     const stream = FakeStream.last as FakeStream;
     expect(stream.url).toBe('/api/v1/runs/r1/events');
     // Someone who is not an administrator sees no Stop.
@@ -329,7 +329,7 @@ describe('a run', () => {
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Run again' }));
-    await screen.findByRole('heading', { name: 'Hello, Ansible · run 8' });
+    await screen.findByRole('heading', { name: 'Hello, Ansible #8' });
     expect(window.location.pathname).toBe('/runs/r2');
     expect(screen.getByText('The canvas shows the run once it started.')).toBeTruthy();
   });
@@ -381,7 +381,7 @@ describe('a run', () => {
     expect(rows()).toEqual(['fw-edge-17not reachable']);
     await screen.findByRole('heading', { name: 'Why fw-edge-17 was not reached' });
     expect(screen.getByText(/Connection timed out/)).toBeTruthy();
-    expect(screen.getByText(/Failed after 3 min/)).toBeTruthy();
+    expect(screen.getByText(/after 3 min/)).toBeTruthy();
     expect(screen.getByText(/1 with a problem/)).toBeTruthy();
   });
 
@@ -409,7 +409,7 @@ describe('a run', () => {
       ['edge', '/w/netops/edge'],
       ['Nightly check', '/w/netops/edge/launch/c1'],
     ]);
-    expect(crumbs.textContent).toMatch(/run 7$/);
+    expect(crumbs.textContent).toMatch(/#7$/);
     // What ran: the flow and the configuration are links too.
     const facts = screen.getByRole('heading', { name: 'What ran' }).closest('section');
     const ran = within(facts as HTMLElement);

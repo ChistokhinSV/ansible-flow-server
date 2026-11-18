@@ -48,6 +48,17 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 
 - **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
   the values. To change a secret, send it again whole.
+- **An AWX token** (kind `awx`, **AWX token** in the form): the address of an AWX or Automation
+  Controller (`url`, like `https://awx.example.net`) and a token of a user there who can read
+  its templates (in AWX: **Users > Tokens**, scope `read`). It is used only to import a workflow
+  or job template into an empty flow (see [Editing flows in the pages](web-pages.md#editing-flows-in-the-pages));
+  runs never get it.
+
+  ```sh
+  curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/credentials \
+    -d '{"name":"AWX","kind":"awx","fields":{"url":"https://awx.example.net"},"secret":{"token":"<the token>"}}'
+  ```
+
 - **A private repository:** give the project a credential of its workspace:
   `"gitCredential": "<credential id>"` when adding it, or `PATCH /projects/:id` (`null` takes it
   away). A `git_token` or `login` for an `https://` source, an `ssh_key` for an `ssh://` or

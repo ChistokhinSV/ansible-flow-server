@@ -866,6 +866,26 @@ td.detail {
   margin: 0.25rem 0 0;
 }
 
+/* --- AFS-143: help beside a page's title; the clone help's certificate hint */
+.title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+.help-link {
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: var(--muted);
+}
+.help-link:hover {
+  color: inherit;
+}
+.clone-trust summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
 /* --- launch configurations */
 .panel-head {
   display: flex;

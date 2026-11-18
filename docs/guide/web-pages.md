@@ -12,8 +12,11 @@ The server serves its own pages at its address. A new server shows the first-run
 setup code from its log); after that, sign-in: a card over a quiet picture of a flow, which says
 nothing about the server (the page is public). Signed in, a side menu leads to Home, Runs,
 Approvals (with how many wait for you), Library, each workspace and, for administrators, the
-administration's pages; your name, the theme and Sign out are at its end. Long pages are split
-into tabs; each tab has its own address. At phone width it folds into **Menu**.
+administration's pages; **Help**, your name, the theme and Sign out are at its end. **Help**
+(`/help`) lists this guide's pages and the API reference, and most pages link the guide page
+about them with **Help** beside their title. A page that is not there, or not shared with you,
+says what was looked for and the way back. Long pages are split into tabs; each tab has its own
+address. At phone width it folds into **Menu**.
 
 | Page                                              | Shows                                                                                                                                                                                                                                                              |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

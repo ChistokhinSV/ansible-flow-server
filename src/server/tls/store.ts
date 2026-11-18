@@ -183,6 +183,11 @@ export class CertificateStore {
     return { certificate, key, source, info: describeCertificate(certificate) };
   }
 
+  /** AFS-143: the certificate in use alone (public: every TLS client is shown it). */
+  certificatePem(): string | undefined {
+    return this.read('certificate.pem');
+  }
+
   /** The pair that was in use before the current one, if it is kept. */
   previous(): CertificateInfo | undefined {
     const certificate = this.read('previous-certificate.pem');

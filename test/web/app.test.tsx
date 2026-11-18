@@ -520,7 +520,7 @@ describe('signed in', () => {
       theme: 'dark',
     });
     expect(document.querySelector('.flow-line')?.textContent).toContain(
-      'main at 9f2c1e7ab3d4 · shown, not changed',
+      'main at 9f2c1e7ab3d4 · read only',
     );
     // The designer follows the theme the person chose.
     fireEvent.click(screen.getByRole('button', { name: 'Theme: dark' }));
@@ -698,7 +698,9 @@ describe('signed in', () => {
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Look at the source now' })).toBeNull();
     navigate('/w/network/nothing');
-    await screen.findByText('There is no such project.');
+    // AFS-143: says what was looked for.
+    await screen.findByRole('heading', { name: 'Not found' });
+    expect(screen.getByRole('link', { name: 'Back to network' })).toBeTruthy();
   });
 
   it('starts an empty hosted project from a sample, and makes one from a sample (AFS-58)', async () => {

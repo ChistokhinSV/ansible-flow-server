@@ -96,6 +96,13 @@ describe('the server certificate over HTTP', () => {
       info: { selfSigned: true, names: ['flows.example.net', 'localhost'] },
     });
 
+    // AFS-143: anyone may download the certificate in use, to tell git to trust it.
+    const pem = await app.inject({ method: 'GET', url: '/api/v1/certificate.pem' });
+    expect(pem.statusCode).toBe(200);
+    expect(pem.headers['content-disposition']).toMatch(/server-certificate\.pem/);
+    expect(pem.body).toMatch(/BEGIN CERTIFICATE/);
+    expect(pem.body).not.toMatch(/PRIVATE KEY/);
+
     const asked = await call('POST', '/request', {
       cookie: dana,
       body: { names: ['flows.example.net'], organization: 'Example Networks' },

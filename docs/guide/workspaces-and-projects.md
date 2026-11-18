@@ -116,8 +116,15 @@ git clone https://flows.example.net:8443/git/network/edge.git
 git push origin main
 ```
 
-While the server uses its own first certificate, tell git to trust it:
-`git -c http.sslCAInfo=data/tls/certificate.pem clone …`.
+The project's **Overview** (while it is empty) and **Settings** show the clone command with a
+**Copy** button. While the server uses a self-signed certificate, git does not trust it (on
+Windows: `SEC_E_UNTRUSTED_ROOT`). Download the certificate in use, from the page's hint or from
+`/api/v1/certificate.pem`, and clone with it; `clone -c` keeps the setting in the clone:
+
+```sh
+git clone -c http.sslCAInfo=/home/dana/server-certificate.pem https://flows.example.net:8443/git/network/edge.git
+# On Windows, add -c http.sslBackend=openssl after clone.
+```
 
 - **Who:** `ro` on the workspace clones and fetches, `rw` on it pushes (see
   [Access levels](people-and-sign-in.md#access-levels)). A read-only token never pushes.

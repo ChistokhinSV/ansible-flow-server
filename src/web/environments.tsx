@@ -550,6 +550,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
     <>
       {crumbs}
       <PageHead
+        help="environments.md"
         title={env.name}
         lead={env.kind === 'spec' ? 'Built here from its spec' : `The existing image ${env.image}`}
       >

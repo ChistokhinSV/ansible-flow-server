@@ -391,7 +391,7 @@ for (const [name, config] of databases) {
       await queue.cancel(stopped.id, 'dana');
       await notifier.idle();
       expect(sentTo(mails)).toEqual(['noc@example.net', 'dana@example.net']);
-      expect(smtp.received.at(-1)?.data).toContain('cancelled');
+      expect(smtp.received.at(-1)?.data).toContain('stopped');
     });
 
     it('the certificate: administrators are told at each step once, whatever restarts between', async () => {

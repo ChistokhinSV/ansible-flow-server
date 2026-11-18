@@ -144,6 +144,7 @@ export function AuditPage() {
   return (
     <>
       <PageHead
+        help="audit.md"
         title="Audit log"
         lead="Everything that changed something, or tried to, on this server: the newest first."
       >

@@ -143,20 +143,27 @@ function GateCard({
           {gate.hosts.length > 12 ? ', …' : ''}
         </p>
       )}
-      <p className="muted">
-        Waiting since <Time at={gate.createdAt} />
-        {gate.deadline && (
-          <>
-            {' '}
-            · times out <Time at={gate.deadline} />
-          </>
-        )}
-        {/* AFS-133: who may decide, always: the node's approvers, else the workspace's. */} ·
-        decided by{' '}
-        {gate.approvers.length > 0
-          ? gate.approvers.join(', ')
-          : 'whoever has approve on the flow or its workspace'}
-      </p>
+      {/* AFS-143: "waiting since" only while it waits; a decided one says when it was asked. */}
+      {gate.status === 'waiting' ? (
+        <p className="muted">
+          Waiting since <Time at={gate.createdAt} />
+          {gate.deadline && (
+            <>
+              {' '}
+              · times out <Time at={gate.deadline} />
+            </>
+          )}
+          {/* AFS-133: who may decide, always: the node's approvers, else the workspace's. */} ·
+          decided by{' '}
+          {gate.approvers.length > 0
+            ? gate.approvers.join(', ')
+            : 'whoever has approve on the flow or its workspace'}
+        </p>
+      ) : (
+        <p className="muted">
+          Asked <Time at={gate.createdAt} />
+        </p>
+      )}
       {gate.status !== 'waiting' && (
         <p>
           {gate.status} by {gate.decidedBy ?? 'nobody'}
@@ -244,6 +251,7 @@ export function ApprovalsPage() {
   return (
     <>
       <PageHead
+        help="approvals.md"
         title="Approvals"
         lead={
           list.data

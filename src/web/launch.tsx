@@ -816,7 +816,7 @@ export function LaunchConfigPage({
   return (
     <>
       <Crumbs workspace={workspace} project={key} last={c.name} />
-      <PageHead title={c.name} lead={c.description} />
+      <PageHead help="launch-configurations.md" title={c.name} lead={c.description} />
       {/* What it runs with, in a line: all of it is on the Settings tab. */}
       <p className="statusline">
         <span>
@@ -927,9 +927,10 @@ export function LaunchConfigPage({
                       checked={(mode ?? form.data?.mode ?? c.mode) === m}
                       onChange={() => setMode(m)}
                     />
+                    {/* AFS-143: one name, "check run", and both modes said in a few words. */}
                     {m === 'check'
-                      ? 'Check: a skeleton run, nothing is changed, approvals pass by themselves'
-                      : 'Real'}
+                      ? 'Check: nothing is changed, approvals pass by themselves'
+                      : 'Real: the hosts are changed, approvals wait for a decision'}
                   </label>
                 ))}
               </fieldset>
@@ -1508,6 +1509,7 @@ export function LaunchConfigEdit({
         {...(id && existing.data ? { config: { id, name: existing.data.name } } : {})}
       />
       <PageHead
+        help="launch-configurations.md"
         title={title}
         lead="Saved only if it could run now. Secret inputs are never kept: they are typed at launch."
       />

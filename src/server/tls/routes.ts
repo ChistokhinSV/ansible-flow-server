@@ -80,6 +80,20 @@ export function registerCertificate(app: FastifyInstance, deps: CertificateDeps)
     administrator(request, reply) ? state() : reply,
   );
 
+  // AFS-143: the certificate in use, for git and scripts to trust a self-signed one. Anyone may
+  // have it: the server shows it to every client that connects.
+  app.get('/api/v1/certificate.pem', async (_request, reply) => {
+    const pem = deps.tls === 'on' ? store.certificatePem() : undefined;
+    if (!pem)
+      return reply
+        .code(404)
+        .send({ error: 'not_found', message: 'This server does not serve HTTPS itself' });
+    return reply
+      .type('application/x-pem-file')
+      .header('content-disposition', 'attachment; filename="server-certificate.pem"')
+      .send(pem);
+  });
+
   app.get('/api/v1/admin/certificate/history', async (request, reply) =>
     administrator(request, reply) ? store.history().reverse() : reply,
   );

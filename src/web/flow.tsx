@@ -212,7 +212,8 @@ export function FlowPage({
           <span aria-current="page">{file}</span>
         </Breadcrumb>
         <PageHead
-          title={title}
+          title={!found.loading && !project ? 'Not found' : title}
+          help="web-pages.md"
           // Shown, the flow's facts are in the line under the title: the canvas gets the room.
           lead={
             project && editing
@@ -292,7 +293,8 @@ export function FlowPage({
           <p className="statusline flow-line">
             {commit && (
               <span>
-                {project.gitRef} at <code>{commit.slice(0, 12)}</code> · shown, not changed
+                {/* AFS-143: plain words for a flow shown and not being edited. */}
+                {project.gitRef} at <code>{commit.slice(0, 12)}</code> · read only
               </span>
             )}
             {configs.data?.map((c) => (
@@ -360,7 +362,11 @@ export function FlowPage({
         ) : null}
         <Loading state={found} />
         {!found.loading && !found.error && !project && (
-          <p className="empty">There is no such project.</p>
+          // AFS-143: names what was looked for, with the way back.
+          <p className="empty">
+            The project <code>{key}</code> in <code>{workspace}</code> is not here, or is not shared
+            with you. <Link to={`/w/${workspace}`}>Back to {workspace}</Link>
+          </p>
         )}
       </div>
       {viewer && project?.commit && (

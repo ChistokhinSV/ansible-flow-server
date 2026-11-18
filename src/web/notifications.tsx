@@ -380,6 +380,7 @@ export function NotificationsPage({ tab }: { tab: 'log' | 'settings' }) {
   return (
     <>
       <PageHead
+        help="notifications.md"
         title="Notifications"
         lead="What the server told people, and how it sends: approvals that wait and how they were decided, runs that fail or end, the server certificate nearing its end."
       />

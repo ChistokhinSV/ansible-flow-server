@@ -22,7 +22,7 @@ import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { readBefore } from './cursor';
 import type { RunHub, RunNews } from './hub';
-import { ACTIVE, type RunQueue, type RunState, STATES } from './queue';
+import { ACTIVE, type Run, type RunQueue, type RunState, STATES } from './queue';
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
@@ -65,6 +65,21 @@ export function registerRuns(
 ): void {
   /** The streams open now: a server that closes ends them, or it would wait for them. */
   const streams = new Set<ServerResponse>();
+  /** AFS-143: who asked for each run by name too: the pages show people by their names. */
+  const named = async (runs: Run[]): Promise<Run[]> => {
+    if (!db || runs.length === 0) return runs;
+    const ids = [...new Set(runs.map((r) => r.requestedBy.id))];
+    const names = new Map(
+      (await db.selectFrom('user_account').select(['id', 'name']).where('id', 'in', ids).execute())
+        .filter((u) => u.name)
+        .map((u) => [u.id, u.name]),
+    );
+    return runs.map((r) => {
+      const name = names.get(r.requestedBy.id);
+      return name ? { ...r, requestedBy: { ...r.requestedBy, name } } : r;
+    });
+  };
+  const nameOne = async (run: Run | undefined) => (run ? (await named([run]))[0] : undefined);
   app.addHook('preClose', async () => {
     for (const stream of streams) stream.end();
     streams.clear();
@@ -153,7 +168,7 @@ export function registerRuns(
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
       const id = request.params.id;
-      let run = await queue.get(id);
+      let run = await nameOne(await queue.get(id));
       if (!run) return reply.code(404).send(NONE);
 
       reply.hijack();
@@ -241,7 +256,7 @@ export function registerRuns(
           const at = await queue.changedAt(id);
           if (at === changed) return;
           changed = at;
-          run = await queue.get(id);
+          run = await nameOne(await queue.get(id));
           if (!run) return finish();
           send('run', run);
           if (!ACTIVE.includes(run.state as RunState)) await finish();
@@ -296,7 +311,7 @@ export function registerRuns(
         });
       // Only the runs of what this person may see: the filters narrow that, never widen it.
       const visible = db ? (await accessOf(db, request))?.visible() : undefined;
-      return queue.list({ ...request.query, ...(visible ? { visible } : {}) });
+      return named(await queue.list({ ...request.query, ...(visible ? { visible } : {}) }));
     },
   );
 
@@ -305,7 +320,7 @@ export function registerRuns(
     { schema: ID },
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
-      return (await queue.get(request.params.id)) ?? reply.code(404).send(NONE);
+      return (await nameOne(await queue.get(request.params.id))) ?? reply.code(404).send(NONE);
     },
   );
 

@@ -13,6 +13,7 @@ import { Entry, Setup, SignIn } from './entry';
 import { EnvironmentPage } from './environments';
 import { FilesPage } from './files';
 import { FlowPage } from './flow';
+import { HelpPage } from './help';
 import { Home } from './home';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { LibraryPage } from './library';
@@ -62,6 +63,8 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/account') return <Account me={me} tab="profile" />;
   if (path === '/account/tokens') return <Account me={me} tab="tokens" />;
   if (path === '/docs/api') return <ApiDocs />;
+  // AFS-143: help, at the addresses people try.
+  if (path === '/help' || path === '/guide' || path === '/docs') return <HelpPage />;
   if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/library') return <LibraryPage />;
   // AFS-87: the side menu lists the administration's pages; its own address opens the first.
@@ -262,6 +265,9 @@ function Side({
           </nav>
         )}
         <div className="side-end">
+          <Link to="/help" aria-current={at('/help')}>
+            Help
+          </Link>
           <Link to="/account" aria-current={at('/account')}>
             {me.name}
           </Link>

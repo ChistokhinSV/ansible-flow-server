@@ -62,7 +62,8 @@ export interface Run {
   targets: string[];
   credentials: string[];
   state: RunState;
-  requestedBy: { id: string; login: string };
+  /** AFS-143: `name`, the person's display name, where the API adds it (runs/routes.ts). */
+  requestedBy: { id: string; login: string; name?: string };
   createdAt: string;
   /** When a worker took it last. */
   claimedAt?: string;

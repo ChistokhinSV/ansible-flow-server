@@ -291,6 +291,7 @@ export function SignInPage() {
   return (
     <>
       <PageHead
+        help="people-and-sign-in.md"
         title="Sign-in"
         lead={
           <>
