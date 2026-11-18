@@ -355,23 +355,30 @@ function InputField({
               {...(suggest.length ? { list: listId } : {})}
             />
             {suggest.length > 0 && <Suggestions id={listId} values={suggest} />}
-            {field.targets && groups === 'reading' && (
-              <small className="muted">Reading the inventory's groups…</small>
-            )}
-            {known.length > 0 && (
-              <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
-                {known.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    className={`chip${chosen.has(g) ? ' on' : ''}`}
-                    aria-pressed={chosen.has(g)}
-                    onClick={() => onChange(toggleName(value, g))}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </fieldset>
+            {/* AFS-138: the groups come a moment after the form: their row keeps its height from
+                the start, so Launch does not move under the pointer. */}
+            {field.targets && groups !== undefined && (
+              <div className="group-slot">
+                {groups === 'reading' ? (
+                  <small className="muted">Reading the inventory's groups…</small>
+                ) : known.length > 0 ? (
+                  <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
+                    {known.map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        className={`chip${chosen.has(g) ? ' on' : ''}`}
+                        aria-pressed={chosen.has(g)}
+                        onClick={() => onChange(toggleName(value, g))}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <small className="muted">No groups to pick from the inventory.</small>
+                )}
+              </div>
             )}
           </>
         )
@@ -916,6 +923,70 @@ export function LaunchConfigPage({
                   groups={groups}
                 />
               ))}
+              {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
+                  Launch. */}
+              <Fold
+                summary="Another branch or commit, a limit"
+                open={foldOpen}
+                onToggle={setFolded}
+              >
+                <div className="pair">
+                  <Labelled
+                    label="Branch"
+                    hint={`Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`}
+                    problem={problemOf('ref')}
+                  >
+                    {(props) => (
+                      <input
+                        {...props}
+                        list="branches"
+                        value={ref}
+                        onChange={(e) => setRef(e.target.value)}
+                        onBlur={reread}
+                        disabled={!mayManage}
+                        spellCheck={false}
+                      />
+                    )}
+                  </Labelled>
+                  <datalist id="branches">
+                    {branches.data?.map((b) => (
+                      <option key={b} value={b} />
+                    ))}
+                  </datalist>
+                  <Labelled label="Or a commit" hint="40 hex digits" problem={problemOf('commit')}>
+                    {(props) => (
+                      <input
+                        {...props}
+                        value={commit}
+                        onChange={(e) => setCommit(e.target.value)}
+                        onBlur={reread}
+                        disabled={!mayManage}
+                        pattern="[0-9a-f]{40}"
+                        spellCheck={false}
+                      />
+                    )}
+                  </Labelled>
+                </div>
+                {mayLaunch && !mayManage && (
+                  <p className="muted">
+                    You launch what the configuration names: another branch or commit needs rw.
+                  </p>
+                )}
+                <Labelled
+                  label="Limit"
+                  hint="Ansible's --limit: fewer hosts than the flow starts on."
+                  problem={problemOf('limit')}
+                >
+                  {(props) => (
+                    <input
+                      {...props}
+                      value={limitText}
+                      onChange={(e) => setLimit(e.target.value)}
+                      spellCheck={false}
+                    />
+                  )}
+                </Labelled>
+              </Fold>
               <fieldset className="choices">
                 <legend>Mode</legend>
                 {(['check', 'real'] as const).map((m) => (
@@ -988,69 +1059,6 @@ export function LaunchConfigPage({
                   You may see what would run; launching needs operator on this flow.
                 </p>
               )}
-              {/* Rarely typed, so under the buttons and folded: Launch stays near the top. */}
-              <Fold
-                summary="Another branch or commit, a limit"
-                open={foldOpen}
-                onToggle={setFolded}
-              >
-                <div className="pair">
-                  <Labelled
-                    label="Branch"
-                    hint={`Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`}
-                    problem={problemOf('ref')}
-                  >
-                    {(props) => (
-                      <input
-                        {...props}
-                        list="branches"
-                        value={ref}
-                        onChange={(e) => setRef(e.target.value)}
-                        onBlur={reread}
-                        disabled={!mayManage}
-                        spellCheck={false}
-                      />
-                    )}
-                  </Labelled>
-                  <datalist id="branches">
-                    {branches.data?.map((b) => (
-                      <option key={b} value={b} />
-                    ))}
-                  </datalist>
-                  <Labelled label="Or a commit" hint="40 hex digits" problem={problemOf('commit')}>
-                    {(props) => (
-                      <input
-                        {...props}
-                        value={commit}
-                        onChange={(e) => setCommit(e.target.value)}
-                        onBlur={reread}
-                        disabled={!mayManage}
-                        pattern="[0-9a-f]{40}"
-                        spellCheck={false}
-                      />
-                    )}
-                  </Labelled>
-                </div>
-                {mayLaunch && !mayManage && (
-                  <p className="muted">
-                    You launch what the configuration names: another branch or commit needs rw.
-                  </p>
-                )}
-                <Labelled
-                  label="Limit"
-                  hint="Ansible's --limit: fewer hosts than the flow starts on."
-                  problem={problemOf('limit')}
-                >
-                  {(props) => (
-                    <input
-                      {...props}
-                      value={limitText}
-                      onChange={(e) => setLimit(e.target.value)}
-                      spellCheck={false}
-                    />
-                  )}
-                </Labelled>
-              </Fold>
             </form>
           </section>
           {result && <WouldRun launch={result.launch} form={result.form} hosts={hosts} />}
