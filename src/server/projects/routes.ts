@@ -512,7 +512,22 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       if (!signedIn(request, reply)) return reply;
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
-      return listPushes(db, project.id, request.query.limit);
+      const pushes = await listPushes(db, project.id, request.query.limit);
+      // AFS-149: each new commit's first line, so the list says what came, not only commits.
+      const subjects = new Map<string, string>();
+      for (const p of pushes)
+        if (p.to && !subjects.has(p.to))
+          subjects.set(
+            p.to,
+            await deps.git
+              .commitInfo(project.id, p.to)
+              .then((c) => c.subject)
+              .catch(() => ''),
+          );
+      return pushes.map((p) => {
+        const message = p.to ? subjects.get(p.to) : undefined;
+        return message ? { ...p, message } : p;
+      });
     },
   );
 

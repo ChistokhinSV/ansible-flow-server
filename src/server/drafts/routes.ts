@@ -8,9 +8,11 @@
 //   GET  /api/v1/drafts/:id/events                       the draft as it changes, and who is there
 //   POST /api/v1/drafts/:id/commands, /undo, /tidy       edits
 //   POST /api/v1/drafts/:id/here                         "I am here" (and the step I have selected)
+//   POST /api/v1/drafts/:id/flushed                      AFS-149: "what I was typing is sent"
 //   POST /api/v1/drafts/:id/save, DELETE /drafts/:id     save as one commit, discard
 //   POST /api/v1/drafts/:id/catalog                      the module catalog of the flow's image
 //   POST /api/v1/projects/:id/flows/catalog?path=        the same for a flow shown (AFS-118)
+import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import type { FlowCommand } from '@ansible-flow/core/flow/commands';
 import type { CatalogRequest, CatalogStatus } from '@ansible-flow/core/protocol';
@@ -27,8 +29,11 @@ import { DraftError, type DraftNews, type Drafts, type Editor } from './drafts';
 
 /** How long "I am here" lasts without another. */
 const HERE_MS = 45_000;
-/** AFS-136: how long a save waits for the other editors to send what they are typing. */
-const FLUSH_MS = 1_200;
+/**
+ * AFS-136: how long a save waits at most for the other pages in the draft to send what they are
+ * typing. AFS-149: it ends sooner, once each page has said it sent it.
+ */
+const FLUSH_MS = 3_000;
 /** How often a stream reads the draft's revision (an edit made through another server). */
 const LOOK_MS = 1_500;
 const KEEP_ALIVE_MS = 25_000;
@@ -39,7 +44,23 @@ export interface Person {
   /** The step they have selected, when they have one. */
   node?: string;
   at: number;
+  /** AFS-149: in how many pages (tabs) they have the draft open. */
+  tabs?: number;
 }
+
+/** AFS-149: one page's "I am here": a person may have the draft open in several tabs. */
+type Here = Person & { tab?: string };
+
+/** AFS-149: a page following a draft, told when someone is about to save it. */
+interface Listener {
+  /** This stream, named in the `saving` event so the page's answer says which it is. */
+  stream: string;
+  login: string;
+  tab?: string;
+  hear(news: { by: { login: string; name: string }; flush: string; stream: string }): void;
+}
+
+const TAB = { type: 'string', minLength: 1, maxLength: 64 };
 
 const ID = {
   params: {
@@ -68,19 +89,38 @@ export function registerDrafts(
   },
 ): void {
   const { drafts } = deps;
-  /** Who is in each draft (this server's pages; a page says so again every half minute). */
-  const here = new Map<string, Map<string, Person>>();
+  /**
+   * Who is in each draft (this server's pages; a page says so again every half minute), by person
+   * and tab (AFS-149: the same person in two tabs is two pages to flush on a save).
+   */
+  const here = new Map<string, Map<string, Here>>();
   const peopleListeners = new Map<string, Set<(people: Person[]) => void>>();
   /**
    * AFS-136: told when someone is about to save a draft others are in: their pages send what is
    * being typed (a field commits when it is left) before the commit is made.
    */
-  const savingListeners = new Map<string, Set<(by: { login: string; name: string }) => void>>();
-  const people = (id: string) => {
+  const savingListeners = new Map<string, Set<Listener>>();
+  /** AFS-149: the saves waiting for pages to send their typing: the streams not answered yet. */
+  const flushes = new Map<string, { left: Map<string, string>; done(): void }>();
+  /** Who is in the draft, once per person (the newest page's step), with their pages counted. */
+  const people = (id: string): Person[] => {
     const at = Date.now();
     const room = here.get(id);
-    for (const [login, p] of room ?? []) if (at - p.at > HERE_MS) room?.delete(login);
-    return [...(room?.values() ?? [])];
+    for (const [key, p] of room ?? []) if (at - p.at > HERE_MS) room?.delete(key);
+    const byPerson = new Map<string, Person>();
+    for (const p of room?.values() ?? []) {
+      const seen = byPerson.get(p.login);
+      const { tab: _tab, ...person } = p;
+      if (!seen) byPerson.set(p.login, { ...person, tabs: 1 });
+      else
+        byPerson.set(
+          p.login,
+          p.at >= seen.at
+            ? { ...person, tabs: (seen.tabs ?? 1) + 1 }
+            : { ...seen, tabs: (seen.tabs ?? 1) + 1 },
+        );
+    }
+    return [...byPerson.values()];
   };
   const tellPeople = (id: string) => {
     const list = people(id);
@@ -165,11 +205,17 @@ export function registerDrafts(
    * The draft as it changes: `draft` (it and its flow) at once, `edit` (who changed which steps,
    * and the flow after) at each change, `people` (who is there), and `saved` or `discarded`.
    */
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { tab?: string } }>(
     '/api/v1/drafts/:id/events',
-    { schema: ID },
+    {
+      schema: {
+        ...ID,
+        querystring: { type: 'object', properties: { tab: TAB } },
+      },
+    },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
+      const me = signedIn(request, reply);
+      if (!me) return reply;
       const id = request.params.id;
       let first: Awaited<ReturnType<typeof shown>>;
       try {
@@ -205,7 +251,9 @@ export function registerDrafts(
           );
           send('edit', {
             revision: text.revision,
-            ...(news && news.revision === text.revision ? { by: news.by, nodes: news.nodes } : {}),
+            ...(news && news.revision === text.revision
+              ? { by: news.by, nodes: news.nodes, changes: news.changes, wires: news.wires }
+              : {}),
             ...(snapshot ? { snapshot } : {}),
           });
         });
@@ -222,7 +270,12 @@ export function registerDrafts(
       peopleSet.add(onPeople);
       peopleListeners.set(id, peopleSet);
       const savingSet = savingListeners.get(id) ?? new Set();
-      const onSaving = (by: { login: string; name: string }) => send('saving', { by });
+      const onSaving: Listener = {
+        stream: randomUUID(),
+        login: me.login,
+        ...(request.query.tab ? { tab: request.query.tab } : {}),
+        hear: (news) => send('saving', news),
+      };
       savingSet.add(onSaving);
       savingListeners.set(id, savingSet);
       // An edit made through another server is seen here by its revision; a draft saved or
@@ -302,7 +355,7 @@ export function registerDrafts(
     editing((id, me, body: { level?: string } | undefined) => drafts.tidy(id, me, body?.level)),
   );
 
-  app.post<{ Params: { id: string }; Body: { node?: string | null } }>(
+  app.post<{ Params: { id: string }; Body: { node?: string | null; tab?: string } }>(
     '/api/v1/drafts/:id/here',
     {
       schema: {
@@ -310,7 +363,7 @@ export function registerDrafts(
         body: {
           type: 'object',
           additionalProperties: false,
-          properties: { node: { type: ['string', 'null'], maxLength: 64 } },
+          properties: { node: { type: ['string', 'null'], maxLength: 64 }, tab: TAB },
         },
       },
     },
@@ -319,12 +372,14 @@ export function registerDrafts(
       if (!me) return reply;
       if (!(await drafts.text(request.params.id)))
         return reply.code(404).send({ error: 'not_found', message: 'No such draft' });
-      const room = here.get(request.params.id) ?? new Map<string, Person>();
+      const room = here.get(request.params.id) ?? new Map<string, Here>();
       const node = request.body?.node ?? undefined;
-      room.set(me.login, {
+      const tab = request.body?.tab;
+      room.set(`${me.login} ${tab ?? ''}`, {
         login: me.login,
         name: me.name,
         ...(node ? { node } : {}),
+        ...(tab ? { tab } : {}),
         at: Date.now(),
       });
       here.set(request.params.id, room);
@@ -333,7 +388,42 @@ export function registerDrafts(
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { message?: string; force?: boolean } }>(
+  /** AFS-149: a page sent what it was typing for a save: the save goes on once all have. */
+  app.post<{ Params: { id: string }; Body: { flush: string; stream: string } }>(
+    '/api/v1/drafts/:id/flushed',
+    {
+      schema: {
+        ...ID,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['flush', 'stream'],
+          properties: { flush: TAB, stream: TAB },
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const waiting = flushes.get(request.body.flush);
+      if (waiting && waiting.left.get(request.body.stream) === me.login) {
+        waiting.left.delete(request.body.stream);
+        if (!waiting.left.size) waiting.done();
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      message?: string;
+      force?: boolean;
+      choices?: Record<string, 'draft' | 'branch'>;
+      tab?: string;
+      answerConflicts?: boolean;
+    };
+  }>(
     '/api/v1/drafts/:id/save',
     {
       schema: {
@@ -344,6 +434,14 @@ export function registerDrafts(
           properties: {
             message: { type: 'string', maxLength: 500 },
             force: { type: 'boolean' },
+            // AFS-149: per clashing place, whose side to keep (by the conflict's id).
+            choices: {
+              type: 'object',
+              maxProperties: 500,
+              additionalProperties: { type: 'string', enum: ['draft', 'branch'] },
+            },
+            tab: TAB,
+            answerConflicts: { type: 'boolean' },
           },
         },
       },
@@ -358,16 +456,35 @@ export function registerDrafts(
           .where('id', '=', me.id)
           .executeTakeFirst()
       )?.email;
-      // AFS-136: the others in the draft send what they are typing first, then it is saved.
-      const others = people(request.params.id).filter((p) => p.login !== me.login);
-      const listening = savingListeners.get(request.params.id);
-      if (others.length && listening?.size) {
-        for (const l of listening) l({ login: me.login, name: me.name });
-        await new Promise((resolve) => setTimeout(resolve, deps.flushMs ?? FLUSH_MS));
+      // AFS-136: the other pages in the draft send what they are typing first, then it is saved.
+      // AFS-149: every page but the saver's own, the saver's other tabs too; the save goes on once
+      // each has answered (or after FLUSH_MS, for a page that cannot: a frozen tab).
+      const body = request.body ?? {};
+      const pages = [...(savingListeners.get(request.params.id) ?? [])].filter(
+        (l) => !(body.tab && l.tab === body.tab && l.login === me.login),
+      );
+      if (pages.length) {
+        const flush = randomUUID();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await new Promise<void>((resolve) => {
+          flushes.set(flush, {
+            left: new Map(pages.map((l) => [l.stream, l.login])),
+            done: resolve,
+          });
+          timer = setTimeout(resolve, deps.flushMs ?? FLUSH_MS);
+          for (const l of pages)
+            l.hear({ by: { login: me.login, name: me.name }, flush, stream: l.stream });
+        });
+        clearTimeout(timer);
+        flushes.delete(flush);
       }
+      const { tab: _tab, answerConflicts, ...options } = body;
       try {
-        return await drafts.save(request.params.id, { ...editorOf(me), email }, request.body ?? {});
+        return await drafts.save(request.params.id, { ...editorOf(me), email }, options);
       } catch (e) {
+        // AFS-149: the pages ask for clashes as an answer, not a refusal (a 409 is a console error).
+        if (answerConflicts && e instanceof DraftError && e.code === 'conflict')
+          return { saved: false, message: e.message, conflicts: e.conflicts ?? [] };
         return failed(reply, e);
       }
     },

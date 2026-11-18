@@ -235,7 +235,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Projects',
     'signed in',
     P,
-  )('Pushes through the server, newest first'),
+  )('Pushes through the server, newest first: who, how (`kind`), the new commit and its message'),
   'GET /api/v1/projects/:id/flows': S(
     'Projects',
     'signed in',
@@ -326,7 +326,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     D,
   )(
-    'A draft as it changes, as server-sent events: `draft`, `edit` (who, which steps, the flow after), `people`, `saved`, `discarded`',
+    'A draft as it changes, as server-sent events: `draft`, `edit` (who, which steps and fields, the flow after), `people`, `saving` (send what is being typed, then answer `/flushed`), `saved`, `discarded`; `tab` names the page',
   ),
   'POST /api/v1/drafts/:id/commands': S(
     'Editing',
@@ -337,19 +337,26 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Editing',
     'signed in',
     D,
-  )("Take back the caller's own last edit; refused when someone changed the same place since"),
+  )(
+    "Take back the caller's own last edit (`nothing` when there is none); refused when someone changed the same place since",
+  ),
   'POST /api/v1/drafts/:id/tidy': S('Editing', 'signed in', D)('Lay out a level (`level`) again'),
   'POST /api/v1/drafts/:id/here': S(
     'Editing',
     'signed in',
     D,
   )('Say the caller is in the draft, and which step they have selected (`node`)'),
+  'POST /api/v1/drafts/:id/flushed': S(
+    'Editing',
+    'signed in',
+    D,
+  )("Say a page sent what it was typing for a save (the `saving` event's `flush` and `stream`)"),
   'POST /api/v1/drafts/:id/save': S(
     'Editing',
     'signed in',
     D,
   )(
-    "Save the draft as one commit on the project's branch (merged first when the branch moved; `force` keeps the draft's side of conflicts)",
+    "Save the draft as one commit on the project's branch (merged first when the branch moved; `choices` keeps the draft's or the branch's side per conflict, `force` the draft's side of the rest)",
   ),
   'DELETE /api/v1/drafts/:id': S('Editing', 'signed in', D)('Discard the draft'),
   'GET /api/v1/drafts/:id/start-from': S(
@@ -872,6 +879,7 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/undo': 'rw',
   'POST /api/v1/drafts/:id/tidy': 'rw',
   'POST /api/v1/drafts/:id/here': 'ro',
+  'POST /api/v1/drafts/:id/flushed': 'ro',
   'POST /api/v1/drafts/:id/save': 'rw',
   'DELETE /api/v1/drafts/:id': 'rw',
   'POST /api/v1/drafts/:id/catalog': 'ro',

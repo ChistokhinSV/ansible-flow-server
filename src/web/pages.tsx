@@ -1309,6 +1309,14 @@ export type ProjectTab = '' | 'runs' | 'branches' | 'settings';
 
 /** How many runs a project's page asks for: its Runs tab lists them, Overview the newest few. */
 const RUNS_SHOWN = 100;
+/** AFS-149: how a push came, in the Pushes list. */
+const PUSH_KIND: Record<string, string> = {
+  push: 'git push',
+  save: 'draft saved',
+  files: 'files changed',
+  branch: 'branch',
+  start: 'project started',
+};
 
 export function ProjectPage({
   me,
@@ -1578,6 +1586,7 @@ export function ProjectPage({
                     <tr>
                       <th scope="col">When</th>
                       <th scope="col">Who</th>
+                      <th scope="col">How</th>
                       <th scope="col">Branch</th>
                       <th scope="col">Change</th>
                     </tr>
@@ -1588,13 +1597,16 @@ export function ProjectPage({
                         <td>
                           <Time at={p.at} />
                         </td>
-                        <td>{p.login}</td>
+                        {/* AFS-149: names, as the commits have them; the login says who exactly. */}
+                        <td title={p.login}>{p.name ?? p.login}</td>
+                        <td>{PUSH_KIND[p.kind ?? ''] ?? 'push'}</td>
                         <td>
                           <code>{p.ref}</code>
                         </td>
                         <td>
                           <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
                           <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
+                          {p.message ? <span className="muted"> {p.message}</span> : null}
                         </td>
                       </tr>
                     ))}

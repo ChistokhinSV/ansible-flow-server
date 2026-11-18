@@ -6,19 +6,37 @@ import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
 import { guide } from './guide';
 
+/** AFS-149: what one edit did (the server's words: a step or the flow, and its fields). */
+export interface EditChange {
+  step?: string;
+  kind: 'added' | 'removed' | 'changed';
+  fields: string[];
+}
+
 interface Edit {
   revision: number;
   by?: { login: string; name: string };
   nodes?: string[];
+  changes?: EditChange[];
+  wires?: number;
   snapshot?: { doc?: { nodes?: { id: string; title: string }[] } } & Record<string, unknown>;
 }
 
 /** What the frame tells the page around it. */
 export type DraftNotice =
-  | { type: 'afs-draft-people'; people: { login: string; name: string }[] }
-  | { type: 'afs-draft-edit'; by: string; steps: string[] }
-  | { type: 'afs-draft-saved'; commit?: string; by?: string }
-  | { type: 'afs-draft-saving'; by: string; sent: boolean }
+  | { type: 'afs-draft-people'; people: { login: string; name: string; tabs?: number }[] }
+  | { type: 'afs-draft-edit'; by: string; steps: string[]; what: string }
+  | {
+      type: 'afs-draft-saved';
+      commit?: string;
+      by?: string;
+      /** AFS-149: saved by the person of this page (in another tab). */
+      mine?: boolean;
+      coAuthors?: string[];
+      /** AFS-149: a field here still had the focus: what was typed in it may not be saved. */
+      unsent?: boolean;
+    }
+  | { type: 'afs-draft-saving'; by: string; sent: boolean; mine?: boolean }
   | { type: 'afs-draft-undone' }
   | { type: 'afs-draft-gone'; by?: string }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
@@ -31,6 +49,48 @@ export type DraftNotice =
  * pages (steps, wires, saving), not the walkthrough of a first project.
  */
 export const GET_STARTED = guide('web-pages.md#editing-flows-in-the-pages');
+
+/** AFS-149: a field's name as the activity line says it (`settings.timeout` -> timeout). */
+const fieldWord = (field: string) =>
+  (field.split('.').at(-1) ?? field).replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
+
+/**
+ * AFS-149: what an edit did, in a few words: "removed Ping", "changed Ping (title, timeout)",
+ * "changed the flow's goal". Names three places at most.
+ */
+export function editWords(edit: { changes?: EditChange[]; wires?: number; steps?: string[] }) {
+  const parts = (edit.changes ?? []).map((c) => {
+    const fields = [...new Set(c.fields.map(fieldWord))].slice(0, 3);
+    if (!c.step) return `changed the flow's ${fields.join(', ') || 'settings'}`;
+    if (c.kind !== 'changed') return `${c.kind} ${c.step}`;
+    return fields.length ? `changed ${c.step} (${fields.join(', ')})` : `moved ${c.step}`;
+  });
+  if (!parts.length && edit.steps?.length) parts.push(`changed ${edit.steps.join(', ')}`);
+  if (!parts.length) return edit.wires ? 'changed the wires' : 'moved steps on the canvas';
+  const named = parts.slice(0, 3).join('; ');
+  return parts.length > 3 ? `${named} and ${parts.length - 3} more` : named;
+}
+
+/** A field being typed in, or none. */
+const typingIn = (): HTMLElement | undefined => {
+  const typing = document.activeElement as HTMLElement | null;
+  return typing &&
+    typing !== document.body &&
+    (typing.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(typing.tagName))
+    ? typing
+    : undefined;
+};
+
+/**
+ * AFS-149: lets the designer act on what just happened (a field left commits on blur) without a
+ * timer, which a background tab slows to once a second or more.
+ */
+const nextTask = () =>
+  new Promise<void>((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(undefined);
+  });
 
 const json = (method: string, url: string, body?: unknown) =>
   fetch(url, {
@@ -55,8 +115,11 @@ export function editDraft(options: {
   me: string;
   theme: 'light' | 'dark' | 'auto';
   stateKey: string;
+  /** AFS-149: this page (tab), as the flow page around it names it for its Save. */
+  tab?: string;
 }): void {
   const { root, draft, me } = options;
+  const tab = options.tab ?? (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`);
   const base = `/api/v1/drafts/${encodeURIComponent(draft)}`;
   const listeners = new Set<(message: HostMessage) => void>();
   const send = (message: HostMessage) =>
@@ -69,6 +132,8 @@ export function editDraft(options: {
   let latest: Edit['snapshot'];
   /** Step titles by id, to name what others changed. */
   let titles = new Map<string, string>();
+  /** AFS-149: the designer's commands on their way to the server. */
+  const sending = new Set<Promise<unknown>>();
 
   const show = (snapshot: Edit['snapshot']) => {
     if (!snapshot) return;
@@ -77,7 +142,7 @@ export function editDraft(options: {
     if (ready) send({ type: 'snapshot', snapshot } as unknown as HostMessage);
   };
 
-  const events = new EventSource(`${base}/events`);
+  const events = new EventSource(`${base}/events?tab=${encodeURIComponent(tab)}`);
   events.addEventListener('draft', (e) =>
     show((JSON.parse((e as MessageEvent).data) as { snapshot: Edit['snapshot'] }).snapshot),
   );
@@ -85,31 +150,63 @@ export function editDraft(options: {
     const edit = JSON.parse((e as MessageEvent).data) as Edit;
     const before = titles;
     show(edit.snapshot);
-    if (edit.by && edit.by.login !== me)
+    if (edit.by && edit.by.login !== me) {
+      const steps = (edit.nodes ?? []).map(
+        (id) => titles.get(id) ?? before.get(id) ?? 'a removed step',
+      );
       tellPage({
         type: 'afs-draft-edit',
         by: edit.by.name,
-        steps: (edit.nodes ?? []).map((id) => titles.get(id) ?? before.get(id) ?? 'a removed step'),
+        steps,
+        what: editWords({ ...edit, steps }),
       });
+    }
   });
   events.addEventListener('people', (e) =>
     tellPage({ type: 'afs-draft-people', people: JSON.parse((e as MessageEvent).data) }),
   );
-  // AFS-136: someone else is about to save: what is being typed here is sent first (leaving a
-  // field commits it), and the page says so.
+  // AFS-136: someone is about to save: what is being typed here is sent first (leaving a field
+  // commits it), and the page says so. AFS-149: the same person's other tab too (the server tells
+  // every page but the saver's), and the server hears once it is sent, so it waits no longer.
   events.addEventListener('saving', (e) => {
-    const news = JSON.parse((e as MessageEvent).data) as { by?: { login: string; name: string } };
-    if (!news.by || news.by.login === me) return;
-    const typing = document.activeElement as HTMLElement | null;
-    const sent =
-      !!typing && typing !== document.body && /^(INPUT|TEXTAREA|SELECT)$/.test(typing.tagName);
+    const news = JSON.parse((e as MessageEvent).data) as {
+      by?: { login: string; name: string };
+      flush?: string;
+      stream?: string;
+    };
+    if (!news.by) return;
+    const typing = typingIn();
     typing?.blur();
-    tellPage({ type: 'afs-draft-saving', by: news.by.name, sent });
+    tellPage({
+      type: 'afs-draft-saving',
+      by: news.by.name,
+      sent: !!typing,
+      mine: news.by.login === me,
+    });
+    void (async () => {
+      await nextTask();
+      await Promise.allSettled([...sending]);
+      if (news.flush && news.stream)
+        await json('POST', `${base}/flushed`, { flush: news.flush, stream: news.stream }).catch(
+          () => undefined,
+        );
+    })();
   });
   events.addEventListener('saved', (e) => {
-    const news = JSON.parse((e as MessageEvent).data) as { commit?: string; by?: { name: string } };
+    const news = JSON.parse((e as MessageEvent).data) as {
+      commit?: string;
+      by?: { login: string; name: string };
+      coAuthors?: string[];
+    };
     events.close();
-    tellPage({ type: 'afs-draft-saved', commit: news.commit, by: news.by?.name });
+    tellPage({
+      type: 'afs-draft-saved',
+      commit: news.commit,
+      by: news.by?.name,
+      mine: news.by?.login === me,
+      coAuthors: news.coAuthors ?? [],
+      unsent: !!typingIn(),
+    });
   });
   events.addEventListener('discarded', (e) => {
     const news = JSON.parse((e as MessageEvent).data) as { by?: { name: string } };
@@ -131,7 +228,7 @@ export function editDraft(options: {
   };
 
   // "I am here", now and every 20 seconds while the page is open.
-  const here = () => void json('POST', `${base}/here`, {}).catch(() => undefined);
+  const here = () => void json('POST', `${base}/here`, { tab }).catch(() => undefined);
   here();
   const beat = setInterval(here, 20_000);
   window.addEventListener('pagehide', () => {
@@ -146,7 +243,8 @@ export function editDraft(options: {
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     e.preventDefault();
     void json('POST', `${base}/undo`).then((r) => {
-      if (!r.ok) return notify(String(r.data?.message ?? 'Nothing to undo'), 'info');
+      if (!r.ok || r.data?.nothing)
+        return notify(String(r.data?.message ?? 'Nothing to undo'), 'info');
       tellPage({ type: 'afs-draft-undone' });
       // AFS-136: what was taken back, said each time.
       const steps = (r.data?.steps as string[] | undefined) ?? [];
@@ -197,7 +295,10 @@ export function editDraft(options: {
           }
           case 'command': {
             const reqId = message.reqId;
-            void json('POST', `${base}/commands`, { command: message.command }).then(
+            const going = json('POST', `${base}/commands`, { command: message.command });
+            sending.add(going);
+            void going.finally(() => sending.delete(going)).catch(() => undefined);
+            void going.then(
               (r) =>
                 send({
                   type: 'ack',

@@ -257,6 +257,8 @@ export interface GitPushTable {
   old_commit: string | null;
   /** The commit after; null: the branch was deleted by this push. */
   new_commit: string | null;
+  /** AFS-149: how it came (store.ts PushKind); null for pushes written down before. */
+  kind: string | null;
   created_at: IsoTime;
 }
 

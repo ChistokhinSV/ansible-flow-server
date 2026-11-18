@@ -104,7 +104,7 @@ export class ApiError extends Error {
       problems?: Problem[];
       form?: LaunchForm;
       /** AFS-76: a Save the branch's changes stand in the way of. */
-      conflicts?: { id: string; label: string }[];
+      conflicts?: { id: string; label: string; draft?: string | null; branch?: string | null }[];
       /** AFS-78: the files the branch changed since a change set began. */
       files?: string[];
     } = {},
@@ -354,8 +354,31 @@ export const api = {
   /** AFS-76: the flow's draft, started from the project's commit when there is none. */
   openDraft: (id: string, path: string) =>
     call<Draft>('POST', `/projects/${id}/drafts?path=${encodeURIComponent(path)}`),
-  saveDraft: (id: string, input: { message?: string; force?: boolean }) =>
-    call<{ commit: string; unchanged?: boolean }>('POST', `/drafts/${id}/save`, input),
+  /**
+   * AFS-149: `choices` keeps a side per clashing place; `answerConflicts` has clashes answered
+   * (`conflicts`, nothing saved) rather than refused.
+   */
+  saveDraft: (
+    id: string,
+    input: {
+      message?: string;
+      force?: boolean;
+      choices?: Record<string, 'draft' | 'branch'>;
+      tab?: string;
+      answerConflicts?: boolean;
+    },
+  ) =>
+    call<
+      | { commit: string; unchanged?: boolean; coAuthors?: string[]; conflicts?: undefined }
+      | {
+          saved: false;
+          message: string;
+          conflicts: { id: string; label: string; draft: string | null; branch: string | null }[];
+          commit?: undefined;
+          unchanged?: undefined;
+          coAuthors?: undefined;
+        }
+    >('POST', `/drafts/${id}/save`, input),
   discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
   /** AFS-79: the draft and its flow as the designer shows it. */
   draft: (id: string) =>

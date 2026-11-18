@@ -366,9 +366,13 @@ export async function saveFiles(
       commit,
       project.gitUrl ? { url: project.gitUrl, auth: await deps.sync.auth(project) } : undefined,
     );
-    await recordPushes(deps.db, project.id, by, [
-      { ref: head.branch, from: head.commit, to: commit },
-    ]);
+    await recordPushes(
+      deps.db,
+      project.id,
+      by,
+      [{ ref: head.branch, from: head.commit, to: commit }],
+      'files',
+    );
     await deps.sync.refresh(project.id);
     return { branch: head.branch, commit, files: touched };
   });
@@ -404,7 +408,7 @@ async function firstCommit(
     author: { name: by.name, email: row?.email ?? `${by.login}@users.ansible-flow-server` },
     message: `${subject}\n`,
   });
-  await recordPushes(deps.db, project.id, by, [{ ref: branch, to: commit }]);
+  await recordPushes(deps.db, project.id, by, [{ ref: branch, to: commit }], 'files');
   await deps.sync.refresh(project.id);
   return { branch, commit, files: touched };
 }

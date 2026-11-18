@@ -1,6 +1,7 @@
 // One flow on the designer's canvas, and editing its draft together (AFS-76). AFS-85: a slim line
 // over the canvas leads to the flow's launch configurations and its latest runs.
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { flowLevel, useProjectAccess } from './access';
 import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run } from './api';
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
@@ -22,7 +23,7 @@ export function FlowPage({
   file,
   theme,
 }: {
-  me: { login: string };
+  me: { login: string; name?: string };
   workspace: string;
   project: string;
   file: string;
@@ -71,11 +72,20 @@ export function FlowPage({
   const [editing, setEditing] = useState<Draft>();
   // AFS-107: the canvas, for Full screen; AFS-114: with what opens over it (the library picker).
   const stage = useRef<HTMLDivElement>(null);
+  // AFS-149: the stage, once there, for the draft's notes laid over the canvas.
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
+  // AFS-149: this page, as the draft's frame and Save name it (the same person's other tabs are
+  // other pages, asked for their typing before a save).
+  const tab = useRef(
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random()}`,
+  ).current;
+  // AFS-149: Save in the full screen bar does what the draft bar's Save does.
+  const saveNow = useRef<() => void>(() => undefined);
   // AFS-110: Copy or Delete, picked in the head's More menu.
   const [fileAction, setFileAction] = useState<'copy' | 'delete'>();
-  const [people, setPeople] = useState<{ login: string; name: string }[]>([]);
-  const [edits, setEdits] = useState<{ by: string; steps: string[]; at: string }[]>([]);
-  const [said, setSaid] = useState<string>();
+  const [people, setPeople] = useState<{ login: string; name: string; tabs?: number }[]>([]);
+  const [edits, setEdits] = useState<Activity[]>([]);
+  const [said, setSaid] = useState<ReactNode>();
   const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
   const [starting, setStarting] = useState<StartWhat>();
   // AFS-79: the draft changed (an insert here, an edit by anyone): the library copies are read again.
@@ -98,11 +108,14 @@ export function FlowPage({
     const timer = setInterval(() => reloadRuns.current(), runsQueued ? 1500 : 5000);
     return () => clearInterval(timer);
   }, [runsGoing, runsQueued]);
-  const stopEditing = (words?: string) => {
+  const stopEditing = (words?: ReactNode) => {
     setEditing(undefined);
     setPeople([]);
     setEdits([]);
     setSaid(words);
+    // AFS-149: the canvas shows the project's commit again (the one the save made), not the one an
+    // Update showed before editing.
+    setShown(undefined);
     reloadAll.current();
   };
   const stop = useRef(stopEditing);
@@ -119,6 +132,26 @@ export function FlowPage({
   }, [file]);
   // AFS-75: the designer's frame says which commit it shows after an Update.
   const [shown, setShown] = useState<string>();
+  // AFS-149: a new commit of the project is a new frame, at that commit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on a new commit only
+  useEffect(() => setShown(undefined), [project?.commit]);
+  // AFS-149: this page sent its typing for a save someone is making: the saved note says so too.
+  const typingSent = useRef(false);
+  // AFS-149: a saved draft's commit, as a link to the flow at that commit.
+  const commitLink = useRef<(commit: string) => ReactNode>((c) => <code>{c.slice(0, 12)}</code>);
+  commitLink.current = (c) =>
+    project ? (
+      <a
+        href={`/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}&commit=${c}&theme=${theme === 'system' ? 'auto' : theme}`}
+        target="_blank"
+        rel="noreferrer"
+        title="The flow at this commit, on a page of its own"
+      >
+        <code>{c.slice(0, 12)}</code>
+      </a>
+    ) : (
+      <code>{c.slice(0, 12)}</code>
+    );
   useEffect(() => {
     const heard = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
@@ -126,32 +159,49 @@ export function FlowPage({
         type?: string;
         commit?: string;
         by?: string;
-        people?: { login: string; name: string }[];
+        people?: { login: string; name: string; tabs?: number }[];
         steps?: string[];
         level?: string;
         at?: { x: number; y: number };
         what?: string;
         sent?: boolean;
+        mine?: boolean;
+        coAuthors?: string[];
+        unsent?: boolean;
       } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
       if (data?.type === 'afs-flow-runs') reloadRuns.current();
       if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
       if (data?.type === 'afs-draft-edit' && data.by) {
         const by = data.by;
-        const steps = data.steps ?? [];
-        setEdits((e) => [{ by, steps, at: new Date().toISOString() }, ...e].slice(0, 5));
+        const what = data.what ?? `changed ${data.steps?.join(', ') || 'the flow'}`;
+        setEdits((e) => [{ by, what, at: new Date().toISOString() }, ...e].slice(0, 20));
         setChanged((n) => n + 1);
       }
       // AFS-136: a notice about the last thing done (an import) goes once it is taken back.
       if (data?.type === 'afs-draft-undone') setSaid(undefined);
-      if (data?.type === 'afs-draft-saving')
+      // AFS-149: the same person saving in another tab is "you", not their name.
+      if (data?.type === 'afs-draft-saving') {
+        typingSent.current = !!data.sent;
         setSaid(
-          `${data.by ?? 'Someone'} is saving the draft${data.sent ? ': what you were typing is in it' : ''}.`,
+          `${data.mine ? 'You are saving the draft in another tab' : `${data.by ?? 'Someone'} is saving the draft`}${data.sent ? ': what you were typing here is in it' : ''}.`,
         );
-      if (data?.type === 'afs-draft-saved')
+      }
+      if (data?.type === 'afs-draft-saved') {
+        const sent = typingSent.current;
+        typingSent.current = false;
         stop.current(
-          `${data.by ?? 'Someone'} saved the draft${data.commit ? ` as ${data.commit.slice(0, 12)}` : ''}.`,
+          <>
+            {data.mine
+              ? 'You saved the draft in another tab'
+              : `${data.by ?? 'Someone'} saved the draft`}
+            {data.commit ? <> as {commitLink.current(data.commit)}</> : null}
+            {data.coAuthors?.length ? ` with ${data.coAuthors.join(', ')} as co-authors` : ''}.
+            {sent ? ' What you were typing here is in it.' : ''}
+            {data.unsent ? ' What you were typing here when it was saved may not be in it.' : ''}
+          </>,
         );
+      }
       if (data?.type === 'afs-draft-gone')
         stop.current(`${data.by ?? 'Someone'} discarded the draft.`);
       // AFS-79: Insert Shared Subflow… on the canvas picks from the library here.
@@ -180,7 +230,12 @@ export function FlowPage({
   };
   // AFS-115: while editing, the branch moves (a push from VS Code, another save): who changed this
   // flow since the draft began, so nobody's work is saved over unknowingly.
-  const [outside, setOutside] = useState<{ who: string; to: string; removed: boolean }>();
+  const [outside, setOutside] = useState<{
+    who: string;
+    to: string;
+    removed: boolean;
+    mine: boolean;
+  }>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: per draft
   useEffect(() => {
     setOutside(undefined);
@@ -192,12 +247,18 @@ export function FlowPage({
       void api
         .changes(project.id, base, to)
         .then((c) => {
-          const mine = c.flows.find((f) => f.file === file);
-          if (mine)
+          const found = c.flows.find((f) => f.file === file);
+          // AFS-149: the commits name their author; this person is "you", the others by name.
+          const others = found?.authors.filter((a) => a !== me.name) ?? [];
+          const byMe = !!found && !!me.name && found.authors.includes(me.name);
+          if (found)
             setOutside({
-              who: mine.authors.join(', ') || 'Someone',
+              who: byMe
+                ? `You${others.length ? ` and ${others.join(', ')}` : ''}`
+                : others.join(', ') || 'Someone',
               to,
-              removed: mine.change === 'removed',
+              removed: found.change === 'removed',
+              mine: byMe && !others.length,
             });
         })
         .catch(() => undefined);
@@ -251,10 +312,7 @@ export function FlowPage({
               type="button"
               className="danger"
               onClick={async () => {
-                const whose = waiting.editors
-                  .map((e) => (e.login === me.login ? 'yours' : `${e.name}'s`))
-                  .join(', ');
-                if (!window.confirm(`Discard the draft? The unsaved edits go (${whose}).`)) return;
+                if (!window.confirm(discardQuestion(waiting.editors, me.login))) return;
                 try {
                   await api.discardDraft(waiting.id);
                   setSaid('The draft is discarded.');
@@ -395,11 +453,18 @@ export function FlowPage({
         {editing ? (
           <DraftBar
             draft={editing}
+            me={me.login}
+            tab={tab}
             frame={() => stage.current?.querySelector('iframe') ?? null}
             // AFS-136: the others; the page's list has this person too.
             people={people.filter((p) => p.login !== me.login)}
+            // AFS-149: this person's other tabs, asked for their typing too.
+            myTabs={people.find((p) => p.login === me.login)?.tabs ?? 1}
             edits={edits}
             onDone={stopEditing}
+            stage={stageEl}
+            saveNow={saveNow}
+            link={(c) => commitLink.current(c)}
             {...(outside
               ? { outside: { ...outside, branch: project?.gitRef ?? 'the branch' } }
               : {})}
@@ -423,11 +488,24 @@ export function FlowPage({
         )}
       </div>
       {viewer && project?.commit && (
-        <div className="flow-stage" ref={stage}>
-          {/* AFS-136: in full screen, the way back (and to Save) stays in sight. */}
+        <div
+          className="flow-stage"
+          ref={(el) => {
+            stage.current = el;
+            setStageEl(el);
+          }}
+        >
+          {/* AFS-136: in full screen, the way back stays in sight; AFS-149: and Save. */}
           <div className="fullscreen-bar">
             {editing ? (
-              <span className="muted small">Save is under the page: come back to save.</span>
+              <button
+                type="button"
+                className="primary"
+                aria-label="Save the draft"
+                onClick={() => saveNow.current()}
+              >
+                Save
+              </button>
             ) : null}
             <button type="button" onClick={() => void document.exitFullscreen?.()}>
               Exit full screen
@@ -437,7 +515,8 @@ export function FlowPage({
             // A new commit, theme or draft is a new page for the designer.
             key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
             className="flow-frame"
-            src={viewer}
+            // AFS-149: the frame of a draft is this page's tab (its typing is sent for a save).
+            src={editing ? `${viewer}&tab=${encodeURIComponent(tab)}` : viewer}
             title={`The flow ${title} on the designer's canvas`}
           />
           {editing && starting ? (
@@ -471,12 +550,34 @@ export function FlowPage({
     </div>
   );
 }
+/** AFS-149: one line of the activity: who did what, when. */
+export interface Activity {
+  by: string;
+  what: string;
+  at: string;
+}
+
+/** AFS-149: a place both the draft and the branch changed, with each side's value. */
+interface Clash {
+  id: string;
+  label: string;
+  draft?: string | null;
+  branch?: string | null;
+}
 
 /**
- * AFS-76: while a flow's draft is being edited: who is here, what the others changed lately,
- * Save (one commit, with a message) and Discard. A Save the branch's changes stand in the way of
- * lists the conflicts and offers to save with the draft's side.
+ * AFS-149: the one question before a draft is discarded (on the flow's page and in the editor):
+ * whose unsaved edits go.
  */
+export function discardQuestion(editors: { login: string; name: string }[], me: string): string {
+  const names = [...new Set(editors.map((e) => (e.login === me ? 'you' : e.name)))];
+  if (names.includes('you')) names.sort((a, b) => (a === 'you' ? -1 : b === 'you' ? 1 : 0));
+  const whose = names.length
+    ? `the unsaved edits by ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]} go`
+    : 'nobody has changed it yet';
+  return `Discard the draft for everyone? It cannot be undone: ${whose}.`;
+}
+
 /**
  * AFS-136: what is being typed in the designer (a field commits when it is left) is sent before
  * a Save: the field is left, and the edit has a moment to reach the server.
@@ -488,33 +589,65 @@ async function sendTyping(frame: HTMLIFrameElement | null): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 400));
 }
 
+/**
+ * AFS-76: while a flow's draft is being edited: who is here, what the others changed lately,
+ * Save (one commit, with a message) and Discard. AFS-149: a Save the branch's changes stand in the
+ * way of shows each clashing place with both values and keeps the side picked per place; that
+ * note, and the one saying the branch moved, lie over the canvas, so the canvas never moves.
+ */
 function DraftBar({
   draft,
+  me,
+  tab,
   frame,
   people,
+  myTabs,
   edits,
   onDone,
   outside,
+  stage,
+  saveNow,
+  link,
 }: {
   draft: Draft;
+  me: string;
+  tab: string;
   frame(): HTMLIFrameElement | null;
   people: { login: string; name: string }[];
-  edits: { by: string; steps: string[]; at: string }[];
-  onDone(words?: string): void;
+  /** How many tabs this person has the draft open in (this one too). */
+  myTabs: number;
+  edits: Activity[];
+  onDone(words?: ReactNode): void;
   /** AFS-115: the flow changed on the branch since the draft began. */
-  outside?: { who: string; to: string; removed: boolean; branch: string };
+  outside?: { who: string; to: string; removed: boolean; mine: boolean; branch: string };
+  /** Where the notes over the canvas go. */
+  stage: HTMLElement | null;
+  saveNow: { current: () => void };
+  /** A commit, as a link to the flow at it. */
+  link(commit: string): ReactNode;
 }) {
   const [message, setMessage] = useState('');
-  const [conflicts, setConflicts] = useState<{ id: string; label: string }[]>();
+  const [conflicts, setConflicts] = useState<Clash[]>();
+  const [choices, setChoices] = useState<Record<string, 'draft' | 'branch'>>({});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [hidden, setHidden] = useState<string>();
+  const [earlier, setEarlier] = useState(false);
   const others = people.map((p) => p.name).join(', ');
-  const save = async (force = false) => {
+  const save = async (picked?: Record<string, 'draft' | 'branch'>) => {
     // AFS-136: saving ends the draft for everyone in it: whoever else is here is named first.
+    // AFS-149: so are this person's other tabs.
+    const also = [
+      ...(people.length
+        ? [`${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too`]
+        : []),
+      ...(myTabs > 1 ? ['you have it open in another tab too'] : []),
+    ];
     if (
-      people.length &&
+      also.length &&
+      !picked &&
       !window.confirm(
-        `${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too. Saving makes the commit and ends the draft for everyone (what they are typing is sent first). Save now?`,
+        `${also.join('; ').replace(/^./, (c) => c.toUpperCase())}. Saving makes the commit and ends the draft for everyone (what is being typed is sent first). Save now?`,
       )
     )
       return;
@@ -524,12 +657,26 @@ function DraftBar({
       await sendTyping(frame());
       const done = await api.saveDraft(draft.id, {
         ...(message.trim() ? { message: message.trim() } : {}),
-        ...(force ? { force } : {}),
+        ...(picked ? { choices: picked } : {}),
+        tab,
+        answerConflicts: true,
       });
+      if (done.conflicts) {
+        setConflicts(done.conflicts);
+        setChoices(
+          Object.fromEntries(done.conflicts.map((c) => [c.id, picked?.[c.id] ?? 'draft'])),
+        );
+        return;
+      }
       onDone(
-        done.unchanged
-          ? 'Nothing to save: the flow is as the branch has it.'
-          : `Saved as ${done.commit.slice(0, 12)}.`,
+        done.unchanged ? (
+          'Nothing to save: the flow is as the branch has it.'
+        ) : (
+          <>
+            Saved as {link(done.commit)}
+            {done.coAuthors?.length ? ` with ${done.coAuthors.join(', ')} as co-authors` : ''}.
+          </>
+        ),
       );
     } catch (e) {
       if (e instanceof ApiError && e.details.conflicts) setConflicts(e.details.conflicts);
@@ -538,9 +685,14 @@ function DraftBar({
       setBusy(false);
     }
   };
+  saveNow.current = () => void save();
   const discard = async () => {
-    const whose = people.length ? `Your edits and ${others}'s go.` : 'Your edits go.';
-    if (!window.confirm(`Discard the draft for everyone? ${whose}`)) return;
+    // AFS-149: who changed it, as the server has it now, and who is here.
+    const now = (await api.drafts(draft.project).catch(() => [] as Draft[])).find(
+      (d) => d.id === draft.id,
+    );
+    const editors = [...(now?.editors ?? draft.editors), ...people];
+    if (!window.confirm(discardQuestion(editors, me))) return;
     try {
       await api.discardDraft(draft.id);
       onDone('The draft is discarded.');
@@ -558,56 +710,124 @@ function DraftBar({
     }
     onDone();
   };
-  // AFS-136: the newest edit only, on one line, so the canvas under the bar stays where it is.
+  // AFS-136: the newest edit only, on one line. AFS-149: the line is always there (no edit yet
+  // says so), so its first edit does not move the canvas; the earlier ones open over the canvas.
   const newest = edits[0];
+  const moved = outside && hidden !== outside.to && !conflicts;
+  const notes =
+    moved || conflicts ? (
+      <div className="draft-float">
+        {moved ? (
+          <div className="notice warn" role="status">
+            <p>
+              <strong>
+                {outside.who} {outside.removed ? 'removed' : 'changed'} this flow on{' '}
+                {outside.branch}
+              </strong>{' '}
+              since this draft began (now <code>{outside.to.slice(0, 12)}</code>).{' '}
+              {outside.removed
+                ? 'Saving puts it back with the draft’s edits.'
+                : `Saving puts the draft’s edits on top of ${outside.mine ? 'that change' : 'theirs'} step by step; where both changed the same place, you choose which to keep.`}
+            </p>
+            <button type="button" className="link" onClick={() => setHidden(outside.to)}>
+              Hide
+            </button>
+          </div>
+        ) : null}
+        {conflicts ? (
+          <div className="notice error draft-conflict" role="alert">
+            <p>
+              <strong>The branch changed the same places</strong> since this draft began. Pick which
+              to keep at each:
+            </p>
+            <ul className="plain draft-clashes">
+              {conflicts.map((c) => (
+                <li key={c.id}>
+                  <code>{c.label}</code>
+                  <label>
+                    <input
+                      type="radio"
+                      name={`clash-${c.id}`}
+                      checked={choices[c.id] !== 'branch'}
+                      onChange={() => setChoices((now) => ({ ...now, [c.id]: 'draft' }))}
+                    />{' '}
+                    The draft’s: <ClashValue value={c.draft} />
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name={`clash-${c.id}`}
+                      checked={choices[c.id] === 'branch'}
+                      onChange={() => setChoices((now) => ({ ...now, [c.id]: 'branch' }))}
+                    />{' '}
+                    The branch’s: <ClashValue value={c.branch} />
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <div className="draft-conflict-actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() =>
+                  void save(
+                    Object.fromEntries(conflicts.map((c) => [c.id, choices[c.id] ?? 'draft'])),
+                  )
+                }
+              >
+                Save with these
+              </button>
+              <button type="button" className="link" onClick={() => setConflicts(undefined)}>
+                Not now
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    ) : null;
   return (
     <section className="panel draft-bar" aria-label="Editing">
       <p>
         <strong>Editing</strong> · here now:{' '}
-        {people.length ? `you, ${people.map((p) => p.name).join(', ')}` : 'only you'}. Edits are
-        shared at once; Ctrl+Z takes back your own last one. Runs use saved flows: Save, then
-        launch.
+        {people.length ? `you, ${people.map((p) => p.name).join(', ')}` : 'only you'}
+        {myTabs > 1 ? ' (you in other tabs too)' : ''}. Edits are shared at once; Ctrl+Z takes back
+        your own last one. Runs use saved flows: Save, then launch.
       </p>
-      {newest ? (
-        <p className="muted draft-edits" aria-live="polite">
-          {newest.by} changed {newest.steps.length ? newest.steps.join(', ') : 'the flow'} (
-          <Time at={newest.at} />){edits.length > 1 ? ` · ${edits.length - 1} earlier` : ''}
-        </p>
-      ) : null}
-      {outside && !conflicts ? (
-        <p className="notice warn" role="status">
-          <strong>
-            {outside.who} {outside.removed ? 'removed' : 'changed'} this flow on {outside.branch}
-          </strong>{' '}
-          since this draft began (now <code>{outside.to.slice(0, 12)}</code>).{' '}
-          {outside.removed
-            ? 'Saving puts it back with your edits.'
-            : 'Saving puts your edits on top of theirs step by step; where you both changed the same place, you choose which to keep.'}
-        </p>
-      ) : null}
-      {conflicts ? (
-        // AFS-112: one compact row: what clashed, then the choices, apart from Save below.
-        <div className="notice error draft-conflict" role="alert">
-          <p>
-            <strong>The branch changed the same places</strong> since this draft began:{' '}
-            {conflicts.map((c, i) => (
-              <span key={c.id}>
-                {i ? ', ' : ''}
-                <code>{c.label}</code>
-              </span>
+      <div className="draft-edits muted" aria-live="polite">
+        {newest ? (
+          <span className="draft-edits-newest">
+            {newest.by} {newest.what} (<Time at={newest.at} />)
+          </span>
+        ) : (
+          <span>What the others change shows here.</span>
+        )}
+        {edits.length > 1 ? (
+          <button
+            type="button"
+            className="link"
+            aria-expanded={earlier}
+            onClick={() => setEarlier((open) => !open)}
+          >
+            {edits.length - 1} earlier
+          </button>
+        ) : null}
+        {outside && hidden === outside.to && !conflicts ? (
+          <button type="button" className="link" onClick={() => setHidden(undefined)}>
+            The branch moved
+          </button>
+        ) : null}
+        {earlier && edits.length > 1 ? (
+          <ul className="plain draft-earlier panel">
+            {edits.slice(1).map((e) => (
+              <li key={`${e.at}-${e.by}-${e.what}`}>
+                {e.by} {e.what} (<Time at={e.at} />)
+              </li>
             ))}
-            . Saving with the draft's side overwrites them; Discard drops the draft.
-          </p>
-          <div className="draft-conflict-actions">
-            <button type="button" disabled={busy} onClick={() => void save(true)}>
-              Save with the draft's side
-            </button>
-            <button type="button" className="link" onClick={() => setConflicts(undefined)}>
-              Not now
-            </button>
-          </div>
-        </div>
-      ) : null}
+          </ul>
+        ) : null}
+      </div>
+      {notes && (stage ? createPortal(notes, stage) : notes)}
       {error ? (
         <p className="notice error" role="alert">
           {error}
@@ -633,5 +853,14 @@ function DraftBar({
         </button>
       </div>
     </section>
+  );
+}
+
+/** AFS-149: one side's value at a clashing place; none: that side removed it. */
+function ClashValue({ value }: { value?: string | null }) {
+  return value === null || value === undefined ? (
+    <em>removed or not set</em>
+  ) : (
+    <code className="draft-clash-value">{value}</code>
   );
 }

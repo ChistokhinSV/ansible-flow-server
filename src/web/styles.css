@@ -1127,9 +1127,95 @@ ul.tight {
 .draft-bar p {
   margin: 0 0 0.5rem;
 }
+/* AFS-149: one line, always there, so an edit by someone else never moves the canvas; the
+   earlier ones open over what is under it. */
 .draft-edits {
+  position: relative;
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  height: 1.5em;
   margin: 0 0 0.5rem;
-  padding-left: 1.2rem;
+  white-space: nowrap;
+}
+.draft-edits-newest {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.draft-edits button.link {
+  flex: none;
+}
+.draft-earlier {
+  position: absolute;
+  z-index: 30;
+  top: 1.6em;
+  left: 0;
+  max-width: min(40rem, 100%);
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  white-space: normal;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+}
+.draft-earlier li + li {
+  margin-top: 0.25rem;
+}
+/* AFS-149: the draft's notes (the branch moved, a save's clashes) lie over the canvas's top, not
+   above it: the canvas keeps its place and size. */
+.draft-float {
+  position: absolute;
+  z-index: 6;
+  top: 2.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(40rem, calc(100% - 2rem));
+  max-height: calc(100% - 4rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.draft-float .notice {
+  margin: 0;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+}
+.draft-float .notice.warn {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.draft-float .notice.warn p {
+  flex: 1;
+  margin: 0;
+}
+.draft-float .draft-conflict {
+  flex-direction: column;
+  align-items: stretch;
+}
+.draft-float .draft-conflict p {
+  flex: none;
+}
+.draft-clashes {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.draft-clashes li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.draft-clashes label {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.draft-clash-value {
+  white-space: pre-wrap;
 }
 /* AFS-112: notices in the bar keep apart from the row of buttons under them. */
 .draft-bar .notice {
@@ -1142,7 +1228,7 @@ ul.tight {
   gap: 0.5rem 1rem;
   padding: 0.5rem 0.75rem;
 }
-.draft-bar .draft-conflict p {
+.draft-conflict p {
   flex: 1 1 24rem;
   margin: 0;
 }
