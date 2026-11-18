@@ -356,9 +356,21 @@ for (const [name, config] of databases) {
         { api_password: '***', target_version: '7.4.2' },
       );
       const g = await gate(run.id, { notify: ['NOC'], message: 'Check the change ticket first' });
+      // AFS-145: a flow's approval lists reach only who may see the flow: the NOC, no grant.
       notifier.approvalWaiting(run.id, g.id);
       await notifier.idle();
-      expect(sentTo(mails).sort()).toEqual(['noc@example.net', 'omar@example.net']);
+      expect(sentTo(mails)).toEqual(['omar@example.net']);
+      const noc = await createGrant(
+        db(),
+        ids.workspace as string,
+        { group: 'NOC', level: 'ro' },
+        'dana',
+      );
+      const asked = smtp.received.length;
+      notifier.approvalWaiting(run.id, g.id);
+      await notifier.idle();
+      await deleteGrant(db(), noc.id);
+      expect(sentTo(asked).sort()).toEqual(['noc@example.net', 'omar@example.net']);
       const mail = readable(smtp.received.at(-1)?.data ?? '');
       expect(mail).toContain('Check the change ticket first');
       expect(mail).toContain(`https://flows.example.net/runs/${run.id}`);
@@ -390,6 +402,12 @@ for (const [name, config] of databases) {
       const mails = smtp.received.length;
       const run = await launch('dana');
       const g = await gate(run.id, { notify: ['NOC'] });
+      const noc = await createGrant(
+        db(),
+        ids.workspace as string,
+        { group: 'NOC', level: 'ro' },
+        'dana',
+      );
       await decideGate(db(), g.id, {
         status: 'rejected',
         by: 'omar',
@@ -397,6 +415,7 @@ for (const [name, config] of databases) {
       });
       notifier.approvalDecided(run.id, g.id);
       await notifier.idle();
+      await deleteGrant(db(), noc.id);
       expect(sentTo(mails).sort()).toEqual(['dana@example.net', 'noc@example.net']);
       const mail = readable(smtp.received.at(-1)?.data ?? '');
       expect(mail).toContain('Not during the freeze');

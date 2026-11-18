@@ -27,7 +27,7 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
-- A launch configuration tells of its runs only people and groups with access to the flow: saving one that names someone without access is refused and says who, and someone whose access was taken back later is no longer told.
+- A launch configuration tells of its runs only people and groups with access to the flow: saving one that names someone without access is refused and says who, and someone whose access was taken back later is no longer told. The same goes for the people an approval in a flow names to ask or to tell.
 - The audit log names the token an action was done with, beside where it came from, and an entry of a token made says what it reaches.
 - A read-only token is refused as such at once, before what it sent is checked.
 - A run that failed because its approval was rejected (or nobody decided in time) reads as **rejected** (or **not decided in time**) in the run lists and on its page, and its hosts as ended at the rejection's step, not failed.

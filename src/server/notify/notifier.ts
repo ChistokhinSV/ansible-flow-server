@@ -296,15 +296,24 @@ export class Notifier {
         .executeTakeFirst();
       // Who launched the run is not asked when they may not decide it (no self-approval).
       const approvers = approval.approvers?.length
-        ? (await contactsOfNames(this.db, approval.approvers)).filter(
-            (c) => self?.self_approve === 1 || c.label !== run.requestedLogin,
-          )
+        ? (
+            await contactsOfNames(this.db, approval.approvers, {
+              workspace: run.workspace.id,
+              project: run.project.id,
+              flowFile: run.flowFile,
+            })
+          ).filter((c) => self?.self_approve === 1 || c.label !== run.requestedLogin)
         : await approverContacts(
             this.db,
             { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
             self?.self_approve === 1 ? undefined : run.requestedBy,
           );
-      const told = await contactsOfNames(this.db, approval.notify ?? []);
+      // AFS-145: a flow's approval lists, like a configuration's, reach only who may see the flow.
+      const told = await contactsOfNames(this.db, approval.notify ?? [], {
+        workspace: run.workspace.id,
+        project: run.project.id,
+        flowFile: run.flowFile,
+      });
       const link = this.link(`/runs/${run.id}`);
       // AFS-146: what the approver needs to decide: the run's inputs (secrets as ***), and
       // whether it changes anything.
@@ -406,7 +415,11 @@ export class Notifier {
         { kind: 'approval.decided', message, run: run.id },
         placesOf([
           ...(await launcherContacts(this.db, run.requestedBy)),
-          ...(await contactsOfNames(this.db, approval.notify ?? [])),
+          ...(await contactsOfNames(this.db, approval.notify ?? [], {
+            workspace: run.workspace.id,
+            project: run.project.id,
+            flowFile: run.flowFile,
+          })),
         ]),
       );
     });
