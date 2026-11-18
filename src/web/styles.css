@@ -2586,6 +2586,14 @@ fieldset.name-chips {
 .flow-stage:fullscreen {
   border-radius: 0;
 }
+/* AFS-148: under an open picker the canvas steps back (the picker floated over the side panel). */
+.library-pick-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+}
 .library-pick {
   position: absolute;
   z-index: 5;

@@ -10,6 +10,8 @@ import type { Stack } from './stack';
 
 const stack = JSON.parse(process.env.AFS_LAYOUT_STACK ?? '{}') as Omit<Stack, 'stop'>;
 const WIDTHS = [390, 768, 1024, 1440] as const;
+/** AFS-148: a laptop's short window too, where the canvas lost its height. */
+const SIZES = [...WIDTHS.map((w) => [w, w < 768 ? 844 : 900] as const), [1280, 720] as const];
 /** AFS_LAYOUT_SHOTS=<folder> keeps a screenshot of every page looked at. */
 const shots = process.env.AFS_LAYOUT_SHOTS;
 
@@ -75,10 +77,10 @@ function look() {
   return [...new Set(out)];
 }
 
-for (const width of WIDTHS)
+for (const [width, height] of SIZES)
   for (const [name, path] of Object.entries(stack.pages ?? {}))
-    test(`${name} at ${width}px`, async ({ page }, info) => {
-      await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+    test(`${name} at ${width}px${height === 720 ? ` x ${height}` : ''}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height });
       await page.goto(stack.base + path);
       await expect(page.locator('main h1').first()).toBeVisible({ timeout: 45_000 });
       // The flow's canvas in the designer's frame: the room its panels leave it.
@@ -90,17 +92,24 @@ for (const width of WIDTHS)
       if (shots) {
         mkdirSync(shots, { recursive: true });
         await page.screenshot({
-          path: join(shots, `${info.project.name}-${width}-${name}.png`),
+          path: join(shots, `${info.project.name}-${width}x${height}-${name}.png`),
           fullPage: true,
         });
       }
       const found = await page.evaluate(look);
       if (name.startsWith('flow')) {
         const frame = await page.locator('iframe.flow-frame').boundingBox();
-        const room = (await canvas.boundingBox())?.width ?? 0;
+        const box = await canvas.boundingBox();
+        const room = box?.width ?? 0;
         if (frame && room < Math.min(frame.width * 0.6, 600))
           found.push(
             `the canvas is ${Math.round(room)}px wide in a ${Math.round(frame.width)}px frame`,
+          );
+        // AFS-148: the side panel beside the canvas or folded, not under it (170 to 300px left).
+        const tall = box?.height ?? 0;
+        if (frame && tall < frame.height * 0.7)
+          found.push(
+            `the canvas is ${Math.round(tall)}px tall in a ${Math.round(frame.height)}px frame`,
           );
       }
       expect(found, `${path} at ${width}px`).toEqual([]);
