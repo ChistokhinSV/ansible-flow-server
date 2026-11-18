@@ -405,13 +405,15 @@ describe('a run', () => {
     render(<App />);
     const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
     await within(crumbs).findByRole('link', { name: 'Nightly check' });
+    // AFS-144: the workspace by its name, once it is read.
+    await within(crumbs).findByRole('link', { name: 'Network operations' });
     expect(
       within(crumbs)
         .getAllByRole('link')
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
       ['Workspaces', '/workspaces'],
-      ['netops', '/w/netops'],
+      ['Network operations', '/w/netops'],
       ['edge', '/w/netops/edge'],
       ['Nightly check', '/w/netops/edge/launch/c1'],
     ]);
