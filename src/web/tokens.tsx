@@ -35,7 +35,7 @@ export function TokensPanel({
   const fresh = { name: '', days: 90, readOnly: false, workspace: '', mcpApprovals: false };
   const [input, setInput] = useState(fresh);
   const workspaceName = (id?: string) =>
-    id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
+    id ? (workspaces.data?.find((w) => w.id === id)?.name ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
   const [adding, setAdding] = useState(false);
   return (

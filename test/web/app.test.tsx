@@ -294,7 +294,7 @@ describe('signed in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await screen.findByRole('heading', { name: 'Data centre' });
     expect(window.location.pathname).toBe('/w/dc');
-    expect(screen.getByText('No project in this workspace yet.')).toBeTruthy();
+    expect(await screen.findByText('No project in this workspace yet.')).toBeTruthy();
   });
 
   it('a project page says where it is, how to clone it and who pushed', async () => {
@@ -743,6 +743,21 @@ describe('signed in', () => {
       'GET /projects/p2/access': () => ({
         body: { admin: false, workspace: 'ro', approve: false, flows: {} },
       }),
+      'GET /session/access': () => ({
+        body: {
+          admin: false,
+          administrators: ['Dana Admin'],
+          workspaces: [
+            {
+              workspace: { id: network.id, key: 'network', name: network.name },
+              level: 'ro',
+              approve: false,
+              flows: [],
+              through: ['user:omar'],
+            },
+          ],
+        },
+      }),
     };
     window.history.replaceState(null, '', '/w/network/lab/settings');
     render(<App />);
@@ -754,7 +769,11 @@ describe('signed in', () => {
     navigate('/w/network/nothing');
     // AFS-143: says what was looked for.
     await screen.findByRole('heading', { name: 'Not found' });
-    expect(screen.getByRole('link', { name: 'Back to network' })).toBeTruthy();
+    // AFS-152: back to the workspace by its name; with a level on it, every project shows, so one
+    // not listed does not exist (no advice to ask for access).
+    expect(await screen.findByRole('link', { name: 'Back to Network team' })).toBeTruthy();
+    expect(await screen.findByText(/does not exist/)).toBeTruthy();
+    expect(screen.queryByText(/An administrator gives access/)).toBeNull();
   });
 
   it('starts an empty hosted project from a sample, and makes one from a sample (AFS-58)', async () => {
@@ -915,7 +934,8 @@ describe('signed in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Make token' }));
     expect((await screen.findByRole('status')).textContent).toContain(`afs_${'A'.repeat(43)}`);
     await screen.findByText('…Xk3Q');
-    expect(screen.getByRole('cell', { name: network.key })).toBeTruthy();
+    // AFS-152: by its name, as the form names it.
+    expect(screen.getByRole('cell', { name: network.name })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'API reference' }).getAttribute('href')).toBe(
       '/docs/api',
     );
@@ -956,5 +976,88 @@ describe('signed in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     await screen.findByRole('heading', { name: 'Sign in to Ansible Flow Server' });
     expect(calls).toContain('DELETE /session');
+  });
+});
+
+describe('AFS-152: one own access, in words', () => {
+  const nora = { ...omar, id: 'u5', login: 'nora', name: 'Nora Lind' };
+  const noraAccess = {
+    admin: false,
+    administrators: ['Dana Whitfield'],
+    workspaces: [
+      {
+        workspace: { id: network.id, key: 'network', name: network.name },
+        level: 'ro',
+        approve: false,
+        flows: [
+          {
+            project: 'edge',
+            projectId: 'p1',
+            file: 'flows/os-upgrade.flow.yaml',
+            level: 'operator',
+          },
+        ],
+        through: ['group:ops', 'user:nora'],
+      },
+    ],
+  };
+
+  it('a project says read only on the workspace and operator on one flow, on every tab', async () => {
+    routes = {
+      ...signedInAs(nora),
+      'GET /projects/p1/access': () => ({
+        body: {
+          admin: false,
+          workspace: 'ro',
+          approve: false,
+          flows: { 'flows/os-upgrade.flow.yaml': 'operator', 'old/broken.flow.yaml': 'ro' },
+        },
+      }),
+      'GET /projects/p1/files?branch=main': () => ({ body: { commit: edge.commit, files: [] } }),
+    };
+    window.history.replaceState(null, '', '/w/network/edge');
+    render(<App />);
+    const line = 'Your access: read only (sees flows and runs, clones); operator on OS upgrade';
+    expect((await screen.findByText(/^Your access:/)).textContent).toBe(line);
+    navigate('/w/network/edge/files');
+    await waitFor(() => expect(screen.getByText(/^Your access:/).textContent).toBe(line));
+    expect(document.body.textContent).not.toMatch(/\bro:/);
+  });
+
+  it('My account lists the access workspace by workspace, flows by title', async () => {
+    routes = { ...signedInAs(nora), 'GET /session/access': () => ({ body: noraAccess }) };
+    window.history.replaceState(null, '', '/account');
+    render(<App />);
+    const panel = (await screen.findByRole('heading', { name: 'Your access' })).closest(
+      'section',
+    ) as HTMLElement;
+    await waitFor(() =>
+      expect(panel.textContent).toContain(
+        'Network team: read only (sees flows and runs, clones); operator on OS upgrade',
+      ),
+    );
+    expect(panel.textContent).toContain('Through group ops, your own grant');
+    expect(panel.textContent).toContain('Dana Whitfield');
+  });
+
+  it('who has no workspace is told whom to ask, and not where runs start', async () => {
+    routes = {
+      ...signedInAs(nora),
+      'GET /workspaces': () => ({ body: [] }),
+      'GET /runs?limit=100': () => ({ body: [] }),
+      'GET /approvals': () => ({ body: [] }),
+      'GET /session/access': () => ({
+        body: { admin: false, administrators: ['Dana Whitfield'], workspaces: [] },
+      }),
+    };
+    render(<App />);
+    expect(
+      await screen.findByText(
+        'You have no access to a workspace yet: ask an administrator for it (Dana Whitfield).',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('No run yet.')).toBeTruthy();
+    // No empty Workspaces heading in the side menu.
+    expect(screen.queryByRole('navigation', { name: 'Workspaces' })).toBeNull();
   });
 });

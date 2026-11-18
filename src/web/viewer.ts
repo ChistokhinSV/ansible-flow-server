@@ -152,6 +152,23 @@ async function start(): Promise<void> {
     setTimeout(() => {
       for (const listener of listeners) listener(message);
     }, 0);
+  // AFS-152: the canvas here only shows the flow; Delete on it is not ignored without a word.
+  let toldReadOnly = 0;
+  window.addEventListener('keydown', (e) => {
+    if ((e.key !== 'Delete' && e.key !== 'Backspace') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (e.repeat || Date.now() - toldReadOnly < 4000) return;
+    toldReadOnly = Date.now();
+    send({
+      type: 'notify',
+      level: 'info',
+      text:
+        manage && !runId && !commit
+          ? 'The flow is shown read only: Edit on its page opens a draft to change it.'
+          : 'The flow is shown read only: changing it needs read and write access to it.',
+    });
+  });
   /** The run on the canvas now, for a step's host output and Stop. */
   let shown = runId;
   let stream: EventSource | undefined;

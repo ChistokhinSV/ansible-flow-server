@@ -3,9 +3,10 @@
 
 import type { RunView } from '@ansible-flow/core/protocol';
 import { useEffect, useRef, useState } from 'react';
-import { atLeast, flowLevel, useProjectAccess } from './access';
+import { atLeast, flowLevel, launchesAny, useMyAccess, useProjectAccess } from './access';
 import { AnsiText } from './ansi';
 import {
+  ApiError,
   api,
   type Project,
   type Run,
@@ -16,6 +17,7 @@ import {
 } from './api';
 import { RunApprovals } from './approvals';
 import { environmentAddress } from './environments';
+import { Missing } from './help';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import {
@@ -326,6 +328,8 @@ export function OlderRuns({ pages }: { pages: ReturnType<typeof useRunPages> }) 
 
 export function RunsPage({ me }: { me: User }) {
   const [{ state, project, config, mine, q }, setChoices] = useState(choicesInAddress);
+  // AFS-152: where runs start is said only to who may start one.
+  const myAccess = useMyAccess();
   // What is typed asks the server once typing pauses.
   const [typed, setTyped] = useState(q);
   useEffect(() => {
@@ -458,7 +462,9 @@ export function RunsPage({ me }: { me: User }) {
                 ? 'No run in this state.'
                 : project
                   ? 'No run of this project yet.'
-                  : 'No run yet. Runs start from a launch configuration of a project.'}
+                  : launchesAny(myAccess.data)
+                    ? 'No run yet. Runs start from a launch configuration of a project.'
+                    : 'No run yet.'}
           {/* AFS-144: a way back from choices that leave nothing. */}
           {(state || project || mine || q) && (
             <>
@@ -783,6 +789,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const access = useProjectAccess(run?.project).data;
   const [output, setOutput] = useState('');
   const [error, setError] = useState<string>();
+  /** AFS-152: the run is not there, or not shared with this person. */
+  const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const pre = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
@@ -800,22 +808,40 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     setView(undefined);
     setOutput('');
     setError(undefined);
-    api.run(id).then(setRun, (e: Error) => setError(e.message));
-    // Everything after: the run's record, its output, as they change.
-    const stream = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
-    stream.addEventListener('run', (event) => setRun(JSON.parse((event as MessageEvent).data)));
-    stream.addEventListener('output', (event) => {
-      const { text } = JSON.parse((event as MessageEvent).data) as { text: string };
-      setOutput((before) => {
-        const all = before + text;
-        if (all.length <= KEEP_OUTPUT) return all;
-        // Cut at a line's start, so no colour code is cut in two.
-        const cut = all.indexOf(String.fromCharCode(10), all.length - KEEP_OUTPUT);
-        return cut < 0 ? all.slice(all.length - KEEP_OUTPUT) : all.slice(cut + 1);
-      });
-    });
-    stream.addEventListener('end', () => stream.close());
-    return () => stream.close();
+    setMissing(false);
+    let live = true;
+    let stream: EventSource | undefined;
+    // AFS-152: the run's events are asked for once the run is there: not after a 404.
+    api.run(id).then(
+      (found) => {
+        if (!live) return;
+        setRun(found);
+        // Everything after: the run's record, its output, as they change.
+        const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
+        stream = events;
+        events.addEventListener('run', (event) => setRun(JSON.parse((event as MessageEvent).data)));
+        events.addEventListener('output', (event) => {
+          const { text } = JSON.parse((event as MessageEvent).data) as { text: string };
+          setOutput((before) => {
+            const all = before + text;
+            if (all.length <= KEEP_OUTPUT) return all;
+            // Cut at a line's start, so no colour code is cut in two.
+            const cut = all.indexOf(String.fromCharCode(10), all.length - KEEP_OUTPUT);
+            return cut < 0 ? all.slice(all.length - KEEP_OUTPUT) : all.slice(cut + 1);
+          });
+        });
+        events.addEventListener('end', () => events.close());
+      },
+      (e: Error) => {
+        if (!live) return;
+        if (e instanceof ApiError && e.status === 404) setMissing(true);
+        else setError(e.message);
+      },
+    );
+    return () => {
+      live = false;
+      stream?.close();
+    };
   }, [id]);
 
   // Its hosts, from how it went: read when it changes, and now and then while it goes.
@@ -883,6 +909,21 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     document.title = `${title} · Ansible Flow Server`;
   }, [title]);
 
+  // AFS-152: a run not there (or not shared) is the same page as a project not there.
+  if (missing && !run)
+    return (
+      <div className="run-below">
+        <Missing
+          what={
+            <>
+              The run <code>{id}</code>
+            </>
+          }
+          back={{ to: '/runs', label: 'Back to Runs' }}
+          help="runs.md"
+        />
+      </div>
+    );
   if (error && !run)
     return (
       <div className="run-below">

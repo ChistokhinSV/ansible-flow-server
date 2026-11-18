@@ -45,7 +45,9 @@ beforeEach(() => {
           service: false,
           workspace: 'rw',
           approve: false,
-          flows: [{ project: 'edge', file: 'flows/upgrade.flow.yaml', level: 'ro' }],
+          flows: [
+            { project: 'edge', projectId: 'p1', file: 'flows/upgrade.flow.yaml', level: 'ro' },
+          ],
           through: ['group:net-ops', 'user:omar'],
         },
       ],
@@ -57,18 +59,16 @@ beforeEach(() => {
     'GET /projects/p1/flows': () => ({
       body: { flows: [{ file: 'flows/upgrade.flow.yaml', name: 'Firewall upgrade' }] },
     }),
-    'POST /workspaces/network/grants': (body) => {
-      grants = [
-        ...grants,
-        {
-          ...grant,
-          id: 'g2',
-          principal: { type: 'user', id: 'u2', name: 'omar' },
-          level: 'ro',
-          flow: { project: 'p1', projectKey: 'edge', file: 'flows/upgrade.flow.yaml' },
-        },
-      ];
-      return { status: 201, body };
+    'POST /workspaces/network/grants': () => {
+      const made = {
+        ...grant,
+        id: 'g2',
+        principal: { type: 'user', id: 'u2', name: 'omar' },
+        level: 'ro',
+        flow: { project: 'p1', projectKey: 'edge', file: 'flows/upgrade.flow.yaml' },
+      };
+      grants = [...grants, made];
+      return { status: 201, body: made };
     },
     'DELETE /grants/g1': () => {
       grants = grants.filter((g) => (g as { id: string }).id !== 'g1');
@@ -101,12 +101,17 @@ describe("a workspace's access", () => {
       'section',
     ) as HTMLElement;
     expect(await within(panel).findByRole('cell', { name: 'the whole workspace' })).toBeTruthy();
-    expect(await within(panel).findByText('group:net-ops, user:omar')).toBeTruthy();
+    // AFS-152: levels, flows and whose grants in words.
+    expect(await within(panel).findByText('group net-ops, their own grant')).toBeTruthy();
+    expect(await within(panel).findByText('Firewall upgrade: read only')).toBeTruthy();
+    expect(within(panel).getAllByText('read and write').length).toBeGreaterThan(0);
 
     // Giving access is opened when wanted.
     fireEvent.click(within(panel).getByRole('button', { name: 'Give access' }));
     fireEvent.change(within(panel).getByLabelText('Who'), { target: { value: 'user:u2' } });
-    fireEvent.click(within(panel).getByLabelText(/^ro:/));
+    // Groups are marked as groups among the people.
+    expect(within(panel).getByRole('option', { name: 'group net-ops' })).toBeTruthy();
+    fireEvent.click(within(panel).getByLabelText(/^Read only:/));
     fireEvent.change(within(panel).getByLabelText('On'), { target: { value: 'p1' } });
     const flow = await within(panel).findByLabelText('Flow');
     await within(panel).findByRole('option', { name: /Firewall upgrade/ });
@@ -120,11 +125,35 @@ describe("a workspace's access", () => {
         flow: 'flows/upgrade.flow.yaml',
       }),
     );
-    expect(await within(panel).findByText('in edge')).toBeTruthy();
+    // AFS-152: what was given is said, the form starts again, the flow is named by its title.
+    expect((await within(panel).findByText(/^Gave Omar Haddad/)).textContent).toBe(
+      'Gave Omar Haddad (omar) read only on the flow Firewall upgrade in Edge.',
+    );
+    expect((within(panel).getByLabelText('Who') as HTMLSelectElement).value).toBe('');
+    expect((within(panel).getByLabelText('On') as HTMLSelectElement).value).toBe('');
+    expect(within(panel).queryByLabelText('Flow')).toBeNull();
+    expect(await within(panel).findByText('in Edge')).toBeTruthy();
 
-    fireEvent.click(within(panel).getByRole('button', { name: 'Take back rw from net-ops' }));
+    const asks: string[] = [];
+    window.confirm = (q?: string) => {
+      asks.push(q ?? '');
+      return true;
+    };
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Take back read only from Omar Haddad (omar)' }),
+    );
+    expect(asks[0]).toBe(
+      'Take back read only on the flow Firewall upgrade in Edge from Omar Haddad (omar)? It ends at once.',
+    );
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Take back read and write from group net-ops' }),
+    );
     await waitFor(() =>
-      expect(within(panel).queryByRole('button', { name: 'Take back rw from net-ops' })).toBeNull(),
+      expect(
+        within(panel).queryByRole('button', {
+          name: 'Take back read and write from group net-ops',
+        }),
+      ).toBeNull(),
     );
   });
 });

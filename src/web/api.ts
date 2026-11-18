@@ -1,7 +1,14 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
 import type { RunView } from '@ansible-flow/core/protocol';
-import type { Grant, GrantLevel, GroupGrant, Level, UserReach } from '../server/access/types';
+import type {
+  Grant,
+  GrantLevel,
+  GroupGrant,
+  Level,
+  MyAccess,
+  UserReach,
+} from '../server/access/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditRef } from '../server/audit/refs';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
@@ -74,6 +81,7 @@ export type {
   LaunchRequest,
   Level,
   LibrarySubflow,
+  MyAccess,
   NotifySettings,
   PreparedLaunch,
   Problem,
@@ -216,7 +224,7 @@ export interface WhoCan {
   service: boolean;
   workspace: Level | null;
   approve: boolean;
-  flows: { project: string; file: string; level: Level | null }[];
+  flows: { project: string; projectId: string; file: string; level: Level | null }[];
   through: string[];
 }
 
@@ -600,6 +608,8 @@ export const api = {
   removeGrant: (id: string) => call<void>('DELETE', `/grants/${encodeURIComponent(id)}`),
   whoCan: (workspace: string) =>
     call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
+  /** AFS-152: one's own access, workspace by workspace, and who gives access. */
+  myAccess: () => call<MyAccess>('GET', '/session/access'),
   /** What one person reaches, workspace by workspace (administrators). */
   userAccess: (id: string) => call<UserReach>('GET', `/users/${encodeURIComponent(id)}/access`),
   /** The grants that name a group, in every workspace (administrators). */

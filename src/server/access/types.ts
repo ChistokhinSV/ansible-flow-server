@@ -29,7 +29,8 @@ export interface WorkspaceName {
 export interface Reach {
   level: Level | null;
   approve: boolean;
-  flows: { project: string; file: string; level: Level | null }[];
+  /** `project` is the project's key; `projectId` its id (AFS-152: the pages read its flows' titles). */
+  flows: { project: string; projectId: string; file: string; level: Level | null }[];
   through: string[];
 }
 
@@ -40,6 +41,11 @@ export type Reached = Reach & { workspace: WorkspaceName };
 export interface UserReach {
   admin: boolean;
   workspaces: Reached[];
+}
+
+/** AFS-152: one's own access (GET /session/access), with who gives access: the administrators. */
+export interface MyAccess extends UserReach {
+  administrators: string[];
 }
 
 /** A grant that names a group, with the workspace it is in. */

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { flowLevel, useProjectAccess } from './access';
 import { ApiError, api, type Draft, type FlowList, type LaunchConfig, type Run } from './api';
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
+import { MissingProject } from './help';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link } from './router';
 import { ACTIVE, RunWords } from './runs';
@@ -45,7 +46,7 @@ export function FlowPage({
   // AFS-135: only a flow that is there (not a missing one) offers editing and configurations.
   const exists = !!flow;
   // AFS-147: the project's flows are read, and this one is not among them (deleted, or moved).
-  const gone = !!flows.data && !flow;
+  const gone = !!flows.data && !flow && !flows.data.more;
   const mayEdit = exists && !!access && (access.admin || access.flows?.[file] === 'rw');
   const drafts = useLoad(
     async () => (project ? api.drafts(project.id) : ([] as Draft[])),
@@ -280,6 +281,9 @@ export function FlowPage({
     window.history.replaceState(null, '', window.location.pathname);
     if (mayEdit && !editing) void edit();
   }, [project?.commit, access]);
+  // AFS-152: a project not there (or not shared) is the same page as on the project's address.
+  if (!found.loading && !project)
+    return <MissingProject workspace={workspace} project={key} error={found.error} />;
   return (
     <div className="flow-page">
       <div className="flow-head">
@@ -327,7 +331,7 @@ export function FlowPage({
           ) : null}
           {/* AFS-107: the canvas the whole screen (viewing or editing), or on a page of its own
               (with the draft while editing); icons, so the head takes little room. */}
-          {viewer && (
+          {viewer && !gone && (
             <button
               type="button"
               className="icon-button"
@@ -338,7 +342,7 @@ export function FlowPage({
               <Icon name="fullscreen" />
             </button>
           )}
-          {viewer && (
+          {viewer && !gone && (
             <a
               href={viewer}
               target="_blank"
@@ -350,7 +354,8 @@ export function FlowPage({
               <Icon name="external" />
             </a>
           )}
-          {project && !editing && mayChangeFiles && project.commit && (
+          {/* AFS-152: a flow that is not there has no file to copy or delete. */}
+          {project && !editing && mayChangeFiles && project.commit && !gone && (
             <FlowFileMenu onPick={setFileAction} />
           )}
         </PageHead>
@@ -367,7 +372,8 @@ export function FlowPage({
             onDone={() => setFileAction(undefined)}
           />
         )}
-        {project && !editing ? (
+        {/* AFS-152: a flow not there, with nothing of it left, has no facts to show. */}
+        {project && !editing && !(gone && !configs.data?.length && !runs.data?.length) ? (
           <p className="statusline flow-line">
             {commit && (
               <span>
@@ -417,16 +423,26 @@ export function FlowPage({
           </p>
         ) : null}
         {gone && project ? (
-          <p className="notice warn" role="status">
-            There is no flow <code>{file}</code> on {project.gitRef}
-            {project.commit ? (
-              <>
-                {' '}
-                at <code>{project.commit.slice(0, 12)}</code>
-              </>
-            ) : null}
-            : it was deleted or moved. Its runs stay in the history.
-          </p>
+          // AFS-152: with nothing of it left to see (no run, no configuration), it may never have
+          // been there, or not be shared: said as on every page of something not there.
+          configs.data?.length || runs.data?.length ? (
+            <p className="notice warn" role="status">
+              There is no flow <code>{file}</code> on {project.gitRef}
+              {project.commit ? (
+                <>
+                  {' '}
+                  at <code>{project.commit.slice(0, 12)}</code>
+                </>
+              ) : null}
+              : it was deleted or moved. Its runs stay in the history.{' '}
+              <Link to={here}>Back to {project.name}</Link>
+            </p>
+          ) : (
+            <p className="empty" data-missing="flow">
+              The flow <code>{file}</code> is not here, or is not shared with you.{' '}
+              <Link to={here}>Back to {project.name}</Link>
+            </p>
+          )
         ) : null}
         {said ? (
           <p className="notice" role="status">
@@ -479,15 +495,9 @@ export function FlowPage({
           />
         ) : null}
         <Loading state={found} />
-        {!found.loading && !found.error && !project && (
-          // AFS-143: names what was looked for, with the way back.
-          <p className="empty">
-            The project <code>{key}</code> in <code>{workspace}</code> is not here, or is not shared
-            with you. <Link to={`/w/${workspace}`}>Back to {workspace}</Link>
-          </p>
-        )}
       </div>
-      {viewer && project?.commit && (
+      {/* AFS-152: no canvas for a flow that is not there (it would say so in a frame of its own). */}
+      {viewer && project?.commit && !gone && (
         <div
           className="flow-stage"
           ref={(el) => {

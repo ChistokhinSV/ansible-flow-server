@@ -204,6 +204,8 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     routes = common(dana);
     page('launch');
     const launch = await screen.findByRole('button', { name: 'Launch' });
+    // AFS-152: the form is read once the configuration is there.
+    await screen.findByLabelText(/^devices/);
     // The inputs come before the button; AFS-138: the branch and limit too, folded, before the
     // mode, so a limit is seen before Launch.
     const precedes = (a: Element, b: Element) =>
@@ -673,7 +675,7 @@ describe('what a level shows', () => {
     expect(screen.queryByRole('button', { name: 'Keep as start values' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
     expect((screen.getByLabelText(/^Branch/) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/another branch or commit needs rw/)).toBeTruthy();
+    expect(screen.getByText(/another branch or commit needs read/)).toBeTruthy();
   });
 });
 

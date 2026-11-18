@@ -292,18 +292,21 @@ function Side({
             Library
           </Link>
         </nav>
-        <nav aria-label="Workspaces" className="side-nav">
-          <span className="side-label">
-            <Link to="/workspaces" aria-current={at('/workspaces')}>
-              Workspaces
-            </Link>
-          </span>
-          {workspaces.data?.map((w) => (
-            <Link key={w.id} to={`/w/${w.key}`} aria-current={at(`/w/${w.key}`)}>
-              {w.name}
-            </Link>
-          ))}
-        </nav>
+        {/* AFS-152: no empty heading for who has no workspace yet (Home says whom to ask). */}
+        {(me.admin || !!workspaces.data?.length) && (
+          <nav aria-label="Workspaces" className="side-nav">
+            <span className="side-label">
+              <Link to="/workspaces" aria-current={at('/workspaces')}>
+                Workspaces
+              </Link>
+            </span>
+            {workspaces.data?.map((w) => (
+              <Link key={w.id} to={`/w/${w.key}`} aria-current={at(`/w/${w.key}`)}>
+                {w.name}
+              </Link>
+            ))}
+          </nav>
+        )}
         {me.admin && (
           // AFS-87: the administration's pages are in the menu, not behind an index page.
           <nav aria-label="Administration" className="side-nav">

@@ -628,7 +628,7 @@ for (const [name, config] of databases) {
               workspace: { id: core.workspace, key: 'net', name: 'Network' },
               level: 'rw',
               approve: false,
-              flows: [{ project: 'core', file: B, level: 'ro' }],
+              flows: [{ project: 'core', projectId: core.id, file: B, level: 'ro' }],
               through: expect.arrayContaining(['group:net-ops', 'user:gary']),
             },
           ],
@@ -689,6 +689,22 @@ for (const [name, config] of databases) {
         ).toEqual(['lab', 'net']);
         await db().deleteFrom('access_grant').where('id', '=', lab.id).execute();
         expect((await get('dana', '/api/v1/groups/nothing/grants')).status).toBe(404);
+
+        // AFS-152: each person reads their own, the same row, with who gives access.
+        const own = await get('gary', '/api/v1/session/access');
+        expect(own.status).toBe(200);
+        expect(own.body).toEqual({
+          ...(await get('dana', `/api/v1/users/${ids.gary}/access`)).body,
+          administrators: [expect.any(String)],
+        });
+        expect((await get('nina', '/api/v1/session/access')).body).toMatchObject({
+          admin: false,
+          workspaces: [],
+        });
+        expect((await get('dana', '/api/v1/session/access')).body.admin).toBe(true);
+        expect(
+          (await app.inject({ method: 'GET', url: '/api/v1/session/access' })).statusCode,
+        ).toBe(401);
 
         // Only administrators: everyone else is refused, whatever they reach.
         for (const person of PEOPLE.filter((p) => p !== 'dana')) {

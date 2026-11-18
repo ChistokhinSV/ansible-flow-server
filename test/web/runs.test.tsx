@@ -590,8 +590,11 @@ describe('a run', () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/runs/nothing');
     render(<App />);
-    expect((await screen.findByRole('alert')).textContent).toMatch(
-      /Nothing at GET \/runs\/nothing/,
+    // AFS-152: the not-found page of every item, with a way back.
+    await screen.findByRole('heading', { name: 'Not found' });
+    expect(document.querySelector('main')?.textContent).toContain(
+      'The run nothing is not here, or is not shared with you.',
     );
+    expect(screen.getByRole('link', { name: 'Back to Runs' })).toBeTruthy();
   });
 });

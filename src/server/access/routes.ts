@@ -4,9 +4,10 @@
 //   /api/v1/workspaces/:id/access      who can do what: every user with access, as it comes out
 //   /api/v1/users/:id/access           what one person reaches, workspace by workspace
 //   /api/v1/groups/:id/grants          the grants that name a group, in every workspace
+//   /api/v1/session/access             one's own access, and who gives it
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
-import { administrator } from '../auth/guards';
+import { administrator, signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { getWorkspace } from '../projects/store';
 import {
@@ -143,6 +144,22 @@ export function registerAccess(app: FastifyInstance, deps: { db: Kysely<Schema> 
       (await reachOf(db, request.params.id)) ??
       reply.code(404).send({ error: 'not_found', message: 'No such user' })
     );
+  });
+
+  // AFS-152: one's own row of each workspace, for My account and for what the pages offer; with
+  // the administrators' names, who give access.
+  app.get('/api/v1/session/access', async (request, reply) => {
+    const me = signedIn(request, reply);
+    if (!me) return reply;
+    const reach = (await reachOf(db, me.id)) ?? { admin: me.admin, workspaces: [] };
+    const admins = await db
+      .selectFrom('user_account')
+      .select('name')
+      .where('is_admin', '=', 1)
+      .where('disabled', '=', 0)
+      .orderBy('name')
+      .execute();
+    return { ...reach, administrators: admins.map((a) => a.name) };
   });
 
   app.get<WithId>('/api/v1/groups/:id/grants', { schema: ID }, async (request, reply) => {

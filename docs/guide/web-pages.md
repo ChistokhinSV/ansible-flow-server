@@ -14,8 +14,9 @@ nothing about the server (the page is public). Signed in, a side menu leads to H
 Approvals (with how many wait for you), Library, each workspace and, for administrators, the
 administration's pages; **Help**, your name, the theme and Sign out are at its end. **Help**
 (`/help`) lists this guide's pages and the API reference, and most pages link the guide page
-about them with **Help** beside their title. A page that is not there, or not shared with you,
-says what was looked for and the way back. Long pages are split into tabs; each tab has its own
+about them with **Help** beside their title. A page that is not there, or not shared with you
+(a workspace, a project, a flow, a run, a launch configuration), says what was looked for, a way
+back to a page you can open, and which administrators give access. Long pages are split into tabs; each tab has its own
 address. At phone width it folds into **Menu**.
 
 | Page                                              | Shows                                                                                                                                                                                                                                                              |

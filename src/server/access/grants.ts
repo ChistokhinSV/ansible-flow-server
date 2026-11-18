@@ -429,6 +429,7 @@ function reachIn(access: Access, workspace: string, mine: Grant[]): Reach {
     ).values(),
   ].map((f) => ({
     project: f?.projectKey as string,
+    projectId: f?.project as string,
     file: f?.file as string,
     level: access.onFlow(workspace, f?.project as string, f?.file as string) ?? null,
   }));
