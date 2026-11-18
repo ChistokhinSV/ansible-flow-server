@@ -12,6 +12,8 @@ All notable changes to Ansible Flow Server.
 - Workspace and project pages say what your own access there is.
 - An approval shows the hosts waiting at it. The Approvals page lists the approvals decided lately, with who decided and why (`GET /api/v1/approvals?decided=1`).
 - A flow's draft can be discarded from the flow page, without opening it. In full screen, **Exit full screen** stays in sight.
+- **Help** in the side menu (also at `/help`) lists the user guide's pages and the API reference, and most pages link their part of the guide with **Help** beside the title.
+- An empty project's Overview shows how to clone it. The clone help says what to do when git does not trust a self-signed certificate, and anyone can download the certificate in use at `/api/v1/certificate.pem`.
 
 ### Changed
 
@@ -25,6 +27,9 @@ All notable changes to Ansible Flow Server.
 - Ctrl+Z in a draft says which step it took back. While a draft is edited it has no Run buttons (runs use saved flows).
 - **Save as Launch Configuration** in the canvas's launch dialog is offered only to those who may add one. Empty lists say who adds things, someone without access to any workspace is told to ask an administrator, and fields that cannot be used look it.
 - The Access tab names people by their names and flows by theirs; taking access back names the flow.
+- One set of words for runs: a run is "flow #number" on its page, in lists and in emails; its state reads "went well" and "stopped" everywhere, said once in its header; emails name the workspace and project by name. People who launched runs are shown by name. The mode choice says what **Check** and **Real** do, a flow shown and not edited is "read only", a decided approval no longer says "Waiting since", and why a host stopped names the step by its title, not its key.
+- A page that is not there, or not shared with you, says what was looked for ("The project edge in network") with the way back, not the address's last part as its title. **Copy** says when it could not copy and selects the text instead.
+- The audit log names environments, schedules, sign-in providers and directories, not their ids; access grants name the workspace or flow they are on. A group's entry says who was added and who left, a person not added is named by the login tried with the reason, and a change lists only the fields whose values changed. **About** filters by every kind, access grants and approvals among them, and the detail column wraps within the page.
 
 ### Fixed
 

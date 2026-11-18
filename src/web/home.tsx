@@ -6,7 +6,7 @@ import { api, type Run, type User, type Workspace } from './api';
 import { launchAddress } from './launch';
 import { Link } from './router';
 import { RunList } from './runs';
-import { ago, Loading, PageHead, useLoad } from './ui';
+import { ago, Loading, PageHead, span, useLoad } from './ui';
 
 const greeting = (hour: number) =>
   hour < 5
@@ -126,6 +126,7 @@ export function Home({ me }: { me: User }) {
   return (
     <div className="home">
       <PageHead
+        help="web-pages.md"
         title={`${greeting(new Date().getHours())}, ${first}`}
         lead={runs.data && approvals.data ? summary : undefined}
       />
@@ -144,7 +145,7 @@ export function Home({ me }: { me: User }) {
                       </span>
                     </span>
                   </span>
-                  <span className="since">waiting since {ago(a.gate.createdAt)}</span>
+                  <span className="since">waiting for {span(a.gate.createdAt)}</span>
                 </Link>
               </li>
             ))}

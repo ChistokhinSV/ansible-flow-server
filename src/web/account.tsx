@@ -94,7 +94,11 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
   const [mine, setMine] = useState(me);
   return (
     <>
-      <PageHead title="My account" lead={`${mine.name} (${mine.login})`} />
+      <PageHead
+        help="people-and-sign-in.md#access-tokens"
+        title="My account"
+        lead={`${mine.name} (${mine.login})`}
+      />
       <Tabs
         label="My account"
         base="/account"

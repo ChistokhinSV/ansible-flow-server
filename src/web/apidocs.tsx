@@ -157,7 +157,11 @@ export function ApiDocs() {
   const tags = [...new Set(ops.map((o) => o.op.tags[0] ?? 'Other'))];
   return (
     <>
-      <PageHead title="API reference" lead={doc.data && <Words text={doc.data.info.description} />}>
+      <PageHead
+        help="api-and-mcp.md"
+        title="API reference"
+        lead={doc.data && <Words text={doc.data.info.description} />}
+      >
         <a className="button" href="/api/v1/openapi.json">
           OpenAPI document
         </a>

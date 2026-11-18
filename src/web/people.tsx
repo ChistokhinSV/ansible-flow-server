@@ -262,6 +262,7 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
   return (
     <>
       <PageHead
+        help="people-and-sign-in.md"
         title="People and groups"
         lead="Who can sign in, who are administrators, and the groups that access levels and approvals name."
       >
@@ -804,6 +805,7 @@ export function GroupPage({ id }: { id: string }) {
       {group && (
         <>
           <PageHead
+            help="people-and-sign-in.md"
             title={group.name}
             lead={`Group · ${group.members.length} member${group.members.length === 1 ? '' : 's'}`}
           >

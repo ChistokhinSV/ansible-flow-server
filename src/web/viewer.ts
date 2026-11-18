@@ -95,7 +95,9 @@ async function start(): Promise<void> {
     });
     return;
   }
-  if (!project || !path) return say('This address names no flow.');
+  // AFS-143: the viewer opened by itself, without a flow: where flows are opened instead.
+  if (!project || !path)
+    return say('This address names no flow. Open a flow from its project page in Workspaces.');
   // AFS-105: what the person may do here, asked beside the flow: the canvas offers only that.
   const accessAsked = get(`/api/v1/projects/${encodeURIComponent(project)}/access`).catch(
     () => undefined,
@@ -114,7 +116,9 @@ async function start(): Promise<void> {
     return say(
       flow.status === 401
         ? 'Sign in to see this flow.'
-        : (flow.data?.message ?? `The server answered ${flow.status}`),
+        : flow.status === 404
+          ? `The flow ${path} is not here, or is not shared with you.`
+          : (flow.data?.message ?? `The server answered ${flow.status}`),
     );
 
   const access = await accessAsked;

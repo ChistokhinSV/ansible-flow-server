@@ -1,28 +1,12 @@
 // The audit log: who did what, newest first, filtered, a page at
 // a time, and taken away as CSV or JSON with the same filter.
 import { type FormEvent, useEffect, useState } from 'react';
+import { AUDIT_KINDS as OBJECTS } from '../server/audit/kinds';
 import type { AuditRef } from '../server/audit/refs';
 import { type AuditEntry, type AuditFilter, api, auditExport } from './api';
 import { Link } from './router';
 import { Loading, messageOf, PageHead, Time } from './ui';
 
-/** What an action is about, for the filter. */
-const OBJECTS = [
-  'session',
-  'user',
-  'token',
-  'group',
-  'workspace',
-  'project',
-  'credential',
-  'launch-config',
-  'run',
-  'git',
-  'certificate',
-  'master-key',
-  'notification',
-  'audit',
-];
 const SOURCE_LABEL: Record<string, string> = {
   ui: 'pages',
   api: 'API',
@@ -86,6 +70,8 @@ function Value({ k, v, refs }: { k: string; v: unknown; refs: Refs }) {
         ))}
       </>
     );
+  // AFS-141: an empty list (nobody added, no field changed) says so.
+  if (Array.isArray(v) && v.length === 0) return <span className="muted">none</span>;
   if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return <>{v.join(', ')}</>;
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
     return <>{String(v)}</>;
@@ -101,7 +87,8 @@ function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs
   const shown = Object.entries(detail).filter(([k]) => k !== 'osUser' && k !== 'login');
   if (shown.length === 0) return null;
   return (
-    <>
+    // AFS-141: a box of its own width, so a long detail wraps instead of leaving the page.
+    <div className="audit-detail">
       {shown.map(([k, v]) => (
         <div key={k}>
           <span className="muted">{k}:</span> <Value k={k} v={v} refs={refs} />
@@ -111,7 +98,7 @@ function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs
         <summary>All of it</summary>
         <pre>{JSON.stringify(detail, null, 2)}</pre>
       </details>
-    </>
+    </div>
   );
 }
 
@@ -157,6 +144,7 @@ export function AuditPage() {
   return (
     <>
       <PageHead
+        help="audit.md"
         title="Audit log"
         lead="Everything that changed something, or tried to, on this server: the newest first."
       >
@@ -175,9 +163,9 @@ export function AuditPage() {
           About{' '}
           <select value={filter.action ?? ''} onChange={(e) => set('action', e.target.value)}>
             <option value="">everything</option>
-            {OBJECTS.map((o) => (
-              <option key={o} value={o}>
-                {o}
+            {Object.entries(OBJECTS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
               </option>
             ))}
           </select>

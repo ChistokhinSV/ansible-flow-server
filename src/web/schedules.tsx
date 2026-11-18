@@ -215,7 +215,7 @@ function ScheduleForm({
         <label htmlFor={ids.mode}>Mode</label>
         <select id={ids.mode} value={input.mode} onChange={set('mode')}>
           <option value="">as the configuration says</option>
-          <option value="check">check (a skeleton run)</option>
+          <option value="check">check (nothing is changed)</option>
           <option value="real">real</option>
         </select>
       </div>

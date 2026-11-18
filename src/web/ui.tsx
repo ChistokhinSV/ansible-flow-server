@@ -8,10 +8,12 @@ import {
   useContext,
   useEffect,
   useId,
+  useRef,
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from './api';
+import { guide } from './guide';
 import { Link } from './router';
 
 /** Words fit to show for anything that went wrong. */
@@ -146,22 +148,39 @@ export function Form({
 
 /** Text someone will paste elsewhere, with a button that copies it. */
 export function Copyable({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'copied' | 'select' | undefined>();
+  const shown = useRef<HTMLElement>(null);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopied('copied');
     } catch {
-      // No clipboard here (plain HTTP, an old browser): the text is selectable.
+      // No clipboard here (plain HTTP, an untrusted certificate, an old browser). AFS-143: the
+      // text is selected, and the button says to copy it by hand.
+      const code = shown.current;
+      const range = code && document.createRange?.();
+      if (code && range) {
+        range.selectNodeContents(code);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+      }
+      setCopied('select');
     }
+    setTimeout(() => setCopied(undefined), 4000);
   };
   return (
     <span className="copyable">
-      <code>{text}</code>
+      <code ref={shown}>{text}</code>
       <button type="button" onClick={copy} aria-label={`Copy ${label}`}>
-        {copied ? 'Copied' : 'Copy'}
+        {copied === 'copied' ? 'Copied' : copied === 'select' ? 'Selected: press Ctrl+C' : 'Copy'}
       </button>
+      <span className="sr-only" aria-live="polite">
+        {copied === 'copied'
+          ? 'Copied'
+          : copied === 'select'
+            ? 'Selected: press Ctrl+C to copy'
+            : ''}
+      </span>
     </span>
   );
 }
@@ -260,10 +279,13 @@ export function span(from: string, to?: string, now = Date.now()): string {
 export function PageHead({
   title,
   lead,
+  help,
   children,
 }: {
   title: string;
   lead?: ReactNode;
+  /** AFS-143: the guide page about this page (`runs.md`), linked beside the title. */
+  help?: string;
   children?: ReactNode;
 }) {
   useEffect(() => {
@@ -272,11 +294,28 @@ export function PageHead({
   return (
     <header className="page-head">
       <div>
-        <h1>{title}</h1>
+        {help ? (
+          // The link sits beside the heading, not in it: the heading's name stays the title.
+          <div className="title-line">
+            <h1>{title}</h1>
+            <HelpLink page={help} />
+          </div>
+        ) : (
+          <h1>{title}</h1>
+        )}
         {lead && <p className="muted">{lead}</p>}
       </div>
       {children && <div className="actions">{children}</div>}
     </header>
+  );
+}
+
+/** AFS-143: a link to the guide page about where it is, opened beside the app. */
+export function HelpLink({ page }: { page: string }) {
+  return (
+    <a className="help-link" href={guide(page)} target="_blank" rel="noreferrer">
+      Help
+    </a>
   );
 }
 

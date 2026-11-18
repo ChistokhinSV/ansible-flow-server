@@ -44,6 +44,7 @@ export function LibraryPage() {
   return (
     <>
       <PageHead
+        help="web-pages.md#flow-library"
         title="Library"
         lead="Subflows that library projects offer to every project. A flow takes a copy, pinned to the library flow's version."
       />

@@ -7,6 +7,7 @@
 //   GET /api/v1/environments/:id/execution-environment.yml
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { changedKeys } from '../audit/changes';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { getWorkspace } from '../projects/store';
@@ -131,7 +132,9 @@ export function registerEnvironments(
     answering(async (request, reply) => {
       const me = signedIn(request, reply);
       if (!me) return reply;
+      const before = await environments.get(request.params.id);
       const changed = await environments.update(request.params.id, request.body);
+      request.auditDetail = { changed: changedKeys(request.body, before, changed) };
       request.log.info(
         { by: me.login, environment: changed.name, changed: Object.keys(request.body).join(',') },
         'Environment changed',

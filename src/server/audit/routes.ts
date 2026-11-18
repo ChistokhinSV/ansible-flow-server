@@ -171,6 +171,22 @@ export const READS = new Set([
 ]);
 
 const CHANGES = ['POST', 'PUT', 'PATCH', 'DELETE'];
+/**
+ * AFS-141: the kinds whose refusals keep the server's reason: their messages name rules and
+ * names, never a value sent (a credential's, a sign-in's or a notification's could).
+ */
+const REASONED = new Set([
+  'user',
+  'group',
+  'workspace',
+  'project',
+  'grant',
+  'launch-config',
+  'schedule',
+  'environment',
+  'run',
+  'approval',
+]);
 const typeOf = (action: string) => action.slice(0, action.indexOf('.'));
 
 /** Where an object's name is, to name it in the entry: what is deleted cannot be asked later. */
@@ -227,20 +243,45 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
         .selectFrom('access_grant')
         .leftJoin('user_account', 'user_account.id', 'access_grant.principal_id')
         .leftJoin('user_group', 'user_group.id', 'access_grant.principal_id')
+        .leftJoin('workspace', 'workspace.id', 'access_grant.workspace_id')
+        .leftJoin('project', 'project.id', 'access_grant.project_id')
         .select([
           'access_grant.level',
           'access_grant.principal_type',
           'access_grant.flow_file',
           'user_account.login',
           'user_group.name',
+          'workspace.key as workspace',
+          'project.key as project',
         ])
         .where('access_grant.id', '=', id)
         .executeTakeFirst()
         .catch(() => undefined);
       if (!grant) return undefined;
       const who = grant.principal_type === 'user' ? grant.login : `group ${grant.name}`;
-      return `${grant.level} for ${who}${grant.flow_file ? ` on ${grant.flow_file}` : ''}`;
+      // AFS-141: and where: the workspace, or the flow in it.
+      const where = grant.flow_file
+        ? `${grant.workspace}/${grant.project ? `${grant.project}/` : ''}${grant.flow_file}`
+        : `${grant.workspace}`;
+      return `${grant.level} for ${who} on ${where}`;
     }
+    // AFS-141: named, not left as ids: what is deleted cannot be asked later.
+    case 'environment':
+      return one(
+        db.selectFrom('environment').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'schedule':
+      return one(
+        db.selectFrom('schedule').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'oidc-provider':
+      return one(
+        db.selectFrom('oidc_provider').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'ldap-directory':
+      return one(
+        db.selectFrom('ldap_directory').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
     case 'run': {
       const run = await db
         .selectFrom('run')
@@ -296,8 +337,11 @@ declare module 'fastify' {
   interface FastifyRequest {
     /** The name of the object a change is about, read before the change. */
     auditName?: string;
-    /** Names a route adds to its entry that are not secret (a branch, AFS-59). */
-    auditDetail?: Record<string, string | boolean>;
+    /**
+     * Names a route adds to its entry that are not secret (a branch, AFS-59; who joined or left
+     * a group and the fields a change really changed, AFS-141).
+     */
+    auditDetail?: Record<string, string | boolean | string[]>;
   }
 }
 
@@ -359,6 +403,9 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     if (spec.parent && params.id) detail[spec.parent] = params.id;
     Object.assign(detail, request.auditDetail);
     if (result !== 'ok' && typeof answer.error === 'string') detail.error = answer.error;
+    // AFS-141: why, in the server's words, where those words echo nothing secret.
+    if (result !== 'ok' && REASONED.has(type) && typeof answer.message === 'string')
+      detail.reason = answer.message.slice(0, 300);
 
     let actor: AuditEntry['actor'] = request.user
       ? { id: request.user.id, login: request.user.login }
@@ -383,6 +430,11 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
         const tried = (request.body as { login?: unknown } | undefined)?.login;
         if (typeof tried === 'string') detail.login = tried.slice(0, 64).toLowerCase();
       }
+    }
+    // AFS-141: a person not made is named by the login tried.
+    if (spec.action === 'user.create' && status >= 400) {
+      const tried = (request.body as { login?: unknown } | undefined)?.login;
+      if (typeof tried === 'string') object = { type, name: tried.slice(0, 64).toLowerCase() };
     }
     if (spec.action === 'run.relaunch' && typeof answer.id === 'string') detail.run = answer.id;
     // AFS-28: the decision is one of two words, and the approval is named by its node.

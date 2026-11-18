@@ -66,6 +66,13 @@ interface RunFacts {
 
 const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'lost']);
 const UNSUCCESSFUL = new Set(['failed', 'lost']);
+/** AFS-143: how a run ended, in the words the pages use. */
+const ENDED_WORDS: Record<string, string> = {
+  succeeded: 'went well',
+  failed: 'failed',
+  cancelled: 'stopped',
+  lost: 'lost',
+};
 
 export class Notifier {
   private readonly channels: Map<ChannelKind, Channel>;
@@ -244,8 +251,9 @@ export class Notifier {
     };
   }
 
+  // AFS-143: a run as the pages name it (flow #number), its workspace and project by name.
   private where(run: RunFacts) {
-    return `${run.flowName}, run ${run.number} (${run.workspace.key} / ${run.project.key})`;
+    return `${run.flowName} #${run.number} (${run.workspace.name} / ${run.project.name})`;
   }
 
   /** A run waits at an approval: its approvers are asked. */
@@ -288,7 +296,7 @@ export class Notifier {
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',
       ];
       const message: Message = {
-        subject: `Approval waits: ${gate.title} - ${run.flowName}, run ${run.number}`,
+        subject: `Approval waits: ${gate.title} - ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('approval.waiting', {
           run: this.runPayload(run),
@@ -338,7 +346,7 @@ export class Notifier {
         ...(link ? [link] : []),
       ];
       const message: Message = {
-        subject: `Approval ${gate.status}: ${gate.title} - ${run.flowName}, run ${run.number}`,
+        subject: `Approval ${gate.status}: ${gate.title} - ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('approval.decided', {
           run: this.runPayload(run),
@@ -380,14 +388,14 @@ export class Notifier {
       if (notify.when === 'failed' && !UNSUCCESSFUL.has(run.state)) return;
       const link = this.link(`/runs/${run.id}`);
       const lines = [
-        `${this.where(run)} ${run.state}.`,
+        `${this.where(run)} ${ENDED_WORDS[run.state] ?? run.state}.`,
         ...(run.configName ? [`Launch configuration: ${run.configName}.`] : []),
         `Launched by ${run.requestedLogin}.`,
         ...(run.error && run.state !== 'succeeded' ? [`Why: ${run.error}`] : []),
         ...(link ? [link] : []),
       ];
       const message: Message = {
-        subject: `Run ${run.state}: ${run.flowName}, run ${run.number}`,
+        subject: `Run ${ENDED_WORDS[run.state] ?? run.state}: ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('run.ended', {
           run: this.runPayload(run),

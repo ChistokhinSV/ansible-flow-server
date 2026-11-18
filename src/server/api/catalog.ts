@@ -787,6 +787,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrator session',
     'server',
   )('Passwords for everyone (`all`) or administrators only (`admins`)'),
+  'GET /api/v1/certificate.pem': S(
+    'Certificate',
+    'anyone',
+    'anyone',
+  )('The server certificate in use, for git and scripts to trust a self-signed one'),
   'GET /api/v1/admin/certificate': S(
     'Certificate',
     'administrators',

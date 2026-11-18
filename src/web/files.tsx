@@ -5,6 +5,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { atLeast, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
+import { Missing } from './help';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
@@ -460,9 +461,23 @@ export function FilesPage({
     return (
       <>
         {crumbs}
-        <PageHead title="Files" />
-        <Loading state={found} />
-        {!found.loading && !found.error && <p className="empty">There is no such project.</p>}
+        {found.loading ? (
+          <>
+            <PageHead title="Files" />
+            <Loading state={found} />
+          </>
+        ) : (
+          // AFS-143: what was looked for, with the way back.
+          <Missing
+            what={
+              <>
+                The project <code>{key}</code> in <code>{workspace}</code>
+              </>
+            }
+            back={{ to: `/w/${workspace}`, label: `Back to ${workspace}` }}
+            error={found.error && !/^No such/.test(found.error) ? found.error : undefined}
+          />
+        )}
       </>
     );
   const editable =
@@ -477,6 +492,7 @@ export function FilesPage({
     <>
       {crumbs}
       <PageHead
+        help="web-pages.md#files-of-a-project"
         title={project.name}
         lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
       />

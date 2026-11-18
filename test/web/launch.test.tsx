@@ -208,7 +208,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     const precedes = (a: Element, b: Element) =>
       !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(precedes(screen.getByLabelText(/^devices/), launch)).toBe(true);
-    expect(precedes(screen.getByLabelText('Real'), launch)).toBe(true);
+    expect(precedes(screen.getByLabelText(/^Real/), launch)).toBe(true);
     const fold = screen.getByLabelText(/^Branch/).closest('details') as HTMLDetailsElement;
     expect(precedes(launch, fold)).toBe(true);
     expect(fold.open).toBe(false);
@@ -566,7 +566,7 @@ describe('the launch form', () => {
     const secret = await screen.findByLabelText(/api_password/);
     fireEvent.change(secret, { target: { value: 's3cret-value' } });
     fireEvent.change(screen.getByLabelText(/^retries/), { target: { value: '5' } });
-    fireEvent.click(screen.getByLabelText('Real'));
+    fireEvent.click(screen.getByLabelText(/^Real/));
 
     fireEvent.click(screen.getByRole('button', { name: 'Keep as start values' }));
     await screen.findByText(/Start values kept: devices, retries/);

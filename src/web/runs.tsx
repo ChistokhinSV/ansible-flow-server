@@ -17,9 +17,11 @@ import {
 import { RunApprovals } from './approvals';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
-import { ago, Breadcrumb, Loading, PageHead, span, Time, useLoad } from './ui';
+import { ago, Breadcrumb, HelpLink, Loading, PageHead, span, Time, useLoad } from './ui';
 
 export const ACTIVE = ['queued', 'running', 'waiting'];
+/** AFS-143: a person as the pages show people: by name (the login on hover). */
+export const personOf = (p: { login: string; name?: string | undefined }) => p.name || p.login;
 /** How many runs the list asks for at once. */
 const PAGE = 100;
 /** The output a page keeps; the rest is in the run's output file. */
@@ -29,9 +31,10 @@ const LABEL: Record<string, string> = {
   queued: 'queued',
   running: 'running',
   waiting: 'waiting for a decision',
-  succeeded: 'succeeded',
+  // AFS-143: the words of the lists (went well, stopped), on the badge too.
+  succeeded: 'went well',
   failed: 'failed',
-  cancelled: 'cancelled',
+  cancelled: 'stopped',
   lost: 'lost',
 };
 
@@ -106,8 +109,8 @@ export function RunList({
               <span className="c-facts">
                 {showConfig && <span className="c-fact">{run.config?.name ?? ''}</span>}
                 <span className="c-fact">{run.mode === 'real' ? 'real' : 'check'}</span>
-                <span className="c-fact">
-                  {run.requestedBy.login === me?.login ? 'you' : run.requestedBy.login}
+                <span className="c-fact" title={run.requestedBy.login}>
+                  {personOf(run.requestedBy)}
                 </span>
                 <span className="c-fact">{ago(run.startedAt ?? run.createdAt)}</span>
                 <span className="c-fact mono">{run.commit.slice(0, 8)}</span>
@@ -351,7 +354,7 @@ export function RunsPage({ me }: { me: User }) {
 
   return (
     <>
-      <PageHead title="Runs" lead="Every run you may see, the newest first." />
+      <PageHead help="runs.md" title="Runs" lead="Every run you may see, the newest first." />
       <div className="run-filters">
         <StateChoices value={state} onChange={(next) => choose({ state: next })} />
         <div className="chips">
@@ -436,27 +439,51 @@ const WORDS: Record<string, [string, string]> = {
   lost: ['lost', 'bad-text'],
 };
 
-/** Where a run stands, as a sentence: "Running for 6 min", "Went well in 2 min". */
+/**
+ * How long, after the state's badge: "running · for 6 min", "went well · in 2 min". AFS-143: the
+ * badge says the state; this does not say it again.
+ */
 function standing(run: Run): string {
   const from = run.startedAt ?? run.createdAt;
   switch (run.state) {
-    case 'queued':
-      return 'Queued';
     case 'running':
-      return `Running for ${span(from)}`;
-    case 'waiting':
-      return 'Waiting for a decision';
+      return `for ${span(from)}`;
     case 'succeeded':
-      return `Went well in ${span(from, run.endedAt)}`;
+      return `in ${span(from, run.endedAt)}`;
     case 'failed':
-      return `Failed after ${span(from, run.endedAt)}`;
-    case 'cancelled':
-      return 'Stopped';
-    case 'lost':
-      return 'Lost';
+      return `after ${span(from, run.endedAt)}`;
     default:
-      return run.state;
+      return '';
   }
+}
+
+/** AFS-143: a port of a step as people say it. */
+const PORT_WORDS: Record<string, string> = {
+  failed_hosts: 'failed hosts',
+  unreachable: 'unreachable hosts',
+  timeout: 'hosts that timed out',
+  rejected: 'rejected hosts',
+  ok_hosts: 'hosts that went well',
+};
+
+/**
+ * AFS-143: why a host stopped, in words: the generated playbook says "Stopped at [precheck]
+ * Pre-checks: failed_hosts is not wired"; the page says "Stopped at Pre-checks: its failed hosts
+ * have no next step in the flow". Step keys in brackets before a title go.
+ */
+export function plainWhy(text: string): string {
+  return text
+    .replace(
+      /\[[\w.-]+\] (.+?): (\w+) is not wired/,
+      (_, title: string, port: string) =>
+        `${title}: its ${PORT_WORDS[port] ?? port} have no next step in the flow`,
+    )
+    .replace(
+      /\[[\w.-]+\] (.+?): (\w+) open on purpose/,
+      (_, title: string, port: string) =>
+        `${title}: its ${PORT_WORDS[port] ?? port} end here on purpose`,
+    )
+    .replace(/\[[\w.-]+\] (?=\S)/g, '');
 }
 
 interface HostLine {
@@ -480,10 +507,10 @@ function hostLines(view: RunView, state: Run['state']): HostLine[] {
         host: f.host,
         words: 'failed',
         tone: 'bad-text',
-        why: { task: f.task, ...(f.msg ? { msg: f.msg } : {}) },
+        why: { task: f.task, ...(f.msg ? { msg: plainWhy(f.msg) } : {}) },
       });
   for (const [host, reason] of Object.entries(summary.outcome))
-    if (!problem.has(host)) problem.set(host, { host, words: reason, tone: 'bad-text' });
+    if (!problem.has(host)) problem.set(host, { host, words: plainWhy(reason), tone: 'bad-text' });
   // A problem a step rescued into a port: the host went on, but that is where it went wrong.
   for (const hosts of Object.values(summary.problems ?? {}))
     for (const [host, p] of Object.entries(hosts)) {
@@ -747,7 +774,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     return () => clearTimeout(timer);
   }, [shownOutput]);
 
-  // AFS-139: a run is named as everywhere else: its flow and #number.
+  // AFS-139, AFS-143: a run is "flow #number", as the lists, the audit log and the mails name it.
   const title = run ? `${run.flow.name} #${run.number}` : 'Run';
   useEffect(() => {
     document.title = `${title} · Ansible Flow Server`;
@@ -787,7 +814,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const lines = view ? hostLines(view, run.state) : [];
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
   const why = lines.find((l) => l.why);
-  const by = run.requestedBy.login === me.login ? 'you' : run.requestedBy.login;
+  const by = personOf(run.requestedBy);
 
   return (
     <>
@@ -816,9 +843,13 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             )}
             <span aria-current="page">#{run.number}</span>
           </Breadcrumb>
-          <h1>{title}</h1>
+          <div className="title-line">
+            <h1>{title}</h1>
+            <HelpLink page="runs.md" />
+          </div>
           <p>
-            <StateBadge state={run.state} /> {standing(run)} · started by {by} ·{' '}
+            <StateBadge state={run.state} />
+            {standing(run) && ` ${standing(run)}`} · started by {by} ·{' '}
             {run.mode === 'real' ? 'real run' : 'check run'}
             {lines.length > 0 && (
               <>
@@ -883,7 +914,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         <div className="run-below run-notes">
           {run.error && (
             <p className={`notice ${run.state === 'cancelled' ? '' : 'error'}`} role="status">
-              {run.error}
+              {plainWhy(run.error)}
             </p>
           )}
           {error && (
@@ -941,7 +972,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               </dd>
               <dt>Launched</dt>
               <dd>
-                by {run.requestedBy.login}
+                by <span title={run.requestedBy.login}>{by}</span>
                 {run.config && (
                   <>
                     {' '}

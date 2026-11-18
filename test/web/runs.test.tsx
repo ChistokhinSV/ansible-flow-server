@@ -381,7 +381,7 @@ describe('a run', () => {
     expect(rows()).toEqual(['fw-edge-17not reachable']);
     await screen.findByRole('heading', { name: 'Why fw-edge-17 was not reached' });
     expect(screen.getByText(/Connection timed out/)).toBeTruthy();
-    expect(screen.getByText(/Failed after 3 min/)).toBeTruthy();
+    expect(screen.getByText(/after 3 min/)).toBeTruthy();
     expect(screen.getByText(/1 with a problem/)).toBeTruthy();
   });
 

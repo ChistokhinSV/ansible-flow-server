@@ -90,7 +90,7 @@ describe('home', () => {
     expect(within(waiting).getAllByRole('link')).toHaveLength(1);
     expect(within(waiting).getByRole('link').getAttribute('href')).toBe('/runs/r3');
     expect(waiting.textContent).toContain('Change approval');
-    expect(waiting.textContent).toContain('waiting since 22 min ago');
+    expect(waiting.textContent).toContain('waiting for 22 min');
     const recent = screen
       .getByRole('heading', { name: 'Latest runs' })
       .closest('section') as HTMLElement;
@@ -104,7 +104,8 @@ describe('home', () => {
       [...li.querySelectorAll('.c-fact')].map((c) => c.textContent),
     );
     expect(rows[0]).toEqual(expect.arrayContaining(['real', 'omar', '3 min ago']));
-    expect(rows[1]).toEqual(expect.arrayContaining(['you', '3 min ago']));
+    // AFS-143: people by name, yours too (the login when the run has no name).
+    expect(rows[1]).toEqual(expect.arrayContaining(['dana', '3 min ago']));
     // The side menu: the count of approvals for this person, and the workspaces.
     const menu = screen.getByRole('navigation', { name: 'Main' });
     expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals1');

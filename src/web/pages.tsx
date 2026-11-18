@@ -15,6 +15,8 @@ import {
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
 import { followKey, NewFlowForm } from './flowFiles';
+import { guide } from './guide';
+import { Missing } from './help';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunList, RunWords } from './runs';
@@ -39,7 +41,11 @@ export function Workspaces({ me }: { me: User }) {
   const [input, setInput] = useState({ key: '', name: '' });
   return (
     <>
-      <PageHead title="Workspaces" lead="A workspace is a team's space: its projects live in it.">
+      <PageHead
+        help="workspaces-and-projects.md"
+        title="Workspaces"
+        lead="A workspace is a team's space: its projects live in it."
+      >
         {me.admin && !adding && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
             Add workspace
@@ -262,6 +268,14 @@ function StartChoice({
 /** AFS-84: a workspace's tabs, by the end of their address. */
 export type WorkspaceTab = '' | '-/environments' | '-/credentials' | '-/access';
 
+/** AFS-143: the guide page about each tab of a workspace. */
+const WORKSPACE_HELP: Record<WorkspaceTab, string> = {
+  '': 'workspaces-and-projects.md',
+  '-/environments': 'environments.md',
+  '-/credentials': 'credentials.md',
+  '-/access': 'people-and-sign-in.md#access-levels',
+};
+
 export function Workspace({
   me,
   workspace,
@@ -286,12 +300,32 @@ export function Workspace({
     sample: string;
     archive?: File;
   }>({ from: 'empty', sample: '' });
+  const crumbs = (
+    <Breadcrumb>
+      <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
+    </Breadcrumb>
+  );
+  // AFS-143: a workspace not there (or not shared) is named, with the way back.
+  if (space.error && !space.loading)
+    return (
+      <>
+        {crumbs}
+        <Missing
+          what={
+            <>
+              The workspace <code>{workspace}</code>
+            </>
+          }
+          back={{ to: '/workspaces', label: 'Back to Workspaces' }}
+          error={/^No such/.test(space.error) ? undefined : space.error}
+        />
+      </>
+    );
   return (
     <>
-      <Breadcrumb>
-        <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
-      </Breadcrumb>
+      {crumbs}
       <PageHead
+        help={WORKSPACE_HELP[tab]}
         title={space.data?.name ?? workspace}
         lead={
           space.data && (
@@ -687,6 +721,48 @@ function FlowNews({ news, onDismiss }: { news: FlowChanges; onDismiss: () => voi
   );
 }
 
+/**
+ * AFS-143: how to clone a project, with what git needs to trust a self-signed certificate (git
+ * refuses it, on Windows with SEC_E_UNTRUSTED_ROOT).
+ */
+export function CloneHelp({ project }: { project: Project }) {
+  const address = `${window.location.origin}${project.gitPath}`;
+  return (
+    <>
+      <p>
+        <Copyable text={`git clone ${address}`} label="the clone command" />
+      </p>
+      <p className="muted">
+        The password is an <Link to="/account/tokens">access token</Link>; any user name will do.
+      </p>
+      {window.location.protocol === 'https:' && (
+        <details className="clone-trust">
+          <summary>git says the certificate is not trusted?</summary>
+          <p className="muted">
+            While the server uses a self-signed certificate, git does not trust it. Save{' '}
+            <a href="/api/v1/certificate.pem" download>
+              the server's certificate
+            </a>{' '}
+            and clone with it; git keeps the setting for the clone. On Windows, add{' '}
+            <code>-c http.sslBackend=openssl</code> after <code>clone</code>.
+          </p>
+          <p>
+            <Copyable
+              text={`git clone -c http.sslCAInfo=<path to server-certificate.pem> ${address}`}
+              label="the clone command that trusts the certificate"
+            />
+          </p>
+          <p className="muted">
+            <a href={guide('certificates.md')} target="_blank" rel="noreferrer">
+              More about the certificate
+            </a>
+          </p>
+        </details>
+      )}
+    </>
+  );
+}
+
 /** AFS-58: an empty hosted project gets its first commit from a sample or an archive. */
 function StartPanel({ project, onStarted }: { project: Project; onStarted(): void }) {
   const [start, setStart] = useState<{
@@ -704,8 +780,9 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
       <h2 id="start">Start this project</h2>
       <p className="muted">
         The repository is empty. Give it a first commit from a sample or an archive of your files,
-        or push one with git.
+        or push one to {project.gitRef} with git:
       </p>
+      <CloneHelp project={project} />
       {refused && (
         <p className="notice error" role="alert">
           The archive was refused: {refused}
@@ -1077,9 +1154,23 @@ export function ProjectPage({
     return (
       <>
         {crumbs}
-        <PageHead title={key} />
-        <Loading state={found} />
-        {!found.loading && !found.error && <p className="empty">There is no such project.</p>}
+        {found.loading ? (
+          <>
+            <PageHead title={key} />
+            <Loading state={found} />
+          </>
+        ) : (
+          // AFS-143: what was looked for, not the address's last part as a title.
+          <Missing
+            what={
+              <>
+                The project <code>{key}</code> in <code>{workspace}</code>
+              </>
+            }
+            back={{ to: `/w/${workspace}`, label: `Back to ${workspace}` }}
+            error={found.error && !/^No such/.test(found.error) ? found.error : undefined}
+          />
+        )}
       </>
     );
   const address = `${window.location.origin}${project.gitPath}`;
@@ -1089,6 +1180,7 @@ export function ProjectPage({
     <>
       {crumbs}
       <PageHead
+        help="workspaces-and-projects.md"
         title={project.name}
         lead={
           <>
@@ -1263,16 +1355,12 @@ export function ProjectPage({
           {(me.admin || access?.workspace) && (
             <section className="panel" aria-labelledby="git">
               <h2 id="git">Work on it with git</h2>
-              <p>
-                <Copyable text={`git clone ${address}`} label="the clone command" />
-              </p>
-              <p className="muted">
-                The password is an <Link to="/account/tokens">access token</Link>; any user name
-                will do.
-                {project.hosted &&
-                  !project.commit &&
-                  ` The repository is empty: push a first commit to ${project.gitRef}.`}
-              </p>
+              <CloneHelp project={project} />
+              {project.hosted && !project.commit && (
+                <p className="muted">
+                  The repository is empty: push a first commit to {project.gitRef}.
+                </p>
+              )}
             </section>
           )}
 
@@ -1410,11 +1498,13 @@ export function AdminOnly() {
 }
 
 export function NotFound() {
+  // AFS-143: says the address looked for, the way home and where help is.
   return (
     <>
       <PageHead title="Nothing here" />
       <p className="empty">
-        There is no page at this address. <Link to="/">Go home.</Link>
+        There is no page at <code>{window.location.pathname}</code>. <Link to="/">Go home</Link> or
+        see <Link to="/help">Help</Link>.
       </p>
     </>
   );

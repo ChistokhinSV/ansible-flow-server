@@ -7,6 +7,7 @@
 //   GET    /api/v1/schedule-times?cron=&timezone=            the next times a cron fires
 // The level on the flow is checked by the catalog (api/catalog.ts) before a handler runs.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { changedKeys } from '../audit/changes';
 import { administrator, signedIn } from '../auth/guards';
 import type { LaunchConfigs } from '../launch/configs';
 import { ScheduleError, type ScheduleInput, type Schedules } from './schedules';
@@ -133,6 +134,7 @@ export function registerSchedules(
         owner = { id: user.id, login: user.login };
       }
       const changed = await schedules.update(before.id, { ...change, ...(owner ? { owner } : {}) });
+      request.auditDetail = { changed: changedKeys(request.body, before, changed) };
       request.log.info(
         { by: me.login, schedule: changed.name, changed: Object.keys(request.body).join(',') },
         'Schedule changed',
