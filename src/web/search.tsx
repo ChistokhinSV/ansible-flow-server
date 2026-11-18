@@ -5,6 +5,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api, type SearchHit, type User } from './api';
 import { navigate, usePath } from './router';
+import { formatTime } from './ui';
 
 /** The pages that are always there, found by their words. */
 const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
@@ -208,7 +209,12 @@ export function SearchBox({ me }: { me: User }) {
             >
               <span className="search-kind">{KIND_LABEL[h.kind] ?? h.kind}</span>
               <span className="search-title">{h.title}</span>
-              {h.kind !== 'page' && <span className="search-detail muted">{h.detail}</span>}
+              {h.kind !== 'page' && (
+                <span className="search-detail muted">
+                  {h.detail}
+                  {'at' in h && h.at && <> · {formatTime(h.at)}</>}
+                </span>
+              )}
             </div>
           ))}
           {!hits.length && (

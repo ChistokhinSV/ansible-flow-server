@@ -4,6 +4,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
+import { formatTime } from '../../src/web/ui';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -14,7 +15,13 @@ const HITS = [
     detail: 'net/edge · flows/hello.flow.yaml',
     to: '/w/net/edge/flow/flows/hello.flow.yaml',
   },
-  { kind: 'run', title: 'Run 7 · Hello, Ansible', detail: 'net/edge · succeeded', to: '/runs/r7' },
+  {
+    kind: 'run',
+    title: 'Hello, Ansible #7',
+    detail: 'net/edge · succeeded',
+    to: '/runs/r7',
+    at: '2026-11-18T00:44:00.000Z',
+  },
 ];
 
 let asked: string[];
@@ -74,7 +81,8 @@ describe('the search field', () => {
     const options = within(list).getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
       'flowHello, Ansiblenet/edge · flows/hello.flow.yaml',
-      'runRun 7 · Hello, Ansiblenet/edge · succeeded',
+      // AFS-139: the run's time in this browser's zone, named, as the run page shows it.
+      `runHello, Ansible #7net/edge · succeeded · ${formatTime('2026-11-18T00:44:00.000Z')}`,
     ]);
     fireEvent.keyDown(field, { key: 'ArrowDown' });
     fireEvent.keyDown(field, { key: 'ArrowDown' });

@@ -140,7 +140,7 @@ export function Home({ me }: { me: User }) {
                     <span>
                       <strong>{a.gate.node.title}</strong>{' '}
                       <span className="muted">
-                        · {a.run.flow.name}, run {a.run.number}
+                        · {a.run.flow.name} #{a.run.number}
                       </span>
                     </span>
                   </span>

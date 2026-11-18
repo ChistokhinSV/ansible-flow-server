@@ -198,9 +198,11 @@ export async function search(
     add(
       {
         kind: 'run',
-        title: `Run ${r.number} · ${r.flow_name}`,
-        detail: `${ws.key}/${p.key} · ${r.state} · ${r.created_at.slice(0, 16).replace('T', ' ')}`,
+        // AFS-139: named as the run lists name it; the time goes as a time, for the page to show.
+        title: `${r.flow_name} #${r.number}`,
+        detail: `${ws.key}/${p.key} · ${r.state}`,
         to: `/runs/${enc(r.id)}`,
+        at: r.created_at,
       },
       // Among runs that match, the newest first.
       s,
