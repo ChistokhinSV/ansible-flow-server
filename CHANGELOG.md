@@ -28,6 +28,14 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- A flow's page shows its newest run on the canvas, as **Latest runs** above it lists it; before, the Run panel said there was no run. A run the canvas launches, or one that ends while shown, updates **Latest runs** and the canvas's run list, and a run that is still going is listed as running, not "did not finish". The Run panel names a run of the server as one, with its number, not as a local run (with designer 1.0.1-rc.7).
+- Every time on the pages names its time zone (yours), in one format: search results showed runs in UTC, other pages in local time without saying so.
+- Schedules: the **At** of a one-time schedule is in the schedule's **Time zone**, as its hint now says (before, it was in the browser's zone whatever the field said). The cron and **At** hints name the zone they are read in, and the next times are shown in your time zone, named.
+- Schedules fire at their time; before, up to half a minute late. The Schedules tab follows fires while it is open: **Next** moves on, and **Last** shows the run it launched as it stands now (went well, failed), not "queued".
+- The Branches tab counts and lists the branch a project's start made, with no reload.
+- **Last used** of access tokens follows a token's use elsewhere when you come back to the page, and every half minute while it is open.
+- A run is named the same everywhere: its flow and #number (the run page, its breadcrumb, search, the home page).
+- **What the flow needs** says that a configuration without an environment runs on the server's default image, as **What would run** does.
 - **Limit** is applied: a run limited to some hosts runs on those only. Before, it ran on every host it targeted.
 - **Stop** stops a running run at once, and a run asked to stop never ends as succeeded; its hosts show as stopped.
 - A run that reached no host (none of its targets is in the inventory) fails, saying so, rather than "went well".
