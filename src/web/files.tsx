@@ -10,7 +10,17 @@ import { Missing } from './help';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
-import { Breadcrumb, Loading, messageOf, PageHead, Tabs, Time, useLoad, WorkspaceName } from './ui';
+import {
+  Breadcrumb,
+  Loading,
+  messageOf,
+  PageHead,
+  ProjectName,
+  Tabs,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 const FLOW = /\.flow\.ya?ml$/;
 /** Text the page edits; a bigger file is downloaded (the server takes 1 MB per edited file). */
@@ -525,7 +535,11 @@ export function FilesPage({
       <Link to={`/w/${workspace}`}>
         <WorkspaceName workspace={workspace} />
       </Link>{' '}
-      / <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">Files</span>
+      /{' '}
+      <Link to={`/w/${workspace}/${key}`}>
+        <ProjectName workspace={workspace} project={key} />
+      </Link>{' '}
+      / <span aria-current="page">Files</span>
     </Breadcrumb>
   );
   if (!project)

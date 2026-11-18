@@ -24,7 +24,8 @@ export interface Schedule {
   commit?: string;
   missed: MissedPolicy;
   overlap: OverlapPolicy;
-  owner: { id: string; login: string };
+  /** AFS-153: `name` is the owner's name, for the pages to show (absent when they have none). */
+  owner: { id: string; login: string; name?: string };
   /** When it fires next; absent while disabled or after a one-time schedule fired. */
   next?: string;
   /** The next few times, for people to check the cron reads as they meant. */

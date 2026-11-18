@@ -735,7 +735,7 @@ describe('AFS-150: leaving with typing not saved', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs'));
     expect(questions).toEqual([]);
     // The project's page does not.
-    fireEvent.click(screen.getByRole('link', { name: 'core' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Core' }));
     expect(questions).toEqual([LEAVE]);
     expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs');
   });

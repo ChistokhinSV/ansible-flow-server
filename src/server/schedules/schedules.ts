@@ -266,7 +266,8 @@ export class Schedules {
    * AFS-139: the last fire's run as it stands now: the fire's own words ("Run 4 queued") are of
    * that moment, and the run went on since.
    */
-  private async withRuns(list: Schedule[]): Promise<Schedule[]> {
+  private async withRuns(given: Schedule[]): Promise<Schedule[]> {
+    const list = await this.withOwnerNames(given);
     const ids = list.flatMap((s) => (s.last?.run ? [s.last.run] : []));
     if (!ids.length) return list;
     const runs = await this.db
@@ -280,6 +281,22 @@ export class Schedules {
       return run && s.last
         ? { ...s, last: { ...s.last, runNumber: run.number, runState: run.state } }
         : s;
+    });
+  }
+
+  /** AFS-153: owners by their names, as people are shown everywhere else. */
+  private async withOwnerNames(list: Schedule[]): Promise<Schedule[]> {
+    const ids = [...new Set(list.map((s) => s.owner.id))];
+    if (!ids.length) return list;
+    const users = await this.db
+      .selectFrom('user_account')
+      .select(['id', 'name'])
+      .where('id', 'in', ids)
+      .execute();
+    const names = new Map(users.map((u) => [u.id, u.name]));
+    return list.map((s) => {
+      const name = names.get(s.owner.id);
+      return name ? { ...s, owner: { ...s.owner, name } } : s;
     });
   }
 

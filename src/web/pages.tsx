@@ -1397,7 +1397,7 @@ export function ProjectPage({
       <Link to={`/w/${workspace}`}>
         <WorkspaceName workspace={workspace} />
       </Link>{' '}
-      / <span aria-current="page">{key}</span>
+      / <span aria-current="page">{project?.name ?? key}</span>
     </Breadcrumb>
   );
   if (!project)

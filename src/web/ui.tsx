@@ -577,6 +577,33 @@ export function WorkspaceName({ workspace }: { workspace: string }) {
   return <>{name ?? workspace}</>;
 }
 
+/** AFS-153: each workspace's projects' names by key, for the breadcrumbs, as spaceNames. */
+const projectNames = new Map<string, Promise<Map<string, string>>>();
+
+/** AFS-153: a project in a breadcrumb by its name ("Tooling"), not its key ("tooling"). */
+export function ProjectName({ workspace, project }: { workspace: string; project: string }) {
+  const [name, setName] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    const asked =
+      projectNames.get(workspace) ??
+      api.projects(workspace).then(
+        (list) => new Map(list.map((p) => [p.key, p.name])),
+        () => new Map<string, string>(),
+      );
+    projectNames.set(workspace, asked);
+    void asked.then((names) => {
+      const found = names.get(project);
+      if (!found && projectNames.get(workspace) === asked) projectNames.delete(workspace);
+      if (live) setName(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, [workspace, project]);
+  return <>{name ?? project}</>;
+}
+
 /** A page's breadcrumbs: in the top bar beside the search box, so the page starts with its title. */
 export function Breadcrumb({ children }: { children: ReactNode }) {
   const slot = useContext(BarSlot);

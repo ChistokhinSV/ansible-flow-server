@@ -543,7 +543,7 @@ export function SchedulesSection({
               </div>
             </dd>
             <dt>Owner</dt>
-            <dd>{s.owner.login}</dd>
+            <dd title={s.owner.login}>{s.owner.name || s.owner.login}</dd>
             <dt>Last</dt>
             <dd>
               {s.last ? (
