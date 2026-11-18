@@ -334,10 +334,67 @@ describe('a run', () => {
     state = 'cancelled';
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Run again' }));
+    // AFS-147: a real run again is asked about first, with the inputs it reuses; no is no.
+    const asked: string[] = [];
+    let answer = false;
+    const confirm = vi.spyOn(window, 'confirm').mockImplementation((text) => {
+      asked.push(String(text));
+      return answer;
+    });
+    const again = await screen.findByRole('button', { name: 'Run again' });
+    expect(again.getAttribute('title')).toMatch(/^A real run again, at the same commit\./);
+    fireEvent.click(again);
+    expect(asked[0]).toMatch(
+      /^Run Hello, Ansible for real again\? It changes the hosts it reaches\./,
+    );
+    expect(window.location.pathname).toBe('/runs/r1');
+    answer = true;
+    fireEvent.click(again);
+    confirm.mockRestore();
     await screen.findByRole('heading', { name: 'Hello, Ansible #8' });
     expect(window.location.pathname).toBe('/runs/r2');
     expect(screen.getByText('The canvas shows the run once it started.')).toBeTruthy();
+  });
+
+  it('What ran names the inputs, limit, credentials, environment and skipped targets (AFS-147)', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({
+        body: {
+          ...run,
+          state: 'succeeded',
+          endedAt: '2026-11-13T12:03:02.000Z',
+          inputs: { target_version: '7.6.0', api_token: '***' },
+          limit: 'fw-edge-*',
+          inventory: 'inventory/hosts.yaml',
+          eeImage: 'afs-ee/net-tools:0a1b2c3d4e5f6a7b',
+          credentials: ['k1', 'k2'],
+          credentialNames: ['netops-key', 'vault'],
+          environment: { id: 'e1', name: 'net-tools', workspace: 'w1' },
+          skippedTargets: ['nosuchhost'],
+        },
+      }),
+      ...places,
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const facts = (await screen.findByRole('heading', { name: 'What ran' })).closest(
+      'section',
+    ) as HTMLElement;
+    const inputs = facts.querySelector('[data-run-inputs]') as HTMLElement;
+    expect(inputs.textContent).toContain('target_version7.6.0');
+    expect(inputs.textContent).toContain('api_token***');
+    expect(facts.textContent).toContain('fw-edge-*');
+    expect(facts.textContent).toContain('netops-key, vault');
+    expect(
+      (await within(facts).findByRole('link', { name: 'net-tools' })).getAttribute('href'),
+    ).toBe('/w/netops/environments/e1');
+    expect(facts.textContent).toContain("counted over the project's runs");
+    // Went well, and still not plainly: the target the inventory lacks is named.
+    expect(document.querySelector('[data-skipped-targets]')?.textContent).toBe(
+      'Not in the inventory inventory/hosts.yaml, so nothing ran there: nosuchhost',
+    );
+    expect(screen.getByText(/1 target not in the inventory/)).toBeTruthy();
   });
 
   it('lists its hosts, those with a problem first, and says why one failed (AFS-64)', async () => {

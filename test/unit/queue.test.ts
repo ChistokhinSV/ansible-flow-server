@@ -330,6 +330,11 @@ for (const [name, config] of databases) {
       expect(await idsOf({ config: 'c-2', project: a })).toEqual([two.id]);
       expect(await idsOf({ by: 'dana' })).toEqual([three.id, one.id]);
       expect(await idsOf({ by: 'omar', config: 'c-1' })).toEqual([]);
+      // AFS-147: words: the configuration's name, a login, a number; % is not a wildcard.
+      expect(await idsOf({ q: 'nIGHT' })).toEqual([one.id]);
+      expect(await idsOf({ q: 'oma' })).toEqual([two.id]);
+      expect(await idsOf({ q: `#${three.number}`, project: b })).toEqual([three.id]);
+      expect(await idsOf({ q: '%' })).toEqual([]);
       // The filters narrow what someone may see, never widen it.
       expect(await idsOf({ by: 'dana', visible: { workspaces: [], flows: [] } })).toEqual([]);
       expect(

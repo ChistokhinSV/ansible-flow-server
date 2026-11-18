@@ -229,6 +229,8 @@ export interface RunsFilter {
   config?: string;
   /** A login: the runs that person asked for. */
   by?: string;
+  /** AFS-147: words in the flow's or configuration's name, a login, or a run's number. */
+  q?: string;
   limit?: number;
   /** The next page: `runCursor` of the last run shown (a time, a run's `createdAt`, works too). */
   before?: string;

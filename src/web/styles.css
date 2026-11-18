@@ -453,6 +453,9 @@ select:disabled,
 textarea:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  /* AFS-147: an empty disabled field reads as one too: filled like a raised surface, dashed. */
+  background: var(--raised);
+  border-style: dashed;
 }
 label.choice:has(input:disabled) {
   color: var(--muted);
@@ -2018,6 +2021,14 @@ section + .columns,
   font-size: 13px;
 }
 .run-project {
+  max-width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 13px;
+}
+.run-find {
+  /* AFS-147: the runs' text filter: room for a flow's name, never wider than its row. */
+  width: 16rem;
   max-width: 100%;
   min-height: 2rem;
   padding: 0.25rem 0.6rem;

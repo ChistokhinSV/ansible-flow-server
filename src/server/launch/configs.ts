@@ -51,6 +51,14 @@ export interface LaunchConfig {
    * the list and the configuration read by id say it.
    */
   lastRun?: LastRun;
+  /**
+   * AFS-147: read by id only: its credentials by name (in order), and its environment by name with
+   * the image a launch gets now, or why it gets none.
+   */
+  credentialNames?: string[];
+  environmentInfo?: { name: string; image?: string; why?: string };
+  /** AFS-147: in the list and read by id: the flow is not in the repository any more. */
+  flowGone?: string;
 }
 
 export class LaunchError extends Error {
@@ -235,7 +243,11 @@ export class LaunchConfigs {
     return project.commit;
   }
 
-  /** Everything a configuration says, checked against the project as it is now. */
+  /**
+   * Everything a configuration says, checked against the project as it is now. An environment
+   * with no image yet is accepted (it may be building): the launch refuses it until it has one,
+   * and the configuration's page says why (AFS-147).
+   */
   private async checked(project: Project, input: LaunchConfigInput) {
     const name = input.name.trim();
     if (name.length < 1 || name.length > 100)

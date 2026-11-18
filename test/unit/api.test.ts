@@ -129,7 +129,7 @@ for (const [name, config] of databases) {
       // The filters of a list are its parameters.
       expect(
         doc.paths['/api/v1/runs'].get.parameters.map((p: { name: string }) => p.name).sort(),
-      ).toEqual(['before', 'by', 'config', 'flow', 'limit', 'project', 'state']);
+      ).toEqual(['before', 'by', 'config', 'flow', 'limit', 'project', 'q', 'state']);
       expect(doc.paths['/api/v1/users/{id}/access'].get.description).toBe('Who: administrators.');
       expect(doc.paths['/api/v1/groups/{id}/grants'].get.description).toBe('Who: administrators.');
       // Each described route is one the server has, and the other way round.

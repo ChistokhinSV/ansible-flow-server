@@ -101,38 +101,56 @@ export function Home({ me }: { me: User }) {
   // AFS-102: what did not go well is said too, not only what did.
   const failed = todays.filter((r) => r.state === 'failed' || r.state === 'lost').length;
   const waiting = todays.filter((r) => r.state === 'waiting').length;
-  // AFS-146: every run of the day is accounted for: those going and those stopped too.
-  const going = todays.filter((r) => r.state === 'running' || r.state === 'queued').length;
+  // AFS-147: every run of the day is counted somewhere: stopped and still going too.
   const stopped = todays.filter((r) => r.state === 'cancelled').length;
+  const going = todays.filter((r) => r.state === 'running' || r.state === 'queued').length;
+  const counts = [
+    `${well} went well`,
+    failed ? `${failed} failed` : '',
+    stopped ? `${stopped} stopped` : '',
+    going ? `${going} still ${going === 1 ? 'goes' : 'go'}` : '',
+  ].filter(Boolean);
   // AFS-146: whose decision your own held run waits for, when it is one run.
   const heldFor =
     yours.length === 1
       ? approvals.data?.find((a) => a.run.id === yours[0])?.gate.deciders
       : undefined;
-  const summary = [
-    todays.length
-      ? `${plural(todays.length, 'run', 'runs')} today: ${[
-          `${well} went well`,
-          failed ? `${failed} failed` : '',
-          waiting ? `${waiting} ${waiting === 1 ? 'waits' : 'wait'} for a decision` : '',
-          going ? `${going} going` : '',
-          stopped ? `${stopped} stopped` : '',
-        ]
-          .filter(Boolean)
-          .join(', ')}.`
-      : 'No run yet today.',
-    mine.length
-      ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
-      : 'Nothing waits for you.',
-    // AFS-144: your own runs held at a gate for someone else are said too.
-    yours.length
-      ? heldFor?.length
-        ? `1 run of yours waits for a decision by ${heldFor.length === 1 ? heldFor[0] : `${heldFor.slice(0, -1).join(', ')} or ${heldFor.at(-1)}`}.`
-        : `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision.`
-      : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const summary = (
+    <>
+      {todays.length ? (
+        <>
+          {plural(todays.length, 'run', 'runs')} today: {counts.join(', ')}
+          {waiting ? (
+            <>
+              {', '}
+              {/* AFS-147: the runs that wait are a link to them. */}
+              <Link to="/runs?state=waiting">
+                {waiting} {waiting === 1 ? 'waits' : 'wait'} for a decision
+              </Link>
+            </>
+          ) : null}
+          .
+        </>
+      ) : (
+        'No run yet today.'
+      )}{' '}
+      {mine.length
+        ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
+        : 'Nothing waits for you.'}
+      {/* AFS-144: your own runs held at a gate for someone else are said too. */}
+      {yours.length > 0 && (
+        <>
+          {' '}
+          <Link to={yours.length === 1 ? `/runs/${yours[0]}` : '/runs?state=waiting&mine=1'}>
+            {heldFor?.length
+              ? `1 run of yours waits for a decision by ${heldFor.length === 1 ? heldFor[0] : `${heldFor.slice(0, -1).join(', ')} or ${heldFor.at(-1)}`}`
+              : `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision`}
+          </Link>
+          .
+        </>
+      )}
+    </>
+  );
   const first = me.name.split(/\s+/)[0] || me.name;
   // AFS-85: the newest run of each configuration this person launched themselves (a schedule's
   // runs are its owner's, and not launched by hand). A few more than are shown, for the ones

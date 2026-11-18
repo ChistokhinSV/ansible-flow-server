@@ -15,6 +15,7 @@ import {
   type Workspace,
 } from './api';
 import { RunApprovals } from './approvals';
+import { environmentAddress } from './environments';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import {
@@ -196,6 +197,8 @@ interface Choices {
   config: string;
   /** Only the runs the person asked for themself. */
   mine: boolean;
+  /** AFS-147: words in the flow's or configuration's name, a login, or a run's number. */
+  q: string;
 }
 function choicesInAddress(): Choices {
   const query = new URLSearchParams(window.location.search);
@@ -207,6 +210,7 @@ function choicesInAddress(): Choices {
     // A configuration is one of a project's: without its project it is not a choice.
     config: project ? (query.get('config') ?? '') : '',
     mine: query.get('mine') === '1',
+    q: (query.get('q') ?? '').slice(0, 200),
   };
 }
 
@@ -321,8 +325,17 @@ export function OlderRuns({ pages }: { pages: ReturnType<typeof useRunPages> }) 
 }
 
 export function RunsPage({ me }: { me: User }) {
-  const [{ state, project, config, mine }, setChoices] = useState(choicesInAddress);
+  const [{ state, project, config, mine, q }, setChoices] = useState(choicesInAddress);
+  // What is typed asks the server once typing pauses.
+  const [typed, setTyped] = useState(q);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (typed.trim() !== q) setChoices((before) => ({ ...before, q: typed.trim() }));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [typed, q]);
   const filter: RunsFilter = {
+    ...(q ? { q } : {}),
     ...(state ? { state } : {}),
     ...(project ? { project } : {}),
     ...(project && config ? { config } : {}),
@@ -349,13 +362,14 @@ export function RunsPage({ me }: { me: User }) {
       ...(project ? { project } : {}),
       ...(project && config ? { config } : {}),
       ...(mine ? { mine: '1' } : {}),
+      ...(q ? { q } : {}),
     }).toString();
     window.history.replaceState(
       window.history.state,
       '',
       `${window.location.pathname}${query ? `?${query}` : ''}`,
     );
-  }, [state, project, config, mine]);
+  }, [state, project, config, mine, q]);
   // A project from the address that the person cannot see (or that is gone) is not a choice.
   const known = where.data?.some((w) => w.projects.some((p) => p.id === project));
   useEffect(() => {
@@ -374,6 +388,17 @@ export function RunsPage({ me }: { me: User }) {
     <>
       <PageHead help="runs.md" title="Runs" lead="Every run you may see, the newest first." />
       <div className="run-filters">
+        <label>
+          Find
+          <input
+            type="search"
+            className="run-find"
+            value={typed}
+            placeholder="flow, configuration, login or #number"
+            onChange={(e) => setTyped(e.target.value)}
+            spellCheck={false}
+          />
+        </label>
         <StateChoices value={state} onChange={(next) => choose({ state: next })} />
         <div className="chips">
           <label className={mine ? 'chip on' : 'chip'}>
@@ -425,7 +450,7 @@ export function RunsPage({ me }: { me: User }) {
       {(!fresh || list.error) && <Loading state={list} />}
       {fresh && rows?.length === 0 && (
         <p className="empty">
-          {mine || config
+          {mine || config || q
             ? 'No run for these choices.'
             : state && project
               ? 'No run of this project in this state.'
@@ -435,13 +460,16 @@ export function RunsPage({ me }: { me: User }) {
                   ? 'No run of this project yet.'
                   : 'No run yet. Runs start from a launch configuration of a project.'}
           {/* AFS-144: a way back from choices that leave nothing. */}
-          {(state || project || mine) && (
+          {(state || project || mine || q) && (
             <>
               {' '}
               <button
                 type="button"
                 className="link"
-                onClick={() => setChoices({ state: '', project: '', config: '', mine: false })}
+                onClick={() => {
+                  setTyped('');
+                  setChoices({ state: '', project: '', config: '', mine: false, q: '' });
+                }}
               >
                 Show all runs
               </button>
@@ -486,6 +514,9 @@ function standing(run: Run): string {
       return `in ${span(from, run.endedAt)}`;
     case 'failed':
       return `after ${span(from, run.endedAt)}`;
+    // AFS-147: a stopped run says how long it went too.
+    case 'cancelled':
+      return run.startedAt ? `after ${span(from, run.endedAt)}` : '';
     default:
       return '';
   }
@@ -726,6 +757,26 @@ async function belongs(project: string, file: string, config?: string): Promise<
   return null;
 }
 
+/** AFS-147: an input's value in a line. */
+const inputText = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value));
+
+/**
+ * AFS-147: what Run again does, in words: the button's title (mode and the inputs it reuses) and,
+ * for a real run, the question asked first (Launch's, with the inputs).
+ */
+export function againWords(run: Run): { title: string; confirm: string } {
+  const inputs = Object.entries(run.inputs).map(([name, v]) => `${name} = ${inputText(v)}`);
+  const reuses = inputs.length
+    ? `It reuses the inputs ${inputs.join(', ')}.`
+    : 'It takes no inputs.';
+  const where = run.limit ? ` limited to ${run.limit}` : '';
+  const mode = run.mode === 'real' ? 'A real run' : 'A check run';
+  return {
+    title: `${mode} again, at the same commit${where}. ${reuses}`,
+    confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}`,
+  };
+}
+
 export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeChoice }) {
   const [run, setRun] = useState<Run>();
   const [view, setView] = useState<RunView>();
@@ -769,7 +820,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
 
   // Its hosts, from how it went: read when it changes, and now and then while it goes.
   const going = run ? ACTIVE.includes(run.state) : false;
-  const started = !!run?.startedAt;
+  // AFS-147: of this run: right after Run again the run shown is still the one before for a moment
+  // (its start time would ask for the new run's view before it has one).
+  const started = !!run?.startedAt && run.id === id;
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the run's state changes
   useEffect(() => {
     if (!started) return;
@@ -839,7 +892,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         </p>
       </div>
     );
-  if (!run)
+  if (!run || run.id !== id)
     return (
       <div className="run-below">
         <Loading state={{ loading: true }} />
@@ -847,7 +900,11 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     );
   // operator on the run's flow stops it and runs it again.
   const mayAct = me.admin || atLeast(flowLevel(access, run.flow.file), 'operator');
+  const again = againWords(run);
   const act = async (what: 'cancel' | 'relaunch') => {
+    // AFS-147: a real run again changes the hosts again: asked first, as Launch asks, with the
+    // inputs it reuses.
+    if (what === 'relaunch' && run.mode === 'real' && !window.confirm(again.confirm)) return;
     setBusy(true);
     try {
       if (what === 'cancel') setRun(await api.cancelRun(run.id));
@@ -897,7 +954,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             <span aria-current="page">#{run.number}</span>
           </Breadcrumb>
           <div className="title-line">
-            <h1 tabIndex={-1}>{title}</h1>
+            {/* AFS-147: the number counts the project's runs, not the flow's. */}
+            <h1 tabIndex={-1} title={`Run ${run.number} of the project's runs`}>
+              {title}
+            </h1>
             <HelpLink page="runs.md" />
           </div>
           <p>
@@ -919,6 +979,13 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                   </span>
                 )}
               </>
+            )}
+            {!!run.skippedTargets?.length && (
+              <span className="warn-text">
+                {' '}
+                · {run.skippedTargets.length}{' '}
+                {run.skippedTargets.length === 1 ? 'target' : 'targets'} not in the inventory
+              </span>
             )}
             {run.dev && (
               <>
@@ -966,17 +1033,29 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             </button>
           )}
           {mayAct && !going && (
-            <button type="button" disabled={busy} onClick={() => act('relaunch')}>
+            <button
+              type="button"
+              disabled={busy}
+              title={again.title}
+              onClick={() => act('relaunch')}
+            >
               Run again
             </button>
           )}
         </div>
       </header>
-      {(run.error || error) && (
+      {(run.error || error || !!run.skippedTargets?.length) && (
         <div className="run-below run-notes">
           {run.error && (
             <p className={`notice ${run.state === 'cancelled' ? '' : 'error'}`} role="status">
               {plainWhy(run.error)}
+            </p>
+          )}
+          {/* AFS-147: targets Ansible dropped are said, also on a run that went well. */}
+          {!!run.skippedTargets?.length && (
+            <p className="notice warn" role="status" data-skipped-targets>
+              Not in the inventory{run.inventory ? ` ${run.inventory}` : ''}, so nothing ran there:{' '}
+              {run.skippedTargets.join(', ')}
             </p>
           )}
           {error && (
@@ -1054,17 +1133,65 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               </dd>
               <dt>Ended</dt>
               <dd>{going ? 'not yet' : <Time at={run.endedAt} />}</dd>
+              <dt>Number</dt>
+              <dd>{run.number}, counted over the project's runs</dd>
+              <dt>Mode</dt>
+              <dd>{run.mode === 'real' ? 'real' : 'check (nothing changed)'}</dd>
               <dt>Hosts</dt>
-              <dd>{run.targets.join(', ') || 'none'}</dd>
-              {run.limit && (
-                <>
-                  <dt>Limit</dt>
-                  <dd>
-                    <code>{run.limit}</code>
-                  </dd>
-                </>
-              )}
+              <dd>
+                {run.targets.join(', ') || 'none'}
+                {!!run.skippedTargets?.length && (
+                  <span className="warn-text">
+                    {' '}
+                    (not in the inventory: {run.skippedTargets.join(', ')})
+                  </span>
+                )}
+              </dd>
+              <dt>Limit</dt>
+              <dd>{run.limit ? <code>{run.limit}</code> : 'none'}</dd>
+              <dt>Inventory</dt>
+              <dd>{run.inventory ? <code>{run.inventory}</code> : 'what ansible.cfg names'}</dd>
+              <dt>Environment</dt>
+              <dd>
+                {run.environment ? (
+                  where ? (
+                    <Link to={environmentAddress(where.workspace, run.environment.id)}>
+                      {run.environment.name}
+                    </Link>
+                  ) : (
+                    run.environment.name
+                  )
+                ) : (
+                  'none'
+                )}
+                {run.eeImage ? (
+                  <>
+                    {' '}
+                    · <code>{run.eeImage}</code>
+                  </>
+                ) : (
+                  <span className="muted"> · the server's default image</span>
+                )}
+              </dd>
+              <dt>Credentials</dt>
+              <dd>{(run.credentialNames ?? run.credentials).join(', ') || 'none'}</dd>
             </dl>
+            {/* AFS-147: the inputs it ran with (secret ones as ***): what Run again reuses. */}
+            <h3>Inputs</h3>
+            {Object.keys(run.inputs).length ? (
+              <dl className="facts" data-run-inputs>
+                {Object.entries(run.inputs).map(([name, value]) => (
+                  <div key={name} className="fact">
+                    <dt className="mono">{name}</dt>
+                    <dd>
+                      <code>{inputText(value)}</code>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="muted small">The flow took no inputs.</p>
+            )}
           </section>
         </aside>
       </div>

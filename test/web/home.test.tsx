@@ -81,7 +81,14 @@ describe('home', () => {
     render(<App />);
     await screen.findByRole('heading', { name: /, Dana$/ });
     await screen.findByText(
-      '3 runs today: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          '3 runs today: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
+    );
+    // AFS-147: the runs that wait are a link to them.
+    expect(screen.getByRole('link', { name: '1 waits for a decision' }).getAttribute('href')).toBe(
+      '/runs?state=waiting',
     );
     // Only what this person may decide waits for them.
     const waiting = screen
@@ -203,7 +210,10 @@ describe('home, your own runs at a gate (AFS-144)', () => {
     };
     render(<App />);
     await screen.findByText(
-      "No run yet today. Nothing waits for you. 1 run of yours waits for someone else's decision.",
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          "No run yet today. Nothing waits for you. 1 run of yours waits for someone else's decision.",
     );
   });
 });

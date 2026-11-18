@@ -223,7 +223,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     );
     expect(line.textContent).toContain('newest of main');
     expect(line.textContent).toContain('inventory inventory/hosts.yaml');
-    expect(line.textContent).toContain("image the server's default");
+    expect(line.textContent).toContain("the server's default image");
     expect(line.textContent).toContain('1 credential');
     // The tabs are addresses; Change is one of them now.
     const tabs = screen.getByRole('navigation', { name: 'Launch configuration' });
@@ -526,6 +526,55 @@ describe('the launch form', () => {
     fireEvent.change(devices, { target: { value: 'edge, l' } });
     expect(options()).toEqual(['edge, lab']);
     expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
+  });
+
+  it('targets the inventory lacks and a limit that leaves none are said at the field (AFS-147)', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/facts': (body) => {
+        const typed = (body as { inputs?: { devices?: string }; limit?: string }) ?? {};
+        const unknown = /nosuchhost/.test(typed.inputs?.devices ?? '') ? ['nosuchhost'] : [];
+        return {
+          body: {
+            groups: ['edge'],
+            groupHosts: { edge: { count: 2, hosts: ['fw-edge-01', 'fw-edge-02'] } },
+            facts: {
+              sources: ['inventory/hosts.yaml'],
+              count: 1,
+              hosts: ['fw-edge-01'],
+              unknown,
+              uses: [],
+              prod: [],
+              vault: false,
+              environment: 'ee:1 (docker)',
+            },
+            ...(typed.limit ? { limited: { pattern: typed.limit, hosts: [], count: 0 } } : {}),
+            environment: 'ee:1 (docker)',
+            commit: COMMIT,
+          },
+        };
+      },
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const devices = (await screen.findByLabelText(/devices/)) as HTMLInputElement;
+    // A group's button says how many hosts it adds.
+    const groups = await screen.findByRole('group', { name: 'Groups for devices' });
+    expect(within(groups).getByRole('button', { name: /edge/ }).textContent).toBe('edge · 2');
+    fireEvent.change(devices, { target: { value: 'fw-edge-01, nosuchhost' } });
+    expect(
+      await screen.findByText(
+        /Not in the inventory, so nothing runs there: nosuchhost/,
+        undefined,
+        {
+          timeout: 3000,
+        },
+      ),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Limit'), { target: { value: 'sw-edge-01' } });
+    expect(
+      await screen.findByText(/leaves none of the targets' hosts/, undefined, { timeout: 3000 }),
+    ).toBeTruthy();
   });
 
   it('the groups keep one place while they are read, so the buttons do not move (AFS-138)', async () => {

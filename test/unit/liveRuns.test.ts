@@ -189,6 +189,37 @@ describe('the live stream of a run', () => {
     expect(output.join('').endsWith('last line\n')).toBe(true);
   });
 
+  it('a run stopped while it waits: its page reads the record, with who stopped it (AFS-147)', async () => {
+    const run = await queue.enqueue(launchOf(), {}, { id: 'u', login: 'dana' });
+    const job = await queue.claim('w');
+    expect(job?.run.id).toBe(run.id);
+    await queue.start(run.id, job?.token as string);
+    // What a worker leaves when the run waits: the view in the record and, last, in the hub.
+    const waiting = {
+      id: 'x',
+      mode: 'check',
+      state: 'running',
+      startedAt: new Date().toISOString(),
+      summary: { hosts: ['fw-edge-01'], nodes: {}, outcome: {}, failures: [], unreachable: [] },
+      approvals: { [NODE]: { status: 'waiting' } },
+    };
+    await queue.saveView(run.id, waiting);
+    await queue.wait(run.id, job?.token as string);
+    hub.publish(run.id, { kind: 'view', view: waiting as never });
+    expect((await call('POST', `/runs/${run.id}/cancel`, admin)).status).toBe(202);
+    const view = (await (await call('GET', `/runs/${run.id}/view`)).json()) as {
+      state: string;
+      approvals: unknown;
+    };
+    expect(view.state).toBe('error');
+    expect(view.approvals).toEqual({});
+    const stopped = await (await call('GET', `/runs/${run.id}`)).json();
+    expect(stopped).toMatchObject({
+      state: 'cancelled',
+      error: 'Stopped by Dana while it waited for approval',
+    });
+  });
+
   it('a cancel is heard by watchers', async () => {
     const run = await queue.enqueue(launchOf(), {}, { id: 'u', login: 'dana' });
     const watching = watch(`/runs/${run.id}/events`, (events) => kinds(events).includes('end'));

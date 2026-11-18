@@ -43,6 +43,8 @@ export function FlowPage({
   const access = useProjectAccess(project?.id).data;
   // AFS-135: only a flow that is there (not a missing one) offers editing and configurations.
   const exists = !!flow;
+  // AFS-147: the project's flows are read, and this one is not among them (deleted, or moved).
+  const gone = !!flows.data && !flow;
   const mayEdit = exists && !!access && (access.admin || access.flows?.[file] === 'rw');
   const drafts = useLoad(
     async () => (project ? api.drafts(project.id) : ([] as Draft[])),
@@ -88,11 +90,14 @@ export function FlowPage({
   reloadRuns.current = runs.reload;
   // A run listed there that has not ended (launched anywhere) is looked at until it ends.
   const runsGoing = !!runs.data?.some((r) => ACTIVE.includes(r.state));
+  // AFS-147: a queued run is taken in a moment: looked at sooner, so the list does not say
+  // "queued" while the canvas already shows it running.
+  const runsQueued = !!runs.data?.some((r) => r.state === 'queued');
   useEffect(() => {
     if (!runsGoing) return;
-    const timer = setInterval(() => reloadRuns.current(), 5000);
+    const timer = setInterval(() => reloadRuns.current(), runsQueued ? 1500 : 5000);
     return () => clearInterval(timer);
-  }, [runsGoing]);
+  }, [runsGoing, runsQueued]);
   const stopEditing = (words?: string) => {
     setEditing(undefined);
     setPeople([]);
@@ -299,6 +304,7 @@ export function FlowPage({
             name={title}
             commit={commit}
             usedBy={(configs.data ?? []).map((c) => c.name)}
+            configIds={(configs.data ?? []).map((c) => c.id)}
             doing={fileAction}
             onDone={() => setFileAction(undefined)}
           />
@@ -311,11 +317,24 @@ export function FlowPage({
                 {project.gitRef} at <code>{commit.slice(0, 12)}</code> · read only
               </span>
             )}
-            {configs.data?.map((c) => (
-              <Link key={c.id} to={`${here}/launch/${encodeURIComponent(c.id)}`}>
-                Launch: {c.name}
-              </Link>
-            ))}
+            {/* AFS-147: a flow that is gone offers no launch: its configurations cannot run. */}
+            {gone && !!configs.data?.length && (
+              <span className="warn-text">
+                Its launch configurations cannot launch:{' '}
+                {configs.data.map((c, i) => (
+                  <span key={c.id}>
+                    {i > 0 && ', '}
+                    <Link to={`${here}/launch/${encodeURIComponent(c.id)}`}>{c.name}</Link>
+                  </span>
+                ))}
+              </span>
+            )}
+            {!gone &&
+              configs.data?.map((c) => (
+                <Link key={c.id} to={`${here}/launch/${encodeURIComponent(c.id)}`}>
+                  Launch: {c.name}
+                </Link>
+              ))}
             {configs.data?.length === 0 &&
               (mayAdd ? (
                 <Link to={`${here}/launch/new?flow=${encodeURIComponent(file)}`}>
@@ -339,6 +358,18 @@ export function FlowPage({
             )}
           </p>
         ) : null}
+        {gone && project ? (
+          <p className="notice warn" role="status">
+            There is no flow <code>{file}</code> on {project.gitRef}
+            {project.commit ? (
+              <>
+                {' '}
+                at <code>{project.commit.slice(0, 12)}</code>
+              </>
+            ) : null}
+            : it was deleted or moved. Its runs stay in the history.
+          </p>
+        ) : null}
         {said ? (
           <p className="notice" role="status">
             {said}
@@ -350,7 +381,15 @@ export function FlowPage({
             Unsaved edits in the pages by{' '}
             {waiting.editors.map((e) => (e.login === me.login ? 'you' : e.name)).join(', ')} (a
             draft since <Time at={waiting.createdAt} />
-            ).
+            ). {/* AFS-147: a run launched from here runs the branch, never the draft. */}
+            Runs use {project?.gitRef ? <code>{project.gitRef}</code> : 'the branch'}
+            {project?.commit ? (
+              <>
+                {' '}
+                at <code>{project.commit.slice(0, 12)}</code>
+              </>
+            ) : null}
+            , not these edits: save the draft first to run them.
           </p>
         ) : null}
         {editing ? (

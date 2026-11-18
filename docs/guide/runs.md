@@ -47,14 +47,16 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `succeeded`, `failed`, `cancelled` | How it ended                                                            |
 | `lost`                             | Its worker stopped answering after it started: what it did is not known |
 
-| Address (under `/api/v1`)                                    | Does                                                          | Who          |
-| ------------------------------------------------------------ | ------------------------------------------------------------- | ------------ |
-| `GET /runs?project=&flow=&state=&config=&by=&limit=&before=` | Runs, the newest first, narrowed and a page at a time (below) | what you see |
-| `GET /runs/:id`                                              | One run                                                       | `ro`         |
-| `POST /runs/:id/cancel`                                      | Stop it: at once when queued, else at the worker's next word  | `operator`   |
+| Address (under `/api/v1`)                                       | Does                                                          | Who          |
+| --------------------------------------------------------------- | ------------------------------------------------------------- | ------------ |
+| `GET /runs?project=&flow=&state=&config=&by=&q=&limit=&before=` | Runs, the newest first, narrowed and a page at a time (below) | what you see |
+| `GET /runs/:id`                                                 | One run                                                       | `ro`         |
+| `POST /runs/:id/cancel`                                         | Stop it: at once when queued, else at the worker's next word  | `operator`   |
 
 - **Filters:** `project` (its id), `flow` (the flow's file), `state`, `config` (a launch
-  configuration's id) and `by` (the login of who asked for the run; your own for your runs).
+  configuration's id), `by` (the login of who asked for the run; your own for your runs) and
+  `q` (words in the flow's name or file, the configuration's name or a login, or `#12` for a
+  run's number; the Runs page's **Find** box).
   They narrow what you may see and never add to it. A token made for one workspace names a
   `project` or a `config` of that workspace.
 - **Pages:** `limit` runs at a time (50, at most 200). For the next page, pass the last run of
@@ -89,8 +91,14 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   the run's own that is removed right after. Secret values are hidden in the output. A wrong
   passphrase fails the run with "The SSH key could not be unlocked".
 - Ended: `succeeded` when Ansible ended well and wrote its events; `failed` otherwise, with
-  the reason; `cancelled` when stopped on request. A run longer than
-  `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+  the reason in plain words ("1 of 4 hosts failed at Pre-checks", "No host ran: the limit
+  sw-edge-09 matched none of the targets (sw-edge-01) in the inventory inventory.ini");
+  `cancelled` when stopped on request, saying who stopped it and during which step ("Stopped by
+  Dana Whitfield during Upgrade", "Stopped by Dana Whitfield while it waited for approval at
+  Change approval"). On the canvas that step reads **stopped** and the steps after it **not
+  reached**. A run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+- **Targets not in the inventory:** Ansible skips them. The run names them
+  (`skippedTargets` on `GET /runs/:id`, and on its page), also when it went well.
 
 | Address (under `/api/v1`)         | Answers                                                                                                                    | Who        |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------- |
@@ -99,6 +107,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `GET /runs/:id/events`            | The run as it goes, as server-sent events: `run`, `view`, `output` (with `next`), `end`; `?from=<next>` resumes the output | signed in  |
 | `GET /runs/:id/hosts/:node/:host` | What one host did in one step, from the run's events                                                                       | signed in  |
 | `POST /runs/:id/relaunch`         | The same run again (same commit, inputs and credentials), as a new run                                                     | `operator` |
+
+**A run's page** says what ran: the flow and commit, the run's number (counted over the
+project's runs), check or real, the hosts and the limit, the inventory, the environment and its
+image, the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
+same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. **Run again** runs the
+same commit, inputs and credentials as a new run; its title says which inputs it reuses, and on
+a real run it asks first, as Launch does.
 
 **Watching a run:** the run page follows it live; a script reads the same with
 `curl -N -H "Authorization: Bearer $AFS_TOKEN" https://flows.example.net:8443/api/v1/runs/<id>/events`.

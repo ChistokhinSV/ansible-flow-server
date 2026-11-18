@@ -49,6 +49,7 @@ import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from '.
 import type { Job, Outcome, RunQueue } from './queue';
 import { pullWithSignIn } from './registry';
 import { repositoryConfig } from './repoConfig';
+import { failedWhy, NO_HOSTS, noHostWhy, skippedTarget, titleOf } from './words';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
 /** How often the worker says it still has a run. */
@@ -481,9 +482,15 @@ export class Executor {
     let hidden: string[] = [];
     // AFS-132: the last lines that read as an error, for a run that ends before Ansible says why.
     const errorLines: string[] = [];
+    // AFS-147: targets Ansible ignored because the inventory does not have them.
+    const skipped = new Set<string>();
+    /** The flow's steps, once it is read: a stopped or failed run names its step. */
+    let steps: Parameters<typeof titleOf>[0] = [];
     const line = (text: string) => {
       if (!output) return;
       const said = hide(stripAnsi(text), hidden).trim();
+      const target = skippedTarget(said);
+      if (target) skipped.add(target);
       if (ERROR_LINE.test(said)) {
         errorLines.push(said.slice(0, 300));
         if (errorLines.length > 3) errorLines.shift();
@@ -506,7 +513,23 @@ export class Executor {
         return;
       }
       const ended = new Date();
-      const done = await queue.finish(r.id, token, outcome, error, ended, view);
+      // AFS-147: the step a stopped run was in (the canvas marks it), and the targets it skipped.
+      const at = outcome === 'cancelled' ? this.deps.hub?.live(r.id)?.summary?.running : undefined;
+      const kept =
+        view && (at || skipped.size)
+          ? {
+              ...view,
+              ...(at ? { stoppedAt: at } : {}),
+              ...(skipped.size ? { skippedTargets: [...skipped] } : {}),
+            }
+          : view;
+      // AFS-147: a stopped run's output ends saying who stopped it and where, as its page does.
+      if (outcome === 'cancelled') {
+        const step = titleOf(steps, at);
+        const by = (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
+        line(`Stopped${by ? ` by ${by}` : ' on request'}${step ? ` during ${step}` : ''}`);
+      }
+      const done = await queue.finish(r.id, token, outcome, error, ended, kept);
       this.deps.hub?.ended(r.id);
       // AFS-37: from the run's first start (a run that waited for approval spans several).
       const began = r.startedAt ? Date.parse(r.startedAt) : handled;
@@ -515,7 +538,10 @@ export class Executor {
       say.info({ outcome, ...(error ? { why: error } : {}) }, 'Run ended');
     };
     const stoppedWhy = (): [Outcome, string] => {
-      if (why === 'cancel') return ['cancelled', 'Stopped on request'];
+      if (why === 'cancel') {
+        const step = titleOf(steps, this.deps.hub?.live(r.id)?.summary?.running);
+        return ['cancelled', `Stopped on request${step ? ` during ${step}` : ''}`];
+      }
       if (why === 'timeout')
         return [
           'failed',
@@ -543,6 +569,7 @@ export class Executor {
       const text = await readFile(join(workdir.dir, ...r.flow.file.split('/')), 'utf8');
       const doc = parseFlow(text).doc;
       if (!doc) return await finish('failed', `${r.flow.file} is not a flow at this commit`);
+      steps = doc.nodes;
       const errors = validateFlow(doc, schemaIssues(doc)).findings.filter(
         (f) => f.severity === 'error',
       );
@@ -722,27 +749,21 @@ export class Executor {
         if (agentFailure) return await finish('failed', agentFailure, view);
         // AFS-132: no events, and the container said why (an image that cannot be pulled, an
         // engine error): that is the reason, not "no events".
+        // AFS-147: no host to target says which targets or limit left none, not Ansible's words.
+        if (view.error === NO_EVENTS && errorLines.some((l) => NO_HOSTS.test(l)))
+          return await finish('failed', noHostWhy({ ...r, skipped: [...skipped] }), view);
         if (view.error === NO_EVENTS && errorLines.length)
           return await finish('failed', `${NO_EVENTS}: ${errorLines.at(-1)}`, view);
         // AFS-132: a run that reached no host did nothing: not a success.
         if (view.state === 'done' && view.rc === 0 && !view.error && whole && noHostRan(view))
-          return await finish(
-            'failed',
-            'No host ran: none of the targets is in the inventory, or the limit left none',
-            view,
-          );
+          return await finish('failed', noHostWhy({ ...r, skipped: [...skipped] }), view);
         // Without events nothing says what the flow did: that is not a success, whatever the code.
         if (view.state === 'done' && view.rc === 0 && !view.error)
           return await finish('succeeded', undefined, view);
         if (view.state === 'done' && view.error) return await finish('failed', view.error, view);
-        if (view.state === 'done') {
-          const failedHosts = Object.keys(view.summary?.outcome ?? {}).length;
-          return await finish(
-            'failed',
-            `ansible-playbook ended with ${view.rc}${failedHosts ? `; ${failedHosts} host(s) failed` : ''}`,
-            view,
-          );
-        }
+        // AFS-147: "1 of 4 hosts failed at Pre-checks", not the exit code.
+        if (view.state === 'done')
+          return await finish('failed', failedWhy(view, steps, view.rc), view);
         return await finish('failed', view.error ?? 'The run could not be started', view);
       };
 
@@ -868,7 +889,9 @@ export class Executor {
           const until = opened.deadline ? ` (until ${opened.deadline})` : '';
           line(`Waiting for approval: ${opened.node.title}${until}`);
           this.deps.hub?.publish(r.id, { kind: 'view', view: waiting });
-          this.deps.hub?.publish(r.id, { kind: 'state' });
+          // AFS-147: the run is not going here any more: its view is the record's from now on,
+          // so a stop while it waits (which writes the record) is what the canvas shows.
+          this.deps.hub?.ended(r.id);
           say.info({ gate: opened.node.key }, 'Run waits for approval');
           this.deps.approvalWaiting?.(r.id, opened.id);
           return;

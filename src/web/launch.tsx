@@ -5,7 +5,7 @@
 // AFS-85: a configuration's page is four tabs (Launch, Runs, Schedules, Settings), each with an
 // address; the launch form comes first, and what is rarely typed is folded away.
 import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { FactsReply } from '../server/launch/facts';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
@@ -138,6 +138,13 @@ export function LaunchConfigsSection({
                     </td>
                     <td>
                       <code>{c.flowFile}</code>
+                      {/* AFS-147: a flow deleted from the branch: its configuration cannot run. */}
+                      {c.flowGone && (
+                        <span className="warn-text" title={c.flowGone}>
+                          {' '}
+                          · the flow is gone
+                        </span>
+                      )}
                       {/* The branch is said only when it is not the project's own. */}
                       {(c.commit || c.gitRef) && (
                         <span className="muted">
@@ -157,7 +164,7 @@ export function LaunchConfigsSection({
                       )}
                     </td>
                     <td className="act">
-                      {mayLaunch && (
+                      {mayLaunch && !c.flowGone && (
                         <Link
                           to={launchAddress(workspace, project.key, c.id)}
                           className="button"
@@ -274,11 +281,17 @@ function InputField({
   problem,
   onChange,
   groups,
+  counts,
+  warning,
 }: {
   field: LaunchField;
   value: string;
   problem?: string;
   onChange: (text: string) => void;
+  /** AFS-147: how many hosts each group holds, for its chip. */
+  counts?: Record<string, { count: number }>;
+  /** AFS-147: what the inventory says of the typed targets, before Launch. */
+  warning?: ReactNode;
   /**
    * AFS-97/99: the inventory's groups for a host list, as the canvas's dialog offers them: a button
    * each under the field (adds or takes out the group) and suggestions while typing.
@@ -342,27 +355,97 @@ function InputField({
                   <small className="muted">Reading the inventory's groups…</small>
                 ) : known.length > 0 ? (
                   <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
-                    {known.map((g) => (
-                      <button
-                        key={g}
-                        type="button"
-                        className={`chip${chosen.has(g) ? ' on' : ''}`}
-                        aria-pressed={chosen.has(g)}
-                        onClick={() => onChange(toggleName(value, g))}
-                      >
-                        {g}
-                      </button>
-                    ))}
+                    {/* AFS-147: what the chips are, and how many hosts each adds. */}
+                    <small className="muted">Groups in the inventory:</small>
+                    {known.map((g) => {
+                      const count = counts?.[g]?.count;
+                      return (
+                        <button
+                          key={g}
+                          type="button"
+                          className={`chip${chosen.has(g) ? ' on' : ''}`}
+                          aria-pressed={chosen.has(g)}
+                          title={
+                            count === undefined
+                              ? undefined
+                              : `${chosen.has(g) ? 'Take out' : 'Add'} the group ${g}: ${count} ${count === 1 ? 'host' : 'hosts'}`
+                          }
+                          onClick={() => onChange(toggleName(value, g))}
+                        >
+                          {g}
+                          {count !== undefined && <span className="muted"> · {count}</span>}
+                        </button>
+                      );
+                    })}
                   </fieldset>
                 ) : (
                   <small className="muted">No groups to pick from the inventory.</small>
                 )}
               </div>
             )}
+            {warning}
           </>
         )
       }
     </Labelled>
+  );
+}
+
+/** AFS-147: the key of the targets and the limit as typed: what a reading of the inventory is of. */
+function targetsKey(
+  fields: readonly LaunchField[],
+  texts: Record<string, string>,
+  limit: string,
+): string {
+  return JSON.stringify([
+    fields.filter((f) => f.targets).map((f) => (texts[f.name] ?? f.text).trim()),
+    limit.trim(),
+  ]);
+}
+
+/**
+ * AFS-147: what the inventory says of the targets typed, at their field: those it does not have,
+ * or that they match no host at all.
+ */
+function TargetsWarning({ reply }: { reply: FactsReply }) {
+  const facts = reply.facts;
+  if (facts?.unknown.length)
+    return (
+      <small className="warn-text" data-unknown-hosts role="status">
+        Not in the inventory{reply.inventory ? ` ${reply.inventory}` : ''}, so nothing runs there:{' '}
+        {facts.unknown.join(', ')}
+        {facts.count === 0 ? '. No host would run.' : ''}
+      </small>
+    );
+  if (facts && facts.count === 0)
+    return (
+      <small className="warn-text" data-unknown-hosts role="status">
+        These targets match no host in the inventory{reply.inventory ? ` ${reply.inventory}` : ''}:
+        no host would run.
+      </small>
+    );
+  if (!facts && reply.factsError && !reply.field)
+    return (
+      <small className="warn-text" data-unknown-hosts role="status">
+        {reply.factsError}
+      </small>
+    );
+  return null;
+}
+
+/** AFS-147: what the limit leaves of the targets' hosts, at the Limit field. */
+function LimitWarning({ limited }: { limited: NonNullable<FactsReply['limited']> }) {
+  return limited.count === 0 ? (
+    <p className="error-text small" data-limit-hosts role="status">
+      The limit <code>{limited.pattern}</code> leaves none of the targets' hosts: the run would stop
+      at once.
+    </p>
+  ) : (
+    <p className="muted small" data-limit-hosts>
+      The limit leaves {limited.count} {limited.count === 1 ? 'host' : 'hosts'}:{' '}
+      {limited.hosts.slice(0, 10).join(', ')}
+      {limited.count > 10 ? ', …' : ''}
+    </p>
   );
 }
 
@@ -418,10 +501,13 @@ function WouldRun({
   launch,
   form,
   hosts,
+  names,
 }: {
   launch: PreparedLaunch;
   form: LaunchForm;
   hosts?: HostsState;
+  /** AFS-147: the credentials by name. */
+  names?: string[];
 }) {
   const shown = Object.entries(launch.inputs);
   // AFS-140: the answer comes below the form: it is brought into view.
@@ -461,7 +547,7 @@ function WouldRun({
         <dt>Image</dt>
         <dd>{form.eeImage ? <code>{form.eeImage}</code> : "the server's default"}</dd>
         <dt>Credentials</dt>
-        <dd>{launch.credentials.length}</dd>
+        <dd>{launch.credentials.length ? (names ?? launch.credentials).join(', ') : 'none'}</dd>
       </dl>
       {hosts && <InventoryHosts hosts={hosts} />}
       {shown.length > 0 && (
@@ -480,6 +566,30 @@ function WouldRun({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * AFS-147: a configuration's environment by name, and what a launch gets from it now: its image,
+ * or why there is none.
+ */
+function EnvironmentWords({ config: c, workspace }: { config: LaunchConfig; workspace: string }) {
+  if (!c.environment) return null;
+  const info = c.environmentInfo;
+  return (
+    <>
+      <Link to={environmentAddress(workspace, c.environment)}>
+        {info ? `environment ${info.name}` : 'its environment'}
+      </Link>
+      {info?.why ? (
+        <span className="bad-text"> · {info.why}</span>
+      ) : info?.image ? (
+        <>
+          {' '}
+          · <code>{info.image}</code>
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -511,7 +621,7 @@ function SettingsFacts({
         <>
           <dt>Environment</dt>
           <dd>
-            <Link to={environmentAddress(workspace, c.environment)}>its newest good build</Link>
+            <EnvironmentWords config={c} workspace={workspace} />
           </dd>
         </>
       )}
@@ -526,7 +636,7 @@ function SettingsFacts({
         </>
       )}
       <dt>Credentials</dt>
-      <dd>{c.credentials.length || 'none'}</dd>
+      <dd>{(c.credentialNames ?? c.credentials).join(', ') || 'none'}</dd>
       <dt>Tells</dt>
       <dd>
         {c.notify
@@ -658,9 +768,16 @@ export function LaunchConfigPage({
    * launch's image, so only for who may launch.
    */
   const [groups, setGroups] = useState<string[] | 'reading'>();
+  const [groupCounts, setGroupCounts] = useState<Record<string, { count: number }>>();
+  /**
+   * AFS-147: what the inventory says of the targets and the limit as typed now (read again a moment
+   * after they change), so a target it does not have is said at its field before Launch.
+   */
+  const [live, setLive] = useState<{ key: string; reply: FactsReply }>();
   const configId = config.data?.id;
   const flowFile = config.data?.flowFile;
   const formFields = form.data?.fields;
+  const formLimit = form.data?.limit ?? '';
   const mayRead =
     !!flowFile && (me.admin || (!!access && atLeast(flowLevel(access, flowFile), 'operator')));
   useEffect(() => {
@@ -683,10 +800,51 @@ export function LaunchConfigPage({
         groups: true,
       } as LaunchRequest)
       .then(
-        (r) => setGroups(r.groups ?? []),
+        (r) => {
+          setGroups(r.groups ?? []);
+          if (r.groupHosts) setGroupCounts(r.groupHosts);
+          // The start values' targets and the configuration's limit: what the form shows first.
+          setLive({ key: targetsKey(formFields, start, formLimit), reply: r });
+        },
         () => setGroups([]),
       );
-  }, [tab, groups, configId, mayRead, formFields, mode]);
+  }, [tab, groups, configId, mayRead, formFields, mode, formLimit]);
+  const typedLimit = limit ?? formLimit;
+  const typedKey = formFields ? targetsKey(formFields, texts, typedLimit) : '';
+  const hasTargets = !!formFields?.some((f) => f.targets);
+  const liveKey = live?.key;
+  useEffect(() => {
+    if ((tab && tab !== 'launch') || !configId || !mayRead || !hasTargets || !formFields) return;
+    if (groups === 'reading' || typedKey === liveKey) return;
+    const timer = setTimeout(() => {
+      const inputs = Object.fromEntries(
+        formFields.filter((f) => !f.secret).map((f) => [f.name, texts[f.name] ?? f.text]),
+      );
+      api
+        .launchFacts(configId, {
+          ...(mode ? { mode } : {}),
+          inputs,
+          ...(limit !== undefined ? { limit: limit.trim() } : {}),
+        })
+        .then(
+          (reply) => setLive({ key: typedKey, reply }),
+          () => undefined,
+        );
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [
+    tab,
+    configId,
+    mayRead,
+    hasTargets,
+    formFields,
+    groups,
+    typedKey,
+    liveKey,
+    texts,
+    limit,
+    mode,
+  ]);
 
   const c = config.data;
   if (!c || !project.data)
@@ -754,15 +912,19 @@ export function LaunchConfigPage({
   const launch = async () => {
     // AFS-134: a real run changes the hosts: asked first, with what it runs and where.
     const real = (mode ?? form.data?.mode ?? c.mode) === 'real';
+    const unknown = liveNow?.facts?.unknown ?? [];
+    const skipped = unknown.length
+      ? ` Not in the inventory, so nothing runs there: ${unknown.join(', ')}.`
+      : '';
     if (real) {
-      const where = limit?.trim() ? ` limited to ${limit.trim()}` : '';
+      const where = limitText.trim() ? ` limited to ${limitText.trim()}` : '';
       if (
         !window.confirm(
-          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.`,
+          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.${skipped}`,
         )
       )
         return;
-    }
+    } else if (skipped && !window.confirm(`Launch the check run?${skipped}`)) return;
     start('launch');
     try {
       const run = await api.launch(c.id, request());
@@ -800,10 +962,13 @@ export function LaunchConfigPage({
   };
   const here = launchAddress(workspace, key, c.id);
   const limitText = limit ?? form.data?.limit ?? '';
+  // AFS-147: only what the inventory said of the targets as they are typed now.
+  const liveNow = live && live.key === typedKey ? live.reply : undefined;
   // The fold opens by itself when something in it has a value, and always when the server points
   // at one of its fields.
   const foldOpen =
     ['ref', 'commit', 'limit'].some((f) => problemOf(f)) ||
+    liveNow?.limited?.count === 0 ||
     (folded ?? !!(ref || commit || limitText));
 
   return (
@@ -824,23 +989,36 @@ export function LaunchConfigPage({
         </span>
         <span>inventory {c.inventory ? <code>{c.inventory}</code> : 'as ansible.cfg names'}</span>
         <span>
-          image{' '}
           {c.environment ? (
-            <Link to={environmentAddress(workspace, c.environment)}>
-              its environment's newest good build
-            </Link>
+            <EnvironmentWords config={c} workspace={workspace} />
           ) : c.eeImage ? (
-            <code>{c.eeImage}</code>
+            <>
+              image <code>{c.eeImage}</code>
+            </>
           ) : (
-            "the server's default"
+            "the server's default image"
           )}
         </span>
+        {/* AFS-147: the limit and the credentials by name, as What ran says them. */}
+        {c.limit && (
+          <span>
+            limit <code>{c.limit}</code>
+          </span>
+        )}
         <span>
-          {c.credentials.length
-            ? `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`
-            : 'no credentials'}
+          {!c.credentials.length
+            ? 'no credentials'
+            : c.credentialNames?.length
+              ? `${c.credentials.length === 1 ? 'credential' : 'credentials'} ${c.credentialNames.join(', ')}`
+              : `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`}
         </span>
       </p>
+      {c.flowGone && (
+        <p className="notice warn" role="status">
+          {c.flowGone}: it cannot be launched until the flow is back, or the configuration is
+          pointed at another flow.
+        </p>
+      )}
       <Tabs
         label="Launch configuration"
         base={here}
@@ -910,6 +1088,8 @@ export function LaunchConfigPage({
                     settle(f.name);
                   }}
                   groups={groups}
+                  {...(groupCounts ? { counts: groupCounts } : {})}
+                  {...(f.targets && liveNow ? { warning: <TargetsWarning reply={liveNow} /> } : {})}
                 />
               ))}
               {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
@@ -989,6 +1169,7 @@ export function LaunchConfigPage({
                     />
                   )}
                 </Labelled>
+                {liveNow?.limited && <LimitWarning limited={liveNow.limited} />}
               </Fold>
               <fieldset className="choices">
                 <legend>Mode</legend>
@@ -1065,7 +1246,14 @@ export function LaunchConfigPage({
               )}
             </form>
           </section>
-          {result && <WouldRun launch={result.launch} form={result.form} hosts={hosts} />}
+          {result && (
+            <WouldRun
+              launch={result.launch}
+              form={result.form}
+              hosts={hosts}
+              {...(c.credentialNames ? { names: c.credentialNames } : {})}
+            />
+          )}
           <EnvironmentCheck config={c.id} workspace={workspace} mayManage={mayManage} />
         </>
       )}
@@ -1565,7 +1753,9 @@ export function LaunchConfigEdit({
       <PageHead
         help="launch-configurations.md"
         title={title}
-        lead="Saved only if it could run now. Secret inputs are never kept: they are typed at launch."
+        // AFS-147: what saving checks, as it is: the hosts and an environment still building are
+        // checked at launch, where the form says what stands in the way.
+        lead="Saved when its flow, inventory and credentials are there. The hosts it reaches and its environment's image are checked at launch. Secret inputs are never kept: they are typed at launch."
       />
       <section className="panel">
         <ConfigForm

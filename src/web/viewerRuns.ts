@@ -33,7 +33,10 @@ export const pastRunOf = (run: RunRecord): PastRun =>
     failed: run.hosts?.failed ?? 0,
     flowVersion: run.flow.version,
     ...(going(run.state) ? { running: true } : {}),
+    // AFS-147: how one that did not finish ended, in the list's word (a designer after 1.0.1-rc.7).
+    ...(ENDED[run.state] ? { ended: ENDED[run.state] } : {}),
   }) as PastRun;
+const ENDED: Record<string, string> = { cancelled: 'stopped', lost: 'lost', failed: 'failed' };
 
 /**
  * AFS-139: where a run of the server ran, for the designer's Run panel (a run on Ansible Flow

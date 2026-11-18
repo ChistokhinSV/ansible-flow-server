@@ -24,6 +24,11 @@ All notable changes to Ansible Flow Server.
 - An external project whose source cannot be read when it is added opens on Settings, which says why; its repository address can be changed there. **Look at the source now** says what it found.
 - Starting a project from a sample or an archive says what its first commit holds, and when it has playbooks, how to make a flow of one.
 - Search says it needs at least two characters.
+- A run's page lists what it ran with: its inputs (secret ones hidden), the limit, the inventory, the environment and its image, and the credentials by name.
+- The launch page says, at the field and before **Launch**, which targets are not in the inventory, when the targets match no host, and how many hosts the limit leaves. A launch with targets the inventory does not have names them first.
+- A run names the targets Ansible skipped because the inventory does not have them, also when it went well.
+- The Runs page has a **Find** box: words in a flow's or configuration's name, a login, or a run's number (`q` in the API).
+- A launch configuration's page names its environment (with its image, or why it has none), its limit and its credentials. The inventory's group buttons say how many hosts each holds.
 
 ### Changed
 
@@ -68,6 +73,15 @@ All notable changes to Ansible Flow Server.
 - The home page accounts for every run of the day (those going and stopped too), and says whose decision your waiting run needs.
 - On a run's page the canvas fits the window beside a long side panel: the whole flow and its zoom controls are in sight.
 - A comment is typed in the page's font, not in monospace.
+- **Run again** on a real run asks first, as a real launch does, and says which inputs it reuses; the page no longer asks for the new run's view before it has started.
+- A run stopped while it waited for approval no longer shows the approval waiting and the later steps waiting on the canvas: the step it stopped at reads stopped, the rest not reached. A stopped run says who stopped it and during which step, its output ends with that, and its header says how long it went.
+- A failed run says how many hosts failed and at which step, not Ansible's exit code. A run that reached no host says which targets or limit left none, not Ansible's own error.
+- Home counts stopped runs and runs still going in the day's total, and the runs that wait for a decision are a link to them.
+- The flow page says that runs use the branch, not the unsaved edits of a draft. **Latest runs** follows a queued run sooner, so it does not say queued while the canvas shows it running. A run that was stopped, failed or lost says so in the canvas's run list instead of "did not finish" (with a designer after 1.0.1-rc.7).
+- A launch configuration whose flow was deleted is marked on the project's page and offers no **Launch…**; its page says so. A deleted flow's page says it is gone and offers no launch. Deleting a flow names the schedules that would then fail.
+- A step where hosts failed in the run shown no longer has a green check beside "1 failed" (with a designer after 1.0.1-rc.7).
+- Disabled fields (Branch and Commit for an operator) look disabled.
+- The page for adding or changing a launch configuration says what saving checks: an environment still building and the hosts are checked at launch.
 - An empty flow's **Get Started** opens the guide's part on building a flow in the pages. The pickers of **Import …** and **Open Sample Flow…** take the focus when they open and close with Escape. A sample opened in a project that lacks its roles says which roles to copy.
 - A flow's page shows its newest run on the canvas, as **Latest runs** above it lists it; before, the Run panel said there was no run. A run the canvas launches, or one that ends while shown, updates **Latest runs** and the canvas's run list, and a run that is still going is listed as running, not "did not finish". The Run panel names a run of the server as one, with its number, not as a local run (with designer 1.0.1-rc.7).
 - Every time on the pages names its time zone (yours), in one format: search results showed runs in UTC, other pages in local time without saying so.

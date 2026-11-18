@@ -185,6 +185,7 @@ export function FlowFileActions({
   name,
   commit,
   usedBy,
+  configIds = [],
   doing,
   onDone,
 }: {
@@ -195,6 +196,8 @@ export function FlowFileActions({
   commit: string;
   /** Names of the launch configurations that run it. */
   usedBy: string[];
+  /** AFS-147: their ids, to name the schedules that would fire it. */
+  configIds?: string[];
   /** AFS-110: which form is open (picked in the head's More menu), and closing it. */
   doing?: 'copy' | 'delete';
   onDone(): void;
@@ -216,6 +219,14 @@ export function FlowFileActions({
   const [error, setError] = useState<string>();
   // AFS-134: one delete at a time (a double click sent two).
   const [deleting, setDeleting] = useState(false);
+  // AFS-147: the schedules that would fire it after it is gone, named before the delete.
+  const schedules = useLoad(
+    async () =>
+      doing === 'delete' && configIds.length
+        ? (await Promise.all(configIds.map((id) => api.schedules(id).catch(() => [])))).flat()
+        : [],
+    [doing, configIds.join(' ')],
+  ).data?.filter((s) => s.enabled);
   return (
     <>
       {doing === 'copy' && (
@@ -278,6 +289,14 @@ export function FlowFileActions({
             <p className="notice warn">
               Launch configurations run it: {usedBy.join(', ')}. They cannot launch once it is gone:
               delete or change them too.
+            </p>
+          )}
+          {!!schedules?.length && (
+            <p className="notice warn" data-schedules>
+              {schedules.length === 1 ? 'The schedule' : 'The schedules'}{' '}
+              {schedules.map((s) => s.name).join(', ')} would fail each time{' '}
+              {schedules.length === 1 ? 'it fires' : 'they fire'}: turn{' '}
+              {schedules.length === 1 ? 'it' : 'them'} off too.
             </p>
           )}
           {error && (
