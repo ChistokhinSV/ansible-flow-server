@@ -9,6 +9,8 @@ All notable changes to Ansible Flow Server.
 - Redo while editing a flow in the pages: Ctrl+Y (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a new edit; it says what came back, and is refused when someone changed the same place since (`POST /api/v1/drafts/<id>/redo`).
 - Adding an existing repository as a project reads its address first. When it cannot be read (or has no branch `main`), the form says why at the address and offers **Add anyway** (`POST /api/v1/workspaces/:id/projects/check`).
 - While someone has **Save** open on a flow's draft, everyone else in it sees that a save is coming and ends their editing, before it is made.
+- On a run's page, a host's row in **Hosts** opens what that host did, step by step (`GET /api/v1/runs/:id/hosts/:host`).
+- A schedule whose fire found errors in its flow lists them under **Last**, each a link to its step.
 
 ### Changed
 
@@ -22,11 +24,17 @@ All notable changes to Ansible Flow Server.
 - A project's state badge explains itself on hover, and **cannot be read** says beside git's reason what it means and what to do.
 - A mirrored project with no commit says why it has no Files tab or **New flow**, and how to give it its first commit.
 - An error the server answers without words (a bare 422, 404, 500…) says what it means and what to do.
+- "N of M hosts failed at a step" also says Ansible's exit code and what it means.
+- The audit log says whether a launch or a run again was real or a check, and names the new run of a run again by its number.
+- A launch configuration cannot be given an environment that has no image and no build going: the form says why at the field.
 
 ### Fixed
 
 - The delivery log says why a webhook was not reached: connection refused, timed out, the host name not found (DNS), or its certificate (expired, for another name, not trusted). A certificate problem, or a port web requests may not use, is not tried again.
 - The **Take back** buttons on the **Access** tab no longer move sideways when a longer grant is added.
+- **What ran** marks an image as the server's default by how the run started, not by how its launch configuration reads now; dev runs are marked too.
+- The launch form offers the inventory's groups for a flow whose host list is not marked as its targets (the first host list is then the targets).
+- Search no longer shows, or opens with Enter, the results of the question typed before while the new one is asked.
 
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 

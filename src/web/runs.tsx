@@ -626,8 +626,10 @@ const SHOWN_HOSTS = 8;
  * The hosts beside the canvas (AFS-86). When some have a problem, those are what the list is
  * read for: only they show until all are asked for. The canvas panel lists every host anyway.
  */
-function Hosts({ lines }: { lines: HostLine[] }) {
+function Hosts({ run, lines }: { run: string; lines: HostLine[] }) {
   const [all, setAll] = useState(false);
+  // AFS-170: a host's row opens what it did, step by step.
+  const [open, setOpen] = useState<string>();
   if (!lines.length) return null;
   const problems = lines.filter((l) => l.tone === 'bad-text');
   const short = (problems.length ? problems : lines).slice(0, SHOWN_HOSTS);
@@ -659,18 +661,85 @@ function Hosts({ lines }: { lines: HostLine[] }) {
       <ul className="list">
         {shown.map((line) => (
           <li key={line.host}>
-            <span className="item">
-              <span className="mono" title={line.host}>
-                {line.host}
-              </span>
+            <button
+              type="button"
+              className="item host-row"
+              aria-expanded={open === line.host}
+              title={`What ${line.host} did`}
+              onClick={() => setOpen(open === line.host ? undefined : line.host)}
+            >
+              <span className="mono">{line.host}</span>
               <span className={`end ${line.tone}`}>{line.words}</span>
-            </span>
+            </button>
+            {open === line.host && <HostOutput run={run} host={line.host} state={line.words} />}
           </li>
         ))}
       </ul>
     </section>
   );
 }
+
+/** AFS-170: what one host did in the run: each step it ran in, and each task's result there. */
+function HostOutput({ run, host, state }: { run: string; host: string; state: string }) {
+  const [steps, setSteps] = useState<Awaited<ReturnType<typeof api.runHost>>['steps']>();
+  const [error, setError] = useState<string>();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the host's state changes
+  useEffect(() => {
+    let live = true;
+    api.runHost(run, host).then(
+      (r) => live && setSteps(r.steps),
+      (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [run, host, state]);
+  if (error)
+    return (
+      <p className="notice error small" role="alert">
+        {error}
+      </p>
+    );
+  if (!steps) return <p className="muted small">Reading what {host} did…</p>;
+  if (!steps.length) return <p className="muted small">No output for {host} yet.</p>;
+  return (
+    <section className="host-output" aria-label={`What ${host} did`}>
+      {steps.map((s) => (
+        <div key={s.node}>
+          <h3>{s.step}</h3>
+          <ul>
+            {s.entries.map((e, i) => {
+              const text = e.censored
+                ? 'Not shown: the task hides its output'
+                : [e.msg, e.out?.msg, e.out?.stdout, e.out?.stderr]
+                    .filter((t, at, all) => t && all.indexOf(t) === at)
+                    .join('\n');
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a host's results, in order.
+                <li key={i}>
+                  <span className={`host-status ${STATUS_TONE[e.status] ?? 'muted'}`}>
+                    {e.changed && e.status === 'ok' ? 'changed' : e.status}
+                  </span>{' '}
+                  {e.task}
+                  {e.rc !== undefined && e.rc !== 0 && (
+                    <span className="muted"> (code {e.rc})</span>
+                  )}
+                  {text && <pre className="output">{text}</pre>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+const STATUS_TONE: Record<string, string> = {
+  ok: 'ok-text',
+  failed: 'bad-text',
+  unreachable: 'bad-text',
+  skipped: 'muted',
+};
 
 /**
  * AFS-117: what the run gave back (its flow's outputs), per host, as a flow that launched it gets
@@ -1125,7 +1194,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             run={run.id}
             changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`}
           />
-          <Hosts lines={lines} />
+          <Hosts run={run.id} lines={lines} />
           {view?.summary?.outputs || view?.summary?.outputsTooLarge ? (
             <Outputs summary={view.summary} />
           ) : null}

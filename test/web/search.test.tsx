@@ -119,6 +119,35 @@ describe('the search field', () => {
   });
 });
 
+describe('a newer question (AFS-170)', () => {
+  it("an older question's hits are not shown, nor opened by Enter, while the newer one is asked", async () => {
+    open(dana);
+    let answer: (() => void) | undefined;
+    routes['GET /search?q=..%2F'] = () => ({ body: [] });
+    const field = (await screen.findByRole('combobox', { name: 'Search' })) as HTMLInputElement;
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: 'hello' } });
+    const list = await screen.findByRole('listbox', { name: 'Search results' });
+    await within(list).findByText('Hello, Ansible #7');
+    // The next question waits for its answer: the run of "hello" is not offered for it.
+    const slow = new Promise<void>((done) => {
+      answer = done;
+    });
+    const before = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url.includes('q=..')) await slow;
+      return before(url, init);
+    });
+    fireEvent.change(field, { target: { value: '../' } });
+    expect(screen.queryByText('Hello, Ansible #7')).toBeNull();
+    expect(screen.getByText('Looking…')).toBeTruthy();
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(window.location.pathname).toBe('/approvals');
+    answer?.();
+    expect(await screen.findByText('Nothing found')).toBeTruthy();
+  });
+});
+
 describe('the search field and the page (AFS-102)', () => {
   it('what was typed goes when another page opens by the menu', async () => {
     open(dana);

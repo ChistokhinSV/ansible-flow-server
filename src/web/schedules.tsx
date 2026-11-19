@@ -4,6 +4,7 @@
 // AFS-139: a schedule's rule is in its own time zone (a cron, a one-time At); every time the page
 // shows is in this browser's zone, named. The list follows fires and their runs while it is open.
 import { useEffect, useId, useState } from 'react';
+import { errorsLead } from '../server/flowErrors';
 import {
   ApiError,
   api,
@@ -13,6 +14,7 @@ import {
   type User,
 } from './api';
 import { ask } from './confirm';
+import { FlowErrorsNote } from './launch';
 import { Link } from './router';
 import { ACTIVE, RunWords } from './runs';
 import {
@@ -428,12 +430,15 @@ export function SchedulesSection({
   takes,
   mayManage,
   me,
+  flowTo,
 }: {
   config: string;
   form?: LaunchForm;
   takes: Takes;
   mayManage: boolean;
   me: User;
+  /** AFS-170: the flow's page, for a fire's flow errors to link to their steps. */
+  flowTo?: string;
 }) {
   const list = useLoad(() => api.schedules(config), [config]);
   // AFS-139: live while open: read again when the next fire is due (Next moves on, Last says
@@ -585,7 +590,20 @@ export function SchedulesSection({
                     </div>
                   ) : (
                     <>
-                      {s.last.detail && <div className="muted">{s.last.detail}</div>}
+                      {/* AFS-170: a flow that could not run: each error a link to its step. */}
+                      {s.last.errors?.length && flowTo ? (
+                        <>
+                          <div className="muted">{errorsLead(s.last.errors.length)}:</div>
+                          <FlowErrorsNote
+                            errors={s.last.errors}
+                            to={flowTo}
+                            edit={mayManage}
+                            quiet
+                          />
+                        </>
+                      ) : (
+                        s.last.detail && <div className="muted">{s.last.detail}</div>
+                      )}
                       {s.last.run && <Link to={`/runs/${s.last.run}`}>Open the run</Link>}
                     </>
                   )}

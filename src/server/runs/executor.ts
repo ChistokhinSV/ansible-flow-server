@@ -789,7 +789,7 @@ export class Executor {
         if (view.state === 'done' && view.rc === 0 && !view.error)
           return await finish('succeeded', undefined, view);
         if (view.state === 'done' && view.error) return await finish('failed', view.error, view);
-        // AFS-147: "1 of 4 hosts failed at Pre-checks", not the exit code.
+        // AFS-147: "1 of 4 hosts failed at Pre-checks", then the exit code in words (AFS-170).
         if (view.state === 'done')
           return await finish('failed', failedWhy(view, steps, view.rc, errorLines.at(-1)), view);
         return await finish('failed', view.error ?? 'The run could not be started', view);

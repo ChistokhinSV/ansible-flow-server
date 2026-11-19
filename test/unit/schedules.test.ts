@@ -360,6 +360,45 @@ for (const [name, config] of databases) {
       ).toBe(400);
     });
 
+    it('AFS-170: a fire whose flow has errors keeps them, each with its step', async () => {
+      const s = (
+        await call('rita', 'POST', at(), {
+          name: 'Every half hour',
+          kind: 'cron',
+          cron: '30 * * * *',
+          timezone: 'UTC',
+          mode: 'check',
+        })
+      ).json();
+      source.commit(
+        { 'flows/hello.flow.yaml': HELLO.replace('key: facts', 'key: ping') },
+        'Two steps with one key',
+      );
+      await due(s.id);
+      await schedules.tick();
+      const after = (await call('rita', 'GET', at()))
+        .json()
+        .find((x: { id: string }) => x.id === s.id);
+      expect(after.last).toMatchObject({ result: 'failed' });
+      expect(after.last.detail).toMatch(/^The flow has \d+ errors?/);
+      expect(after.last.errors.length).toBeGreaterThan(0);
+      expect(after.last.errors[0]).toMatchObject({
+        node: expect.any(String),
+        step: expect.any(String),
+      });
+      expect(await runsOf(s.id)).toEqual([]);
+      source.commit({ 'flows/hello.flow.yaml': HELLO }, 'One key each again');
+      // The next fire runs it, and the errors go.
+      await due(s.id);
+      await schedules.tick();
+      const fixed = (await call('rita', 'GET', at()))
+        .json()
+        .find((x: { id: string }) => x.id === s.id);
+      expect(fixed.last).toMatchObject({ result: 'ok' });
+      expect(fixed.last.errors).toBeUndefined();
+      expect((await call('rita', 'DELETE', at(`/${s.id}`))).statusCode).toBe(204);
+    });
+
     it('AFS-150: a schedule whose flow is gone is turned off at its fire, saying why', async () => {
       const s = (
         await call('rita', 'POST', at(), {

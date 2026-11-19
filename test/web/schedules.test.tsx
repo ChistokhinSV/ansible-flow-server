@@ -314,6 +314,28 @@ describe('schedules of a launch configuration', () => {
     expect(within(one).getByText('went well')).toBeTruthy();
   });
 
+  it('a fire whose flow could not run links each error to its step (AFS-170)', async () => {
+    routes = page(omar, () => [
+      {
+        ...weekdays,
+        last: {
+          at: '2026-11-13T02:00:00.000Z',
+          result: 'failed',
+          detail:
+            'The flow has 1 error, so it cannot run until it is fixed: Backup: no module is bound.',
+          errors: [{ node: 'n-backup', step: 'Backup', message: 'no module is bound' }],
+        },
+      },
+    ]);
+    show(omar);
+    const box = await section();
+    const one = await within(box).findByRole('article', { name: 'Weekdays at three' });
+    expect(within(one).getByText(/The flow has 1 error/)).toBeTruthy();
+    expect(within(one).getByRole('link', { name: 'Backup' }).getAttribute('href')).toBe(
+      '/w/net/core/flow/flows/upgrade.flow.yaml?step=n-backup',
+    );
+  });
+
   it('an operator reads them and changes nothing', async () => {
     routes = page(omar, () => [weekdays]);
     show(omar);

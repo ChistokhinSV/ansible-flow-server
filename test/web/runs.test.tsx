@@ -469,6 +469,34 @@ describe('a run', () => {
     expect(screen.getByText(/Connection timed out/)).toBeTruthy();
     expect(screen.getByText(/after 3 min/)).toBeTruthy();
     expect(screen.getByText(/1 with a problem/)).toBeTruthy();
+
+    // AFS-170: a host's row opens what it did, step by step.
+    routes['GET /runs/r1/hosts/fw-edge-17'] = () => ({
+      body: {
+        steps: [
+          {
+            node: 'n1',
+            step: 'Pre-checks',
+            entries: [
+              {
+                task: 'Gather facts',
+                status: 'unreachable',
+                msg: 'Connection timed out (port 22)',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const row = within(hosts).getByRole('button', { name: /fw-edge-17/ });
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(row);
+    const did = await within(hosts).findByRole('region', { name: 'What fw-edge-17 did' });
+    expect(within(did).getByRole('heading', { name: 'Pre-checks' })).toBeTruthy();
+    expect(within(did).getByText('Connection timed out (port 22)')).toBeTruthy();
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(row);
+    expect(within(hosts).queryByRole('region', { name: 'What fw-edge-17 did' })).toBeNull();
   });
 
   it('a run its approval rejected reads as rejected; a held run has its hosts waiting (AFS-146)', async () => {

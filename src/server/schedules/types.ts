@@ -1,6 +1,8 @@
 // What a schedule looks like to the API and the pages (AFS-34). Types only, so the web
 // application uses them without the server's code.
 
+import type { FlowError } from '../flowErrors';
+
 export type ScheduleKind = 'cron' | 'once';
 export type MissedPolicy = 'once' | 'skip';
 export type OverlapPolicy = 'skip' | 'queue';
@@ -34,6 +36,8 @@ export interface Schedule {
     at: string;
     result: FireResult;
     detail?: string;
+    /** AFS-170: a flow that could not run: its errors, each with the step it is on. */
+    errors?: FlowError[];
     run?: string;
     /** AFS-139: the run it launched as it stands now (its number and state), while it is kept. */
     runNumber?: number;

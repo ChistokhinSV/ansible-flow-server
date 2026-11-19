@@ -334,6 +334,8 @@ export interface RunTable {
   mode: string;
   inventory: string | null;
   ee_image: string | null;
+  /** AFS-170: 1 when ee_image was the server's default as the run started, 0 its own, null unknown. */
+  ee_default: Flag | null;
   run_limit: string | null;
   /** The inputs in full, as JSON, sealed with the master key (secrets/crypto.ts). */
   inputs_enc: string;
@@ -543,6 +545,8 @@ export interface ScheduleTable {
   last_result: string | null;
   last_detail: string | null;
   last_run_id: string | null;
+  /** AFS-170: the last fire's flow errors (FlowError[]), as JSON, when its flow could not run. */
+  last_errors_json: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

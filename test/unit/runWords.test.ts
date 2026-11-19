@@ -50,12 +50,22 @@ describe('a run in words (AFS-147)', () => {
     );
   });
 
-  it('says how many hosts failed and where, not the exit code', () => {
+  it('says how many hosts failed and where, then the exit code in words', () => {
     const failed = view({
       hosts: ['a', 'b', 'c', 'd'],
       failures: [{ host: 'b', node: 'n1', task: 'check' }] as never,
     });
-    expect(failedWhy(failed, nodes, 2)).toBe('1 of 4 hosts failed at Pre-checks');
+    expect(failedWhy(failed, nodes, 2)).toBe(
+      '1 of 4 hosts failed at Pre-checks (Ansible ended with code 2: one or more hosts failed)',
+    );
+    // AFS-170: a code with no known meaning is said as it is; no code, nothing.
+    expect(failedWhy(failed, nodes, 7)).toBe(
+      '1 of 4 hosts failed at Pre-checks (Ansible ended with code 7)',
+    );
+    expect(failedWhy(failed, nodes, undefined)).toBe('1 of 4 hosts failed at Pre-checks');
+    expect(failedWhy(failed, nodes, 1)).toBe(
+      '1 of 4 hosts failed at Pre-checks (Ansible ended with code 1: Ansible stopped on an error)',
+    );
     expect(failedWhy(view({ hosts: ['a'] }), nodes, 2)).toBe(
       'One or more hosts failed (Ansible ended with code 2)',
     );
@@ -67,7 +77,9 @@ describe('a run in words (AFS-147)', () => {
       outcome: { b: 'unreachable' } as never,
       unreachable: ['b'],
     });
-    expect(failedWhy(v, nodes, 4)).toBe('1 of 3 hosts could not be reached: b');
+    expect(failedWhy(v, nodes, 4)).toBe(
+      '1 of 3 hosts could not be reached: b (Ansible ended with code 4: one or more hosts could not be reached)',
+    );
   });
 });
 

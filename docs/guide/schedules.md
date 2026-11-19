@@ -25,7 +25,8 @@ adds, changes, pauses and deletes them, `ro` reads them.
 - After downtime: one catch-up run (default), or none. While its last run has not ended: skip
   this fire (default), or queue another.
 - Every fire is kept on the schedule (launched, skipped, refused, failed, with why) and in the
-  audit log (`schedule.fire`). Runs it launched are marked **scheduled**.
+  audit log (`schedule.fire`). A fire whose flow has errors names them under **Last**, each a
+  link to its step on the flow's page (`last.errors` in the API: `step`, `node`, `message`). Runs it launched are marked **scheduled**.
 
 | Address (under `/api/v1`)                        | Does                                                        | Who       |
 | ------------------------------------------------ | ----------------------------------------------------------- | --------- |

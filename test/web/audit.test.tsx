@@ -182,6 +182,44 @@ describe('the audit log', () => {
     expect(screen.getAllByText('All of it').length).toBe(3);
   });
 
+  it("names a relaunch's new run by its number, and says real or check (AFS-170)", async () => {
+    const NEW = '7d1f0c2e-5b6a-4c3d-9e8f-0a1b2c3d4e5f';
+    const GONE = '0f1e2d3c-4b5a-4968-8776-655443322110';
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /audit?limit=100': () => ({
+        body: {
+          entries: [
+            entry(1, {
+              action: 'run.relaunch',
+              object: { type: 'run', id: 'r1', name: 'Back up edge #3' },
+              detail: { run: NEW, number: 4, mode: 'real' },
+            }),
+            entry(2, {
+              action: 'run.relaunch',
+              object: { type: 'run', id: 'r0', name: 'Back up edge #1' },
+              detail: { run: GONE, number: 2, mode: 'check' },
+            }),
+          ],
+          refs: { [NEW]: { type: 'run', name: 'Back up edge #4', path: `/runs/${NEW}` } },
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/audit');
+    render(<App />);
+    await screen.findAllByText('run.relaunch');
+    expect(screen.getByRole('link', { name: 'Back up edge #4' }).getAttribute('href')).toBe(
+      `/runs/${NEW}`,
+    );
+    // A run removed since: by its number, not its id.
+    expect(screen.getByText('#2')).toBeTruthy();
+    expect(screen.queryByText(/0f1e2d3c…/)).toBeNull();
+    // The number is said with the run, not again.
+    expect(screen.queryByText('number:')).toBeNull();
+    expect(screen.getByText('real')).toBeTruthy();
+    expect(screen.getByText('check')).toBeTruthy();
+  });
+
   it('names the token an action was done with, beside its source (AFS-145)', async () => {
     const TOKEN = 'e428a134-1111-4222-8333-944455556666';
     routes = {

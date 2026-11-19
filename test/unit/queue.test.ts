@@ -335,6 +335,9 @@ for (const [name, config] of databases) {
       expect(await idsOf({ q: 'oma' })).toEqual([two.id]);
       expect(await idsOf({ q: `#${three.number}`, project: b })).toEqual([three.id]);
       expect(await idsOf({ q: '%' })).toEqual([]);
+      // AFS-170: a path is matched as typed: "../" names no run here.
+      expect(await idsOf({ q: '../' })).toEqual([]);
+      expect(await idsOf({ q: '..' })).toEqual([]);
       // The filters narrow what someone may see, never widen it.
       expect(await idsOf({ by: 'dana', visible: { workspaces: [], flows: [] } })).toEqual([]);
       expect(

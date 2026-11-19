@@ -221,7 +221,24 @@ for (const [name, config] of databases) {
 
     it('a launch configuration in it waits for a build, then gets the newest good image', async () => {
       const env = (await call('omar', 'GET', '/workspaces/net/environments')).json()[0];
-      await configs.update(configId, { environment: env.id });
+      // AFS-170: not picked while it has no image and no build going: refused at the field.
+      const unbuilt = await call('rita', 'PATCH', `/launch-configs/${configId}`, {
+        environment: env.id,
+      });
+      expect(unbuilt.statusCode).toBe(400);
+      expect(unbuilt.json()).toMatchObject({
+        field: 'environment',
+        message: expect.stringMatching(/no successful build yet: build it first/),
+      });
+      // One picked before that was refused, or whose builds failed since: the launch says why.
+      await db()
+        .updateTable('launch_config')
+        .set({ environment_id: env.id })
+        .where('id', '=', configId)
+        .execute();
+      // Kept as it is, it does not stop another change.
+      expect((await configs.update(configId, { limit: 'fw-edge-01' })).environment).toBe(env.id);
+      await configs.update(configId, { limit: null });
       const before = await call('rita', 'POST', `/launch-configs/${configId}/check`, {});
       expect(before.statusCode).toBe(422);
       expect(before.json().problems[0]).toMatchObject({
@@ -229,7 +246,15 @@ for (const [name, config] of databases) {
         message: expect.stringMatching(/no successful build/),
       });
 
-      const b = await build(env.id);
+      // AFS-170: while a build of it is going it may be picked: it will have an image.
+      await configs.update(configId, { environment: null });
+      expect((await call('rita', 'POST', `/environments/${env.id}/builds`)).statusCode).toBe(201);
+      const picked = await call('rita', 'PATCH', `/launch-configs/${configId}`, {
+        environment: env.id,
+      });
+      expect(picked.statusCode).toBe(200);
+      await environments.idle();
+      const b = (await call('omar', 'GET', `/environments/${env.id}/builds`)).json()[0];
       expect(b.state).toBe('done');
       // Settled: latest is the newest stable, the range its newest match.
       expect(b.lock.collections).toEqual({ 'cisco.ios': '11.7.0', 'ansible.netcommon': '8.7.1' });

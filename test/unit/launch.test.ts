@@ -4,6 +4,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { LaunchField } from '@ansible-flow/core/run/launch';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
@@ -13,7 +14,7 @@ import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { LaunchConfigs, LaunchError } from '../../src/server/launch/configs';
-import { prepareLaunch } from '../../src/server/launch/prepare';
+import { markTargets, prepareLaunch } from '../../src/server/launch/prepare';
 import type { InventoryReader } from '../../src/server/launch/routes';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
@@ -615,3 +616,38 @@ for (const [name, config] of databases) {
     });
   });
 }
+
+describe('the targets field (AFS-170)', () => {
+  const doc = (inputs: Record<string, unknown>) => ({ flow: { inputs } }) as never;
+  const field = (name: string, targets?: true): LaunchField => ({
+    name,
+    required: true,
+    secret: false,
+    text: '',
+    type: 'host_list',
+    ...(targets ? { targets } : {}),
+  });
+  it('a flow that marks none runs on its first host list: that field offers the groups', () => {
+    const fields = [field('site'), field('devices'), field('spares')];
+    markTargets(
+      doc({
+        site: { type: 'string' },
+        devices: { type: 'host_list' },
+        spares: { type: 'host_list' },
+      }),
+      fields,
+    );
+    expect(fields.filter((f) => 'targets' in f).map((f) => f.name)).toEqual(['devices']);
+  });
+  it('one that marks an input keeps it; one with no host list has none', () => {
+    const marked = [field('devices'), field('spares', true)];
+    markTargets(
+      doc({ devices: { type: 'host_list' }, spares: { type: 'host_list', targets: true } }),
+      marked,
+    );
+    expect(marked.filter((f) => 'targets' in f).map((f) => f.name)).toEqual(['spares']);
+    const none = [field('site')];
+    markTargets(doc({ site: { type: 'string' } }), none);
+    expect(none.some((f) => 'targets' in f)).toBe(false);
+  });
+});

@@ -92,13 +92,14 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   the run's own that is removed right after. Secret values are hidden in the output. A wrong
   passphrase fails the run with "The SSH key could not be unlocked".
 - Ended: `succeeded` when Ansible ended well and wrote its events; `failed` otherwise, with
-  the reason in plain words ("1 of 4 hosts failed at Pre-checks", "No host ran: the limit
-  sw-edge-09 matched none of the targets (sw-edge-01) in the inventory inventory.ini", "1 of 3
-  hosts could not be reached: sw-edge-02"). When only Ansible's exit code tells, the run says
-  what it means, with Ansible's last error line when there is one: "Ansible could not read the
-  playbook or the inventory, or found no host to run on: the role 'baseline' was not found in
-  /runner/project/roles (Ansible ended with code 4)". The codes: 1 an error, 2 a host failed,
-  3 hosts could not be reached, 4 the playbook or inventory could not be read or no host was
+  the reason in plain words ("1 of 4 hosts failed at Pre-checks (Ansible ended with code 2: one
+  or more hosts failed)", "No host ran: the limit sw-edge-09 matched none of the targets
+  (sw-edge-01) in the inventory inventory.ini", "1 of 3 hosts could not be reached: sw-edge-02
+  (Ansible ended with code 4: one or more hosts could not be reached)"). When only Ansible's exit
+  code tells, the run says what it means, with Ansible's last error line when there is one:
+  "Ansible could not read the playbook or the inventory, or found no host to run on: the role
+  'baseline' was not found in /runner/project/roles (Ansible ended with code 4)". The codes: 1 an
+  error, 2 a host failed, 3 hosts could not be reached, 4 the playbook or inventory could not be read or no host was
   found, 5 options Ansible does not accept, 99 interrupted, 250 an unexpected error;
   `cancelled` when stopped on request, saying who stopped it and during which step ("Stopped by
   Dana Whitfield during Upgrade", "Stopped by Dana Whitfield while it waited for approval at
@@ -113,14 +114,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `GET /runs/:id/view`              | How the run went, step by step, as the designer shows it                                                                   | signed in  |
 | `GET /runs/:id/events`            | The run as it goes, as server-sent events: `run`, `view`, `output` (with `next`), `end`; `?from=<next>` resumes the output | signed in  |
 | `GET /runs/:id/hosts/:node/:host` | What one host did in one step, from the run's events                                                                       | signed in  |
+| `GET /runs/:id/hosts/:host`       | What one host did in the whole run: `steps`, each with its `node`, its title (`step`) and its task results (`entries`)     | signed in  |
 | `POST /runs/:id/relaunch`         | The same run again (same commit, inputs and credentials), as a new run                                                     | `operator` |
 
 **A run's page** says what ran: the flow and commit, the run's number (counted over the
 project's runs), check or real, the hosts and the limit, the inventory, the environment and its
-image, the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
+image (marked "the server's default" when the run got the server's default image as it started),
+the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
 same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. **Run again** runs the
 same commit, inputs and credentials as a new run; its title says which inputs it reuses, and on
-a real run it asks first, as Launch does.
+a real run it asks first, as Launch does. **Hosts** lists the run's hosts and how each fared; a
+host's row opens what it did, step by step: each task's result, with Ansible's message and
+output.
 
 **Watching a run:** the run page follows it live; a script reads the same with
 `curl -N -H "Authorization: Bearer $AFS_TOKEN" https://flows.example.net:8443/api/v1/runs/<id>/events`.

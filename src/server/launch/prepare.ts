@@ -153,6 +153,7 @@ export async function prepareLaunch(
     eeImage = env.image;
   }
   const fields = launchFields(flow.doc, config.inputs, mode === 'check', false);
+  markTargets(flow.doc, fields);
   const form: LaunchForm = {
     commit,
     ...(pinned ? {} : { ref: ref ?? project.gitRef }),
@@ -229,4 +230,15 @@ export function withoutSecrets(launch: PreparedLaunch, fields: LaunchField[]): P
       ]),
     ),
   };
+}
+
+/**
+ * AFS-170: a flow that marks no input as its targets runs on its first host list (targetsOf):
+ * that field is then the targets, and offers the inventory's groups as a marked one does.
+ */
+export function markTargets(doc: FlowDocument, fields: LaunchField[]): void {
+  if (fields.some((f) => f.targets)) return;
+  const first = Object.entries(doc.flow.inputs ?? {}).find(([, f]) => f?.type === 'host_list');
+  const field = first && fields.find((f) => f.name === first[0]);
+  if (field) field.targets = true;
 }
