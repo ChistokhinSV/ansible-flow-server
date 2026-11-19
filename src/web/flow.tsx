@@ -1027,7 +1027,8 @@ function DraftInfo({
             use saved flows: save, then launch.
           </p>
           <p>
-            Edits are shared at once with anyone in the draft; Ctrl+Z takes back your own last one.
+            Edits are shared at once with anyone in the draft; Ctrl+Z takes back your own last one,
+            Ctrl+Y brings it back.
           </p>
         </div>
       )}

@@ -1,12 +1,12 @@
 // AFS-76: editing a flow in the pages, together. A project's flow has one draft; everyone with `rw`
 // on the flow edits it with the designer's commands, sees the others' edits live (server-sent
-// events), who is there and what each changed; undo takes back their own last edit; Save is one
-// commit on the branch; Discard drops the draft.
+// events), who is there and what each changed; undo takes back their own last edit (redo brings it
+// back, AFS-172); Save is one commit on the branch; Discard drops the draft.
 //   GET  /api/v1/projects/:id/drafts                     the project's drafts
 //   POST /api/v1/projects/:id/drafts?path=               open (or start) the flow's draft
 //   GET  /api/v1/drafts/:id                              the draft and its flow as the designer shows it
 //   GET  /api/v1/drafts/:id/events                       the draft as it changes, and who is there
-//   POST /api/v1/drafts/:id/commands, /undo, /tidy       edits
+//   POST /api/v1/drafts/:id/commands, /undo, /redo, /tidy edits
 //   POST /api/v1/drafts/:id/here                         "I am here" (and the step I have selected)
 //   POST /api/v1/drafts/:id/flushed                      AFS-149: "what I was typing is sent"
 //   POST /api/v1/drafts/:id/save, DELETE /drafts/:id     save as one commit, discard
@@ -345,6 +345,11 @@ export function registerDrafts(
     '/api/v1/drafts/:id/undo',
     { schema: ID },
     editing((id, me) => drafts.undo(id, me)),
+  );
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/v1/drafts/:id/redo',
+    { schema: ID },
+    editing((id, me) => drafts.redo(id, me)),
   );
   app.post<{ Params: { id: string }; Body: { level?: string } }>(
     '/api/v1/drafts/:id/tidy',

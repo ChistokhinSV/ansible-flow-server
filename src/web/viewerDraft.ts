@@ -1,7 +1,8 @@
 // AFS-76: the designer page editing a flow's draft, as its host. The designer's commands go to the
 // server, which applies them to the draft everyone edits; each edit, anyone's, comes back on the
-// draft's stream as the flow to show. Ctrl+Z takes back the person's own last edit. The page
-// around the frame (the flow page) is told who is there and what each changed.
+// draft's stream as the flow to show. Ctrl+Z takes back the person's own last edit (Ctrl+Y or
+// Ctrl+Shift+Z brings it back, AFS-172). The page around the frame (the flow page) is told who is
+// there and what each changed.
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
 import { guide } from './guide';
@@ -70,6 +71,32 @@ export function editWords(edit: { changes?: EditChange[]; wires?: number; steps?
   if (!parts.length) return edit.wires ? 'changed the wires' : 'moved steps on the canvas';
   const named = parts.slice(0, 3).join('; ');
   return parts.length > 3 ? `${named} and ${parts.length - 3} more` : named;
+}
+
+/** AFS-172: Ctrl+Z is undo; Ctrl+Shift+Z and Ctrl+Y are redo (⌘ on macOS). */
+export function redoOrUndo(e: {
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  altKey?: boolean;
+  key: string;
+}): 'undo' | 'redo' | undefined {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return undefined;
+  const key = e.key.toLowerCase();
+  if (key === 'z') return e.shiftKey ? 'redo' : 'undo';
+  if (key === 'y' && !e.shiftKey) return 'redo';
+  return undefined;
+}
+
+/** AFS-172: what a redo brought back, in a few words. */
+export function redoWords(reply: { steps?: unknown; started?: unknown }): string {
+  const started = reply.started as { what: string; steps: number } | undefined;
+  if (started)
+    return `Brought back ${started.what} (${started.steps} step${started.steps === 1 ? '' : 's'})`;
+  const steps = (reply.steps as string[] | undefined) ?? [];
+  return steps.length
+    ? `Redid your change to ${steps.join(', ')}`
+    : 'Redid your last move on the canvas';
 }
 
 /** A field being typed in, or none. */
@@ -256,12 +283,22 @@ export function editDraft(options: {
     notify("Save the draft on the flow's page: Save there makes the commit.", 'info');
   });
 
-  // Ctrl+Z: the person's own last edit, taken back (not in a field being typed in).
+  // Ctrl+Z: the person's own last edit, taken back; Ctrl+Shift+Z or Ctrl+Y (AFS-172): brought back
+  // again. Not in a field being typed in, which has its own.
   window.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+    const key = redoOrUndo(e);
+    if (!key) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     e.preventDefault();
+    if (key === 'redo') {
+      void json('POST', `${base}/redo`).then((r) => {
+        if (!r.ok || r.data?.nothing)
+          return notify(String(r.data?.message ?? 'Nothing to redo'), 'info');
+        notify(redoWords(r.data ?? {}), 'info');
+      });
+      return;
+    }
     void json('POST', `${base}/undo`).then((r) => {
       if (!r.ok || r.data?.nothing)
         return notify(String(r.data?.message ?? 'Nothing to undo'), 'info');

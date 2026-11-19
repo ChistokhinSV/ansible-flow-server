@@ -14,7 +14,7 @@ vi.mock('@ansible-flow/designer', () => ({
   },
 }));
 
-const { editDraft, editWords } = await import('../../src/web/viewerDraft');
+const { editDraft, editWords, redoOrUndo, redoWords } = await import('../../src/web/viewerDraft');
 
 class FakeSource {
   static last: FakeSource | undefined;
@@ -121,5 +121,40 @@ describe("the draft's frame", () => {
       "changed the flow's goal",
     );
     expect(editWords({ changes: [], wires: 1 })).toBe('changed the wires');
+  });
+
+  it('Ctrl+Z undoes; Ctrl+Shift+Z and Ctrl+Y redo, and say what came back (AFS-172)', async () => {
+    const key = (k: string, more: Partial<KeyboardEvent> = {}) => ({
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: k,
+      ...more,
+    });
+    expect(redoOrUndo(key('z'))).toBe('undo');
+    expect(redoOrUndo(key('Z', { shiftKey: true }))).toBe('redo');
+    expect(redoOrUndo(key('y'))).toBe('redo');
+    expect(redoOrUndo(key('y', { ctrlKey: false, metaKey: true }))).toBe('redo');
+    expect(redoOrUndo(key('y', { ctrlKey: false }))).toBeUndefined();
+    expect(redoOrUndo(key('z', { altKey: true }))).toBeUndefined();
+    expect(redoWords({ steps: ['Ping'] })).toBe('Redid your change to Ping');
+    expect(redoWords({ steps: [] })).toBe('Redid your last move on the canvas');
+    expect(redoWords({ started: { what: 'the sample flow', steps: 1 } })).toBe(
+      'Brought back the sample flow (1 step)',
+    );
+
+    const root = document.createElement('div');
+    document.body.append(root);
+    editDraft({ root, draft: 'd9', me: 'dana', theme: 'dark', stateKey: 'k' });
+    const sent = () => calls.filter((c) => c.key.includes('/drafts/d9/')).map((c) => c.key);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Z', ctrlKey: true, shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+    expect(sent().filter((k) => /\/(undo|redo)$/.test(k))).toEqual([
+      'POST /api/v1/drafts/d9/redo',
+      'POST /api/v1/drafts/d9/redo',
+      'POST /api/v1/drafts/d9/undo',
+    ]);
   });
 });

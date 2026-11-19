@@ -613,8 +613,11 @@ export interface FlowDraftEditTable {
   draft_id: string;
   revision: number;
   user_id: string | null;
-  /** AFS-151: start: the flow made from a sample, a playbook or an AWX template. */
-  kind: 'command' | 'undo' | 'layout' | 'start';
+  /**
+   * AFS-151: start: the flow made from a sample, a playbook or an AWX template. AFS-172: redo, and
+   * undo-start (an undo of a start, so its redo is a start again).
+   */
+  kind: 'command' | 'undo' | 'undo-start' | 'redo' | 'layout' | 'start';
   before_text: string;
   after_text: string;
   undone: number;

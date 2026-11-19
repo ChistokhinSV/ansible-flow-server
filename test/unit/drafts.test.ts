@@ -405,6 +405,48 @@ describe('saving a draft open in several tabs (AFS-149)', () => {
     await call('omar', 'DELETE', `/drafts/${opened}`);
   });
 
+  it('redo brings back what undo took, in order; a new edit ends it; a clash refuses it (AFS-172)', async () => {
+    const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    const titles = async () => {
+      const doc = (await call('omar', 'GET', `/drafts/${id}`)).json.snapshot.doc;
+      const of = (n: string) => doc.nodes.find((x: { id: string }) => x.id === n).title;
+      return [of(HELLO), of(PING)];
+    };
+    const [hello, ping] = await titles();
+    expect((await call('omar', 'POST', `/drafts/${id}/redo`)).json).toMatchObject({
+      nothing: true,
+      steps: [],
+    });
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Greet'));
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(PING, 'Ping it'));
+    await call('omar', 'POST', `/drafts/${id}/undo`);
+    await call('omar', 'POST', `/drafts/${id}/undo`);
+    expect(await titles()).toEqual([hello, ping]);
+    // Mia's redo is hers: she undid nothing.
+    expect((await call('mia', 'POST', `/drafts/${id}/redo`)).json.nothing).toBe(true);
+    const first = await call('omar', 'POST', `/drafts/${id}/redo`);
+    expect(first.status).toBe(200);
+    expect(first.json.steps).toEqual(['Greet']);
+    expect(await titles()).toEqual(['Greet', ping]);
+    expect((await call('omar', 'POST', `/drafts/${id}/redo`)).json.steps).toEqual(['Ping it']);
+    expect(await titles()).toEqual(['Greet', 'Ping it']);
+    expect((await call('omar', 'POST', `/drafts/${id}/redo`)).json.nothing).toBe(true);
+    // A redo is an edit like the others: Ctrl+Z takes it back.
+    expect((await call('omar', 'POST', `/drafts/${id}/undo`)).json.steps).toEqual([ping]);
+    expect(await titles()).toEqual(['Greet', ping]);
+    // Someone else changed the same place since the undo: the redo is refused.
+    await call('mia', 'POST', `/drafts/${id}/commands`, retitle(PING, 'Mia ping'));
+    const refused = await call('omar', 'POST', `/drafts/${id}/redo`);
+    expect(refused.status).toBe(422);
+    expect(refused.json.message).toMatch(/Someone changed the same place since/);
+    // A new edit of one's own ends what there was to redo.
+    await call('omar', 'POST', `/drafts/${id}/undo`);
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Hi'));
+    expect((await call('omar', 'POST', `/drafts/${id}/redo`)).json.nothing).toBe(true);
+    await call('omar', 'DELETE', `/drafts/${id}`);
+  });
+
   it('shows both sides of a clash and keeps the side picked at each place; saves are listed as such', async () => {
     const opened = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
       .id as string;

@@ -3,7 +3,7 @@
 // the server gets them. Commands name steps by their IDs, so two people's edits of different steps
 // both apply; the same field twice: the later one wins. Each edit is kept (who, the text before and
 // after): undo takes back a person's own last edit with the flow merge, and refuses when someone
-// changed the same place since. Save makes one commit on the branch (merged first when the branch
+// changed the same place since; redo (AFS-172) brings back what undo took, the same way. Save makes one commit on the branch (merged first when the branch
 // moved on), by the person who saves, with everyone else who edited as co-authors.
 
 import { randomUUID } from 'node:crypto';
@@ -97,6 +97,20 @@ function changedNodes(before: string, after: string): string[] {
   const a = parseFlow(before).doc;
   const b = parseFlow(after).doc;
   return a && b ? diffFlows(a, b).nodes.map((n) => n.id) : [];
+}
+
+/**
+ * The steps that differ between two versions, by their titles as `now` has them (the other's for a
+ * step `now` lacks). AFS-151: steps inside subflows are named too, not "a step".
+ */
+function stepTitles(now: string, other: string): string[] {
+  const docs = [parseFlow(other).doc, parseFlow(now).doc].filter((d) => !!d);
+  const titles = new Map(
+    docs.flatMap((d) =>
+      [...buildModel(d).nodes.values()].map(({ node }) => [node.id, node.title] as const),
+    ),
+  );
+  return changedNodes(other, now).map((n) => titles.get(n) ?? 'a step');
 }
 
 /** AFS-149: what an edit did, step by step and to the flow's own fields. */
@@ -276,6 +290,8 @@ export class Drafts {
     kind: FlowDraftEditTable['kind'],
     before: { text: string; revision: number },
     after: string,
+    /** AFS-172: a redo keeps the person's other undos to redo; any new edit of theirs ends them. */
+    redoing = false,
   ): Promise<number> {
     const revision = before.revision + 1;
     const at = now();
@@ -302,6 +318,15 @@ export class Drafts {
           at,
         })
         .execute();
+      if (!redoing && kind !== 'undo' && kind !== 'undo-start')
+        await trx
+          .updateTable('flow_draft_edit')
+          .set({ undone: 1 })
+          .where('draft_id', '=', id)
+          .where('user_id', '=', by.id)
+          .where('kind', 'in', ['undo', 'undo-start'])
+          .where('undone', '=', 0)
+          .execute();
     });
     this.tell(id, {
       kind: 'edit',
@@ -409,7 +434,7 @@ export class Drafts {
         .where('draft_id', '=', id)
         .where('user_id', '=', by.id)
         .where('undone', '=', 0)
-        .where('kind', '!=', 'undo')
+        .where('kind', 'not in', ['undo', 'undo-start'])
         .orderBy('revision', 'desc')
         .executeTakeFirst();
       // AFS-149: nothing to take back is an answer, not a refusal.
@@ -428,7 +453,9 @@ export class Drafts {
           `Someone changed the same place since: ${merged.conflicts.map((c) => c.label).join('; ')}`,
         );
       const text = writeMergedFlow(current.text, merged.doc);
-      const revision = await this.write(id, by, 'undo', current, text);
+      // AFS-172: an undo of a start says so, for its redo.
+      const kind = last.kind === 'start' ? 'undo-start' : 'undo';
+      const revision = await this.write(id, by, kind, current, text);
       await this.deps.db
         .updateTable('flow_draft_edit')
         .set({ undone: 1 })
@@ -437,16 +464,61 @@ export class Drafts {
       if (last.kind === 'start')
         return { revision, steps: [], started: startedFrom(last.after_text) };
       // AFS-136: what was taken back, by the steps' titles as they are again (none: a move).
-      // AFS-151: steps inside subflows are named too, not "a step".
-      const titles = new Map(
-        [doc(last.after_text), doc(last.before_text)].flatMap((d) =>
-          [...buildModel(d).nodes.values()].map(({ node }) => [node.id, node.title] as const),
-        ),
-      );
-      const steps = changedNodes(last.before_text, last.after_text).map(
-        (n) => titles.get(n) ?? 'a step',
-      );
-      return { revision, steps };
+      return { revision, steps: stepTitles(last.before_text, last.after_text) };
+    });
+  }
+
+  /**
+   * AFS-172: brings back what the person's last undo took, while they made no other edit since:
+   * the flow merged with the version before that undo, so what others changed since stays.
+   * Refused when they changed the same place. A redo is an edit Ctrl+Z takes back again.
+   */
+  async redo(
+    id: string,
+    by: Editor,
+  ): Promise<{
+    revision: number;
+    steps: string[];
+    nothing?: true;
+    message?: string;
+    started?: { what: string; steps: number };
+  }> {
+    return this.one(id, async () => {
+      const current = await this.text(id);
+      if (!current) throw new DraftError('not_found', 'No such draft');
+      const last = await this.deps.db
+        .selectFrom('flow_draft_edit')
+        .selectAll()
+        .where('draft_id', '=', id)
+        .where('user_id', '=', by.id)
+        .where('undone', '=', 0)
+        .where('kind', 'in', ['undo', 'undo-start'])
+        .orderBy('revision', 'desc')
+        .executeTakeFirst();
+      if (!last)
+        return {
+          revision: current.revision,
+          steps: [],
+          nothing: true,
+          message: 'Nothing of yours to redo in this draft',
+        };
+      const doc = (t: string) => parseFlow(t).doc as FlowDocument;
+      const merged = mergeFlows(doc(last.after_text), doc(current.text), doc(last.before_text));
+      if (merged.conflicts.length)
+        throw new DraftError(
+          'refused',
+          `Someone changed the same place since: ${merged.conflicts.map((c) => c.label).join('; ')}`,
+        );
+      const text = writeMergedFlow(current.text, merged.doc);
+      const started = last.kind === 'undo-start';
+      const revision = await this.write(id, by, started ? 'start' : 'redo', current, text, true);
+      await this.deps.db
+        .updateTable('flow_draft_edit')
+        .set({ undone: 1 })
+        .where('id', '=', last.id)
+        .execute();
+      if (started) return { revision, steps: [], started: startedFrom(text) };
+      return { revision, steps: stepTitles(last.before_text, last.after_text) };
     });
   }
 
