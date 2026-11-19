@@ -155,6 +155,24 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     secret: { password: randomBytes(12).toString('base64url') },
   });
   await call('POST', '/tokens', { name: `ci-pipeline-${LONG}`.slice(0, 100), expiresInDays: 30 });
+  // AFS-169: an environment whose spec is longer than a window, for its sticky Save and Build bar.
+  const environment = await call('POST', '/workspaces/network/environments', {
+    name: 'net-tools',
+    kind: 'spec',
+    spec: {
+      ansibleCore: '2.19',
+      collections: [
+        { name: 'cisco.ios', version: '11.7.0' },
+        { name: 'ansible.netcommon', version: '8.7.1' },
+        { name: 'ansible.utils', version: '6.0.0' },
+        { name: 'arista.eos', version: '12.0.0' },
+        { name: 'junipernetworks.junos', version: '10.0.0' },
+        { name: 'community.general', version: '11.4.0' },
+      ],
+      python: ['netaddr>=1.3', 'jmespath', 'paramiko', 'ncclient', 'textfsm', 'ttp'],
+      system: ['iputils-ping', 'openssh-client', 'git'],
+    },
+  });
 
   const projects = await call('GET', '/workspaces/network/projects');
   const hello = (Array.isArray(projects) ? projects : projects.projects).find(
@@ -191,6 +209,8 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     // AFS-162: settings that end with a danger zone.
     projectSettings: '/w/network/hello/settings',
     launchSettings: `/w/network/hello/launch/${config.id}/settings`,
+    // AFS-169: an environment, with its Save and Build bar.
+    environment: `/w/network/environments/${environment.id}`,
   };
 }
 

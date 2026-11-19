@@ -105,6 +105,9 @@ describe("a workspace's access", () => {
     expect(await within(panel).findByText('group net-ops, their own grant')).toBeTruthy();
     expect(await within(panel).findByText('Firewall upgrade: read only')).toBeTruthy();
     expect(within(panel).getAllByText('read and write').length).toBeGreaterThan(0);
+    // AFS-169: Take back is in a column as wide as its button, so a longer grant does not move it.
+    for (const take of within(panel).getAllByRole('button', { name: /^Take back/ }))
+      expect(take.closest('td')?.classList.contains('act')).toBe(true);
 
     // Giving access is opened when wanted.
     fireEvent.click(within(panel).getByRole('button', { name: 'Give access' }));

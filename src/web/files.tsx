@@ -670,68 +670,6 @@ export function FilesPage({
         </div>
       )}
 
-      {set.changes.length > 0 && (
-        <section className="panel" aria-labelledby="changes">
-          <h2 id="changes">Changes not saved ({set.changes.length})</h2>
-          <ul className="change-list">
-            {set.changes.map((c, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a change is its place in the set
-              <li key={`${i}-${describe(c, existed)}`}>
-                {describe(c, existed)}{' '}
-                <button
-                  type="button"
-                  className="link"
-                  aria-label={`Take back: ${describe(c, existed)}`}
-                  onClick={() => {
-                    setSaid(undefined);
-                    update({ ...set, changes: set.changes.filter((_, j) => j !== i) });
-                  }}
-                >
-                  Take back
-                </button>
-              </li>
-            ))}
-          </ul>
-          {canEdit ? (
-            <div className="inline-form">
-              <label>
-                Message{' '}
-                <input
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder={defaultMessage(set.changes, existed)}
-                  size={50}
-                />
-              </label>{' '}
-              <button type="button" className="primary" onClick={() => void save()} disabled={busy}>
-                {busy ? 'Saving…' : `Save to ${branch}`}
-              </button>{' '}
-              <button
-                type="button"
-                className="link"
-                onClick={() => {
-                  // AFS-150: every change goes, and cannot be brought back: asked first.
-                  const n = set.changes.length;
-                  if (
-                    !window.confirm(
-                      `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
-                    )
-                  )
-                    return;
-                  setSaid(undefined);
-                  update({ changes: [] });
-                }}
-                disabled={busy}
-              >
-                Discard all
-              </button>
-            </div>
-          ) : (
-            <p className="muted">Saving needs rw on the workspace.</p>
-          )}
-        </section>
-      )}
-
       {/* AFS-94: what adds files is a bar over the tree and the file, not a pile in the tree's
           column. */}
       <div className="file-actions">
@@ -965,6 +903,69 @@ export function FilesPage({
           )}
         </section>
       </div>
+      {/* AFS-169: the changes come after the files and stay at the window's foot: the first
+          keystroke does not push the editor down. */}
+      {set.changes.length > 0 && (
+        <section className="panel files-changes" aria-labelledby="changes">
+          <h2 id="changes">Changes not saved ({set.changes.length})</h2>
+          <ul className="change-list">
+            {set.changes.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a change is its place in the set
+              <li key={`${i}-${describe(c, existed)}`}>
+                {describe(c, existed)}{' '}
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Take back: ${describe(c, existed)}`}
+                  onClick={() => {
+                    setSaid(undefined);
+                    update({ ...set, changes: set.changes.filter((_, j) => j !== i) });
+                  }}
+                >
+                  Take back
+                </button>
+              </li>
+            ))}
+          </ul>
+          {canEdit ? (
+            <div className="inline-form">
+              <label>
+                Message{' '}
+                <input
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder={defaultMessage(set.changes, existed)}
+                  size={50}
+                />
+              </label>{' '}
+              <button type="button" className="primary" onClick={() => void save()} disabled={busy}>
+                {busy ? 'Saving…' : `Save to ${branch}`}
+              </button>{' '}
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  // AFS-150: every change goes, and cannot be brought back: asked first.
+                  const n = set.changes.length;
+                  if (
+                    !window.confirm(
+                      `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
+                    )
+                  )
+                    return;
+                  setSaid(undefined);
+                  update({ changes: [] });
+                }}
+                disabled={busy}
+              >
+                Discard all
+              </button>
+            </div>
+          ) : (
+            <p className="muted">Saving needs rw on the workspace.</p>
+          )}
+        </section>
+      )}
     </>
   );
 }

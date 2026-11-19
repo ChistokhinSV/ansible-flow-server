@@ -1429,6 +1429,22 @@ ul.plain {
   align-items: center;
   margin: 0.5rem 0;
 }
+/* AFS-169: the changes not saved sit under the files, in reach at the window's foot while a long
+   file scrolls: they appear without pushing the editor down. A long list scrolls in itself. */
+.panel.files-changes {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 1rem 0 0;
+  padding: 0.75rem 0;
+  max-height: 45vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.panel.files-changes > h2 {
+  margin-top: 0;
+}
 .change-list {
   margin: 0 0 0.5rem;
 }

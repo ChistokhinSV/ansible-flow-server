@@ -194,5 +194,38 @@ for (const [width, height] of SIZES)
         if (gap > 32)
           found.push(`editing, the canvas starts ${Math.round(gap)}px under what is over it`);
       }
+      // AFS-169 (AFS-161): an environment's Save and Build stay in sight while its spec is on the
+      // screen, however long the spec.
+      if (name === 'environment') {
+        const bar = await page.evaluate(() => {
+          const actions = document.querySelector('.env-spec .form > .actions');
+          const form = actions?.parentElement;
+          if (!actions || !form) return 'no Save and Build bar';
+          const a = actions.getBoundingClientRect();
+          if (
+            form.getBoundingClientRect().top < window.innerHeight &&
+            a.bottom > window.innerHeight + 1
+          )
+            return `Save and Build are below the window (bottom at ${Math.round(a.bottom)}px in ${window.innerHeight}px)`;
+          return getComputedStyle(actions).position === 'sticky'
+            ? ''
+            : 'Save and Build do not stay';
+        });
+        if (bar) found.push(bar);
+      }
       expect(found, `${path} at ${width}px`).toEqual([]);
     });
+
+// AFS-169: the first change to a file brings Changes not saved without moving the editor.
+test('files: a change does not move the editor', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${stack.base}${stack.pages?.files}`);
+  const editor = page.locator('section.code-editor');
+  await expect(editor).toBeVisible({ timeout: 45_000 });
+  const before = await editor.boundingBox();
+  await page.locator('section.code-editor .cm-content').click();
+  await page.keyboard.type('x');
+  await expect(page.getByRole('heading', { name: /Changes not saved/ })).toBeVisible();
+  const after = await editor.boundingBox();
+  expect(Math.round(after?.y ?? 0)).toBe(Math.round(before?.y ?? -1));
+});

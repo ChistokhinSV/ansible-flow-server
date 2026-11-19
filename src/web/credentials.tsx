@@ -10,6 +10,7 @@ import {
   type CredentialKind,
   fieldProblem,
   GIT_KINDS,
+  KIND_NAME,
   KINDS,
   privateKeyProblem,
   SPEC,
@@ -18,16 +19,8 @@ import { api, type Credential } from './api';
 import { Link } from './router';
 import { Field, Form, Labelled, Loading, messageOf, refuse, Scroll, useLoad } from './ui';
 
-export const KIND_LABEL: Record<CredentialKind, string> = {
-  ssh_key: 'SSH key',
-  login: 'login and password',
-  become: 'become password',
-  vault: 'vault password',
-  git_token: 'git token',
-  registry: 'container registry',
-  env: 'environment variables',
-  awx: 'AWX token',
-};
+/** AFS-169: the kinds' names, as the launch form and the server's messages say them. */
+export const KIND_LABEL = KIND_NAME;
 const FIELD_LABEL: Record<string, string> = {
   username: 'User name',
   method: 'Become method',

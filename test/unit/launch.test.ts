@@ -267,7 +267,7 @@ for (const [name, config] of databases) {
         kind: 'ssh_key',
         secret: { privateKey: '-----BEGIN PRIVATE KEY-----\nQUFB\n-----END PRIVATE KEY-----' },
       });
-      expect(await make({ credentials: [ssh, second.id] })).toMatch(/one ssh_key credential/);
+      expect(await make({ credentials: [ssh, second.id] })).toMatch(/A run takes one SSH key$/);
       // AFS-145: a run's message goes only to who may see the flow's runs.
       await createUser(db(), { login: 'eve', name: 'eve', password: PASSWORD });
       expect(await make({ notify: { when: 'ended', to: ['dana', 'omar', 'eve'] } })).toBe(

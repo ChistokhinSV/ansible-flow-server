@@ -94,6 +94,55 @@ export function signature(key: string, timestamp: string, body: string): string 
   return `sha256=${createHmac('sha256', key).update(`${timestamp}.${body}`).digest('hex')}`;
 }
 
+/** Network error codes, in words. */
+const REACH: Record<string, string> = {
+  ECONNREFUSED: 'connection refused',
+  ECONNRESET: 'the connection was closed',
+  EPIPE: 'the connection was closed',
+  UND_ERR_SOCKET: 'the connection was closed',
+  ETIMEDOUT: 'connection timed out',
+  UND_ERR_CONNECT_TIMEOUT: 'connection timed out',
+  ENOTFOUND: 'the host name is not found (DNS)',
+  EAI_AGAIN: 'the host name could not be looked up (DNS)',
+  EAI_NONAME: 'the host name is not found (DNS)',
+  EHOSTUNREACH: 'no route to the host',
+  ENETUNREACH: 'no route to the network',
+  CERT_HAS_EXPIRED: 'its certificate has expired',
+  ERR_TLS_CERT_ALTNAME_INVALID: 'its certificate is for another name',
+};
+
+/**
+ * AFS-169: why a webhook could not be reached, named: connection refused, timed out, the
+ * certificate, DNS. Never the address or the error's own message: the address can hold a secret.
+ * A certificate or a port web requests may not use stays wrong until it is changed: not tried
+ * again.
+ */
+export function unreachable(e: unknown, timeoutMs: number): Sent {
+  if ((e as Error).name === 'TimeoutError')
+    return {
+      ok: false,
+      retry: true,
+      error: `Timed out: no answer in ${Math.round(timeoutMs / 1000)} s`,
+    };
+  const cause = (e as { cause?: { code?: string; message?: string; errors?: { code?: string }[] } })
+    .cause;
+  // Undici gives an AggregateError when a name has several addresses (IPv4 and IPv6).
+  const code = cause?.code ?? cause?.errors?.find((x) => x.code)?.code;
+  if (code && REACH[code]) {
+    const certificate = code.includes('CERT');
+    return { ok: false, retry: !certificate, error: `Not reachable: ${REACH[code]}` };
+  }
+  if (code && /CERT|SELF_SIGNED|UNABLE_TO_(VERIFY|GET_ISSUER)/.test(code))
+    return {
+      ok: false,
+      retry: false,
+      error: `Not reachable: its certificate is not trusted (${code})`,
+    };
+  if (cause?.message === 'bad port')
+    return { ok: false, retry: false, error: 'Not reachable: web requests may not use that port' };
+  return { ok: false, retry: true, error: code ? `Not reachable (${code})` : 'Not reachable' };
+}
+
 /**
  * A webhook: the payload as JSON, with `text` for chat tools that show it (Slack, Mattermost and
  * Rocket.Chat incoming webhooks read `text`). Signed when the server has a key. Redirects are not
@@ -127,10 +176,7 @@ export function webhookChannel(
           body,
         });
       } catch (e) {
-        // Never the address in the error: it can hold a secret.
-        const why = (e as Error).name === 'TimeoutError' ? 'No answer in time' : 'Not reachable';
-        const cause = (e as { cause?: { code?: string } }).cause?.code;
-        return { ok: false, retry: true, error: cause ? `${why} (${cause})` : why };
+        return unreachable(e, timeoutMs);
       }
       await res.body?.cancel().catch(() => undefined);
       if (res.ok) return { ok: true };
