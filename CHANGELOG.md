@@ -2,7 +2,9 @@
 
 All notable changes to Ansible Flow Server.
 
-## Unreleased
+## 1.0.1 — Access you can see, guided first steps, plainer words
+
+Carries Ansible Flow Designer 1.0.1.
 
 ### Added
 
