@@ -741,6 +741,9 @@ function DraftBar({
         ) : (
           <>
             Saved as {link(done.commit)}
+            {done.added?.length
+              ? `, with the sample's ${done.added.length} file${done.added.length === 1 ? '' : 's'}`
+              : ''}
             {done.coAuthors?.length ? ` with ${done.coAuthors.join(', ')} as co-authors` : ''}.
           </>
         ),

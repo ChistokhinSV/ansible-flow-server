@@ -2,6 +2,12 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Changed
+
+- **Open Sample Flow…** in an existing project brings the roles the sample's flow runs: **Save** adds them to the repository in the same commit as the flow, so it runs at once. A role the project has already is kept, and the note after the start says which.
+
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 
 Carries Ansible Flow Designer 1.0.1.

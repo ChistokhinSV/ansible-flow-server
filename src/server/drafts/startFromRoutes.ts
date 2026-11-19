@@ -21,10 +21,10 @@ import {
   awxTemplates,
   fromAwx,
   fromPlaybook,
-  missingSampleRoles,
   playbooksIn,
   repositoryIO,
   StartFromError,
+  sampleBindings,
   sampleFlowText,
   stepCount,
 } from './startFrom';
@@ -185,9 +185,11 @@ export function registerStartFrom(
             if ('sample' in body) {
               from = `the ${body.sample} sample`;
               const doc = parseFlow(sampleFlowText(body.sample)).doc as FlowDocument;
-              notes = await missingSampleRoles(doc, io);
+              // AFS-173: the roles it binds come with it, committed with the flow on Save.
+              const bound = await sampleBindings(body.sample, doc, io, draft.file);
+              notes = bound.notes;
               made = asDraftFlow(current, doc);
-              return made;
+              return { text: made, files: bound.files };
             }
             const result =
               'playbook' in body

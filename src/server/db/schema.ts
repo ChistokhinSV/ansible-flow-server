@@ -617,6 +617,8 @@ export interface FlowDraftEditTable {
   kind: 'command' | 'undo' | 'layout' | 'start';
   before_text: string;
   after_text: string;
+  /** AFS-173: a start from a sample: the files it adds with the flow ({path, base64}[], JSON). */
+  files_json: string | null;
   undone: number;
   at: string;
 }

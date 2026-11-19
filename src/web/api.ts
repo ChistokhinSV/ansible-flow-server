@@ -383,7 +383,14 @@ export const api = {
     },
   ) =>
     call<
-      | { commit: string; unchanged?: boolean; coAuthors?: string[]; conflicts?: undefined }
+      | {
+          commit: string;
+          unchanged?: boolean;
+          coAuthors?: string[];
+          /** AFS-173: the files a start from a sample added with the flow. */
+          added?: string[];
+          conflicts?: undefined;
+        }
       | {
           saved: false;
           message: string;
@@ -391,6 +398,7 @@ export const api = {
           commit?: undefined;
           unchanged?: undefined;
           coAuthors?: undefined;
+          added?: undefined;
         }
     >('POST', `/drafts/${id}/save`, input),
   discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),

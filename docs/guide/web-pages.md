@@ -129,7 +129,10 @@ Code. Everyone who edits the same flow edits one shared draft:
     templates, and imports the one you pick; a job's playbook that the repository has becomes its
     steps.
   - **Open Sample Flow…** fills the flow with one of the samples (Hello, Edge baseline, Firewall
-    upgrade). Only the flow: a sample's roles come with a project started from it.
+    upgrade). The roles its steps run come with it: **Save** adds them to the repository
+    (`roles/<name>`) in the same commit as the flow, so it runs at once. A role the project has
+    already is kept as it is, and the note after the start says so; undo takes the roles back with
+    the flow.
   - **Get Started** opens the [first flow](first-flow.md) walkthrough in a new tab.
     Once the flow has a step, starting from something is refused: it never writes over work.
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
