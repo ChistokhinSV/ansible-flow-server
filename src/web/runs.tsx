@@ -16,6 +16,7 @@ import {
   type Workspace,
 } from './api';
 import { RunApprovals } from './approvals';
+import { ask } from './confirm';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { Link, navigate } from './router';
@@ -945,7 +946,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const act = async (what: 'cancel' | 'relaunch') => {
     // AFS-147: a real run again changes the hosts again: asked first, as Launch asks, with the
     // inputs it reuses.
-    if (what === 'relaunch' && run.mode === 'real' && !window.confirm(again.confirm)) return;
+    if (what === 'relaunch' && run.mode === 'real' && !(await ask(again.confirm))) return;
     setBusy(true);
     try {
       if (what === 'cancel') setRun(await api.cancelRun(run.id));

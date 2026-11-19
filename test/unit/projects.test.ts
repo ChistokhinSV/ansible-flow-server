@@ -461,6 +461,36 @@ describe('workspaces and projects over HTTP', () => {
     ).toMatchObject({ branches: ['main'], details: [{ name: 'main', project: true, ahead: 0 }] });
   });
 
+  it("reads a repository's address before adding it, keeping nothing (AFS-171)", async () => {
+    await call('POST', '/api/v1/workspaces', {
+      cookie: admin,
+      body: { key: 'network', name: 'N' },
+    });
+    await grantMember('rw');
+    const check = (body: object, cookie = admin) =>
+      call('POST', '/api/v1/workspaces/network/projects/check', { cookie, body });
+    expect((await check({ gitUrl: repo.dir }, member)).statusCode).toBe(403);
+    expect((await check({ gitUrl: repo.dir })).json()).toEqual({ ok: true, branches: ['main'] });
+    // Another branch than the repository has, a source that is not there: why, not a refusal.
+    expect((await check({ gitUrl: repo.dir, gitRef: 'release' })).json()).toEqual({
+      ok: false,
+      branches: ['main'],
+      message: 'The repository has no branch release (it has main)',
+    });
+    const gone = await check({ gitUrl: join(root, 'no-such-repo') });
+    expect(gone.statusCode).toBe(200);
+    expect(gone.json()).toMatchObject({ ok: false, message: expect.any(String) });
+    // An address that cannot be a source is refused at its field, as adding refuses it.
+    const bad = await check({ gitUrl: 'https://dana:s3cret@git.example.net/x.git' });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({ field: 'gitUrl' });
+    expect(lines.join('\n')).not.toContain('s3cret');
+    // Nothing was made.
+    expect(
+      (await call('GET', '/api/v1/workspaces/network/projects', { cookie: admin })).json(),
+    ).toEqual([]);
+  });
+
   it('sync on request, a change of branch, and delete', async () => {
     await call('POST', '/api/v1/workspaces', {
       cookie: admin,

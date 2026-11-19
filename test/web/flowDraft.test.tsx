@@ -203,6 +203,38 @@ describe("a flow's draft on its page (AFS-149)", () => {
     expect(line.textContent).toContain('here now: only you (you in other tabs too).');
   });
 
+  it('tells the others a save is coming while Save is open, and says so when someone else opens it (AFS-171)', async () => {
+    routes = { ...base(), 'POST /drafts/d1/here': () => ({ body: { people: [] } }) };
+    await editing();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await vi.waitFor(() =>
+      expect(bodies['POST /drafts/d1/here']).toEqual([{ tab: expect.any(String), saving: true }]),
+    );
+    fireEvent.click(within(saveForm()).getByRole('button', { name: 'Cancel' }));
+    await vi.waitFor(() =>
+      expect(bodies['POST /drafts/d1/here']?.[1]).toMatchObject({ saving: false }),
+    );
+    // Mia opens Save in her page: Dana is told before her editing ends.
+    tell({
+      type: 'afs-draft-people',
+      people: [
+        { login: 'dana', name: 'Dana Whitfield' },
+        { login: 'mia', name: 'Mia Ortega', saving: true },
+      ],
+    });
+    expect(
+      (await screen.findByText('Mia Ortega is about to save.')).closest('.draft-float'),
+    ).toBeTruthy();
+    tell({
+      type: 'afs-draft-people',
+      people: [
+        { login: 'dana', name: 'Dana Whitfield' },
+        { login: 'mia', name: 'Mia Ortega' },
+      ],
+    });
+    expect(screen.queryByText('Mia Ortega is about to save.')).toBeNull();
+  });
+
   it('saves on Ctrl+S, from the page and from the canvas (AFS-166)', async () => {
     routes = { ...base(), 'POST /drafts/d1/save': () => ({ body: { commit: SAVED } }) };
     await editing();

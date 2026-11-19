@@ -16,6 +16,7 @@ import {
   SPEC,
 } from '../server/secrets/kinds';
 import { api, type Credential } from './api';
+import { ask } from './confirm';
 import { Link } from './router';
 import { Field, Form, Labelled, Loading, messageOf, refuse, Scroll, useLoad } from './ui';
 
@@ -478,7 +479,10 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                               : undefined
                           }
                           onClick={async () => {
-                            if (!window.confirm(`Delete the credential "${c.name}"?`)) return;
+                            if (
+                              !(await ask(`Delete the credential "${c.name}"?`, { danger: true }))
+                            )
+                              return;
                             setError(undefined);
                             try {
                               await api.deleteCredential(c.id);

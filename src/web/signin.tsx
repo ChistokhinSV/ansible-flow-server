@@ -5,6 +5,7 @@ import { type ReactNode, useState } from 'react';
 import type { Mapping, Provider, ProviderInput, SignInMethods } from '../server/auth/oidc/types';
 import type { Group } from '../server/auth/users';
 import { api } from './api';
+import { ask } from './confirm';
 import { DirectoriesSection } from './directories';
 import { followKey } from './flowFiles';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -405,9 +406,10 @@ export function SignInPage() {
                 className="danger"
                 onClick={async () => {
                   if (
-                    !window.confirm(
+                    !(await ask(
                       `Remove ${p.name}? Its people stay; the groups and administrator rights it gave go.`,
-                    )
+                      { danger: true },
+                    ))
                   )
                     return;
                   try {
@@ -441,9 +443,9 @@ export function SignInPage() {
                     // AFS-134: this one signs people out of their passwords: asked first.
                     if (
                       v === 'admins' &&
-                      !window.confirm(
+                      !(await ask(
                         'Only administrators keep signing in with a password. Everyone else must sign in with a provider or a directory from now on. Go on?',
-                      )
+                      ))
                     )
                       return;
                     try {

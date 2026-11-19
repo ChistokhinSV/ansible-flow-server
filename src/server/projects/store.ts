@@ -316,7 +316,7 @@ export async function createProject(
  * It is one of the project's own workspace, of a kind git can use over HTTPS, for a source that
  * is reached over HTTPS.
  */
-async function credentialProblem(
+export async function credentialProblem(
   db: Db,
   credentialId: string,
   workspaceId: string,

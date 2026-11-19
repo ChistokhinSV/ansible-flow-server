@@ -229,3 +229,35 @@ test('files: a change does not move the editor', async ({ page }) => {
   const after = await editor.boundingBox();
   expect(Math.round(after?.y ?? 0)).toBe(Math.round(before?.y ?? -1));
 });
+// AFS-171: a question asked on the page (here: leaving a form with typing in it) fits the window,
+// in both themes, and Escape says no.
+for (const [width, height] of SIZES)
+  test(`a question asked on the page at ${width}px${height === 720 ? ` x ${height}` : ''}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await page.goto(`${stack.base}/workspaces`);
+    await page.locator('main a[href="/w/network"]').first().click({ timeout: 45_000 });
+    await page.getByRole('button', { name: 'Add project' }).click();
+    await page.getByLabel('Name').fill('Edge switches');
+    await page.goBack();
+    const dialog = page.getByRole('dialog', {
+      name: 'Leave this page? What you typed is not saved.',
+    });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Stay' })).toBeFocused();
+    if (shots) {
+      mkdirSync(shots, { recursive: true });
+      await page.screenshot({
+        path: join(shots, `${info.project.name}-${width}x${height}-question.png`),
+      });
+    }
+    const found = await page.evaluate(look);
+    const box = await dialog.boundingBox();
+    if (!box || box.x < 0 || box.y < 0 || box.x + box.width > width || box.y + box.height > height)
+      found.push(`the question is not all in the window: ${JSON.stringify(box)}`);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    expect(page.url()).toBe(`${stack.base}/w/network`);
+    expect(found, `the question at ${width}px`).toEqual([]);
+  });

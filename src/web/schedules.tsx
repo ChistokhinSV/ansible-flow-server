@@ -12,6 +12,7 @@ import {
   type ScheduleInput,
   type User,
 } from './api';
+import { ask } from './confirm';
 import { Link } from './router';
 import { ACTIVE, RunWords } from './runs';
 import {
@@ -614,8 +615,8 @@ export function SchedulesSection({
                 type="button"
                 className="danger"
                 aria-label={`Delete ${s.name}`}
-                onClick={() => {
-                  if (window.confirm(`Delete the schedule "${s.name}"?`))
+                onClick={async () => {
+                  if (await ask(`Delete the schedule "${s.name}"?`, { danger: true }))
                     void act(() => api.deleteSchedule(config, s.id));
                 }}
               >

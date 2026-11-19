@@ -160,6 +160,8 @@ export const READS = new Set([
   'POST /api/v1/launch-configs/:id/facts',
   'POST /api/v1/admin/oidc-providers/:id/test',
   'POST /api/v1/admin/ldap-directories/:id/test',
+  // AFS-171: a source's address read before a project is added: nothing is kept.
+  'POST /api/v1/workspaces/:id/projects/check',
   'POST /git/:workspace/:repo/git-upload-pack',
   // AFS-76: edits of a draft are kept with the draft (who, before, after); its save is audited.
   'POST /api/v1/projects/:id/drafts',

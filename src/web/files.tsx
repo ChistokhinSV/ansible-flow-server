@@ -6,6 +6,7 @@ import { changeWords, defaultMessage } from '../server/projects/changeWords';
 import { atLeast, ProjectYourAccess, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
+import { ask } from './confirm';
 import { MissingProject } from './help';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
@@ -944,13 +945,14 @@ export function FilesPage({
               <button
                 type="button"
                 className="link"
-                onClick={() => {
+                onClick={async () => {
                   // AFS-150: every change goes, and cannot be brought back: asked first.
                   const n = set.changes.length;
                   if (
-                    !window.confirm(
+                    !(await ask(
                       `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
-                    )
+                      { danger: true },
+                    ))
                   )
                     return;
                   setSaid(undefined);

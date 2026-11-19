@@ -4,6 +4,7 @@
 // what is looked at day to day; the settings are made once (AFS-88).
 import { type ReactNode, useEffect, useId, useState } from 'react';
 import { api, type Delivery, type NotifySettings, type SmtpSecurity } from './api';
+import { ask } from './confirm';
 import { Link } from './router';
 import {
   Copyable,
@@ -169,7 +170,12 @@ function WebhookKey({ has, onMade }: { has: boolean; onMade(): void }) {
       <button
         type="button"
         onClick={async () => {
-          if (has && !window.confirm('Make a new key? Receivers checking the old one will refuse.'))
+          if (
+            has &&
+            !(await ask('Make a new key? Receivers checking the old one will refuse.', {
+              danger: true,
+            }))
+          )
             return;
           try {
             setMade(await api.newWebhookKey());
@@ -346,9 +352,9 @@ function Settings({
                   title="Forget the mail server: the server sends no email to anyone until one is saved again. Webhooks still go."
                   onClick={async () => {
                     if (
-                      !window.confirm(
+                      !(await ask(
                         'Turn email off for the whole server? The mail server settings are removed, and nobody gets email until a mail server is saved again. Webhooks still go.',
-                      )
+                      ))
                     )
                       return;
                     await api.clearSmtp().catch(() => undefined);

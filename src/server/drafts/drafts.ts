@@ -13,8 +13,10 @@ import { createIdFactory } from '@ansible-flow/core/flow/ids';
 import { mergeFlows } from '@ansible-flow/core/flow/merge';
 import { writeMergedFlow } from '@ansible-flow/core/flow/mergeText';
 import { buildModel, ROOT } from '@ansible-flow/core/flow/model';
+import { planSave } from '@ansible-flow/core/flow/save';
 import { diffFlows } from '@ansible-flow/core/flow/semanticDiff';
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
+import { applyEdits } from '@ansible-flow/core/yaml/edits';
 import { layoutLevel } from '@ansible-flow/node/autoLayout';
 import { mergeFlowTexts } from '@ansible-flow/node/flowMerge';
 import type { Kysely } from 'kysely';
@@ -618,6 +620,10 @@ export class Drafts {
           this.tell(id, { kind: 'saved', commit: head, by, coAuthors: [] });
           return { commit: head, unchanged: true };
         }
+        // AFS-171: a save that changes the flow moves flow.version on once from the branch's, as a
+        // save in VS Code does (ADR-0006): a run then names the version it ran, and the badge moves.
+        const bumped = planSave(text, undefined, headText);
+        if (bumped.edits.length) text = applyEdits(text, bumped.edits);
         const people = await this.deps.db
           .selectFrom('user_account')
           .select(['id', 'name', 'login', 'email'])

@@ -138,7 +138,7 @@ describe('the Notifications page', () => {
       questions.push(text);
       return false;
     });
-    expect(mayLeave('/runs')).toBe(true);
+    expect(await mayLeave('/runs')).toBe(true);
     expect(questions).toEqual([]);
 
     cleanup();

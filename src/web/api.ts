@@ -1,5 +1,6 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
+
 import type { RunView } from '@ansible-flow/core/protocol';
 import type {
   Grant,
@@ -51,6 +52,7 @@ import type { Schedule, ScheduleInput } from '../server/schedules/types';
 import type { SearchHit } from '../server/search/types';
 import type { Credential } from '../server/secrets/credentials';
 import type { CertificateInfo, CertificateState } from '../server/tls/types';
+import { answerWords } from './answer';
 
 /** Where a list of runs goes on after a run: what `before` takes for the next page. */
 export { runCursor } from '../server/runs/cursor';
@@ -170,7 +172,7 @@ async function call<T>(
   throw new ApiError(
     reply.status,
     data?.error ?? 'error',
-    data?.message ?? `The server answered ${reply.status}`,
+    data?.message ?? answerWords(reply.status),
     {
       ...(typeof data?.field === 'string' ? { field: data.field } : {}),
       ...(Array.isArray(data?.problems) ? { problems: data.problems } : {}),
@@ -279,6 +281,13 @@ export const api = {
     call<Workspace>('POST', '/workspaces', input),
   projects: (workspace: string) =>
     call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`),
+  /** AFS-171: a repository's address read before a project mirrors it (nothing is kept). */
+  checkSource: (workspace: string, input: { gitUrl: string; gitCredential?: string }) =>
+    call<{ ok: boolean; message?: string; branches?: string[] }>(
+      'POST',
+      `/workspaces/${workspace}/projects/check`,
+      input,
+    ),
   addProject: (
     workspace: string,
     input: {
@@ -402,6 +411,9 @@ export const api = {
         }
     >('POST', `/drafts/${id}/save`, input),
   discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
+  /** AFS-171: this page opened (or closed) Save: the others in the draft are told. */
+  draftSaving: (id: string, tab: string, saving: boolean) =>
+    call<unknown>('POST', `/drafts/${id}/here`, { tab, saving }),
   /** AFS-79: the draft and its flow as the designer shows it. */
   draft: (id: string) =>
     call<{ draft: Draft; snapshot: { doc?: FlowDocLike } }>('GET', `/drafts/${id}`),

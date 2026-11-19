@@ -7,6 +7,7 @@
 // and the ways to replace it, one form at a time.
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ApiError, api, type CertificateInfo, type CertificateState } from './api';
+import { ask } from './confirm';
 import { Link } from './router';
 import { Field, Loading, messageOf, PageHead, Scroll, Time, useLoad } from './ui';
 
@@ -474,10 +475,11 @@ export function CertificatePage() {
                 <button
                   type="button"
                   disabled={other.busy}
-                  onClick={() => {
+                  onClick={async () => {
                     if (
-                      window.confirm(
+                      await ask(
                         `Replace the certificate with a new self-signed one for ${state.defaultNames.join(', ')}? Browsers will warn until people trust it.`,
+                        { danger: true },
                       )
                     )
                       void other.run(() => api.selfSignedCertificate());
@@ -495,8 +497,8 @@ export function CertificatePage() {
                   <button
                     type="button"
                     disabled={other.busy}
-                    onClick={() => {
-                      if (window.confirm('Go back to this certificate?'))
+                    onClick={async () => {
+                      if (await ask('Go back to this certificate?'))
                         void other.run(() => api.rollbackCertificate());
                     }}
                   >
