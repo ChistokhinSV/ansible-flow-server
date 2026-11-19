@@ -20,10 +20,11 @@ import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
-import { missingSampleRoles, sampleFlowText, stepCount } from '../../src/server/drafts/startFrom';
+import { sampleBindings, sampleFlowText, stepCount } from '../../src/server/drafts/startFrom';
 import { createLogger } from '../../src/server/log';
 import { roleGaps } from '../../src/server/projects/flows';
 import { Git } from '../../src/server/projects/git';
+import { listSamples, sampleFiles } from '../../src/server/projects/start';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { createCredential } from '../../src/server/secrets/credentials';
@@ -74,6 +75,10 @@ let app: FastifyInstance;
 let sync: ProjectSync;
 let source: TestRepo;
 let project: Project;
+/** AFS-173: a project without the sample's roles but one of its own named as one of them. */
+let lab: Project;
+let bareSource: TestRepo;
+let git: Git;
 let awx: Server;
 let awxCredential = '';
 type Loose = ReturnType<typeof JSON.parse>;
@@ -95,7 +100,7 @@ beforeAll(async () => {
   database = openDatabase({ kind: 'sqlite', file: ':memory:' });
   await migrate(database.db as never);
   const log = createLogger({ level: 'error', format: 'json', write: () => undefined });
-  const git = new Git({ reposDir: join(root, 'repos'), allowLocal: true });
+  git = new Git({ reposDir: join(root, 'repos'), allowLocal: true });
   sync = new ProjectSync(database.db, git, log);
   app = buildApp({
     log,
@@ -113,6 +118,20 @@ beforeAll(async () => {
     true,
   );
   project = (await sync.sync(made.id)) as Project;
+  bareSource = testRepo({
+    'flows/a/a.flow.yaml': EMPTY('a'),
+    'flows/b/b.flow.yaml': EMPTY('b'),
+    'roles/push_baseline/tasks/main.yml': '- name: Our own\n  ansible.builtin.debug: {}\n',
+  });
+  const bare2 = join(root, 'source2.git');
+  execFileSync('git', ['clone', '--quiet', '--bare', bareSource.dir, bare2]);
+  const made2 = await createProject(
+    database.db,
+    workspace.id,
+    { key: 'lab', name: 'Lab', gitUrl: bare2, pollSeconds: 0 },
+    true,
+  );
+  lab = (await sync.sync(made2.id)) as Project;
   for (const [login, level] of [
     ['mia', 'rw'],
     ['lena', 'ro'],
@@ -158,6 +177,7 @@ afterAll(async () => {
   await database.close();
   await new Promise((done) => awx.close(done));
   source.remove();
+  bareSource.remove();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -173,12 +193,12 @@ const call = async (who: string, method: string, path: string, body?: unknown) =
   });
   return { status: reply.status, json: (await reply.json().catch(() => undefined)) as Loose };
 };
-const draftOf = async (key: string) =>
+const draftOf = async (key: string, of: Project = project) =>
   (
     await call(
       'mia',
       'POST',
-      `/projects/${project.id}/drafts?path=${encodeURIComponent(`flows/${key}/${key}.flow.yaml`)}`,
+      `/projects/${of.id}/drafts?path=${encodeURIComponent(`flows/${key}/${key}.flow.yaml`)}`,
     )
   ).json.id as string;
 const textOf = async (id: string) => {
@@ -259,19 +279,101 @@ describe('an empty flow starts from something', () => {
     expect(broken).toEqual([]);
   });
 
-  it('a sample names the roles the project lacks, and none it has (AFS-137)', async () => {
-    // This repository has the Edge baseline roles: nothing to say.
+  it('a sample brings the roles its flow binds; a role the project has is kept (AFS-173)', async () => {
+    // This repository has the Edge baseline roles: each is kept, and the note says so.
     const done = await call('mia', 'POST', `/drafts/${await draftOf('four')}/start-from`, {
       sample: 'edge-baseline',
     });
     expect(done.status).toBe(200);
-    expect(done.json.notes).toEqual([]);
-    // A repository without them: each is named.
+    expect(done.json.notes.join(' ')).toMatch(/has a role netops_backup already: it keeps its own/);
+    expect(done.json.notes.join(' ')).not.toMatch(/Save adds/);
+    // One without them: each role's whole folder, from the sample, nothing else of it.
     const doc = parseFlow(sampleFlowText('edge-baseline')).doc as FlowDocument;
-    const empty = { read: async () => undefined, list: async () => [] } as unknown as SourceIO;
-    const notes = (await missingSampleRoles(doc, empty)).join(' ');
-    expect(notes).toMatch(/role netops_backup, which this project does not have/);
-    expect(notes).toMatch(/role push_baseline/);
+    const empty = {
+      read: async () => undefined,
+      list: async () => [],
+      exists: async () => false,
+    } as unknown as SourceIO;
+    const bound = await sampleBindings('edge-baseline', doc, empty, 'flows/x/x.flow.yaml');
+    const paths = bound.files.map((f) => f.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        'roles/netops_backup/tasks/main.yml',
+        'roles/push_baseline/tasks/main.yml',
+        'roles/push_baseline/templates/aaa.j2',
+      ]),
+    );
+    expect(paths.every((p) => p.startsWith('roles/'))).toBe(true);
+    expect(bound.notes[0]).toMatch(
+      /^Save adds the sample's roles\/netops_backup, roles\/push_baseline to the repository/,
+    );
+  });
+
+  it('a start from a sample taken back takes its roles back too (AFS-173)', async () => {
+    const id = await draftOf('b', lab);
+    await call('mia', 'POST', `/drafts/${id}/start-from`, { sample: 'edge-baseline' });
+    expect((await call('mia', 'POST', `/drafts/${id}/undo`)).status).toBe(200);
+    // The project still lacks netops_backup, but the start that brought it is taken back.
+    const saved = await call('mia', 'POST', `/drafts/${id}/save`, {});
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    expect(saved.json.added).toBeUndefined();
+    const head = (await sync.refresh(lab.id))?.commit as string;
+    expect(await git.exists(lab.id, head, 'roles/netops_backup')).toBe(false);
+  });
+
+  it('the roles come in the commit of the flow, never over a file the project has (AFS-173)', async () => {
+    const id = await draftOf('a', lab);
+    const done = await call('mia', 'POST', `/drafts/${id}/start-from`, { sample: 'edge-baseline' });
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    const notes = done.json.notes.join(' ');
+    expect(notes).toMatch(/Save adds the sample's roles\/netops_backup to the repository/);
+    expect(notes).toMatch(/has a role push_baseline already: it keeps its own/);
+    // The draft counts the role it brings as there: no role-missing warning for it.
+    const shown = await call('mia', 'GET', `/drafts/${id}`);
+    const gaps = (shown.json.snapshot.findings as { code: string; subject?: string }[]).filter(
+      (f) => f.code === 'role-missing',
+    );
+    expect(gaps).toEqual([]);
+    const saved = await call('mia', 'POST', `/drafts/${id}/save`, {});
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    expect(saved.json.added).toEqual(
+      expect.arrayContaining(['roles/netops_backup/tasks/main.yml']),
+    );
+    const commit = saved.json.commit as string;
+    const files = await git.files(lab.id, commit);
+    expect(files).toEqual(
+      expect.arrayContaining(['flows/a/a.flow.yaml', 'roles/netops_backup/tasks/main.yml']),
+    );
+    // The project's own role is as it was, and nothing else of the sample came.
+    expect((await git.read(lab.id, commit, 'roles/push_baseline/tasks/main.yml'))?.toString()).toBe(
+      '- name: Our own\n  ansible.builtin.debug: {}\n',
+    );
+    expect(files).not.toContain('roles/push_baseline/tasks/ntp.yml');
+    expect(files).not.toContain('site.yml');
+  });
+
+  it('a start from a sample brought back by redo brings its roles back too (AFS-172, AFS-173)', async () => {
+    const id = await draftOf('b', lab);
+    await call('mia', 'POST', `/drafts/${id}/start-from`, { sample: 'edge-baseline' });
+    expect((await call('mia', 'POST', `/drafts/${id}/undo`)).status).toBe(200);
+    expect((await call('mia', 'POST', `/drafts/${id}/redo`)).status).toBe(200);
+    const saved = await call('mia', 'POST', `/drafts/${id}/save`, {});
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    const head = (await sync.refresh(lab.id))?.commit as string;
+    expect(await git.exists(lab.id, head, 'roles/netops_backup')).toBe(true);
+  });
+
+  it('a project started from a sample has every role its flow binds (AFS-173)', async () => {
+    for (const { key: sample } of listSamples()) {
+      const files = sampleFiles(sample);
+      for (const [path, f] of files) {
+        if (!path.endsWith('.flow.yaml')) continue;
+        const doc = parseFlow(f.bytes.toString('utf8')).doc as FlowDocument;
+        const has = async (p: string) =>
+          [...files.keys()].some((k) => k === p || k.startsWith(`${p}/`));
+        expect(await roleGaps(doc, path, has), `${sample}: ${path}`).toEqual([]);
+      }
+    }
   });
 
   it('a sample: its steps in the flow, the flow keeps its key; then refused, the flow has steps', async () => {

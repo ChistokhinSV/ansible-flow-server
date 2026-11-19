@@ -7,12 +7,14 @@ All notable changes to Ansible Flow Server.
 ### Added
 
 - Redo while editing a flow in the pages: Ctrl+Y (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a new edit; it says what came back, and is refused when someone changed the same place since (`POST /api/v1/drafts/<id>/redo`).
+
 ### Changed
 
 - Credential kinds have one name each on every page and in messages (SSH key, login and password, become password, vault password, git token, container registry, environment variables, AWX token).
 - A new schedule's **Cron** starts empty, with an example in it, instead of a cron that looked chosen.
 - A launch configuration's header names whom its runs tell, as its Settings tab does.
 - On the **Files** tab, **Changes not saved** sits under the files and stays at the window's foot: the first change no longer pushes the editor down.
+- **Open Sample Flow…** in an existing project brings the roles the sample's flow runs: **Save** adds them to the repository in the same commit as the flow, so it runs at once. A role the project has already is kept, and the note after the start says which.
 
 ### Fixed
 

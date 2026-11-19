@@ -9,6 +9,12 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-173: the repository files a start from a sample brings (its roles), saved with the flow.
+  '0032_draft_edit_files': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('flow_draft_edit').addColumn('files_json', 'text').execute();
+    },
+  },
   // AFS-149: how a push came (a git client, a draft saved in the pages, …), for the Pushes list.
   '0028_push_kind': {
     async up(db: Kysely<unknown>) {

@@ -22,6 +22,7 @@ import { importPlaybook } from '@ansible-flow/core/import/playbook';
 import type { SourceIO } from '@ansible-flow/core/import/read';
 import { type PlaybookForm, readPlaybook } from '@ansible-flow/core/import/source';
 import type { Git } from '../projects/git';
+import { sampleFiles } from '../projects/start';
 
 export class StartFromError extends Error {
   constructor(
@@ -84,25 +85,71 @@ export function sampleFlowText(key: string): string {
   return readFileSync(join(samplesDir, flow.from), 'utf8');
 }
 
+/** AFS-173: a repository file a start from a sample adds with the flow, when the draft is saved. */
+export interface DraftFile {
+  path: string;
+  bytes: Buffer;
+}
+
 /**
- * AFS-137: a sample's flow goes into the draft alone: the roles it uses that the project does not
- * have, in words, so its first run does not fail on a missing role unexplained.
+ * AFS-173: the repository files a sample's flow binds (each role's folder, a playbook), from the
+ * sample's own files, to be committed with the flow so it runs at once. What the project has
+ * already is kept, never overwritten: a role the project has keeps the project's whole folder
+ * (a role half one, half the other would run neither). `notes` say what is added and what not.
  */
-export async function missingSampleRoles(doc: FlowDocument, io: SourceIO): Promise<string[]> {
-  const roles = [
-    ...new Set(doc.nodes.flatMap((n) => (n.impl?.kind === 'role' ? [n.impl.ref] : []))),
-  ];
+export async function sampleBindings(
+  key: string,
+  doc: FlowDocument,
+  io: SourceIO,
+  flowFile: string,
+): Promise<{ files: DraftFile[]; notes: string[] }> {
+  const shipped = sampleFiles(key);
+  const dir = flowFile.includes('/') ? flowFile.slice(0, flowFile.lastIndexOf('/')) : '';
+  const files: DraftFile[] = [];
+  const added: string[] = [];
   const notes: string[] = [];
-  for (const role of roles) {
-    const has =
-      (await io.read(`roles/${role}/tasks/main.yml`)) ||
-      (await io.read(`roles/${role}/tasks/main.yaml`));
-    if (!has)
-      notes.push(
-        `It uses the role ${role}, which this project does not have: copy the sample's roles/${role} into the project, or start a new project from the sample.`,
-      );
+  const exists = async (path: string) => (io.exists ? io.exists(path) : false);
+  const bound = new Map<string, 'role' | 'playbook'>();
+  for (const { node } of buildModel(doc).nodes.values())
+    if (node.impl && (node.impl.kind === 'role' || node.impl.kind === 'playbook') && node.impl.ref)
+      bound.set(node.impl.ref, node.impl.kind);
+  for (const [ref, kind] of bound) {
+    if (kind === 'role') {
+      // Collection roles (namespace.collection.role) come from Galaxy, not from the repository.
+      if (!/^[A-Za-z0-9_-]+$/.test(ref)) continue;
+      const folder = `roles/${ref}`;
+      const own = [...shipped].filter(([p]) => p.startsWith(`${folder}/`));
+      if (!own.length) {
+        notes.push(
+          `It uses the role ${ref}, which the sample does not have either: add roles/${ref} to the repository, or bind another.`,
+        );
+        continue;
+      }
+      if ((await exists(folder)) || (dir && (await exists(`${dir}/${folder}`)))) {
+        notes.push(
+          `The project has a role ${ref} already: it keeps its own, the sample's is not added.`,
+        );
+        continue;
+      }
+      for (const [path, f] of own) files.push({ path, bytes: f.bytes });
+      added.push(folder);
+      continue;
+    }
+    const path = ref.replace(/^\.?\//, '');
+    const f = shipped.get(path);
+    if (!f) continue;
+    if (await exists(path)) {
+      notes.push(`The project has ${path} already: it keeps its own, the sample's is not added.`);
+      continue;
+    }
+    files.push({ path, bytes: f.bytes });
+    added.push(path);
   }
-  return notes;
+  if (added.length)
+    notes.unshift(
+      `Save adds the sample's ${added.join(', ')} to the repository with the flow (${files.length} file${files.length === 1 ? '' : 's'}).`,
+    );
+  return { files, notes };
 }
 
 /** The project's files at a commit, as the designer's importers read them. */

@@ -24,7 +24,7 @@ import { FLOW_FILE } from '../projects/flows';
 import type { Git } from '../projects/git';
 import { getProject, type Project, recordPushes } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
-import { hasNoSteps, startedFrom } from './startFrom';
+import { type DraftFile, hasNoSteps, startedFrom } from './startFrom';
 
 export interface Editor {
   id: string;
@@ -290,6 +290,7 @@ export class Drafts {
     kind: FlowDraftEditTable['kind'],
     before: { text: string; revision: number },
     after: string,
+    files?: DraftFile[],
     /** AFS-172: a redo keeps the person's other undos to redo; any new edit of theirs ends them. */
     redoing = false,
   ): Promise<number> {
@@ -314,6 +315,11 @@ export class Drafts {
           kind,
           before_text: before.text,
           after_text: after,
+          files_json: files?.length
+            ? JSON.stringify(
+                files.map((f) => ({ path: f.path, base64: f.bytes.toString('base64') })),
+              )
+            : null,
           undone: 0,
           at,
         })
@@ -376,7 +382,7 @@ export class Drafts {
   async replace(
     id: string,
     by: Editor,
-    make: (current: string) => Promise<string>,
+    make: (current: string) => Promise<string | { text: string; files?: DraftFile[] }>,
   ): Promise<{ revision: number }> {
     return this.one(id, async () => {
       const current = await this.text(id);
@@ -386,14 +392,16 @@ export class Drafts {
           'refused',
           'The flow has steps already: start from something only in an empty flow',
         );
-      let text: string;
+      let made: Awaited<ReturnType<typeof make>>;
       try {
-        text = await make(current.text);
+        made = await make(current.text);
       } catch (e) {
         throw new DraftError('refused', (e as Error).message);
       }
-      // AFS-151: kind 'start', so its undo says what it took back as one thing.
-      return { revision: await this.write(id, by, 'start', current, text) };
+      const { text, files } = typeof made === 'string' ? { text: made, files: undefined } : made;
+      // AFS-151: kind 'start', so its undo says what it took back as one thing (AFS-173: and the
+      // files it brings, which are kept on the edit).
+      return { revision: await this.write(id, by, 'start', current, text, files) };
     });
   }
 
@@ -511,7 +519,17 @@ export class Drafts {
         );
       const text = writeMergedFlow(current.text, merged.doc);
       const started = last.kind === 'undo-start';
-      const revision = await this.write(id, by, started ? 'start' : 'redo', current, text, true);
+      // AFS-173: a start brought back brings back the sample's files of the start its undo took.
+      const files = started ? await this.startFiles(id, by, last.revision) : undefined;
+      const revision = await this.write(
+        id,
+        by,
+        started ? 'start' : 'redo',
+        current,
+        text,
+        files,
+        true,
+      );
       await this.deps.db
         .updateTable('flow_draft_edit')
         .set({ undone: 1 })
@@ -536,7 +554,7 @@ export class Drafts {
       /** AFS-149: per clashing place (by its id), whose side to keep; the draft's when not given. */
       choices?: Record<string, 'draft' | 'branch'>;
     } = {},
-  ): Promise<{ commit: string; unchanged?: boolean; coAuthors?: string[] }> {
+  ): Promise<{ commit: string; unchanged?: boolean; coAuthors?: string[]; added?: string[] }> {
     const row = await this.row(id);
     if (!row) throw new DraftError('not_found', 'No such draft');
     const { git, sync } = this.deps;
@@ -586,7 +604,16 @@ export class Drafts {
           text = merged.text;
         }
         const editors = await this.editors(id);
-        if (text === headText) {
+        // AFS-173: what a start from a sample brings, but never over what the branch has (it may
+        // have come since the start): a role there already keeps its own whole folder.
+        const adds: DraftFile[] = [];
+        const there = new Map<string, Promise<boolean>>();
+        for (const f of await this.files(id)) {
+          const at = /^roles\/[^/]+/.exec(f.path)?.[0] ?? f.path;
+          if (!there.has(at)) there.set(at, git.exists(project.id, head, at));
+          if (!(await there.get(at))) adds.push(f);
+        }
+        if (text === headText && !adds.length) {
           await this.drop(id);
           this.tell(id, { kind: 'saved', commit: head, by, coAuthors: [] });
           return { commit: head, unchanged: true };
@@ -606,16 +633,28 @@ export class Drafts {
         const subject = options.message?.trim() || `Edit ${draft.file} in Ansible Flow Server`;
         const trailers = others.map((p) => `Co-authored-by: ${p.name} <${mail(p)}>`);
         const message = `${subject}\n${trailers.length ? `\n${trailers.join('\n')}\n` : ''}`;
-        const commit = await git.commitFile(project.id, {
-          parent: head,
-          path: draft.file,
-          text,
-          author: {
-            name: me?.name ?? by.name,
-            email: mail(me ?? { login: by.login, email: null }),
-          },
-          message,
-        });
+        const author = {
+          name: me?.name ?? by.name,
+          email: mail(me ?? { login: by.login, email: null }),
+        };
+        const commit = adds.length
+          ? await git.commitChanges(project.id, {
+              parent: head,
+              writes: [
+                { path: draft.file, mode: '100644', bytes: Buffer.from(text, 'utf8') },
+                ...adds.map((f) => ({ path: f.path, mode: '100644', bytes: f.bytes })),
+              ],
+              removes: [],
+              author,
+              message,
+            })
+          : await git.commitFile(project.id, {
+              parent: head,
+              path: draft.file,
+              text,
+              author,
+              message,
+            });
         await git.publish(
           project.id,
           project.gitRef,
@@ -639,7 +678,11 @@ export class Drafts {
           { project: project.key, file: draft.file, commit: commit.slice(0, 12), by: by.login },
           'Draft saved',
         );
-        return { commit, coAuthors };
+        return {
+          commit,
+          coAuthors,
+          ...(adds.length ? { added: adds.map((f) => f.path) } : {}),
+        };
       }),
     );
   }
@@ -655,13 +698,62 @@ export class Drafts {
     await this.deps.db.deleteFrom('flow_draft').where('id', '=', id).execute();
   }
 
-  /** The draft's project, for the routes' checks. */
-  /** AFS-151: what the draft's base commit has, for the designer's findings (roles). */
+  /** AFS-173: the files of the person's last start taken back before `revision` (for its redo). */
+  private async startFiles(
+    id: string,
+    by: Editor,
+    revision: number,
+  ): Promise<DraftFile[] | undefined> {
+    const row = await this.deps.db
+      .selectFrom('flow_draft_edit')
+      .select('files_json')
+      .where('draft_id', '=', id)
+      .where('user_id', '=', by.id)
+      .where('kind', '=', 'start')
+      .where('undone', '=', 1)
+      .where('revision', '<', revision)
+      .orderBy('revision', 'desc')
+      .executeTakeFirst();
+    if (!row?.files_json) return undefined;
+    return (JSON.parse(row.files_json) as { path: string; base64: string }[]).map((f) => ({
+      path: f.path,
+      bytes: Buffer.from(f.base64, 'base64'),
+    }));
+  }
+
+  /**
+   * AFS-173: the files a start from a sample brings, from its edit while it is not taken back;
+   * Save commits them with the flow.
+   */
+  async files(id: string): Promise<DraftFile[]> {
+    const rows = await this.deps.db
+      .selectFrom('flow_draft_edit')
+      .select('files_json')
+      .where('draft_id', '=', id)
+      .where('kind', '=', 'start')
+      .where('undone', '=', 0)
+      .where('files_json', 'is not', null)
+      .orderBy('revision')
+      .execute();
+    const out = new Map<string, DraftFile>();
+    for (const r of rows)
+      for (const f of JSON.parse(r.files_json as string) as { path: string; base64: string }[])
+        out.set(f.path, { path: f.path, bytes: Buffer.from(f.base64, 'base64') });
+    return [...out.values()];
+  }
+
+  /**
+   * AFS-151: what the draft's base commit has, for the designer's findings (roles); AFS-173: and
+   * the files the draft adds on Save.
+   */
   async probe(id: string): Promise<((path: string) => Promise<boolean>) | undefined> {
     const row = await this.row(id);
     if (!row) return undefined;
+    const adds = (await this.files(id)).map((f) => f.path);
+    const added = (path: string) => adds.some((p) => p === path || p.startsWith(`${path}/`));
     // A commit does not change: each path is asked of git once (snapshots are made per edit).
     return async (path) => {
+      if (added(path)) return true;
       const key = `${row.project_id}:${row.base_commit}:${path}`;
       let found = this.seen.get(key);
       if (!found) {
@@ -673,6 +765,7 @@ export class Drafts {
     };
   }
 
+  /** The draft's project, for the routes' checks. */
   async projectOf(id: string): Promise<Project | undefined> {
     const row = await this.row(id);
     return row ? getProject(this.deps.db, row.project_id) : undefined;
