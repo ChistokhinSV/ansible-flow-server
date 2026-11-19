@@ -505,6 +505,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     R,
   )('What one host did in one step'),
+  'GET /api/v1/runs/:id/hosts/:host': S(
+    'Runs',
+    'signed in',
+    R,
+  )('What one host did in the run, step by step'),
   'GET /api/v1/runs/:id/events': S(
     'Runs',
     'signed in',
@@ -960,6 +965,7 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/runs/:id/output': 'ro',
   'GET /api/v1/runs/:id/view': 'ro',
   'GET /api/v1/runs/:id/hosts/:node/:host': 'ro',
+  'GET /api/v1/runs/:id/hosts/:host': 'ro',
   'GET /api/v1/runs/:id/events': 'ro',
   'POST /api/v1/runs/:id/cancel': 'operator',
   'POST /api/v1/runs/:id/relaunch': 'operator',

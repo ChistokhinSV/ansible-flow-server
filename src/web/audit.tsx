@@ -105,8 +105,10 @@ function Value({ k, v, refs }: { k: string; v: unknown; refs: Refs }) {
 function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs }) {
   if (!detail) return null;
   // The token is said beside the source (TokenUsed).
+  // AFS-170: a relaunch's new run by its number: said with the run (as `#12` once it is gone).
+  const number = typeof detail.number === 'number' && typeof detail.run === 'string';
   const shown = Object.entries(detail).filter(
-    ([k]) => k !== 'osUser' && k !== 'login' && k !== 'token',
+    ([k]) => k !== 'osUser' && k !== 'login' && k !== 'token' && !(number && k === 'number'),
   );
   if (shown.length === 0) return null;
   return (
@@ -114,7 +116,12 @@ function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs
     <div className="audit-detail">
       {shown.map(([k, v]) => (
         <div key={k}>
-          <span className="muted">{k}:</span> <Value k={k} v={v} refs={refs} />
+          <span className="muted">{k}:</span>{' '}
+          {number && k === 'run' && !refs[v as string] ? (
+            <>#{String(detail.number)}</>
+          ) : (
+            <Value k={k} v={v} refs={refs} />
+          )}
         </div>
       ))}
       <details className="audit-all">

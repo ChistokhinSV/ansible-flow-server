@@ -9,6 +9,15 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-170: whether a run's image was the server's default when it ran (1), its own (0), or not
+  // known (null: runs from before, and runs not started yet). A schedule's last fire keeps the
+  // errors of a flow that could not run, so its page links each to its step.
+  '0029_run_ee_default': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('ee_default', 'integer').execute();
+      await db.schema.alterTable('schedule').addColumn('last_errors_json', 'text').execute();
+    },
+  },
   // AFS-149: how a push came (a git client, a draft saved in the pages, …), for the Pushes list.
   '0028_push_kind': {
     async up(db: Kysely<unknown>) {

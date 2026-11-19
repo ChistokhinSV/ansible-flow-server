@@ -77,7 +77,10 @@ export function pagesFor(question: string, admin: boolean): Hit[] {
 
 export function SearchBox({ me }: { me: User }) {
   const [q, setQ] = useState('');
-  const [hits, setHits] = useState<Hit[]>([]);
+  const [answer, setAnswer] = useState<{ q: string; hits: Hit[] }>({ q: '', hits: [] });
+  // AFS-170: an older question's hits are not shown, nor opened by Enter, while a newer one is
+  // asked (typing "../" after "#12" opened run 12).
+  const hits = answer.q === q.trim() ? answer.hits : [];
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [busy, setBusy] = useState(false);
@@ -124,7 +127,7 @@ export function SearchBox({ me }: { me: User }) {
   useEffect(() => {
     const question = q.trim();
     if (question.length < 2) {
-      setHits([]);
+      setAnswer({ q: '', hits: [] });
       setBusy(false);
       return;
     }
@@ -134,13 +137,13 @@ export function SearchBox({ me }: { me: User }) {
       api.search(question).then(
         (found) => {
           if (!current) return;
-          setHits([...pagesFor(question, me.admin), ...found]);
+          setAnswer({ q: question, hits: [...pagesFor(question, me.admin), ...found] });
           setActive(-1);
           setBusy(false);
         },
         () => {
           if (!current) return;
-          setHits(pagesFor(question, me.admin));
+          setAnswer({ q: question, hits: pagesFor(question, me.admin) });
           setBusy(false);
         },
       );

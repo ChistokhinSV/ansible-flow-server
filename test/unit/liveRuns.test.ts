@@ -287,6 +287,17 @@ describe("a step's host output, running again, and the flow filter", () => {
         }
       ).entries,
     ).toEqual([]);
+    // AFS-170: what one host did in the whole run, step by step, the step named by its title.
+    const all = (await (await call('GET', `/runs/${run.id}/hosts/fw-edge-02`)).json()) as {
+      steps: { node: string; step: string; entries: { status: string }[] }[];
+    };
+    expect(all.steps).toEqual([
+      { node: NODE, step: 'Check', entries: [expect.objectContaining({ status: 'failed' })] },
+    ]);
+    expect(
+      ((await (await call('GET', `/runs/${run.id}/hosts/nobody`)).json()) as { steps: unknown[] })
+        .steps,
+    ).toEqual([]);
     await queue.finish(run.id, job?.token as string, 'failed', 'x');
   });
 

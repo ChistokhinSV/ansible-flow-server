@@ -101,8 +101,9 @@ export interface Run {
   environment?: { id: string; name: string; workspace: string };
   skippedTargets?: string[];
   /**
-   * AFS-163: its launch configuration names no environment or image (as it is now): the run got
-   * the server's default image.
+   * AFS-163, AFS-170: the run's image was the server's default as it started (recorded then). Runs
+   * from before that was recorded are judged by their launch configuration as it is now
+   * (runs/routes.ts).
    */
   serverDefault?: true;
 }
@@ -226,6 +227,7 @@ export class RunQueue {
         : {}),
       ...(row.dev_bundle ? { dev: true } : {}),
       ...(row.schedule_id ? { schedule: row.schedule_id } : {}),
+      ...(row.ee_default === 1 ? { serverDefault: true as const } : {}),
     };
   }
 
@@ -263,6 +265,7 @@ export class RunQueue {
         mode: launch.mode,
         inventory: launch.inventory ?? null,
         ee_image: launch.eeImage ?? null,
+        ee_default: launch.eeImage ? 0 : null,
         run_limit: launch.limit ?? null,
         inputs_enc: seal(this.key, JSON.stringify(launch.inputs), context(id)),
         inputs_shown_json: JSON.stringify(shown),
@@ -513,7 +516,7 @@ export class RunQueue {
   async keepImage(id: string, image: string): Promise<void> {
     await this.db
       .updateTable('run')
-      .set({ ee_image: image })
+      .set({ ee_image: image, ee_default: 1 })
       .where('id', '=', id)
       .where('ee_image', 'is', null)
       .execute();

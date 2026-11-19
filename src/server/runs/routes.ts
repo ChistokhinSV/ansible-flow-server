@@ -8,12 +8,13 @@
 //   GET  /api/v1/runs/:id/view         how it went, as the designer shows it
 //   GET  /api/v1/runs/:id/events       all of that, live (server-sent events)
 //   GET  /api/v1/runs/:id/hosts/:node/:host   what one host did in one step
+//   GET  /api/v1/runs/:id/hosts/:host         what one host did, step by step
 import { existsSync } from 'node:fs';
 import { open, readFile, stat } from 'node:fs/promises';
 import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { stripAnsi } from '@ansible-flow/core/run/ansi';
-import { hostOutput } from '@ansible-flow/core/run/events';
+import { hostOutput, type OutputEntry } from '@ansible-flow/core/run/events';
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf } from '../access/grants';
@@ -98,6 +99,15 @@ export function registerRuns(
       };
     });
   };
+  /** A run's events: a run of a flow with approvals ran in segments, a folder each (AFS-28). */
+  const eventsOf = async (id: string): Promise<string> => {
+    const segments = await queue.segments(id);
+    const last = await queue.runDir(id);
+    const dirs = segments.length ? segments.map((s) => s.dir) : last ? [last] : [];
+    return (
+      await Promise.all(dirs.map((d) => readFile(join(d, 'events.jsonl'), 'utf8').catch(() => '')))
+    ).join('\n');
+  };
   /** AFS-147: one run as its page shows it: what it ran with, named. */
   const nameOne = async (run: Run | undefined) => {
     if (!run) return undefined;
@@ -129,14 +139,23 @@ export function registerRuns(
           .where('environment_build.image', '=', image)
           .executeTakeFirst()))
       : undefined;
-    const config = run.config
-      ? await db
-          .selectFrom('launch_config')
-          .select(['environment_id', 'ee_image'])
-          .where('id', '=', run.config.id)
-          .executeTakeFirst()
-      : undefined;
-    const serverDefault = !!config && !config.environment_id && !config.ee_image;
+    // AFS-170: whether the image was the server's default is recorded when the run starts; runs
+    // from before that read their launch configuration as it is now.
+    const recorded = await db
+      .selectFrom('run')
+      .select('ee_default')
+      .where('id', '=', run.id)
+      .executeTakeFirst();
+    const config =
+      recorded?.ee_default == null && run.eeImage && run.config
+        ? await db
+            .selectFrom('launch_config')
+            .select(['environment_id', 'ee_image'])
+            .where('id', '=', run.config.id)
+            .executeTakeFirst()
+        : undefined;
+    const serverDefault =
+      recorded?.ee_default === 1 || (!!config && !config.environment_id && !config.ee_image);
     const view = (await queue.view(run.id)) as { skippedTargets?: unknown } | undefined;
     const skipped = Array.isArray(view?.skippedTargets)
       ? view.skippedTargets.filter((t): t is string => typeof t === 'string')
@@ -205,16 +224,31 @@ export function registerRuns(
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
       if (!(await queue.get(request.params.id))) return reply.code(404).send(NONE);
-      // A run of a flow with approvals ran in segments, each with its folder (AFS-28).
-      const segments = await queue.segments(request.params.id);
-      const last = await queue.runDir(request.params.id);
-      const dirs = segments.length ? segments.map((s) => s.dir) : last ? [last] : [];
-      const events = (
-        await Promise.all(
-          dirs.map((d) => readFile(join(d, 'events.jsonl'), 'utf8').catch(() => '')),
-        )
-      ).join('\n');
+      const events = await eventsOf(request.params.id);
       return { entries: hostOutput(events, request.params.node, request.params.host) };
+    },
+  );
+
+  /**
+   * AFS-170: what one host did in the whole run, step by step in the order they ran: what the
+   * run page opens from its host list.
+   */
+  app.get<{ Params: { id: string; host: string } }>(
+    '/api/v1/runs/:id/hosts/:host',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: { id: text(64, 1), host: text(500, 1) },
+          required: ['id', 'host'],
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      if (!(await queue.get(request.params.id))) return reply.code(404).send(NONE);
+      const events = await eventsOf(request.params.id);
+      return { steps: hostSteps(events, request.params.host) };
     },
   );
 
@@ -440,4 +474,40 @@ export function registerRuns(
       return reply.code(201).send(run);
     },
   );
+}
+
+/**
+ * AFS-170: one host's results in each step it ran in, in the order the steps ran. A step is named
+ * as its play is ("[key] Title" says Title); its routing tasks are left out, as on the canvas.
+ */
+export function hostSteps(
+  events: string,
+  host: string,
+): { node: string; step: string; entries: OutputEntry[] }[] {
+  const names = new Map<string, string>();
+  const order: string[] = [];
+  let playNode: string | null = null;
+  for (const line of events.split('\n')) {
+    if (!line.trim()) continue;
+    let e: { event?: string; node?: string; name?: string; host?: string };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (e.event === 'play') {
+      playNode = e.node ?? null;
+      if (e.node && e.name && !names.has(e.node))
+        names.set(e.node, e.name.replace(/^\[[^\]]*\]\s*/, ''));
+    }
+    const node = e.node ?? playNode;
+    if (e.event === 'result' && e.host === host && node && !order.includes(node)) order.push(node);
+  }
+  return order
+    .map((node) => ({
+      node,
+      step: names.get(node) ?? node,
+      entries: hostOutput(events, node, host),
+    }))
+    .filter((s) => s.entries.length > 0);
 }

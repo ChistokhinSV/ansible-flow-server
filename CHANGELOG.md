@@ -2,6 +2,25 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- On a run's page, a host's row in **Hosts** opens what that host did, step by step (`GET /api/v1/runs/:id/hosts/:host`).
+- A schedule whose fire found errors in its flow lists them under **Last**, each a link to its step.
+
+### Changed
+
+- "N of M hosts failed at a step" also says Ansible's exit code and what it means.
+- The audit log says whether a launch or a run again was real or a check, and names the new run of a run again by its number.
+- A launch configuration cannot be given an environment that has no image and no build going: the form says why at the field.
+
+### Fixed
+
+- **What ran** marks an image as the server's default by how the run started, not by how its launch configuration reads now; dev runs are marked too.
+- The launch form offers the inventory's groups for a flow whose host list is not marked as its targets (the first host list is then the targets).
+- Search no longer shows, or opens with Enter, the results of the question typed before while the new one is asked.
+
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 
 Carries Ansible Flow Designer 1.0.1.

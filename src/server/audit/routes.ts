@@ -443,7 +443,17 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       const tried = (request.body as { login?: unknown } | undefined)?.login;
       if (typeof tried === 'string') object = { type, name: tried.slice(0, 64).toLowerCase() };
     }
-    if (spec.action === 'run.relaunch' && typeof answer.id === 'string') detail.run = answer.id;
+    if (spec.action === 'run.relaunch' && typeof answer.id === 'string') {
+      detail.run = answer.id;
+      // AFS-170: the new run by its number too, which still says it once the run is gone.
+      if (typeof answer.number === 'number') detail.number = answer.number;
+    }
+    // AFS-170: whether a launch was a real run or a check run.
+    if (
+      (spec.action === 'run.launch' || spec.action === 'run.relaunch') &&
+      (answer.mode === 'real' || answer.mode === 'check')
+    )
+      detail.mode = answer.mode;
     // AFS-28: the decision is one of two words, and the approval is named by its node.
     if (spec.action === 'approval.decide') {
       const said = request.body as { decision?: unknown; comment?: unknown } | undefined;

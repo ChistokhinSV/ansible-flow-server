@@ -334,6 +334,9 @@ describe('a run', () => {
     await ex.stop();
     expect(seen[0]?.request.env).toMatchObject({ image: 'registry.example.net/ee/team:1' });
     expect((await queue.get(run.id))?.eeImage).toBe('registry.example.net/ee/team:1');
+    // AFS-170: that it was the server's default is kept as the run started, whatever the
+    // configuration says later.
+    expect((await queue.get(run.id))?.serverDefault).toBe(true);
     expect(readFileSync(ex.outputFile(run.id), 'utf8')).toContain(
       "The server's default image: registry.example.net/ee/team:1",
     );
@@ -451,10 +454,10 @@ describe('a run', () => {
     const failed = await launch();
     await ex.start();
     await ended(failed.id);
-    // AFS-147: how many hosts failed, not the exit code.
+    // AFS-147: how many hosts failed, then the exit code in words (AFS-170).
     expect(await queue.get(failed.id)).toMatchObject({
       state: 'failed',
-      error: '1 of 1 host failed',
+      error: '1 of 1 host failed (Ansible ended with code 2: one or more hosts failed)',
     });
     await ex.stop();
 

@@ -250,6 +250,9 @@ for (const [name, config] of databases) {
       expect(scoped.filter((h) => h.kind === 'flow')).toHaveLength(1);
       expect(await find('dana-net', 'omar')).toEqual([]);
       expect(await find('rita', 'h')).toEqual([]);
+      // AFS-170: a path or SQL-like question is matched as typed: nothing has it here.
+      expect(await find('dana', '../')).toEqual([]);
+      expect(await find('dana', "' or 1=1 --")).toEqual([]);
     });
   });
 }

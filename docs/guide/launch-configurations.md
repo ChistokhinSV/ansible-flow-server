@@ -70,8 +70,10 @@ project's list of flows says the same of each flow.
 
 - **Saved when its settings are there:** the flow, the inventory, the branch or commit, each
   start value and each credential are checked; a refusal names the setting (`field`). An
-  environment that has no image yet (still building) is accepted: a launch refuses it until it
-  has one, and the configuration's page says why. The hosts the targets reach are checked at
+  environment is picked only when it has an image or a build of it is going ("The environment
+  net-tools has no successful build yet: build it first" otherwise). One that has none at launch
+  (its build failed, its images were removed) is refused by the launch, and the configuration's
+  page says why; the configuration's other settings can still be changed. The hosts the targets reach are checked at
   launch.
 - **A flow with errors does not run.** The refusal names the first few (the step and what is
   wrong) and how many more; the answer lists them all (`errors`: each with `step`, the step's

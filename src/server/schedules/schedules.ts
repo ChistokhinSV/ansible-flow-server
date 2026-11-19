@@ -15,6 +15,7 @@ import { Access, atLeast } from '../access/grants';
 import { recordAudit } from '../audit/store';
 import { getUser } from '../auth/users';
 import type { ScheduleTable, Schema } from '../db/schema';
+import type { FlowError } from '../flowErrors';
 import { type LaunchConfig, LaunchConfigs } from '../launch/configs';
 import {
   type LaunchRequest,
@@ -160,6 +161,9 @@ function of(row: Row, now = new Date()): Schedule {
             at: row.last_at,
             result: row.last_result as FireResult,
             ...(row.last_detail ? { detail: row.last_detail } : {}),
+            ...(row.last_errors_json
+              ? { errors: JSON.parse(row.last_errors_json) as FlowError[] }
+              : {}),
             ...(row.last_run_id ? { run: row.last_run_id } : {}),
           },
         }
@@ -363,6 +367,7 @@ export class Schedules {
       last_result: null,
       last_detail: null,
       last_run_id: null,
+      last_errors_json: null,
       created_by: owner.login,
       created_at: iso(now),
       updated_at: iso(now),
@@ -614,7 +619,8 @@ export class Schedules {
           `${why}: the schedule is turned off. Turn it on again once the flow is back.`,
         );
       }
-      return this.settle(row, now, 'failed', why);
+      // AFS-170: the flow's errors are kept, for the page to link each to its step.
+      return this.settle(row, now, 'failed', why, undefined, prepared.problems[0]?.errors);
     }
     const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
     const run = await this.deps.queue.enqueue(
@@ -637,7 +643,14 @@ export class Schedules {
     return this.settle(row, now, 'ok', `Run ${run.number} queued`, run.id);
   }
 
-  private async settle(row: Row, now: Date, result: FireResult, detail: string, run?: string) {
+  private async settle(
+    row: Row,
+    now: Date,
+    result: FireResult,
+    detail: string,
+    run?: string,
+    errors?: FlowError[],
+  ) {
     await this.db
       .updateTable('schedule')
       .set({
@@ -645,6 +658,7 @@ export class Schedules {
         last_result: result,
         last_detail: detail,
         last_run_id: run ?? null,
+        last_errors_json: errors?.length ? JSON.stringify(errors) : null,
       })
       .where('id', '=', row.id)
       .execute();

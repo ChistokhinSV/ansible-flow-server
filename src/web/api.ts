@@ -1,6 +1,7 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
 import type { RunView } from '@ansible-flow/core/protocol';
+import type { OutputEntry } from '@ansible-flow/core/run/events';
 import type {
   Grant,
   GrantLevel,
@@ -458,6 +459,12 @@ export const api = {
   relaunchRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/relaunch`),
   /** How the run went, as the canvas shows it (its hosts and where they left each step). */
   runView: (id: string) => call<RunView>('GET', `/runs/${encodeURIComponent(id)}/view`),
+  /** AFS-170: what one host did in the run, step by step. */
+  runHost: (id: string, host: string) =>
+    call<{ steps: { node: string; step: string; entries: OutputEntry[] }[] }>(
+      'GET',
+      `/runs/${encodeURIComponent(id)}/hosts/${encodeURIComponent(host)}`,
+    ),
 
   audit: (filter: AuditFilter) =>
     call<{ entries: AuditEntry[]; next?: string; refs?: Record<string, AuditRef> }>(

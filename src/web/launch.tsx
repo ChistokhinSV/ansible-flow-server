@@ -1141,6 +1141,7 @@ export function LaunchConfigPage({
           }}
           mayManage={mayManage}
           me={me}
+          flowTo={flowAddress(workspace, key, c.flowFile)}
         />
       ) : tab === 'settings' ? (
         mayManage ? (

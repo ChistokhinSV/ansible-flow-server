@@ -6,6 +6,7 @@ import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { inputText, launchFields, parseInput } from '@ansible-flow/core/run/launch';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { environmentImage } from '../environments/image';
 import { errorsSentence, type FlowError } from '../flowErrors';
 import { checkFlow } from '../flows';
 import { namesWithoutAccess, unknownNames } from '../notify/recipients';
@@ -244,10 +245,11 @@ export class LaunchConfigs {
 
   /**
    * Everything a configuration says, checked against the project as it is now. An environment
-   * with no image yet is accepted (it may be building): the launch refuses it until it has one,
-   * and the configuration's page says why (AFS-147).
+   * picked here must have an image, or a build going that will give it one (AFS-170): the launch
+   * refuses it until it has one, and the configuration's page says why (AFS-147). `kept` is the
+   * environment it had: kept as it is, it is not asked again (a rename is not refused for it).
    */
-  private async checked(project: Project, input: LaunchConfigInput) {
+  private async checked(project: Project, input: LaunchConfigInput, kept?: string) {
     const name = input.name.trim();
     if (name.length < 1 || name.length > 100)
       throw invalid('A launch configuration has a name of 1 to 100 characters', 'name');
@@ -279,6 +281,22 @@ export class LaunchConfigs {
         .executeTakeFirst();
       if (!env || env.workspace_id !== project.workspace)
         throw invalid('The workspace has no such environment', 'environment');
+      if (environment !== kept) {
+        const found = await environmentImage(this.db, environment);
+        const going = found.image
+          ? undefined
+          : await this.db
+              .selectFrom('environment_build')
+              .select('id')
+              .where('environment_id', '=', environment)
+              .where('state', 'in', ['queued', 'building'])
+              .executeTakeFirst();
+        if (!found.image && !going)
+          throw invalid(
+            found.why ?? 'The environment has no image yet: build it first',
+            'environment',
+          );
+      }
     }
     const mode = input.mode ?? 'check';
     if (mode !== 'check' && mode !== 'real') throw invalid('A run is check or real', 'mode');
@@ -424,7 +442,7 @@ export class LaunchConfigs {
       credentials: change.credentials ?? current.credentials,
       notify: change.notify !== undefined ? change.notify : current.notify,
     };
-    const { credentials, ...columns } = await this.checked(project, merged);
+    const { credentials, ...columns } = await this.checked(project, merged, current.environment);
     try {
       await this.db.transaction().execute(async (trx) => {
         await trx

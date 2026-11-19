@@ -74,7 +74,25 @@ export function exitWords(rc: number | undefined, error?: string): string {
   return `${meaning}${said ? `: ${said}` : ''} (${code})`;
 }
 
-/** "1 of 4 hosts failed at Pre-checks": a run whose hosts failed, in words. */
+/**
+ * AFS-170: " (Ansible ended with code 2: one or more hosts failed)", after the hosts that failed;
+ * nothing without a code.
+ */
+function codeAfter(rc: number | undefined, unreachable = false): string {
+  if (rc === undefined) return '';
+  // Ansible ends with 4 when hosts could not be reached, too: that is what it meant here.
+  const meaning = unreachable && rc === 4 ? EXIT_CODES[3] : EXIT_CODES[rc];
+  const lower = meaning?.startsWith('Ansible ')
+    ? meaning
+    : meaning && `${meaning.charAt(0).toLowerCase()}${meaning.slice(1)}`;
+  const words = lower ? `: ${lower}` : '';
+  return ` (Ansible ended with code ${rc}${words})`;
+}
+
+/**
+ * "1 of 4 hosts failed at Pre-checks (Ansible ended with code 2: one or more hosts failed)": a run
+ * whose hosts failed, in words.
+ */
 export function failedWhy(
   view: RunView,
   nodes: readonly Titled[],
@@ -108,8 +126,8 @@ export function failedWhy(
   // Only unreachable hosts: that, with their names, says more than "failed".
   const unreachable = !steps.length && [...failed].every((h) => s.unreachable.includes(h));
   if (unreachable)
-    return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} could not be reached: ${list([...failed])}`;
-  return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} failed${at}`;
+    return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} could not be reached: ${list([...failed])}${codeAfter(rc, true)}`;
+  return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} failed${at}${codeAfter(rc)}`;
 }
 
 /** "Stopped by Dana Whitfield during Upgrade", from the worker's "Stopped on request …". */

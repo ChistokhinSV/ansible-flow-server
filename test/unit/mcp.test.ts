@@ -288,6 +288,8 @@ for (const [name, config] of databases) {
         (e) => e.object.id === launched.run,
       );
       expect(entry).toMatchObject({ source: 'mcp', actor: { login: 'omar' }, result: 'ok' });
+      // AFS-170: the entry says whether the run was real or a check.
+      expect(entry?.detail).toMatchObject({ mode: expect.stringMatching(/^(real|check)$/) });
     });
 
     it('approvals stay with people unless the token allows deciding them', async () => {
