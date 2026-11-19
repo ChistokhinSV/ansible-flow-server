@@ -96,7 +96,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/projects/<id>/start \
   `flows/<key>/<key>.flow.yaml`, with an `inventory.ini`. Each comes with a launch configuration
   of its flow, its inputs filled in for the sample's hosts, so **Launch** runs it at once (a check
   run unless you change its mode): **Hello on localhost**, **Edge switches (simulated)** and
-  **Skeleton on localhost**.
+  **Firewalls on localhost**.
 - **Archives:** zip (`application/zip`) or tar.gz (`application/gzip`). One folder that holds
   everything is taken off. The files are committed as they are, `.gitignore` or not; programs in
   a tar.gz stay programs.

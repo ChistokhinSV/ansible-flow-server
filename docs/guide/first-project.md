@@ -40,7 +40,7 @@ it in VS Code, the project's **Work on it with git** shows the address to clone 
 Open the flow `flows/firewall-upgrade/firewall-upgrade.flow.yaml` from the project's Overview: its
 page shows the flow on the designer's canvas.
 
-The sample came with one: **Skeleton on localhost**, with the flow's inputs filled in (`devices`
+The sample came with one: **Firewalls on localhost**, with the flow's inputs filled in (`devices`
 `localhost`, `target_version` `7.4.3`). A launch configuration is what **Launch** runs: the flow
 with its inputs, inventory, credentials and image (see
 [Launch configurations](launch-configurations.md)).
