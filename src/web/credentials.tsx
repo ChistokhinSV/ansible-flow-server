@@ -5,9 +5,18 @@
 // private key can come from a file. And the choice of the credential a project's git source signs
 // in with.
 import { useId, useState } from 'react';
-import { type CredentialKind, GIT_KINDS, KINDS, SPEC } from '../server/secrets/kinds';
+import {
+  BECOME_METHODS,
+  type CredentialKind,
+  fieldProblem,
+  GIT_KINDS,
+  KINDS,
+  privateKeyProblem,
+  SPEC,
+} from '../server/secrets/kinds';
 import { api, type Credential } from './api';
-import { Field, Loading, messageOf, useLoad } from './ui';
+import { Link } from './router';
+import { Field, Form, Labelled, Loading, messageOf, refuse, Scroll, useLoad } from './ui';
 
 export const KIND_LABEL: Record<CredentialKind, string> = {
   ssh_key: 'SSH key',
@@ -17,6 +26,7 @@ export const KIND_LABEL: Record<CredentialKind, string> = {
   git_token: 'git token',
   registry: 'container registry',
   env: 'environment variables',
+  awx: 'AWX token',
 };
 const FIELD_LABEL: Record<string, string> = {
   username: 'User name',
@@ -27,11 +37,13 @@ const FIELD_LABEL: Record<string, string> = {
   passphrase: 'Key passphrase',
   password: 'Password',
   token: 'Token',
+  url: 'AWX address',
 };
 const FIELD_HINT: Record<string, string> = {
   method: 'sudo unless given',
   vaultId: 'Only for a vault with an id',
   host: 'registry.example.net',
+  url: 'https://awx.example.net (to import its templates into a flow)',
 };
 /** Secret parts written on several lines. */
 const MULTILINE = new Set(['privateKey']);
@@ -61,25 +73,15 @@ function SecretField({
   onChange(v: string): void;
   required: boolean;
 }) {
-  const id = useId();
   const label = FIELD_LABEL[name] ?? name;
   if (MULTILINE.has(name))
     return (
-      <div className="field">
-        <label htmlFor={id}>{label}</label>
-        <textarea
-          id={id}
-          rows={5}
-          className="mono"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          required={required}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-        />
-        <small className="muted">
-          <label className="inline">
+      <Labelled
+        label={label}
+        name={name}
+        hint={
+          // AFS-140: the words and the file input stay on one line.
+          <label className="inline file-pick">
             Or a file:{' '}
             <input
               type="file"
@@ -87,12 +89,28 @@ function SecretField({
               onChange={(e) => void e.target.files?.[0]?.text().then(onChange)}
             />
           </label>
-        </small>
-      </div>
+        }
+      >
+        {(props) => (
+          <textarea
+            {...props}
+            name={name}
+            rows={5}
+            className="mono"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            required={required}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+          />
+        )}
+      </Labelled>
     );
   return (
     <Field
       label={label}
+      name={name}
       type="password"
       autoComplete="off"
       value={value}
@@ -116,31 +134,41 @@ function Variables({
     <fieldset>
       <legend>Variables</legend>
       {rows.map((r, i) => (
+        // AFS-150: a grid of fixed columns, so a problem under one field does not move the others.
         // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity but their place
-        <div key={i} className="row">
+        <div key={i} className="variable-row">
           <Field
             label={`Name ${i + 1}`}
+            name={`variable-${i}`}
             value={r.name}
             onChange={(e) => set(i, 'name', e.target.value)}
             pattern="[A-Za-z_][A-Za-z0-9_]*"
+            title="Letters, digits and underscores, not starting with a digit"
             required
             autoComplete="off"
           />
           <Field
             label={`Value ${i + 1}`}
+            name={`variable-value-${i}`}
             type="password"
             autoComplete="off"
             value={r.value}
             onChange={(e) => set(i, 'value', e.target.value)}
           />
           {rows.length > 1 && (
-            <button
-              type="button"
-              aria-label={`Remove variable ${i + 1}`}
-              onClick={() => onChange(rows.filter((_, j) => j !== i))}
-            >
-              Remove
-            </button>
+            <div className="field">
+              {/* The space of a label, so the button lines up with the inputs. */}
+              <span className="label-space" aria-hidden="true">
+                &nbsp;
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove variable ${i + 1}`}
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              >
+                Remove
+              </button>
+            </div>
           )}
         </div>
       ))}
@@ -175,9 +203,8 @@ function CredentialForm({
   );
   // A change keeps the secret unless asked to replace it.
   const [replace, setReplace] = useState(!editing);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
   const kindId = useId();
+  const becomeList = useId();
   const spec = SPEC[kind];
   const secretPart = () =>
     kind === 'env'
@@ -187,36 +214,67 @@ function CredentialForm({
       : Object.fromEntries(Object.entries(secret).filter(([, v]) => v !== ''));
   const visible = () =>
     Object.fromEntries(spec.fields.map((f) => [f, (fields[f] ?? '').trim()]).filter(([, v]) => v));
-  return (
-    <form
-      className="form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (busy) return;
-        setBusy(true);
-        setError(undefined);
-        try {
-          if (editing)
-            await api.changeCredential(editing.id, {
-              name: name.trim(),
-              description: description.trim() || null,
-              ...(kind === 'env' ? {} : { fields: visible() }),
-              ...(replace ? { secret: secretPart() } : {}),
-            });
-          else
-            await api.addCredential(workspace, {
-              name: name.trim(),
-              kind,
-              ...(description.trim() ? { description: description.trim() } : {}),
-              ...(kind === 'env' ? {} : { fields: visible() }),
-              secret: secretPart(),
-            });
-          onDone();
-        } catch (err) {
-          setError(messageOf(err));
-        } finally {
-          setBusy(false);
+  // AFS-140: what the server would refuse is found here first, and said at its field.
+  const check = () => {
+    if (!name.trim()) refuse('name', 'A name is needed.');
+    for (const f of spec.fields) {
+      // AFS-150: said at the field, not as the browser's tooltip.
+      if (spec.required.includes(f) && !(fields[f] ?? '').trim())
+        refuse(f, `${FIELD_LABEL[f] ?? f} is needed.`);
+      const problem = fieldProblem(f, fields[f] ?? '');
+      if (problem) refuse(f, problem);
+    }
+    if (!replace) return;
+    for (const f of spec.secret)
+      if (spec.required.includes(f) && !secret[f]) refuse(f, `${FIELD_LABEL[f] ?? f} is needed.`);
+    if (kind === 'env') {
+      const seen = new Map<string, number>();
+      for (const [i, v] of variables.entries()) {
+        const n = v.name.trim();
+        if (!n) {
+          if (v.value) refuse(`variable-${i}`, 'A name is needed for this value.');
+          continue;
         }
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
+          refuse(`variable-${i}`, 'Letters, digits and underscores, not starting with a digit.');
+        // AFS-150: an empty value is most likely one forgotten (a Replace gives them all again).
+        if (!v.value) refuse(`variable-value-${i}`, `${n} has no value: give one, or remove it.`);
+        const before = seen.get(n);
+        if (before !== undefined)
+          refuse(
+            `variable-${i}`,
+            `${n} is given twice (also as variable ${before + 1}): one value would be lost.`,
+          );
+        seen.set(n, i);
+      }
+    }
+    const keyProblem = secret.privateKey ? privateKeyProblem(secret.privateKey) : undefined;
+    if (keyProblem) refuse('privateKey', keyProblem);
+  };
+  return (
+    <Form
+      open
+      noValidate
+      submit={editing ? 'Save' : 'Add credential'}
+      onCancel={onCancel}
+      onSubmit={async () => {
+        check();
+        if (editing)
+          await api.changeCredential(editing.id, {
+            name: name.trim(),
+            description: description.trim() || null,
+            ...(kind === 'env' ? {} : { fields: visible() }),
+            ...(replace ? { secret: secretPart() } : {}),
+          });
+        else
+          await api.addCredential(workspace, {
+            name: name.trim(),
+            kind,
+            ...(description.trim() ? { description: description.trim() } : {}),
+            ...(kind === 'env' ? {} : { fields: visible() }),
+            secret: secretPart(),
+          });
+        onDone();
       }}
     >
       {!editing && (
@@ -241,6 +299,7 @@ function CredentialForm({
       )}
       <Field
         label="Name"
+        name="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
@@ -257,6 +316,8 @@ function CredentialForm({
         <Field
           key={f}
           label={FIELD_LABEL[f] ?? f}
+          name={f}
+          list={f === 'method' ? becomeList : undefined}
           value={fields[f] ?? ''}
           onChange={(e) => setFields({ ...fields, [f]: e.target.value })}
           required={spec.required.includes(f)}
@@ -290,20 +351,47 @@ function CredentialForm({
           Kept encrypted on the server; nobody can read it back, here or over the API.
         </p>
       )}
-      {error && (
-        <p className="notice error" role="alert">
-          {error}
-        </p>
+      {spec.fields.includes('method') && (
+        <datalist id={becomeList}>
+          {BECOME_METHODS.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
       )}
-      <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>
-          {busy ? 'Working…' : editing ? 'Save' : 'Add credential'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={busy}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    </Form>
+  );
+}
+
+/**
+ * AFS-150: what uses a credential: named and linked when the server names them (to
+ * administrators), else counted.
+ */
+function UsedBy({ credential: c, workspace }: { credential: Credential; workspace: string }) {
+  if (c.usedBy === 0) return <>nothing</>;
+  if (!c.uses?.length) return <>{`${c.usedBy} ${c.usedBy === 1 ? 'use' : 'uses'}`}</>;
+  return (
+    <ul className="plain">
+      {c.uses.map((u) => (
+        <li key={`${u.kind}-${u.id ?? u.project}`}>
+          {u.kind === 'launch' && u.id ? (
+            <Link
+              to={`/w/${encodeURIComponent(workspace)}/${encodeURIComponent(u.project)}/launch/${encodeURIComponent(u.id)}/settings`}
+            >
+              {u.name}
+            </Link>
+          ) : (
+            <Link
+              to={`/w/${encodeURIComponent(workspace)}/${encodeURIComponent(u.project)}/settings`}
+            >
+              {u.name}
+            </Link>
+          )}{' '}
+          <span className="muted">
+            {u.kind === 'launch' ? `launch configuration in ${u.project}` : 'its repository'}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -341,9 +429,14 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
         </p>
       )}
       <Loading state={list} />
-      {list.data?.length === 0 && <p className="empty">No credential yet.</p>}
+      {/* AFS-135: who can change that, for whoever reads it. */}
+      {list.data?.length === 0 && (
+        <p className="empty">
+          No credential yet.{admin ? '' : ' An administrator adds the credentials of a workspace.'}
+        </p>
+      )}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -366,8 +459,10 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                     {c.description && <div className="muted">{c.description}</div>}
                   </td>
                   <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
-                  <td>{holds(c)}</td>
-                  <td>{c.usedBy === 0 ? 'nothing' : `${c.usedBy}`}</td>
+                  <td className="long">{holds(c)}</td>
+                  <td>
+                    <UsedBy credential={c} workspace={workspace} />
+                  </td>
                   {admin && (
                     <td>
                       <div className="actions">
@@ -382,6 +477,13 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                           type="button"
                           className="danger"
                           aria-label={`Delete ${c.name}`}
+                          // AFS-134: one in use cannot go: the configurations name it.
+                          disabled={c.usedBy > 0}
+                          title={
+                            c.usedBy > 0
+                              ? 'In use (see Used by): take it out of what uses it first'
+                              : undefined
+                          }
                           onClick={async () => {
                             if (!window.confirm(`Delete the credential "${c.name}"?`)) return;
                             setError(undefined);
@@ -402,7 +504,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       {admin &&
         list.data?.map(

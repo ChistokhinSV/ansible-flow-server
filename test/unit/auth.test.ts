@@ -17,7 +17,12 @@ import {
   sweepSessions,
   tokenOf,
 } from '../../src/server/auth/sessions';
-import { createFirstAdmin, setupCode, setupNeeded } from '../../src/server/auth/setup';
+import {
+  createFirstAdmin,
+  setupAddress,
+  setupCode,
+  setupNeeded,
+} from '../../src/server/auth/setup';
 import {
   accountByLogin,
   createGroup,
@@ -329,6 +334,18 @@ for (const [name, config] of databases) {
     });
   });
 }
+
+describe('the setup address in the log', () => {
+  it('is the setup page under the public address or the listening one, with the code', () => {
+    expect(setupAddress('https://flows.example.net', 'Jq3vN0c4TzWk')).toBe(
+      'https://flows.example.net/setup?code=Jq3vN0c4TzWk',
+    );
+    expect(setupAddress('https://flows.example.net:8443/afs/', 'a-b_c')).toBe(
+      'https://flows.example.net:8443/afs/setup?code=a-b_c',
+    );
+    expect(setupAddress('https://127.0.0.1:8443', 'x')).toBe('https://127.0.0.1:8443/setup?code=x');
+  });
+});
 
 describe('reading a password from piped input', () => {
   it('takes the first line, and nothing when there is none', async () => {

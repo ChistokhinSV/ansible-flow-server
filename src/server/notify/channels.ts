@@ -71,7 +71,10 @@ export function emailChannel(relay: () => Promise<SmtpRelay | undefined>): Chann
       });
       try {
         await transport.sendMail({
-          from: smtp.from,
+          // AFS-146: a bare address gets the server's name, so the mail says who sends it.
+          from: smtp.from.includes('<')
+            ? smtp.from
+            : { name: 'Ansible Flow Server', address: smtp.from.trim() },
           to: target,
           subject: message.subject.replace(/[\r\n]+/g, ' '),
           text: message.text,

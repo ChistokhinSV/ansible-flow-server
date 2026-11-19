@@ -10,7 +10,14 @@ import type { Schema } from '../db/schema';
 import { SEALED_SETTINGS, settingContext } from '../notify/settings';
 import { resealHookSecrets } from '../projects/store';
 import { open, seal } from './crypto';
-import { type CredentialKind, KINDS, SPEC } from './kinds';
+import {
+  type CredentialKind,
+  fieldProblem,
+  fieldValue,
+  KINDS,
+  privateKeyProblem,
+  SPEC,
+} from './kinds';
 import type { MasterKey } from './masterKey';
 
 export type { CredentialKind } from './kinds';
@@ -32,6 +39,11 @@ export interface Credential {
   has: string[];
   /** How many projects (for their repository) and launch configurations use it. */
   usedBy: number;
+  /**
+   * AFS-150: what uses it, by name (given to administrators, who may delete it): a project's
+   * repository, or a launch configuration (with its project's key, for a link).
+   */
+  uses?: CredentialUse[];
   createdAt: string;
   updatedAt: string;
 }
@@ -48,10 +60,21 @@ export class CredentialError extends Error {
   constructor(
     readonly code: 'invalid' | 'not_found' | 'taken' | 'in_use',
     message: string,
+    /** AFS-140: the field the problem is about, so a page shows it there. */
+    readonly field?: string,
   ) {
     super(message);
     this.name = 'CredentialError';
   }
+}
+
+export interface CredentialUse {
+  kind: 'project' | 'launch';
+  /** The project's key; for a launch configuration, the key of its project. */
+  project: string;
+  /** The launch configuration's id. */
+  id?: string;
+  name: string;
 }
 
 export interface CredentialInput {
@@ -66,12 +89,21 @@ type Db = Kysely<Schema>;
 type Row = Schema['credential'];
 const now = () => new Date().toISOString();
 const context = (id: string) => `credential:${id}`;
-const invalid = (message: string) => new CredentialError('invalid', message);
+const invalid = (message: string, field?: string) => new CredentialError('invalid', message, field);
+/** AFS-140: a field's name as the form labels it. */
+const LABEL: Record<string, string> = {
+  username: 'a user name',
+  password: 'a password',
+  privateKey: 'a private key',
+  token: 'a token',
+  host: 'a registry host',
+  url: 'an AWX address',
+};
 
 function checkedName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length < 1 || trimmed.length > 100)
-    throw invalid('A credential has a name of 1 to 100 characters');
+    throw invalid('A name of 1 to 100 characters is needed.', 'name');
   return trimmed;
 }
 
@@ -85,7 +117,7 @@ function checked(
   if (!spec) throw invalid(`There is no kind ${kind}: use one of ${KINDS.join(', ')}`);
   const text = (value: unknown, what: string, max: number) => {
     if (typeof value !== 'string') throw invalid(`${what} must be text`);
-    if (value.length > max) throw invalid(`${what} is too long`);
+    if (value.length > max) throw invalid(`${what} is too long`, what);
     return value;
   };
   if (kind === 'env') {
@@ -97,6 +129,8 @@ function checked(
       if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(name))
         throw invalid(`"${name.slice(0, 40)}" is not a variable name`);
       text(secret[name], `The value of ${name}`, MAX_VALUE);
+      // AFS-150: a variable set to nothing is most likely a value forgotten.
+      if (secret[name] === '') throw invalid(`${name} has no value: give one, or remove it`);
     }
     return { fields: {}, secret };
   }
@@ -104,7 +138,9 @@ function checked(
   for (const [name, value] of Object.entries(fields)) {
     if (!spec.fields.includes(name))
       throw invalid(`A ${kind} credential has no field "${name.slice(0, 40)}"`);
-    const trimmed = text(value, name, 500).trim();
+    const trimmed = fieldValue(name, text(value, name, 500));
+    const problem = fieldProblem(name, trimmed);
+    if (problem) throw invalid(problem, name);
     if (trimmed) cleanFields[name] = trimmed;
   }
   const cleanSecret: Record<string, string> = {};
@@ -115,14 +151,9 @@ function checked(
   }
   for (const name of spec.required)
     if (!(cleanFields[name] ?? cleanSecret[name]))
-      throw invalid(`A ${kind} credential needs ${name}`);
-  if (
-    cleanSecret.privateKey &&
-    !/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]+-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(
-      cleanSecret.privateKey,
-    )
-  )
-    throw invalid('privateKey is not a private key in PEM or OpenSSH form');
+      throw invalid(`This credential needs ${LABEL[name] ?? name}.`, name);
+  const keyProblem = cleanSecret.privateKey ? privateKeyProblem(cleanSecret.privateKey) : undefined;
+  if (keyProblem) throw invalid(keyProblem, 'privateKey');
   return { fields: cleanFields, secret: cleanSecret };
 }
 
@@ -168,6 +199,36 @@ export async function listCredentials(db: Db, workspaceId: string): Promise<Cred
   return rows.map((row) => credentialOf(row, used.get(row.id) ?? 0));
 }
 
+/** AFS-150: what uses each credential of a workspace, by name. */
+export async function credentialUses(
+  db: Db,
+  workspaceId: string,
+): Promise<Map<string, CredentialUse[]>> {
+  const out = new Map<string, CredentialUse[]>();
+  const add = (credential: string, use: CredentialUse) =>
+    out.set(credential, [...(out.get(credential) ?? []), use]);
+  const projects = await db
+    .selectFrom('project')
+    .select(['git_credential_id', 'key', 'name'])
+    .where('workspace_id', '=', workspaceId)
+    .where('git_credential_id', 'is not', null)
+    .orderBy('name')
+    .execute();
+  for (const p of projects)
+    add(p.git_credential_id as string, { kind: 'project', project: p.key, name: p.name });
+  const configs = await db
+    .selectFrom('launch_config_credential as u')
+    .innerJoin('launch_config as c', 'c.id', 'u.config_id')
+    .innerJoin('project as p', 'p.id', 'c.project_id')
+    .select(['u.credential_id', 'c.id', 'c.name', 'p.key'])
+    .where('p.workspace_id', '=', workspaceId)
+    .orderBy('c.name')
+    .execute();
+  for (const c of configs)
+    add(c.credential_id, { kind: 'launch', project: c.key, id: c.id, name: c.name });
+  return out;
+}
+
 export async function getCredential(db: Db, id: string): Promise<Credential | undefined> {
   const row = await db.selectFrom('credential').selectAll().where('id', '=', id).executeTakeFirst();
   return row ? credentialOf(row, (await uses(db)).get(row.id) ?? 0) : undefined;
@@ -209,7 +270,7 @@ export async function createCredential(
     .onConflict((c) => c.columns(['workspace_id', 'name']).doNothing())
     .executeTakeFirst();
   if (!done.numInsertedOrUpdatedRows)
-    throw new CredentialError('taken', `The workspace has a credential "${name}" already`);
+    throw new CredentialError('taken', `The workspace has a credential "${name}" already`, 'name');
   return credentialOf(row);
 }
 
@@ -251,7 +312,11 @@ export async function updateCredential(
     await db.updateTable('credential').set(set).where('id', '=', id).execute();
   } catch (e) {
     if (/unique|duplicate/i.test(String((e as Error).message)))
-      throw new CredentialError('taken', `The workspace has a credential "${set.name}" already`);
+      throw new CredentialError(
+        'taken',
+        `The workspace has a credential "${set.name}" already`,
+        'name',
+      );
     throw e;
   }
   return (await getCredential(db, id)) as Credential;

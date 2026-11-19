@@ -192,8 +192,14 @@ describe('the runs list', () => {
     expect(window.location.pathname + window.location.search).toBe('/runs?mine=1');
     // With a state beside it, both are asked for.
     fireEvent.click(screen.getByLabelText('Failed'));
-    await screen.findByText('No run for these choices.');
+    await screen.findByText(/^No run for these choices\./);
     expect(window.location.search).toBe('?state=failed&mine=1');
+    // AFS-144: a way back from choices that leave nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Show all runs' }));
+    await screen.findByRole('link', { name: /#2/ });
+    expect(window.location.search).toBe('');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Mine' }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: /#2/ })).toBeNull());
 
     // Opened again at that address, the choice is made from the start.
     cleanup();
@@ -268,7 +274,7 @@ describe('a run', () => {
     routes = { 'GET /session': () => ({ body: omar }), 'GET /runs/r1': () => ({ body: run }) };
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
-    await screen.findByRole('heading', { name: 'Hello, Ansible · run 7' });
+    await screen.findByRole('heading', { name: 'Hello, Ansible #7' });
     const stream = FakeStream.last as FakeStream;
     expect(stream.url).toBe('/api/v1/runs/r1/events');
     // Someone who is not an administrator sees no Stop.
@@ -328,10 +334,90 @@ describe('a run', () => {
     state = 'cancelled';
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Run again' }));
-    await screen.findByRole('heading', { name: 'Hello, Ansible · run 8' });
+    // AFS-147: a real run again is asked about first, with the inputs it reuses; no is no.
+    const asked: string[] = [];
+    let answer = false;
+    const confirm = vi.spyOn(window, 'confirm').mockImplementation((text) => {
+      asked.push(String(text));
+      return answer;
+    });
+    const again = await screen.findByRole('button', { name: 'Run again' });
+    expect(again.getAttribute('title')).toMatch(/^A real run again, at the same commit\./);
+    fireEvent.click(again);
+    expect(asked[0]).toMatch(
+      /^Run Hello, Ansible for real again\? It changes the hosts it reaches\./,
+    );
+    expect(window.location.pathname).toBe('/runs/r1');
+    answer = true;
+    fireEvent.click(again);
+    confirm.mockRestore();
+    await screen.findByRole('heading', { name: 'Hello, Ansible #8' });
     expect(window.location.pathname).toBe('/runs/r2');
     expect(screen.getByText('The canvas shows the run once it started.')).toBeTruthy();
+  });
+
+  it('What ran names the inputs, limit, credentials, environment and skipped targets (AFS-147)', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({
+        body: {
+          ...run,
+          state: 'succeeded',
+          endedAt: '2026-11-13T12:03:02.000Z',
+          inputs: { target_version: '7.6.0', api_token: '***' },
+          limit: 'fw-edge-*',
+          inventory: 'inventory/hosts.yaml',
+          eeImage: 'afs-ee/net-tools:0a1b2c3d4e5f6a7b',
+          credentials: ['k1', 'k2'],
+          credentialNames: ['netops-key', 'vault'],
+          environment: { id: 'e1', name: 'net-tools', workspace: 'w1' },
+          skippedTargets: ['nosuchhost'],
+        },
+      }),
+      ...places,
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const facts = (await screen.findByRole('heading', { name: 'What ran' })).closest(
+      'section',
+    ) as HTMLElement;
+    const inputs = facts.querySelector('[data-run-inputs]') as HTMLElement;
+    expect(inputs.textContent).toContain('target_version7.6.0');
+    expect(inputs.textContent).toContain('api_token***');
+    expect(facts.textContent).toContain('fw-edge-*');
+    expect(facts.textContent).toContain('netops-key, vault');
+    expect(
+      (await within(facts).findByRole('link', { name: 'net-tools' })).getAttribute('href'),
+    ).toBe('/w/netops/environments/e1');
+    expect(facts.textContent).toContain("counted over the project's runs");
+    // Went well, and still not plainly: the target the inventory lacks is named.
+    expect(document.querySelector('[data-skipped-targets]')?.textContent).toBe(
+      'Not in the inventory inventory/hosts.yaml, so nothing ran there: nosuchhost',
+    );
+    expect(screen.getByText(/1 target not in the inventory/)).toBeTruthy();
+  });
+
+  it("AFS-163: What ran says the image came from the server's default", async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({
+        body: {
+          ...run,
+          state: 'succeeded',
+          endedAt: '2026-11-13T12:03:02.000Z',
+          eeImage: 'afs-ee/net-team:0a1b2c3d4e5f6a7b',
+          environment: { id: 'e1', name: 'team', workspace: 'w1' },
+          serverDefault: true,
+        },
+      }),
+      ...places,
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const facts = (await screen.findByRole('heading', { name: 'What ran' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(facts.textContent).toContain("afs-ee/net-team:0a1b2c3d4e5f6a7b (the server's default)");
   });
 
   it('lists its hosts, those with a problem first, and says why one failed (AFS-64)', async () => {
@@ -381,8 +467,60 @@ describe('a run', () => {
     expect(rows()).toEqual(['fw-edge-17not reachable']);
     await screen.findByRole('heading', { name: 'Why fw-edge-17 was not reached' });
     expect(screen.getByText(/Connection timed out/)).toBeTruthy();
-    expect(screen.getByText(/Failed after 3 min/)).toBeTruthy();
+    expect(screen.getByText(/after 3 min/)).toBeTruthy();
     expect(screen.getByText(/1 with a problem/)).toBeTruthy();
+  });
+
+  it('a run its approval rejected reads as rejected; a held run has its hosts waiting (AFS-146)', async () => {
+    const view = (outcome: Record<string, string>) => ({
+      body: {
+        id: 'r1',
+        mode: 'real',
+        state: 'running',
+        startedAt: run.startedAt,
+        summary: {
+          nodes: {},
+          outcome,
+          failures: [],
+          unreachable: [],
+          hosts: ['localhost'],
+          stoppedEarly: false,
+        },
+      },
+    });
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs/r1': () => ({
+        body: {
+          ...run,
+          state: 'failed',
+          decidedAgainst: 'rejected',
+          error: 'Rejected at Change approval by Sam Reyes: no NOC slot',
+          endedAt: '2026-11-13T12:03:02.000Z',
+        },
+      }),
+      'GET /runs/r1/view': () =>
+        view({ localhost: 'Ended at [not-approved] Not approved (outcome: failed)' }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const hosts = (await screen.findByRole('heading', { name: 'Hosts' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(hosts.querySelector('li')?.textContent).toBe(
+      'localhostEnded at Not approved (rejected)',
+    );
+    expect(screen.getByText('rejected', { selector: '.badge' })).toBeTruthy();
+    expect(screen.getByText(/1 not approved/)).toBeTruthy();
+    cleanup();
+
+    routes['GET /runs/r1'] = () => ({ body: { ...run, state: 'waiting' } });
+    routes['GET /runs/r1/view'] = () => view({});
+    render(<App />);
+    const held = (await screen.findByRole('heading', { name: 'Hosts' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(held.querySelector('li')?.textContent).toBe('localhostwaiting for a decision');
   });
 
   it('leads through where the run belongs: workspace, project, configuration (AFS-86)', async () => {
@@ -399,17 +537,20 @@ describe('a run', () => {
     render(<App />);
     const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
     await within(crumbs).findByRole('link', { name: 'Nightly check' });
+    // AFS-144: the workspace by its name, once it is read.
+    await within(crumbs).findByRole('link', { name: 'Network operations' });
     expect(
       within(crumbs)
         .getAllByRole('link')
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
       ['Workspaces', '/workspaces'],
-      ['netops', '/w/netops'],
-      ['edge', '/w/netops/edge'],
+      ['Network operations', '/w/netops'],
+      // AFS-146: the project by its name too.
+      ['Edge firewalls', '/w/netops/edge'],
       ['Nightly check', '/w/netops/edge/launch/c1'],
     ]);
-    expect(crumbs.textContent).toMatch(/run 7$/);
+    expect(crumbs.textContent).toMatch(/#7$/);
     // What ran: the flow and the configuration are links too.
     const facts = screen.getByRole('heading', { name: 'What ran' }).closest('section');
     const ran = within(facts as HTMLElement);
@@ -451,7 +592,7 @@ describe('a run', () => {
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
     const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
-    await within(crumbs).findByRole('link', { name: 'edge' });
+    await within(crumbs).findByRole('link', { name: 'Edge firewalls' });
     expect(within(crumbs).queryByRole('link', { name: 'Nightly check' })).toBeNull();
     expect(screen.getByText(/from “Nightly check”/)).toBeTruthy();
     // The flow is not in the project now: its name stays, without a link.
@@ -472,8 +613,11 @@ describe('a run', () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/runs/nothing');
     render(<App />);
-    expect((await screen.findByRole('alert')).textContent).toMatch(
-      /Nothing at GET \/runs\/nothing/,
+    // AFS-152: the not-found page of every item, with a way back.
+    await screen.findByRole('heading', { name: 'Not found' });
+    expect(document.querySelector('main')?.textContent).toContain(
+      'The run nothing is not here, or is not shared with you.',
     );
+    expect(screen.getByRole('link', { name: 'Back to Runs' })).toBeTruthy();
   });
 });

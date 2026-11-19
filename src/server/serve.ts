@@ -12,7 +12,7 @@ import { timeOutDue } from './approvals/gates';
 import { pruneAudit, recordAudit } from './audit/store';
 import { DirectorySync, LdapSignIn } from './auth/ldap/ldap';
 import { sweepSessions } from './auth/sessions';
-import { setupCode } from './auth/setup';
+import { setupAddress, setupCode } from './auth/setup';
 import { sweepTokens } from './auth/tokens';
 import { type Config, publicHost, withoutPassword } from './config';
 import { openDatabase } from './db/database';
@@ -20,6 +20,7 @@ import { migrate } from './db/migrations';
 import { instanceId } from './db/settings';
 import { Environments } from './environments/environments';
 import { galaxyClient } from './environments/galaxy';
+import { serverDefault } from './environments/serverDefault';
 import { pruneDevBundles } from './launch/dev';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
@@ -300,6 +301,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       engine: config.containerEngine,
       timeoutMs: config.buildTimeoutMinutes * 60_000,
       metrics,
+      defaultImage: config.eeImage,
     });
     app = buildApp({
       log,
@@ -357,11 +359,6 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     });
     // A new server has no user. Its first administrator is made by whoever can read this line.
     const code = await setupCode(database.db);
-    if (code)
-      log.warn(
-        { setup: code },
-        'No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin)',
-      );
     sweep = setInterval(
       () =>
         void Promise.all([sweepSessions(database.db), sweepTokens(database.db)]).catch((e) =>
@@ -371,6 +368,11 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     );
     sweep.unref();
     const url = await app.listen({ host: config.host, port: config.port });
+    if (code)
+      log.warn(
+        { setup: code },
+        `No user yet. Make the first administrator with this setup code: open ${setupAddress(config.publicUrl ?? url, code)} (or POST /api/v1/setup, or: user add --admin)`,
+      );
     const running = app;
     // From now on the projects' sources are looked at when they are due.
     projects.start();
@@ -391,6 +393,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         dataDir: config.dataDir,
         engine: config.containerEngine,
         image: config.eeImage,
+        // AFS-163: an environment an administrator picked, else AFS_EE_IMAGE.
+        defaultImage: async () => (await serverDefault(database.db, config.eeImage)).image,
         ...(config.engineDataDir ? { engineDataDir: config.engineDataDir } : {}),
         worker: `server:${await instanceId(database.db)}`,
         slots: config.maxRuns,

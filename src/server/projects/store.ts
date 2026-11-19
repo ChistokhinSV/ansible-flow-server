@@ -42,12 +42,16 @@ export interface Project {
   hookSigned: boolean;
   /** AFS-79: a library: its flows' subflows are offered to every project on the server. */
   library: boolean;
+  /** AFS-150: what the project is for, in a line. */
+  description?: string;
 }
 
 export class ProjectError extends Error {
   constructor(
     readonly code: 'taken' | 'not_found' | 'not_empty' | 'invalid',
     message: string,
+    /** AFS-140: the field the problem is about, so a page shows it there. */
+    readonly field?: string,
   ) {
     super(message);
     this.name = 'ProjectError';
@@ -206,6 +210,7 @@ const projectOf = (row: ProjectRow, workspaceKey: string): Project => ({
   hook: row.hook_token_hash !== null,
   hookSigned: row.hook_secret_enc !== null,
   library: row.library === 1,
+  ...(row.description ? { description: row.description } : {}),
 });
 
 const projectRows = (db: Db) =>
@@ -255,13 +260,16 @@ export async function createProject(
   const gitUrl = input.gitUrl?.trim() ?? '';
   // A hosted project has no source to look at on a timer.
   const pollSeconds = gitUrl ? (input.pollSeconds ?? POLL_SECONDS) : 0;
-  const problem =
-    keyProblem(key) ??
-    nameProblem(input.name) ??
-    (gitUrl ? gitUrlProblem(gitUrl, allowLocal) : undefined) ??
-    refProblem(gitRef) ??
-    pollProblem(pollSeconds);
-  if (problem) throw new ProjectError('invalid', problem);
+  // AFS-140: each problem with the field it is about.
+  const problems: [string | undefined, string][] = [
+    [keyProblem(key), 'key'],
+    [nameProblem(input.name), 'name'],
+    [gitUrl ? gitUrlProblem(gitUrl, allowLocal) : undefined, 'gitUrl'],
+    [refProblem(gitRef), 'gitRef'],
+    [pollProblem(pollSeconds), 'pollSeconds'],
+  ];
+  const [problem, field] = problems.find(([why]) => why) ?? [];
+  if (problem) throw new ProjectError('invalid', problem, field);
   const workspace = await db
     .selectFrom('workspace')
     .select('key')
@@ -289,6 +297,7 @@ export async function createProject(
     hook_token_hash: null,
     hook_secret_enc: null,
     library: 0,
+    description: null,
     created_at: at,
     updated_at: at,
   };
@@ -298,7 +307,7 @@ export async function createProject(
     .onConflict((c) => c.columns(['workspace_id', 'key']).doNothing())
     .executeTakeFirst();
   if (!done.numInsertedOrUpdatedRows)
-    throw new ProjectError('taken', `The workspace has a project ${key} already`);
+    throw new ProjectError('taken', `The workspace has a project ${key} already`, 'key');
   return projectOf(row, workspace.key);
 }
 
@@ -332,6 +341,8 @@ async function credentialProblem(
 
 export interface ProjectChange {
   name?: string;
+  /** AFS-150: empty or null takes it away. */
+  description?: string | null;
   gitUrl?: string;
   /** The credential for the source (its id); null takes it away. */
   gitCredential?: string | null;
@@ -351,12 +362,24 @@ export async function updateProject(
   change: ProjectChange,
   allowLocal: boolean,
 ): Promise<Project> {
-  const problem =
-    (change.name !== undefined ? nameProblem(change.name) : undefined) ??
-    (change.gitUrl !== undefined ? gitUrlProblem(change.gitUrl.trim(), allowLocal) : undefined) ??
-    (change.gitRef !== undefined ? refProblem(change.gitRef.trim()) : undefined) ??
-    (change.pollSeconds !== undefined ? pollProblem(change.pollSeconds) : undefined);
-  if (problem) throw new ProjectError('invalid', problem);
+  // AFS-150: each problem with the field it is about, for the Settings form to show it there.
+  const problems: [string | undefined, string][] = [
+    [change.name !== undefined ? nameProblem(change.name) : undefined, 'name'],
+    [
+      typeof change.description === 'string' && change.description.trim().length > 1000
+        ? 'A description is at most 1000 characters'
+        : undefined,
+      'description',
+    ],
+    [
+      change.gitUrl !== undefined ? gitUrlProblem(change.gitUrl.trim(), allowLocal) : undefined,
+      'gitUrl',
+    ],
+    [change.gitRef !== undefined ? refProblem(change.gitRef.trim()) : undefined, 'gitRef'],
+    [change.pollSeconds !== undefined ? pollProblem(change.pollSeconds) : undefined, 'pollSeconds'],
+  ];
+  const problem = problems.find(([why]) => why);
+  if (problem) throw new ProjectError('invalid', problem[0] as string, problem[1]);
   const current = await getProject(db, id);
   if (!current) throw new ProjectError('not_found', 'No such project');
   // The hosted repository is the only copy: pointing the project elsewhere would orphan it.
@@ -387,6 +410,9 @@ export async function updateProject(
     .updateTable('project')
     .set({
       ...(change.name !== undefined ? { name: change.name.trim() } : {}),
+      ...(change.description !== undefined
+        ? { description: change.description?.trim() || null }
+        : {}),
       ...(change.gitUrl !== undefined ? { git_url: change.gitUrl.trim() } : {}),
       ...(change.gitRef !== undefined ? { git_ref: change.gitRef.trim() } : {}),
       ...(change.pollSeconds !== undefined ? { poll_seconds: change.pollSeconds } : {}),
@@ -416,7 +442,7 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
     if (going)
       throw new ProjectError(
         'not_empty',
-        `Run ${going.number} of the project is still going: cancel it first`,
+        `Run ${going.number} of the project is still going: stop it first`,
       );
     await trx
       .deleteFrom('run_gate')
@@ -484,10 +510,23 @@ export interface PushedRef {
   to?: string;
 }
 
+/**
+ * AFS-149: how a push came: a git client (`push`), a draft saved in the pages (`save`), files
+ * changed in the pages (`files`), a branch made or deleted there (`branch`), a project started
+ * from a sample or an archive (`start`).
+ */
+export type PushKind = 'push' | 'save' | 'files' | 'branch' | 'start';
+
 export interface Push extends PushedRef {
   id: string;
   /** Who pushed, as the server knew them then. */
   login: string;
+  /** AFS-149: their name, while they have an account. */
+  name?: string;
+  /** AFS-149: how it came; absent for pushes written down before 1.0.1. */
+  kind?: PushKind;
+  /** AFS-149: the first line of the new commit's message, when the server has it. */
+  message?: string;
   at: string;
 }
 
@@ -497,6 +536,7 @@ export async function recordPushes(
   projectId: string,
   user: { id: string; login: string },
   refs: PushedRef[],
+  kind: PushKind = 'push',
 ): Promise<void> {
   if (!refs.length) return;
   const at = now();
@@ -511,6 +551,7 @@ export async function recordPushes(
         ref: ref.ref,
         old_commit: ref.from ?? null,
         new_commit: ref.to ?? null,
+        kind,
         created_at: at,
       })),
     )
@@ -521,15 +562,19 @@ export async function recordPushes(
 export async function listPushes(db: Db, projectId: string, limit = 50): Promise<Push[]> {
   const rows = await db
     .selectFrom('git_push')
-    .selectAll()
-    .where('project_id', '=', projectId)
-    .orderBy('created_at', 'desc')
-    .orderBy('ref')
+    .leftJoin('user_account', 'user_account.id', 'git_push.user_id')
+    .selectAll('git_push')
+    .select('user_account.name as name')
+    .where('git_push.project_id', '=', projectId)
+    .orderBy('git_push.created_at', 'desc')
+    .orderBy('git_push.ref')
     .limit(Math.min(Math.max(limit, 1), 200))
     .execute();
   return rows.map((row) => ({
     id: row.id,
     login: row.login,
+    ...(row.name ? { name: row.name } : {}),
+    ...(row.kind ? { kind: row.kind as PushKind } : {}),
     ref: row.ref,
     ...(row.old_commit ? { from: row.old_commit } : {}),
     ...(row.new_commit ? { to: row.new_commit } : {}),

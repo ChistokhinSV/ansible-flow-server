@@ -15,6 +15,7 @@ import { Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
 import type { Kysely } from 'kysely';
 import { extract } from 'tar-stream';
 import type { Schema } from '../db/schema';
+import { LaunchConfigs } from '../launch/configs';
 import type { Git } from './git';
 import { getProject, type Project, ProjectError, recordPushes } from './store';
 import type { ProjectSync } from './sync';
@@ -50,8 +51,19 @@ export interface Sample {
   description: string;
 }
 
+/** AFS-124: a launch configuration a sample project comes with (samples/projects.json). */
+export interface SampleLaunch {
+  name: string;
+  description?: string;
+  flowFile: string;
+  inventory?: string;
+  mode?: 'check' | 'real';
+  inputs?: Record<string, unknown>;
+}
+
 interface SampleEntry extends Sample {
   files: { from: string; to: string }[];
+  launchConfigs?: SampleLaunch[];
 }
 
 let samples: SampleEntry[] | undefined;
@@ -86,6 +98,36 @@ export function sampleFiles(key: string): StartFiles {
   };
   for (const f of sample.files) add(f.from, f.to);
   return files;
+}
+
+/**
+ * AFS-124: the launch configurations of a sample, made for a project just started from it, so its
+ * flow runs at once. One that the server refuses (a name taken, a flow it cannot read) is skipped
+ * and named in `skipped` with the reason: the project itself is there either way.
+ */
+export async function addSampleLaunchConfigs(
+  deps: { db: Kysely<Schema>; git: Git },
+  project: Project,
+  key: string,
+): Promise<{ made: string[]; skipped: { name: string; reason: string }[] }> {
+  const configs = new LaunchConfigs(deps.db, deps.git);
+  const out = { made: [] as string[], skipped: [] as { name: string; reason: string }[] };
+  for (const c of sampleEntries().find((s) => s.key === key)?.launchConfigs ?? []) {
+    try {
+      await configs.create(project.id, {
+        name: c.name,
+        ...(c.description ? { description: c.description } : {}),
+        flowFile: c.flowFile,
+        ...(c.inventory ? { inventory: c.inventory } : {}),
+        mode: c.mode ?? 'check',
+        inputs: c.inputs ?? {},
+      });
+      out.made.push(c.name);
+    } catch (e) {
+      out.skipped.push({ name: c.name, reason: (e as Error).message });
+    }
+  }
+  return out;
 }
 
 // --- archives
@@ -289,7 +331,7 @@ export async function startProject(
       author: { name: by.name, email: row?.email ?? `${by.login}@users.ansible-flow-server` },
       message: `Start ${project.key} from ${what}\n`,
     });
-    await recordPushes(deps.db, project.id, by, [{ ref: project.gitRef, to: made }]);
+    await recordPushes(deps.db, project.id, by, [{ ref: project.gitRef, to: made }], 'start');
     await deps.sync.refresh(project.id);
     return made;
   });

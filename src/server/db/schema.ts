@@ -217,6 +217,8 @@ export interface ProjectTable {
   hook_secret_enc: string | null;
   /** AFS-79: 1 when the project is a library: its flows' subflows are offered to every project. */
   library: number;
+  /** AFS-150: what the project is for, in a line; null: none. */
+  description: string | null;
   created_at: IsoTime;
   updated_at: IsoTime;
 }
@@ -255,6 +257,8 @@ export interface GitPushTable {
   old_commit: string | null;
   /** The commit after; null: the branch was deleted by this push. */
   new_commit: string | null;
+  /** AFS-149: how it came (store.ts PushKind); null for pushes written down before. */
+  kind: string | null;
   created_at: IsoTime;
 }
 
@@ -609,7 +613,8 @@ export interface FlowDraftEditTable {
   draft_id: string;
   revision: number;
   user_id: string | null;
-  kind: 'command' | 'undo' | 'layout';
+  /** AFS-151: start: the flow made from a sample, a playbook or an AWX template. */
+  kind: 'command' | 'undo' | 'layout' | 'start';
   before_text: string;
   after_text: string;
   undone: number;

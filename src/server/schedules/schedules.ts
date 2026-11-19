@@ -1,7 +1,9 @@
 // Schedules (AFS-34): a launch configuration run on a cron, in a time zone, or once at a set time.
 // Kept in the database with the time each fires next; the scheduler looks every half minute for
-// the ones due, takes each by moving its next time on (so two servers never fire one twice), and
-// launches it as its owner, whose grants are checked then and there, not when it was made.
+// the ones due, and wakes at the next one's time when that comes sooner (AFS-139: a fire on time,
+// not up to half a minute late), takes each by moving its next time on (so two servers never fire
+// one twice), and launches it as its owner, whose grants are checked then and there, not when it
+// was made.
 //   After downtime (a fire found more than two minutes late): one catch-up run, or none (`missed`).
 //   While its last run has not ended: skip this fire, or queue another behind it (`overlap`).
 //   The commit: the newest on the configuration's branch when it fires, or a pinned one.
@@ -57,7 +59,8 @@ export class ScheduleError extends Error {
 
 const invalid = (message: string, field?: string) => new ScheduleError('invalid', message, field);
 const iso = (d: Date) => d.toISOString();
-const COMMIT = /^[0-9a-f]{40}$/;
+// AFS-140: short as the pages show it, or full; the launch finds the full id when it runs.
+const COMMIT = /^[0-9a-f]{7,40}$/;
 /** A fire found later than this is one the server missed (it was down, or busy). */
 export const GRACE_MS = 2 * 60 * 1000;
 const UPCOMING = 3;
@@ -80,9 +83,27 @@ const pattern = (cron: string, tz: string) => {
   try {
     return new Cron(cron, { timezone: tz, paused: true });
   } catch (e) {
-    throw invalid(`The cron expression cannot be read: ${(e as Error).message}`, 'cron');
+    throw invalid(plainCron((e as Error).message), 'cron');
   }
 };
+
+/** AFS-140: the parts of a cron, with the values each takes. */
+const CRON_PARTS: Record<string, string> = {
+  second: '0 to 59',
+  minute: '0 to 59',
+  hour: '0 to 23',
+  day: '1 to 31',
+  month: '1 to 12',
+  weekday: '0 to 7, Sunday is 0 or 7',
+};
+
+/** AFS-140: why a cron cannot be read, in words (the cron library says it its own way). */
+export function plainCron(why: string): string {
+  const named = /for (second|minute|hour|dayOfWeek|day|month):/i.exec(why)?.[1]?.toLowerCase();
+  const part = named === 'dayofweek' ? 'weekday' : named;
+  if (part) return `The ${part} part is out of range: it takes ${CRON_PARTS[part]}.`;
+  return 'A cron is five parts: minute hour day month weekday, like 0 3 * * 1-5.';
+}
 
 /** The next `count` times a cron fires after `from`. */
 export function cronTimes(cron: string, tz: string, from: Date, count = 1): Date[] {
@@ -181,9 +202,11 @@ function settled(input: ScheduleInput, before?: Row) {
   if (mode !== null && mode !== 'check' && mode !== 'real')
     throw invalid('The mode is check or real', 'mode');
   const commit =
-    input.commit === undefined ? (before?.commit_id ?? null) : input.commit?.trim() || null;
+    input.commit === undefined
+      ? (before?.commit_id ?? null)
+      : input.commit?.trim().toLowerCase() || null;
   if (commit && !COMMIT.test(commit))
-    throw invalid('A pinned commit is its full 40-character id', 'commit');
+    throw invalid('A commit is its id: 7 to 40 hex digits, like c300821e56a6.', 'commit');
   const missed = input.missed ?? (before?.missed as MissedPolicy | undefined) ?? 'once';
   if (missed !== 'once' && missed !== 'skip')
     throw invalid('After downtime: once or skip', 'missed');
@@ -216,6 +239,9 @@ export interface ScheduleDeps extends PrepareDeps {
 export class Schedules {
   private readonly configs: LaunchConfigs;
   private timer?: NodeJS.Timeout;
+  /** AFS-139: the look at the next schedule's time, when it comes before the round's. */
+  private waking?: NodeJS.Timeout;
+  private everyMs = 30_000;
   private ticking?: Promise<number>;
 
   constructor(private readonly deps: ScheduleDeps) {
@@ -233,7 +259,45 @@ export class Schedules {
       .where('config_id', '=', configId)
       .orderBy('name')
       .execute();
-    return rows.map((r) => of(r));
+    return this.withRuns(rows.map((r) => of(r)));
+  }
+
+  /**
+   * AFS-139: the last fire's run as it stands now: the fire's own words ("Run 4 queued") are of
+   * that moment, and the run went on since.
+   */
+  private async withRuns(given: Schedule[]): Promise<Schedule[]> {
+    const list = await this.withOwnerNames(given);
+    const ids = list.flatMap((s) => (s.last?.run ? [s.last.run] : []));
+    if (!ids.length) return list;
+    const runs = await this.db
+      .selectFrom('run')
+      .select(['id', 'number', 'state'])
+      .where('id', 'in', ids)
+      .execute();
+    const byId = new Map(runs.map((r) => [r.id, r]));
+    return list.map((s) => {
+      const run = s.last?.run ? byId.get(s.last.run) : undefined;
+      return run && s.last
+        ? { ...s, last: { ...s.last, runNumber: run.number, runState: run.state } }
+        : s;
+    });
+  }
+
+  /** AFS-153: owners by their names, as people are shown everywhere else. */
+  private async withOwnerNames(list: Schedule[]): Promise<Schedule[]> {
+    const ids = [...new Set(list.map((s) => s.owner.id))];
+    if (!ids.length) return list;
+    const users = await this.db
+      .selectFrom('user_account')
+      .select(['id', 'name'])
+      .where('id', 'in', ids)
+      .execute();
+    const names = new Map(users.map((u) => [u.id, u.name]));
+    return list.map((s) => {
+      const name = names.get(s.owner.id);
+      return name ? { ...s, owner: { ...s.owner, name } } : s;
+    });
   }
 
   private row(id: string): Promise<Row | undefined> {
@@ -242,7 +306,7 @@ export class Schedules {
 
   async get(id: string): Promise<Schedule | undefined> {
     const row = await this.row(id);
-    return row ? of(row) : undefined;
+    return row ? (await this.withRuns([of(row)]))[0] : undefined;
   }
 
   /**
@@ -304,6 +368,7 @@ export class Schedules {
       updated_at: iso(now),
     };
     await this.db.insertInto('schedule').values(row).execute();
+    this.wake();
     return of(row, now);
   }
 
@@ -355,7 +420,8 @@ export class Schedules {
       ...(change.owner ? { owner_id: change.owner.id, owner_login: change.owner.login } : {}),
     };
     await this.db.updateTable('schedule').set(set).where('id', '=', id).execute();
-    return of((await this.row(id)) as Row, now);
+    this.wake();
+    return (await this.withRuns([of((await this.row(id)) as Row, now)]))[0] as Schedule;
   }
 
   /** Someone a schedule may be handed to. */
@@ -369,6 +435,34 @@ export class Schedules {
     return cronTimes(checkedCron(cron, zone), zone, new Date(), 5).map(iso);
   }
 
+  /**
+   * AFS-150: the next times, or every reason they cannot be worked out, each with its field: a
+   * time zone and a cron that are both wrong are both said at once (the cron is read in UTC then).
+   */
+  check(
+    cron: string,
+    tz?: string,
+  ): { times: string[]; problems: { field?: string; message: string }[] } {
+    const problems: { field?: string; message: string }[] = [];
+    const said = (e: unknown) => {
+      if (!(e instanceof ScheduleError)) throw e;
+      problems.push({ ...(e.field ? { field: e.field } : {}), message: e.message });
+    };
+    let zone = 'UTC';
+    try {
+      zone = timeZone(tz);
+    } catch (e) {
+      said(e);
+    }
+    try {
+      const times = cronTimes(checkedCron(cron, zone), zone, new Date(), 5).map(iso);
+      return { times: problems.length ? [] : times, problems };
+    } catch (e) {
+      said(e);
+      return { times: [], problems };
+    }
+  }
+
   async remove(id: string): Promise<void> {
     const done = await this.db.deleteFrom('schedule').where('id', '=', id).executeTakeFirst();
     if (!done.numDeletedRows) throw new ScheduleError('not_found', 'No such schedule');
@@ -376,21 +470,53 @@ export class Schedules {
 
   // --- firing
 
-  /** Looks for due schedules now, then every `everyMs`. */
+  /** Looks for due schedules now, then every `everyMs`, and at the next one's time. */
   start(everyMs = 30_000): void {
-    const look = () => {
-      this.ticking ??= this.tick().finally(() => {
-        this.ticking = undefined;
-      });
-      void this.ticking.catch((e) => this.deps.log.error({ err: e }, 'Firing schedules failed'));
-    };
-    look();
-    this.timer = setInterval(look, everyMs);
+    this.everyMs = everyMs;
+    this.look();
+    this.timer = setInterval(() => this.look(), everyMs);
     this.timer.unref();
+  }
+
+  private look(): void {
+    this.ticking ??= this.tick().finally(() => {
+      this.ticking = undefined;
+      this.wake();
+    });
+    void this.ticking.catch((e) => this.deps.log.error({ err: e }, 'Firing schedules failed'));
+  }
+
+  /**
+   * AFS-139: looks again at the time the next schedule is due, when that comes before the next
+   * look of the half-minute round (a cron at 01:50:00 fires then, not at 01:50:21).
+   */
+  private wake(): void {
+    if (!this.timer) return;
+    void this.db
+      .selectFrom('schedule')
+      .select((eb) => eb.fn.min('next_at').as('next'))
+      .where('enabled', '=', 1)
+      .executeTakeFirst()
+      .then((row) => {
+        if (!this.timer) return;
+        clearTimeout(this.waking);
+        this.waking = undefined;
+        const next = row?.next ? Date.parse(String(row.next)) : Number.NaN;
+        if (Number.isNaN(next)) return;
+        const wait = next - Date.now();
+        if (wait >= this.everyMs) return;
+        // One due now that the last look did not take (it failed) is looked at again in a second.
+        this.waking = setTimeout(() => this.look(), wait > 0 ? wait + 50 : 1000);
+        this.waking.unref();
+      })
+      .catch(() => undefined);
   }
 
   async stop(): Promise<void> {
     clearInterval(this.timer);
+    clearTimeout(this.waking);
+    this.timer = undefined;
+    this.waking = undefined;
     await this.ticking?.catch(() => undefined);
   }
 
@@ -471,13 +597,25 @@ export class Schedules {
         commit: row.commit_id,
       }),
     );
-    if (!prepared.ok)
-      return this.settle(
-        row,
-        now,
-        'failed',
-        prepared.problems[0]?.message ?? 'The launch is not ready',
-      );
+    if (!prepared.ok) {
+      const why = prepared.problems[0]?.message ?? 'The launch is not ready';
+      // AFS-150: its flow is gone (deleted on the branch): the schedule is turned off instead of
+      // failing at every fire, and says why.
+      if (why.startsWith(`There is no flow ${config.flowFile} `)) {
+        await this.db
+          .updateTable('schedule')
+          .set({ enabled: 0, next_at: null })
+          .where('id', '=', row.id)
+          .execute();
+        return this.settle(
+          row,
+          now,
+          'failed',
+          `${why}: the schedule is turned off. Turn it on again once the flow is back.`,
+        );
+      }
+      return this.settle(row, now, 'failed', why);
+    }
     const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
     const run = await this.deps.queue.enqueue(
       { ...prepared.launch, schedule: row.id },

@@ -7,7 +7,7 @@ import { newFlowText } from '@ansible-flow/core/flow/template';
 import { useEffect, useRef, useState } from 'react';
 import { api, type Project } from './api';
 import { navigate } from './router';
-import { Field, Form, Icon, messageOf } from './ui';
+import { Field, Form, Icon, messageOf, refuse, useLoad } from './ui';
 
 const flowPage = (workspace: string, project: string, file: string) =>
   `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}/flow/${file
@@ -15,13 +15,42 @@ const flowPage = (workspace: string, project: string, file: string) =>
     .map(encodeURIComponent)
     .join('/')}`;
 
-/** A key from a name: lower case words joined by dashes. */
-export const keyOf = (name: string) =>
-  name
+/** Letters that do not come apart into a plain letter and marks. */
+const SPELLED: Record<string, string> = {
+  ß: 'ss',
+  æ: 'ae',
+  œ: 'oe',
+  ø: 'o',
+  ł: 'l',
+  đ: 'd',
+  ð: 'd',
+  þ: 'th',
+  ı: 'i',
+};
+
+/**
+ * A key from a name: lower case words joined by dashes. AFS-140: accented letters are kept as
+ * their plain letter (Ünïcödé: unicode), and a long name is cut between words, not inside one.
+ */
+export const keyOf = (name: string, max = 60) => {
+  const words = name
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
     .toLowerCase()
+    .replace(/[ßæœøłđðþı]/g, (c) => SPELLED[c] ?? c)
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
+    .replace(/^-+|-+$/g, '');
+  if (words.length <= max) return words;
+  const cut = words.slice(0, max + 1).lastIndexOf('-');
+  return (cut > 0 ? words.slice(0, cut) : words.slice(0, max)).replace(/-+$/, '');
+};
+
+/**
+ * AFS-125: the key as the name changes: it follows the name (keyOf) while it is empty or still the
+ * key of the name before, and stays once someone typed a key of their own.
+ */
+export const followKey = (name: string, before: string, key: string, max = 60) =>
+  key === '' || key === keyOf(before, max) ? keyOf(name, max) : key;
 
 /**
  * The flow's text with a new header: its own id, key, name, and version 1. Only the `flow:` block
@@ -47,11 +76,46 @@ export function copiedFlowText(text: string, name: string, key: string, id: stri
   return lines.join('\n');
 }
 
-function fileProblem(path: string): string | undefined {
-  if (!/\.flow\.yaml$/.test(path)) return 'A flow file ends in .flow.yaml';
-  if (path.startsWith('/') || path.split('/').some((p) => p === '..' || p === ''))
-    return 'A path inside the project, such as flows/patch-web.flow.yaml';
+/** AFS-140: what is wrong with a new flow's file, in words, or undefined. */
+export function fileProblem(path: string, taken?: ReadonlySet<string>): string | undefined {
+  if (path.startsWith('/') || path.split('/').some((p) => p === '..' || p === '.' || p === ''))
+    return 'The file must be inside the project, such as flows/patch-web/patch-web.flow.yaml (no ../).';
+  if (!/\.flow\.yaml$/.test(path)) return 'A flow file ends in .flow.yaml.';
+  if (taken?.has(path)) return `There is a file ${path} already: choose another name.`;
   return undefined;
+}
+
+/** AFS-140: `file`, or the first of file-2, file-3... that is not taken. */
+export function freeFile(file: string, taken: ReadonlySet<string>): string {
+  if (!file || !taken.has(file)) return file;
+  const stem = file.replace(/\.flow\.yaml$/, '');
+  for (let n = 2; ; n++) if (!taken.has(`${stem}-${n}.flow.yaml`)) return `${stem}-${n}.flow.yaml`;
+}
+
+/** AFS-140: the files of the project's branch, to say a name is taken before saving. */
+function useTaken(project: Project, when = true): ReadonlySet<string> {
+  const files = useLoad(
+    async () =>
+      when && project.commit
+        ? new Set((await api.files(project.id, project.gitRef)).files.map((f) => f.path))
+        : new Set<string>(),
+    [project.id, project.commit, when],
+  );
+  return files.data ?? NONE;
+}
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * AFS-144: where a new flow's file goes, as the samples lay theirs out: a folder of its own under
+ * flows/ (its scenarios file goes beside it). A copy of a flow kept that way gets a folder too; a
+ * copy of one kept otherwise stays beside it.
+ */
+export function flowFileFor(key: string, from?: string): string {
+  if (!from) return `flows/${key}/${key}.flow.yaml`;
+  const own = /^(.*\/)?([^/]+)\/\2\.flow\.yaml$/.exec(from);
+  if (own) return `${own[1] ?? ''}${key}/${key}.flow.yaml`;
+  const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
+  return `${folder}${key}.flow.yaml`;
 }
 
 /** New flow, on a project's page. */
@@ -67,16 +131,18 @@ export function NewFlowForm({
   const [name, setName] = useState('');
   const [path, setPath] = useState<string>();
   const key = keyOf(name);
-  const file = path ?? (key ? `flows/${key}.flow.yaml` : '');
+  const taken = useTaken(project);
+  const file = path ?? (key ? freeFile(flowFileFor(key), taken) : '');
   return (
     <section className="panel sheet" aria-label="New flow">
       <Form
+        open
         submit="Make the flow"
         onCancel={onCancel}
         onSubmit={async () => {
-          if (!SLUG.test(key)) throw new Error('A name with letters or digits');
-          const problem = fileProblem(file);
-          if (problem) throw new Error(problem);
+          if (!SLUG.test(key)) refuse('name', 'A name with letters or digits is needed.');
+          const problem = fileProblem(file, taken);
+          if (problem) refuse('file', problem);
           await api.saveFiles(project.id, {
             branch: project.gitRef,
             message: `Add the flow ${name.trim()}`,
@@ -90,6 +156,7 @@ export function NewFlowForm({
       >
         <Field
           label="Name"
+          name="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
@@ -98,11 +165,12 @@ export function NewFlowForm({
         />
         <Field
           label="File"
+          name="file"
           value={file}
           onChange={(e) => setPath(e.target.value)}
           required
           spellCheck={false}
-          hint={`One commit on ${project.gitRef}${project.commit ? '' : ', the first of the project'}. It starts with Start wired to Done and a host list input, and opens for editing.`}
+          hint={`Made from the name: a folder of its own under flows/, as the samples have. One commit on ${project.gitRef}${project.commit ? '' : ', the first of the project'}. It starts with Start wired to Done and a host list input, and opens for editing.`}
         />
       </Form>
     </section>
@@ -117,6 +185,7 @@ export function FlowFileActions({
   name,
   commit,
   usedBy,
+  configIds = [],
   doing,
   onDone,
 }: {
@@ -127,6 +196,8 @@ export function FlowFileActions({
   commit: string;
   /** Names of the launch configurations that run it. */
   usedBy: string[];
+  /** AFS-147: their ids, to name the schedules that would fire it. */
+  configIds?: string[];
   /** AFS-110: which form is open (picked in the head's More menu), and closing it. */
   doing?: 'copy' | 'delete';
   onDone(): void;
@@ -141,22 +212,50 @@ export function FlowFileActions({
     }
   }, [doing]);
   const copyKey = keyOf(copyName);
-  const folder = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
   const [copyPath, setCopyPath] = useState<string>();
-  const copyFile = copyPath ?? (copyKey ? `${folder}${copyKey}.flow.yaml` : '');
+  const taken = useTaken(project, doing === 'copy');
+  // AFS-140: the file offered is one that is not there yet; AFS-144: in a folder of its own.
+  const copyFile = copyPath ?? (copyKey ? freeFile(flowFileFor(copyKey, file), taken) : '');
   const [error, setError] = useState<string>();
+  // AFS-134: one delete at a time (a double click sent two).
+  const [deleting, setDeleting] = useState(false);
+  // AFS-147: the schedules that would fire it after it is gone, named before the delete. AFS-150:
+  // those of configurations that follow the branch it is deleted on (not pinned to a commit or on
+  // another branch, where it stays) are turned off with it, so they do not fire and fail.
+  const schedules = useLoad(
+    async () =>
+      doing === 'delete' && configIds.length
+        ? (
+            await Promise.all(
+              configIds.map(async (id) => {
+                const [config, list] = await Promise.all([
+                  api.launchConfig(id).catch(() => undefined),
+                  api.schedules(id).catch(() => []),
+                ]);
+                const follows =
+                  !!config &&
+                  !config.commit &&
+                  (!config.gitRef || config.gitRef === project.gitRef);
+                return follows ? list : [];
+              }),
+            )
+          ).flat()
+        : [],
+    [doing, configIds.join(' ')],
+  ).data?.filter((s) => s.enabled);
   return (
     <>
       {doing === 'copy' && (
         <section className="panel sheet" aria-label="Copy the flow">
           <Form
+            open
             submit="Make the copy"
             onCancel={() => onDone()}
             onSubmit={async () => {
-              if (!SLUG.test(copyKey)) throw new Error('A name with letters or digits');
-              const problem = fileProblem(copyFile);
-              if (problem) throw new Error(problem);
-              if (copyFile === file) throw new Error('Another file than the flow itself');
+              if (!SLUG.test(copyKey)) refuse('name', 'A name with letters or digits is needed.');
+              if (copyFile === file) refuse('file', 'Another file than the flow itself.');
+              const problem = fileProblem(copyFile, taken);
+              if (problem) refuse('file', problem);
               // The page may show an older commit than the branch has now: the newest is read then.
               const text = await api.fileText(project.id, file, commit).catch(async () => {
                 const now = (await api.projects(workspace)).find((p) => p.id === project.id);
@@ -179,12 +278,14 @@ export function FlowFileActions({
           >
             <Field
               label="Name"
+              name="name"
               value={copyName}
               onChange={(e) => setCopyName(e.target.value)}
               required
             />
             <Field
               label="File"
+              name="file"
               value={copyFile}
               onChange={(e) => setCopyPath(e.target.value)}
               required
@@ -195,7 +296,8 @@ export function FlowFileActions({
         </section>
       )}
       {doing === 'delete' && (
-        <section className="panel sheet" aria-label="Delete the flow">
+        <section className="panel danger-zone" aria-labelledby="delete-flow">
+          <h2 id="delete-flow">Delete the flow</h2>
           <p>
             Deletes <code>{file}</code> in one commit on {project.gitRef}. Its runs stay in the
             history.
@@ -204,6 +306,13 @@ export function FlowFileActions({
             <p className="notice warn">
               Launch configurations run it: {usedBy.join(', ')}. They cannot launch once it is gone:
               delete or change them too.
+            </p>
+          )}
+          {!!schedules?.length && (
+            <p className="notice warn" data-schedules>
+              {schedules.length === 1 ? 'The schedule' : 'The schedules'}{' '}
+              {schedules.map((s) => s.name).join(', ')} {schedules.length === 1 ? 'fires' : 'fire'}{' '}
+              it: {schedules.length === 1 ? 'it is' : 'they are'} turned off with it.
             </p>
           )}
           {error && (
@@ -215,7 +324,10 @@ export function FlowFileActions({
             <button
               type="button"
               className="danger"
+              disabled={deleting}
               onClick={async () => {
+                if (deleting) return;
+                setDeleting(true);
                 setError(undefined);
                 try {
                   await api.saveFiles(project.id, {
@@ -223,11 +335,19 @@ export function FlowFileActions({
                     message: `Delete the flow ${name}`,
                     changes: [{ op: 'delete', path: file }],
                   });
+                  // A schedule that cannot be turned off here is turned off by the server when it
+                  // next fires and finds no flow.
+                  await Promise.all(
+                    (schedules ?? []).map((s) =>
+                      api.changeSchedule(s.config, s.id, { enabled: false }).catch(() => undefined),
+                    ),
+                  );
                   navigate(
                     `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project.key)}`,
                   );
                 } catch (e) {
                   setError(messageOf(e));
+                  setDeleting(false);
                 }
               }}
             >

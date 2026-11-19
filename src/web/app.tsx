@@ -1,18 +1,20 @@
 // The application: who is signed in, the frame around every page (a side menu, AFS-64), and
 // which page an address is.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { ApiDocs } from './apidocs';
-import { ApprovalsPage } from './approvals';
+import { APPROVALS_CHANGED, ApprovalsPage } from './approvals';
 import { AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
 import { Entry, Setup, SignIn } from './entry';
 import { EnvironmentPage } from './environments';
 import { FilesPage } from './files';
 import { FlowPage } from './flow';
+import { GuidePage } from './guidePage';
+import { HelpPage } from './help';
 import { Home } from './home';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { LibraryPage } from './library';
@@ -21,6 +23,7 @@ import { AdminOnly, NotFound, ProjectPage, Workspace, Workspaces } from './pages
 import { GroupPage, PeoplePage, UserPage } from './people';
 import { Link, match, navigate, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
+import { listenForSaveKey } from './saveKey';
 import { SearchBox } from './search';
 import { SignInPage } from './signin';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
@@ -47,7 +50,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
     try {
       const [workspace, project, file] = flow.slice(1).map(decodeURIComponent);
       if (workspace && project && file)
-        return <FlowPage workspace={workspace} project={project} file={file} theme={theme} />;
+        return (
+          <FlowPage me={me} workspace={workspace} project={project} file={file} theme={theme} />
+        );
     } catch {
       return <NotFound />;
     }
@@ -60,6 +65,12 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (path === '/account') return <Account me={me} tab="profile" />;
   if (path === '/account/tokens') return <Account me={me} tab="tokens" />;
   if (path === '/docs/api') return <ApiDocs />;
+  // AFS-143: help, at the addresses people try.
+  if (path === '/help' || path === '/guide' || path === '/docs') return <HelpPage />;
+  // AFS-155: the guide of this server's version, served by the server itself.
+  if (path === '/help/guide' || path === '/help/guide/') return <GuidePage page="README.md" />;
+  const guidePage = match('/help/guide/:page', path);
+  if (guidePage?.page) return <GuidePage page={guidePage.page} />;
   if (path === '/approvals') return <ApprovalsPage />;
   if (path === '/library') return <LibraryPage />;
   // AFS-87: the side menu lists the administration's pages; its own address opens the first.
@@ -79,7 +90,9 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (group?.id) return me.admin ? <GroupPage id={group.id} /> : <AdminOnly />;
   const environment = match('/w/:workspace/environments/:id', path);
   if (environment?.workspace && environment.id)
-    return <EnvironmentPage workspace={environment.workspace} id={environment.id} />;
+    return (
+      <EnvironmentPage workspace={environment.workspace} id={environment.id} admin={me.admin} />
+    );
   const config = match('/w/:workspace/:project/launch/:id', path);
   if (config?.workspace && config.project && config.id)
     return config.id === 'new' ? (
@@ -140,6 +153,47 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   return <NotFound />;
 }
 
+/**
+ * AFS-142: after a page change the focus goes to the new page's title, as a screen reader expects,
+ * not to the page's body. The title may come once the page has loaded, so it is watched for a
+ * while. Focus still on something in the page (a tab of the same page, a field) stays there.
+ */
+export function useFocusOnNewPage(path: string): void {
+  const first = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the page changes
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const main = document.getElementById('main');
+    if (!main) return;
+    const here = document.activeElement;
+    if (here && here !== document.body && main.contains(here)) return;
+    const place = () => {
+      const title = main.querySelector('h1');
+      if (!title) return false;
+      if (!title.hasAttribute('tabindex')) title.setAttribute('tabindex', '-1');
+      title.focus({ preventScroll: true });
+      return true;
+    };
+    if (place()) return;
+    const watch = new MutationObserver(() => {
+      if (place()) stop();
+    });
+    const stop = () => {
+      watch.disconnect();
+      clearTimeout(timer);
+      document.removeEventListener('focusin', stop);
+    };
+    watch.observe(main, { childList: true, subtree: true });
+    const timer = setTimeout(stop, 5000);
+    // The person moved on before the title came: their focus wins.
+    document.addEventListener('focusin', stop);
+    return stop;
+  }, [path]);
+}
+
 /** The side menu: the places, the workspaces, and the person's own things at the end. */
 function Side({
   me,
@@ -160,7 +214,19 @@ function Side({
   // Approvals arrive while pages are open: the count looks again now and then.
   useEffect(() => {
     const timer = setInterval(approvals.reload, 30_000);
-    return () => clearInterval(timer);
+    // AFS-133: a decision made on any page counts at once.
+    window.addEventListener(APPROVALS_CHANGED, approvals.reload);
+    // AFS-146: and one made on a run's canvas (the designer's frame says so).
+    const fromFrame = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if ((event.data as { type?: string } | null)?.type === APPROVALS_CHANGED) approvals.reload();
+    };
+    window.addEventListener('message', fromFrame);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener(APPROVALS_CHANGED, approvals.reload);
+      window.removeEventListener('message', fromFrame);
+    };
   }, [approvals.reload]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.
   const here = /^\/w\/([^/]+)/.exec(path)?.[1];
@@ -172,6 +238,18 @@ function Side({
   // The menu folds away on a phone once a page is picked.
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every new page
   useEffect(() => setOpen(false), [path]);
+  // AFS-142: Escape folds the phone menu and gives the focus back to its button.
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      toggle.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
 
   const waiting = approvals.data?.filter((a) => a.mayDecide).length ?? 0;
   const at = (to: string) =>
@@ -192,13 +270,14 @@ function Side({
           <span>Ansible Flow Server</span>
         </Link>
         <button
+          ref={toggle}
           type="button"
           className="menu-toggle"
           aria-expanded={open}
           aria-controls="side-menu"
           onClick={() => setOpen(!open)}
         >
-          Menu
+          {open ? 'Close menu' : 'Menu'}
         </button>
       </div>
       <div className="side-body" id="side-menu">
@@ -221,18 +300,21 @@ function Side({
             Library
           </Link>
         </nav>
-        <nav aria-label="Workspaces" className="side-nav">
-          <span className="side-label">
-            <Link to="/workspaces" aria-current={at('/workspaces')}>
-              Workspaces
-            </Link>
-          </span>
-          {workspaces.data?.map((w) => (
-            <Link key={w.id} to={`/w/${w.key}`} aria-current={at(`/w/${w.key}`)}>
-              {w.name}
-            </Link>
-          ))}
-        </nav>
+        {/* AFS-152: no empty heading for who has no workspace yet (Home says whom to ask). */}
+        {(me.admin || !!workspaces.data?.length) && (
+          <nav aria-label="Workspaces" className="side-nav">
+            <span className="side-label">
+              <Link to="/workspaces" aria-current={at('/workspaces')}>
+                Workspaces
+              </Link>
+            </span>
+            {workspaces.data?.map((w) => (
+              <Link key={w.id} to={`/w/${w.key}`} aria-current={at(`/w/${w.key}`)}>
+                {w.name}
+              </Link>
+            ))}
+          </nav>
+        )}
         {me.admin && (
           // AFS-87: the administration's pages are in the menu, not behind an index page.
           <nav aria-label="Administration" className="side-nav">
@@ -255,6 +337,9 @@ function Side({
           </nav>
         )}
         <div className="side-end">
+          <Link to="/help" aria-current={at('/help')}>
+            Help
+          </Link>
           <Link to="/account" aria-current={at('/account')}>
             {me.name}
           </Link>
@@ -277,21 +362,24 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      setSession({ state: 'signed-in', user: await api.me() });
+      const user = await api.me();
+      if (user) return setSession({ state: 'signed-in', user });
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 401)
         return setSession({
           state: 'unreachable',
           message: e instanceof ApiError ? e.message : 'The page could not start.',
         });
-      // Nobody is signed in: a new server asks for its first administrator instead.
-      const needed = await api.setupNeeded().then(
-        (reply) => reply.needed,
-        () => false,
-      );
-      setSession({ state: needed ? 'setup' : 'signed-out' });
     }
+    // Nobody is signed in: a new server asks for its first administrator instead.
+    const needed = await api.setupNeeded().then(
+      (reply) => reply.needed,
+      () => false,
+    );
+    setSession({ state: needed ? 'setup' : 'signed-out' });
   }, []);
+  // AFS-166: Ctrl+S saves on every page, and never opens the browser's Save page dialog.
+  useEffect(() => listenForSaveKey(), []);
   useEffect(() => {
     setSignedOutHandler(() => setSession({ state: 'signed-out' }));
     void load();
@@ -301,10 +389,12 @@ export function App() {
   }, [theme]);
   // AFS-107: the top bar's place for a page's breadcrumbs.
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
+  useFocusOnNewPage(path);
 
   const signedIn = (user: User) => {
     // /signin is only the page a refused provider sign-in comes back to: nothing is there once in.
-    if (window.location.pathname === '/signin') navigate('/', { replace: true });
+    // The same for /setup, the address the setup code is written with (AFS-158).
+    if (/^\/(signin|setup)$/.test(window.location.pathname)) navigate('/', { replace: true });
     setSession({ state: 'signed-in', user });
   };
   const me = session.state === 'signed-in' ? session.user : undefined;
@@ -362,6 +452,8 @@ export function App() {
           onTheme={() => setTheme(nextTheme(theme))}
           onSignOut={async () => {
             await api.signOut().catch(() => undefined);
+            // AFS-134: the next person starts at the start page, not this one's last page.
+            window.history.replaceState(null, '', '/');
             setSession({ state: 'signed-out' });
           }}
         />

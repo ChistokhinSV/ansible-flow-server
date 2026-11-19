@@ -28,6 +28,8 @@ export interface SessionUser {
   /** Set when the request is signed in with a personal access token, not a session. */
   token?: {
     id: string;
+    /** AFS-145: the token's name, for the audit log (the token may be gone when it is read). */
+    name: string;
     readOnly: boolean;
     workspace?: string;
     /** AFS-24: an agent with this token may decide approvals over MCP. */

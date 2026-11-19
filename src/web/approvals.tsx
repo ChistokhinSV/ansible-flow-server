@@ -6,29 +6,93 @@ import { api, type Gate } from './api';
 import { Link } from './router';
 import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
-/** Approve or reject, with a comment. Resolves when the server has it. */
+/** AFS-133: the sidebar's count and other lists read again once a decision is made. */
+export const APPROVALS_CHANGED = 'afs-approvals-changed';
+
+/**
+ * Approve or reject, with a comment (required to reject). Each asks once more, naming what
+ * happens next (AFS-133). Resolves when the server has it.
+ */
 function DecideForm({
+  title,
+  next,
   onDecide,
 }: {
+  title: string;
+  /** AFS-146: where each decision sends the waiting hosts. */
+  next?: Gate['next'] | undefined;
   onDecide(decision: 'approved' | 'rejected', comment: string): Promise<void>;
 }) {
   const id = useId();
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const decide = async (decision: 'approved' | 'rejected', event?: FormEvent) => {
-    event?.preventDefault();
+  const [asking, setAsking] = useState<'approved' | 'rejected'>();
+  const decide = async (decision: 'approved' | 'rejected') => {
     setBusy(true);
     setError(undefined);
     try {
-      await onDecide(decision, comment);
+      await onDecide(decision, comment.trim());
+      window.dispatchEvent(new Event(APPROVALS_CHANGED));
     } catch (e) {
       setError(messageOf(e));
       setBusy(false);
+      setAsking(undefined);
     }
   };
+  const ask = (decision: 'approved' | 'rejected', event?: FormEvent) => {
+    event?.preventDefault();
+    if (decision === 'rejected' && !comment.trim()) {
+      setError('Say why you reject it: the comment is kept with the run.');
+      document.getElementById(`${id}-comment`)?.focus();
+      return;
+    }
+    setError(undefined);
+    setAsking(decision);
+  };
+  if (asking)
+    return (
+      <fieldset className="form decide" aria-label="Confirm the decision">
+        <p>
+          {asking === 'approved'
+            ? `Approve "${title}"? The hosts waiting here go on to ${next?.approved ? `"${next.approved}"` : 'the next steps'}.`
+            : `Reject "${title}"? The hosts waiting here ${next?.rejected ? `go to "${next.rejected}"` : 'take the rejected path'}, not on to the change.`}
+        </p>
+        {/* AFS-146: what will be kept with the decision stays in sight while it is confirmed. */}
+        {comment.trim() ? (
+          <p data-confirm-comment>
+            Your comment: <q className="comment">{comment.trim()}</q>
+          </p>
+        ) : (
+          <p className="muted">No comment.</p>
+        )}
+        {error && (
+          <p className="notice error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="actions">
+          <button
+            type="button"
+            className={asking === 'approved' ? 'primary' : 'danger'}
+            disabled={busy}
+            onClick={() => void decide(asking)}
+          >
+            {asking === 'approved' ? 'Approve' : 'Reject'}
+          </button>
+          <button
+            type="button"
+            className="neutral"
+            disabled={busy}
+            onClick={() => setAsking(undefined)}
+          >
+            Keep waiting
+          </button>
+        </div>
+      </fieldset>
+    );
   return (
-    <form className="form decide" onSubmit={(e) => void decide('approved', e)}>
+    <form className="form decide" onSubmit={(e) => ask('approved', e)}>
       <div className="field">
         <label htmlFor={`${id}-comment`}>Comment</label>
         <textarea
@@ -36,7 +100,7 @@ function DecideForm({
           rows={2}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder="Why, for the record"
+          placeholder="Why, for the record (required to reject)"
           maxLength={2000}
         />
       </div>
@@ -47,13 +111,43 @@ function DecideForm({
       )}
       <div className="actions">
         <button type="submit" className="primary" disabled={busy}>
-          Approve
+          Approve…
         </button>
-        <button type="button" disabled={busy} onClick={() => void decide('rejected')}>
-          Reject
+        <button type="button" disabled={busy} onClick={() => ask('rejected')}>
+          Reject…
         </button>
       </div>
     </form>
+  );
+}
+
+/** AFS-146: who may decide a gate, by name, as a phrase. */
+export function decidersText(gate: Gate): string {
+  const names = gate.deciders ?? gate.approvers;
+  if (!names.length) return 'An administrator';
+  if (names.length === 1) return names[0] as string;
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+}
+
+/** AFS-146: a run's inputs as the approver reads them, secrets already shown as ***. */
+function InputsLine({ inputs }: { inputs?: Record<string, unknown> | undefined }) {
+  const entries = Object.entries(inputs ?? {});
+  if (!entries.length) return null;
+  const shown = (v: unknown) => {
+    const t = typeof v === 'string' ? v : JSON.stringify(v);
+    return t.length > 80 ? `${t.slice(0, 80)}…` : t;
+  };
+  return (
+    <p className="muted" data-approval-inputs>
+      Inputs:{' '}
+      {entries.slice(0, 8).map(([name, value], i) => (
+        <span key={name}>
+          {i > 0 && ', '}
+          <span className="mono">{name}</span> = {shown(value)}
+        </span>
+      ))}
+      {entries.length > 8 ? ', …' : ''}
+    </p>
   );
 }
 
@@ -87,19 +181,36 @@ function GateCard({
         </span>
       </p>
       {gate.message && <p>{gate.message}</p>}
-      <p className="muted">
-        Waiting since <Time at={gate.createdAt} />
-        {gate.deadline && (
-          <>
-            {' '}
-            · times out <Time at={gate.deadline} />
-          </>
-        )}
-        {gate.approvers.length > 0 && <> · approvers: {gate.approvers.join(', ')}</>}
-      </p>
+      {/* AFS-133: what is being decided: the hosts that wait here. */}
+      {gate.hosts && gate.hosts.length > 0 && (
+        <p data-gate-hosts>
+          {gate.status === 'waiting' ? 'Hosts waiting' : 'Hosts it was for'} ({gate.hosts.length}
+          ): {gate.hosts.slice(0, 12).join(', ')}
+          {gate.hosts.length > 12 ? ', …' : ''}
+        </p>
+      )}
+      {/* AFS-143: "waiting since" only while it waits; a decided one says when it was asked. */}
+      {gate.status === 'waiting' ? (
+        <p className="muted">
+          Waiting since <Time at={gate.createdAt} />
+          {gate.deadline && (
+            <>
+              {' '}
+              · times out <Time at={gate.deadline} />
+            </>
+          )}
+          {/* AFS-133, AFS-146: who may decide, always, by name. */} · decided by{' '}
+          {decidersText(gate)}
+        </p>
+      ) : (
+        <p className="muted">
+          Asked <Time at={gate.createdAt} />
+        </p>
+      )}
       {gate.status !== 'waiting' && (
         <p>
-          {gate.status} by {gate.decidedBy ?? 'nobody'}
+          {gate.status} by{' '}
+          <span title={gate.decidedBy}>{gate.decidedByName ?? gate.decidedBy ?? 'nobody'}</span>
           {gate.decidedAt && (
             <>
               , <Time at={gate.decidedAt} />
@@ -110,9 +221,9 @@ function GateCard({
       )}
       {gate.status === 'waiting' &&
         (mayDecide ? (
-          <DecideForm onDecide={onDecide} />
+          <DecideForm title={gate.node.title} next={gate.next} onDecide={onDecide} />
         ) : (
-          <p className="muted">{why ?? 'Someone allowed to approve decides it.'}</p>
+          <p className="muted">{why ?? `${decidersText(gate)} decides it.`}</p>
         ))}
     </div>
   );
@@ -147,11 +258,20 @@ export function RunApprovals({ run, changed }: { run: string; changed: string })
 /** Everything that waits for a decision, that this person may see. */
 export function ApprovalsPage() {
   const list = useLoad(() => api.approvals(), []);
+  // AFS-133: what was just decided here, said until the next decision.
+  const [decided, setDecided] = useState<{ text: string; run: string }>();
   // Runs reach approvals while the page is open: it looks again now and then.
   useEffect(() => {
     const timer = setInterval(list.reload, 15_000);
     return () => clearInterval(timer);
   }, [list.reload]);
+  const decidedList = useLoad(() => api.decidedApprovals().catch(() => []), [decided]);
+  // AFS-146: the sidebar's count follows what this page reads (a run that arrived, one decided
+  // elsewhere), not its own slower look.
+  const count = list.data?.filter((a) => a.mayDecide).length;
+  useEffect(() => {
+    if (count !== undefined) window.dispatchEvent(new Event(APPROVALS_CHANGED));
+  }, [count]);
   const mine = list.data?.filter((a) => a.mayDecide) ?? [];
   const others = list.data?.filter((a) => !a.mayDecide) ?? [];
   // Yours: each a tinted box with the decision in it (AFS-82). Others': plain rows with why not.
@@ -161,14 +281,29 @@ export function ApprovalsPage() {
         <Link to={`/runs/${a.run.id}`}>
           {a.run.flow.name} #{a.run.number}
         </Link>{' '}
-        <span className="muted">· launched by {a.requestedBy}</span>
+        <span className="muted">
+          · launched by <span title={a.requestedBy}>{a.requestedByName ?? a.requestedBy}</span>
+          {a.run.projectName && (
+            <>
+              {' '}
+              · {a.run.workspaceName ? `${a.run.workspaceName} / ` : ''}
+              {a.run.projectName}
+            </>
+          )}
+          {a.run.mode && <> · {a.run.mode === 'real' ? 'real run' : 'check run'}</>}
+        </span>
       </p>
+      <InputsLine inputs={a.run.inputs} />
       <GateCard
         gate={a.gate}
         mayDecide={a.mayDecide}
         {...(a.why ? { why: a.why } : {})}
         onDecide={async (decision, comment) => {
           await api.decide(a.run.id, a.gate.node.id, decision, comment);
+          setDecided({
+            text: `You ${decision} "${a.gate.node.title}" of ${a.run.flow.name} #${a.run.number}.`,
+            run: a.run.id,
+          });
           list.reload();
         }}
       />
@@ -177,6 +312,7 @@ export function ApprovalsPage() {
   return (
     <>
       <PageHead
+        help="approvals.md"
         title="Approvals"
         lead={
           list.data
@@ -186,6 +322,11 @@ export function ApprovalsPage() {
             : undefined
         }
       />
+      {decided && (
+        <p className="notice ok" role="status">
+          {decided.text} <Link to={`/runs/${decided.run}`}>Open the run</Link>
+        </p>
+      )}
       <Loading state={list} />
       {list.data && list.data.length === 0 && <p className="empty">No run waits for a decision.</p>}
       {mine.length > 0 && (
@@ -198,6 +339,35 @@ export function ApprovalsPage() {
         <section aria-labelledby="others">
           <h2 id="others">Waiting for others</h2>
           <ul className="approvals list">{others.map((a) => card(a, false))}</ul>
+        </section>
+      )}
+      {decidedList.data && decidedList.data.length > 0 && (
+        <section aria-labelledby="decided">
+          <h2 id="decided">Decided lately</h2>
+          <ul className="approvals list">
+            {decidedList.data.slice(0, 20).map((a) => (
+              <li key={a.gate.id} className="approval-row" data-decided={a.gate.status}>
+                <p className="approval-run">
+                  <Link to={`/runs/${a.run.id}`}>
+                    {a.run.flow.name} #{a.run.number}
+                  </Link>{' '}
+                  <span className="muted">· {a.gate.node.title}</span>{' '}
+                  <span className={`badge ${STATUS_TONE[a.gate.status] ?? ''}`}>
+                    {a.gate.status}
+                  </span>{' '}
+                  <span className="muted">
+                    {a.gate.decidedBy ? `by ${a.gate.decidedByName ?? a.gate.decidedBy}` : ''}
+                    {a.gate.decidedAt && (
+                      <>
+                        , <Time at={a.gate.decidedAt} />
+                      </>
+                    )}
+                  </span>
+                </p>
+                {a.gate.comment && <q className="comment">{a.gate.comment}</q>}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </>

@@ -4,6 +4,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
+import { formatTime } from '../../src/web/ui';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -11,10 +12,16 @@ const HITS = [
   {
     kind: 'flow',
     title: 'Hello, Ansible',
-    detail: 'net/edge · flows/hello.flow.yaml',
+    detail: 'Network / Edge · flows/hello.flow.yaml',
     to: '/w/net/edge/flow/flows/hello.flow.yaml',
   },
-  { kind: 'run', title: 'Run 7 · Hello, Ansible', detail: 'net/edge · succeeded', to: '/runs/r7' },
+  {
+    kind: 'run',
+    title: 'Hello, Ansible #7',
+    detail: 'Network / Edge · went well',
+    to: '/runs/r7',
+    at: '2026-11-18T00:44:00.000Z',
+  },
 ];
 
 let asked: string[];
@@ -68,13 +75,18 @@ describe('the search field', () => {
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(document.activeElement).toBe(field);
 
+    // AFS-140: one character finds nothing on purpose, and says so.
+    fireEvent.change(field, { target: { value: 'h' } });
+    expect(screen.getByText('Type at least 2 characters to search.')).toBeTruthy();
     fireEvent.change(field, { target: { value: 'hello' } });
+    expect(screen.queryByText('Type at least 2 characters to search.')).toBeNull();
     const list = await screen.findByRole('listbox', { name: 'Search results' });
     await within(list).findByText('Hello, Ansible');
     const options = within(list).getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
-      'flowHello, Ansiblenet/edge · flows/hello.flow.yaml',
-      'runRun 7 · Hello, Ansiblenet/edge · succeeded',
+      'flowHello, AnsibleNetwork / Edge · flows/hello.flow.yaml',
+      // AFS-139: the run's time in this browser's zone, named, as the run page shows it.
+      `runHello, Ansible #7Network / Edge · went well · ${formatTime('2026-11-18T00:44:00.000Z')}`,
     ]);
     fireEvent.keyDown(field, { key: 'ArrowDown' });
     fireEvent.keyDown(field, { key: 'ArrowDown' });
@@ -116,5 +128,62 @@ describe('the search field and the page (AFS-102)', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Runs' }));
     await waitFor(() => expect(field.value).toBe(''));
     expect(screen.queryByRole('listbox', { name: 'Search results' })).toBeNull();
+  });
+});
+
+describe('focus and keys (AFS-142)', () => {
+  it('Esc empties the field and closes the list; the cursor stays in the field', async () => {
+    open(dana);
+    const field = (await screen.findByRole('combobox', { name: 'Search' })) as HTMLInputElement;
+    field.focus();
+    fireEvent.change(field, { target: { value: 'audit' } });
+    await screen.findByRole('listbox');
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(field.value).toBe('');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('/ or Ctrl+K pressed in the designer frame puts the cursor in the field', async () => {
+    open(dana);
+    const field = await screen.findByRole('combobox', { name: 'Search' });
+    // A message from elsewhere is not the frame.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'afs-search-key' },
+        origin: 'https://elsewhere.example',
+      }),
+    );
+    expect(document.activeElement).not.toBe(field);
+    await waitFor(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'afs-search-key' },
+          origin: window.location.origin,
+        }),
+      );
+      expect(document.activeElement).toBe(field);
+    });
+  });
+
+  it('after a page change the focus is on the new page title', async () => {
+    open(dana);
+    routes['GET /workspaces'] = () => ({ body: [] });
+    await screen.findByRole('heading', { name: 'Approvals' });
+    fireEvent.click(screen.getByRole('link', { name: 'Workspaces' }));
+    const title = await screen.findByRole('heading', { level: 1, name: 'Workspaces' });
+    await waitFor(() => expect(document.activeElement).toBe(title));
+  });
+
+  it('the phone menu says it is open, and Esc closes it', async () => {
+    open(dana);
+    const toggle = await screen.findByRole('button', { name: 'Menu' });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.textContent).toBe('Close menu');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent).toBe('Menu');
+    expect(document.activeElement).toBe(toggle);
   });
 });

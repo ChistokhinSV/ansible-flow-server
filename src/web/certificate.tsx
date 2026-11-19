@@ -8,7 +8,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ApiError, api, type CertificateInfo, type CertificateState } from './api';
 import { Link } from './router';
-import { Field, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Field, Loading, messageOf, PageHead, Scroll, Time, useLoad } from './ui';
 
 /** Days left at which administrators are warned, on every page. */
 const WARN_DAYS = 30;
@@ -330,7 +330,7 @@ function History({ turn }: { turn: number }) {
       <Loading state={list} />
       {list.data?.length === 0 && <p className="empty">No change yet.</p>}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -360,7 +360,7 @@ function History({ turn }: { turn: number }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );
@@ -441,6 +441,7 @@ export function CertificatePage() {
   return (
     <>
       <PageHead
+        help="certificates.md"
         title="Server certificate"
         lead="What browsers, git and the VS Code extension see when they connect over HTTPS."
       />
@@ -527,7 +528,8 @@ export function CertificatePage() {
             </div>
           )}
           <History turn={turn} />
-          <div ref={replace}>
+          {/* AFS-144: a section of its own, ruled off from the history above it. */}
+          <div ref={replace} className="panel">
             <Replace way={way} onWay={setWay}>
               {way === 'request' && (
                 <RequestForm

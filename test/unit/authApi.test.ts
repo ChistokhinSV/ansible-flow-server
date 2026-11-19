@@ -114,9 +114,17 @@ describe('signing in', () => {
     expect((await call('GET', '/api/v1/session', { cookie: 'afs_session=nope' })).statusCode).toBe(
       401,
     );
+    // AFS-144: the pages ask as "optional": nobody is an empty answer (no error in the browser).
+    const optional = { 'x-afs-session': 'optional' };
+    const nobody = await call('GET', '/api/v1/session', { headers: optional });
+    expect(nobody.statusCode).toBe(204);
+    expect(nobody.body).toBe('');
+    expect(
+      (await call('GET', '/api/v1/session', { cookie: cookieOf(reply), headers: optional })).json(),
+    ).toMatchObject({ login: 'dana' });
   });
 
-  it('gives one answer for a wrong password, an unknown login and a disabled account', async () => {
+  it('gives one answer for a wrong password and an unknown login; a disabled account says so', async () => {
     const user = await createUser(database.db, { login: 'dana', name: 'Dana', password: PASSWORD });
     await createUser(database.db, { login: 'gone', name: 'Gone', password: PASSWORD });
     const gone = await call('POST', '/api/v1/session', {
@@ -132,7 +140,7 @@ describe('signing in', () => {
       [
         { login: 'dana', password: 'not the password!' },
         { login: 'nobody', password: PASSWORD },
-        { login: 'gone', password: PASSWORD },
+        { login: 'gone', password: 'not the password!' },
       ].map((body) => call('POST', '/api/v1/session', { body })),
     );
     for (const answer of answers) {
@@ -143,6 +151,13 @@ describe('signing in', () => {
       });
       expect(answer.headers['set-cookie']).toBeUndefined();
     }
+    // AFS-134: the right password of a disabled account: told so, and whom to ask; no session.
+    const off = await call('POST', '/api/v1/session', {
+      body: { login: 'gone', password: PASSWORD },
+    });
+    expect(off.statusCode).toBe(403);
+    expect(off.json().error).toBe('disabled');
+    expect(off.headers['set-cookie']).toBeUndefined();
     expect(user.id).toBeTruthy();
     // The log names the login that failed, never the password.
     const log = lines.join('\n');

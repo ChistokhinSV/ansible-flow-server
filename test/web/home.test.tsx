@@ -81,7 +81,14 @@ describe('home', () => {
     render(<App />);
     await screen.findByRole('heading', { name: /, Dana$/ });
     await screen.findByText(
-      '3 runs today: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          '3 runs today: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
+    );
+    // AFS-147: the runs that wait are a link to them.
+    expect(screen.getByRole('link', { name: '1 waits for a decision' }).getAttribute('href')).toBe(
+      '/runs?state=waiting',
     );
     // Only what this person may decide waits for them.
     const waiting = screen
@@ -90,7 +97,7 @@ describe('home', () => {
     expect(within(waiting).getAllByRole('link')).toHaveLength(1);
     expect(within(waiting).getByRole('link').getAttribute('href')).toBe('/runs/r3');
     expect(waiting.textContent).toContain('Change approval');
-    expect(waiting.textContent).toContain('waiting since 22 min ago');
+    expect(waiting.textContent).toContain('waiting for 22 min');
     const recent = screen
       .getByRole('heading', { name: 'Latest runs' })
       .closest('section') as HTMLElement;
@@ -104,7 +111,8 @@ describe('home', () => {
       [...li.querySelectorAll('.c-fact')].map((c) => c.textContent),
     );
     expect(rows[0]).toEqual(expect.arrayContaining(['real', 'omar', '3 min ago']));
-    expect(rows[1]).toEqual(expect.arrayContaining(['you', '3 min ago']));
+    // AFS-143: people by name, yours too (the login when the run has no name).
+    expect(rows[1]).toEqual(expect.arrayContaining(['dana', '3 min ago']));
     // The side menu: the count of approvals for this person, and the workspaces.
     const menu = screen.getByRole('navigation', { name: 'Main' });
     expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals1');
@@ -181,7 +189,32 @@ describe('home', () => {
     await screen.findByText('No run yet today. Nothing waits for you.');
     expect(screen.queryByRole('heading', { name: 'Waiting for you' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Launch again' })).toBeNull();
-    expect(screen.getByText(/An administrator makes the first one/)).toBeTruthy();
+    // AFS-135: workspaces may exist that this person has no access to.
+    expect(
+      screen.getByText(/You have no access to a workspace yet: ask an administrator/),
+    ).toBeTruthy();
+  });
+});
+
+describe('home, your own runs at a gate (AFS-144)', () => {
+  it('says that a run of yours waits for someone else to decide', async () => {
+    const omar = { ...dana, id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false };
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs?limit=100': () => ({ body: [] }),
+      // Two gates of the same run: one run waits.
+      'GET /approvals': () => ({
+        body: [gate('g1', 'Change approval', false), gate('g2', 'Security sign-off', false)],
+      }),
+      'GET /workspaces': () => ({ body: [] }),
+    };
+    render(<App />);
+    await screen.findByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          "No run yet today. Nothing waits for you. 1 run of yours waits for someone else's decision.",
+    );
   });
 });
 

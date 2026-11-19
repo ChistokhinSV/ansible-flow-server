@@ -46,7 +46,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 | ------------- | --------------------------------------------------------------------------- |
 | `flowFile`    | The flow's file in the repository                                           |
 | `gitRef`      | Another branch than the project's to take the newest commit of              |
-| `commit`      | One commit, always (a pin). Not together with `gitRef`                      |
+| `commit`      | One commit, always (a pin): 7 to 40 hex digits. Not together with `gitRef`  |
 | `inventory`   | The inventory's path in the repository; left out: what `ansible.cfg` names  |
 | `eeImage`     | The execution environment's image; left out: the server's default           |
 | `mode`        | `check` (a skeleton run, the default) or `real`                             |
@@ -68,13 +68,29 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/check
 `createdAt`, and `endedAt` once it has ended. A configuration that has not run has none. A
 project's list of flows says the same of each flow.
 
-- **Saved only if it could run now:** the flow, the inventory, the branch or commit, each start
-  value and each credential are checked; a refusal names the setting (`field`).
+- **Saved when its settings are there:** the flow, the inventory, the branch or commit, each
+  start value and each credential are checked; a refusal names the setting (`field`). An
+  environment that has no image yet (still building) is accepted: a launch refuses it until it
+  has one, and the configuration's page says why. The hosts the targets reach are checked at
+  launch.
+- **A flow with errors does not run.** The refusal names the first few (the step and what is
+  wrong) and how many more; the answer lists them all (`errors`: each with `step`, the step's
+  title, and `node`, its id). On the pages each is a link to the step on the flow's page,
+  selected, and opened for editing when you may edit the flow.
+- **Read by id**, a configuration also says its credentials by name (`credentialNames`) and its
+  environment by name with the image a launch gets now, or why there is none
+  (`environmentInfo`). In the list and by id, `flowGone` says that its flow is not on the
+  project's branch any more: the project's page does not offer to launch it.
 - **Which commit runs:** what the launch names (`ref` or `commit`), else what the configuration
   names, else the newest commit of the project's branch, after a look at the source.
 - **At launch** a person may give `mode`, `ref` or `commit`, `limit`, and `inputs` as typed
   text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
   not repeated in the answer.
+- **The limit** is Ansible's `--limit`: the run touches only the targeted hosts it matches. On
+  the launch page, a moment after the targets or the limit change, the fields say what the
+  inventory makes of them: targets it does not have, targets that match no host, and how many
+  hosts the limit leaves (none: the run would stop at once). **What would run** says the same.
+  A real launch asks first; a launch with targets the inventory does not have names them first.
 
 **On the pages:** a project's page lists its launch configurations. A configuration's page
 shows its settings and the launch form:
@@ -90,7 +106,11 @@ shows its settings and the launch form:
 - **Keep as start values** (`rw` on the flow) saves the typed values that are not secret as the
   configuration's.
 - **Hosts in the inventory** (`operator`): under What would run, the hosts the targets match,
-  the names the inventory does not have, and production-looking groups and hosts.
+  the names the inventory does not have, and production-looking groups and hosts. Under a host
+  list, the inventory's groups are buttons that add or take out a group, each with its number of
+  hosts.
+- **The header** names the inventory, the environment (with its image, or why it has none), the
+  limit and the credentials.
 
 **The hosts, as the inventory has them** (`facts`): the server reads the inventory in the
 launch's image, at the launch's commit, with the configuration's environment-variable

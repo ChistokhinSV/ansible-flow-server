@@ -1,6 +1,6 @@
 // Runs over HTTP. Until access levels exist (AFS-27): everyone signed in sees runs;
 // administrators launch (launch/routes.ts), cancel and relaunch.
-//   GET  /api/v1/runs?project=&flow=&state=&config=&by=&limit=&before=
+//   GET  /api/v1/runs?project=&flow=&state=&config=&by=&q=&limit=&before=
 //   GET  /api/v1/runs/:id
 //   POST /api/v1/runs/:id/cancel
 //   POST /api/v1/runs/:id/relaunch    the same run again, as a new run
@@ -22,7 +22,7 @@ import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { readBefore } from './cursor';
 import type { RunHub, RunNews } from './hub';
-import { ACTIVE, type RunQueue, type RunState, STATES } from './queue';
+import { ACTIVE, type Run, type RunQueue, type RunState, STATES } from './queue';
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
@@ -65,6 +65,92 @@ export function registerRuns(
 ): void {
   /** The streams open now: a server that closes ends them, or it would wait for them. */
   const streams = new Set<ServerResponse>();
+  /** AFS-143: who asked for each run by name too: the pages show people by their names. */
+  const named = async (runs: Run[]): Promise<Run[]> => {
+    if (!db || runs.length === 0) return runs;
+    const ids = [...new Set(runs.map((r) => r.requestedBy.id))];
+    const names = new Map(
+      (await db.selectFrom('user_account').select(['id', 'name']).where('id', 'in', ids).execute())
+        .filter((u) => u.name)
+        .map((u) => [u.id, u.name]),
+    );
+    // AFS-146: a failed run whose approval was decided against reads as that.
+    const failed = runs.filter((r) => r.state === 'failed').map((r) => r.id);
+    const against = new Map(
+      failed.length
+        ? (
+            await db
+              .selectFrom('run_gate')
+              .select(['run_id', 'status'])
+              .where('run_id', 'in', failed)
+              .where('status', 'in', ['rejected', 'timed out'])
+              .execute()
+          ).map((g) => [g.run_id, g.status as 'rejected' | 'timed out'])
+        : [],
+    );
+    return runs.map((r) => {
+      const name = names.get(r.requestedBy.id);
+      const decided = against.get(r.id);
+      return {
+        ...r,
+        ...(name ? { requestedBy: { ...r.requestedBy, name } } : {}),
+        ...(decided ? { decidedAgainst: decided } : {}),
+      };
+    });
+  };
+  /** AFS-147: one run as its page shows it: what it ran with, named. */
+  const nameOne = async (run: Run | undefined) => {
+    if (!run) return undefined;
+    const [one] = await named([run]);
+    if (!db || !one) return one;
+    const creds = run.credentials.length
+      ? new Map(
+          (
+            await db
+              .selectFrom('credential')
+              .select(['id', 'name'])
+              .where('id', 'in', run.credentials)
+              .execute()
+          ).map((c) => [c.id, c.name]),
+        )
+      : new Map<string, string>();
+    // The image names its environment: a registered image, or one of its builds.
+    const image = run.eeImage;
+    const env = image
+      ? ((await db
+          .selectFrom('environment')
+          .select(['id', 'name', 'workspace_id'])
+          .where('image', '=', image)
+          .executeTakeFirst()) ??
+        (await db
+          .selectFrom('environment_build')
+          .innerJoin('environment', 'environment.id', 'environment_build.environment_id')
+          .select(['environment.id', 'environment.name', 'environment.workspace_id'])
+          .where('environment_build.image', '=', image)
+          .executeTakeFirst()))
+      : undefined;
+    const config = run.config
+      ? await db
+          .selectFrom('launch_config')
+          .select(['environment_id', 'ee_image'])
+          .where('id', '=', run.config.id)
+          .executeTakeFirst()
+      : undefined;
+    const serverDefault = !!config && !config.environment_id && !config.ee_image;
+    const view = (await queue.view(run.id)) as { skippedTargets?: unknown } | undefined;
+    const skipped = Array.isArray(view?.skippedTargets)
+      ? view.skippedTargets.filter((t): t is string => typeof t === 'string')
+      : [];
+    return {
+      ...one,
+      ...(run.credentials.length
+        ? { credentialNames: run.credentials.map((id) => creds.get(id) ?? id) }
+        : {}),
+      ...(env ? { environment: { id: env.id, name: env.name, workspace: env.workspace_id } } : {}),
+      ...(skipped.length ? { skippedTargets: skipped } : {}),
+      ...(serverDefault ? { serverDefault: true as const } : {}),
+    };
+  };
   app.addHook('preClose', async () => {
     for (const stream of streams) stream.end();
     streams.clear();
@@ -153,7 +239,7 @@ export function registerRuns(
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
       const id = request.params.id;
-      let run = await queue.get(id);
+      let run = await nameOne(await queue.get(id));
       if (!run) return reply.code(404).send(NONE);
 
       reply.hijack();
@@ -241,7 +327,7 @@ export function registerRuns(
           const at = await queue.changedAt(id);
           if (at === changed) return;
           changed = at;
-          run = await queue.get(id);
+          run = await nameOne(await queue.get(id));
           if (!run) return finish();
           send('run', run);
           if (!ACTIVE.includes(run.state as RunState)) await finish();
@@ -261,6 +347,7 @@ export function registerRuns(
       state?: RunState;
       config?: string;
       by?: string;
+      q?: string;
       limit?: number;
       before?: string;
     };
@@ -279,6 +366,8 @@ export function registerRuns(
             config: text(64, 1),
             // A login: the runs that person asked for.
             by: text(200, 1),
+            // AFS-147: words in the flow's name or file, the configuration's, or a login; or #number.
+            q: text(200),
             limit: { type: 'integer', minimum: 1, maximum: 200 },
             // A time, or where the last page ended: `createdAt,number,id` of its last run.
             before: text(120, 1),
@@ -296,7 +385,7 @@ export function registerRuns(
         });
       // Only the runs of what this person may see: the filters narrow that, never widen it.
       const visible = db ? (await accessOf(db, request))?.visible() : undefined;
-      return queue.list({ ...request.query, ...(visible ? { visible } : {}) });
+      return named(await queue.list({ ...request.query, ...(visible ? { visible } : {}) }));
     },
   );
 
@@ -305,7 +394,7 @@ export function registerRuns(
     { schema: ID },
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
-      return (await queue.get(request.params.id)) ?? reply.code(404).send(NONE);
+      return (await nameOne(await queue.get(request.params.id))) ?? reply.code(404).send(NONE);
     },
   );
 
@@ -324,7 +413,9 @@ export function registerRuns(
       if (!run) return reply.code(404).send(NONE);
       // AFS-28: a run stopped while it waits for approval asks nobody any more.
       if (run.state === 'cancelled' && db) await closeGates(db, run.id, me.login);
-      hub?.publish(run.id, { kind: 'state' });
+      // AFS-147: a run that ended here and now has its view in its record, not a live one.
+      if (run.state === 'cancelled') hub?.ended(run.id);
+      else hub?.publish(run.id, { kind: 'state' });
       request.log.info(
         { by: me.login, run: run.id, number: run.number, state: run.state },
         run.state === 'cancelled' ? 'Run cancelled' : 'Run asked to stop',

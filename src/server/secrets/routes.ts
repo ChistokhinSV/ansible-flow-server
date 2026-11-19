@@ -5,6 +5,7 @@
 //   /api/v1/credentials/:id
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { changedKeys } from '../audit/changes';
 import { administrator, signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { getWorkspace } from '../projects/store';
@@ -13,6 +14,7 @@ import {
   CredentialError,
   type CredentialInput,
   createCredential,
+  credentialUses,
   deleteCredential,
   getCredential,
   KINDS,
@@ -54,7 +56,9 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
         return await handler(request, reply);
       } catch (e) {
         if (e instanceof CredentialError)
-          return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
+          return reply
+            .code(STATUS[e.code])
+            .send({ error: e.code, message: e.message, ...(e.field ? { field: e.field } : {}) });
         if (e instanceof SealError) {
           request.log.error({ why: e.message }, 'A stored secret could not be opened');
           return reply.code(500).send({
@@ -68,11 +72,16 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
   type WithId = { Params: { id: string } };
 
   app.get<WithId>('/api/v1/workspaces/:id/credentials', { schema: ID }, async (request, reply) => {
-    if (!signedIn(request, reply)) return reply;
+    const me = signedIn(request, reply);
+    if (!me) return reply;
     const workspace = await getWorkspace(db, request.params.id);
     if (!workspace)
       return reply.code(404).send({ error: 'not_found', message: 'No such workspace' });
-    return listCredentials(db, workspace.id);
+    const list = await listCredentials(db, workspace.id);
+    if (!me.admin) return list;
+    // AFS-150: an administrator (who may delete one) is told what uses each, by name.
+    const uses = await credentialUses(db, workspace.id);
+    return list.map((c) => (uses.has(c.id) ? { ...c, uses: uses.get(c.id) } : c));
   });
 
   app.post<WithId & { Body: CredentialInput }>(
@@ -136,7 +145,17 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
     answering(async (request, reply) => {
       const me = administrator(request, reply);
       if (!me) return reply;
+      const before = await getCredential(db, request.params.id);
       const changed = await updateCredential(db, key, request.params.id, request.body);
+      // AFS-153: the fields whose values changed; a secret sent is a new secret (it is never
+      // read back to compare).
+      const { secret, ...open } = request.body;
+      request.auditDetail = {
+        changed: [
+          ...changedKeys(open, before, changed),
+          ...(secret && Object.keys(secret).length ? ['secret'] : []),
+        ],
+      };
       request.log.info(
         {
           by: me.login,

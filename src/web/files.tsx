@@ -1,14 +1,26 @@
 // AFS-78: a project's files. The tree of a branch, a file to read (and to edit, for text), and the
 // changes made here, kept as a change set until Save makes one commit of them on the branch. The
 // change set lives in this browser until then (a reload keeps it); the server checks it all again.
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { atLeast, useProjectAccess } from './access';
+import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { changeWords, defaultMessage } from '../server/projects/changeWords';
+import { atLeast, ProjectYourAccess, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
+import { MissingProject } from './help';
 import { ProjectStatus } from './pages';
 import { Link, navigate } from './router';
 import { kindOf, type ThemeChoice } from './theme';
-import { Breadcrumb, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Loading,
+  messageOf,
+  PageHead,
+  ProjectName,
+  Tabs,
+  Time,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 const FLOW = /\.flow\.ya?ml$/;
 /** Text the page edits; a bigger file is downloaded (the server takes 1 MB per edited file). */
@@ -56,10 +68,7 @@ export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[]
     [...tree.keys()].filter((p) => p === path || p.startsWith(`${path}/`));
   for (const c of changes) {
     if (c.op === 'write') {
-      const size =
-        c.text !== undefined
-          ? new Blob([c.text]).size
-          : Math.floor(((c.base64 ?? '').length * 3) / 4);
+      const size = c.text !== undefined ? new Blob([c.text]).size : base64Size(c.base64 ?? '');
       const was = tree.get(c.path);
       tree.set(c.path, {
         ...(was ?? {}),
@@ -87,18 +96,34 @@ export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[]
   return [...tree.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/** Words for one change in the list. */
-function describe(c: FileChange): string {
-  switch (c.op) {
-    case 'write':
-      return `${c.text !== undefined ? 'Edit' : 'Upload'} ${c.path}`;
-    case 'delete':
-      return `Delete ${c.path}`;
-    case 'move':
-      return `Move ${c.from} to ${c.to}`;
-    case 'unpack':
-      return `Unpack an archive into ${c.path || 'the top folder'}`;
-  }
+/** AFS-150: the bytes base64 stands for: its padding (= at the end) stands for none. */
+export function base64Size(base64: string): number {
+  const clean = base64.replace(/\s+/g, '');
+  const pad = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - pad);
+}
+
+/** Words for one change in the list (AFS-140: the same words the server commits with). */
+const describe = changeWords;
+
+/**
+ * AFS-140: what is wrong with a path typed for a new file or a move, or undefined: it stays inside
+ * the project, and does not land on a file or folder that is there (that one would be hidden).
+ */
+export function pathProblem(path: string, shown: Shown[], from?: string): string | undefined {
+  const parts = path.split('/');
+  if (!path || path.includes('\\') || parts.some((p) => p === '' || p === '.' || p === '..'))
+    return 'A path inside the project, like playbooks/site.yml: no ../, no empty parts.';
+  const inFrom = (p: string) => from !== undefined && (p === from || p.startsWith(`${from}/`));
+  const there = shown.find(
+    (f) => !inFrom(f.path) && (f.path === path || f.path.startsWith(`${path}/`)),
+  );
+  if (there) return `There is ${there.path === path ? 'a file' : 'a folder'} ${path} already.`;
+  // A file cannot also be a folder: playbooks/site.yml/x is refused while site.yml is a file.
+  const parent = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
+  const file = parent.find((p) => shown.some((f) => f.path === p && !inFrom(f.path)));
+  if (file) return `${file} is a file, not a folder.`;
+  return undefined;
 }
 
 const sizeWords = (n: number) =>
@@ -209,15 +234,18 @@ function TextView({
   text,
   editable,
   dark,
+  focus,
   onChange,
 }: {
   path: string;
   text: string;
   editable: boolean;
   dark: boolean;
+  /** AFS-140: the cursor goes into the text once it shows (a file just made). */
+  focus?: boolean;
   onChange(text: string): void;
 }) {
-  const box = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLElement>(null);
   const change = useRef(onChange);
   change.current = onChange;
   const [failed, setFailed] = useState(false);
@@ -237,6 +265,7 @@ function TextView({
           label: `Text of ${path}`,
           onChange: (t) => change.current(t),
         });
+        if (focus) editor.focus();
       },
       () => setFailed(true),
     );
@@ -255,25 +284,33 @@ function TextView({
         onChange={(e) => onChange(e.target.value)}
       />
     );
-  return <div ref={box} className="code-editor" />;
+  // AFS-140: named outside the shadow root too, for tools that do not look inside it.
+  return <section ref={box} className="code-editor" aria-label={`Text of ${path}`} />;
 }
 
 function PathForm({
   label,
   start,
+  check,
   onDone,
 }: {
   label: string;
   start: string;
+  /** AFS-140: what is wrong with the path, said at once instead of at Save. */
+  check?(path: string): string | undefined;
   onDone(path?: string): void;
 }) {
   const [value, setValue] = useState(start);
+  const [problem, setProblem] = useState<string>();
+  const id = useId();
   return (
     <form
       className="inline-form"
       onSubmit={(e) => {
         e.preventDefault();
         const path = value.trim().replace(/^\/+/, '');
+        const why = path ? check?.(path) : undefined;
+        if (why) return setProblem(why);
         onDone(path || undefined);
       }}
     >
@@ -283,8 +320,13 @@ function PathForm({
           // biome-ignore lint/a11y/noAutofocus: the field the button opened
           autoFocus
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setProblem(undefined);
+          }}
           aria-label={label}
+          aria-invalid={problem ? true : undefined}
+          aria-describedby={problem ? `${id}-problem` : undefined}
           spellCheck={false}
         />
       </label>{' '}
@@ -292,6 +334,11 @@ function PathForm({
       <button type="button" className="link" onClick={() => onDone()}>
         Cancel
       </button>
+      {problem && (
+        <p id={`${id}-problem`} className="bad-text" role="alert">
+          {problem}
+        </p>
+      )}
     </form>
   );
 }
@@ -316,8 +363,19 @@ export function FilesPage({
   const id = project?.id;
   const access = useProjectAccess(id).data;
   const canEdit = me.admin || atLeast(access?.workspace ?? null, 'rw');
+  // AFS-152: the titles of the flows a grant of one's own names, for the access line.
+  const ownFlows =
+    !!access && !access.admin && Object.values(access.flows).some((l) => l !== access.workspace);
+  const titled = useLoad(
+    async () => (id && ownFlows ? (await api.flows(id)).flows : undefined),
+    [id, ownFlows],
+  );
   const branch = params.get('branch') || project?.gitRef || 'main';
-  const branches = useLoad(async () => (id ? (await api.branches(id)).branches : []), [id]);
+  // AFS-159: read again when a save moves the branch (the first one makes it).
+  const branches = useLoad(
+    async () => (id ? (await api.branches(id)).branches : []),
+    [id, project?.commit],
+  );
   const listing = useLoad(async () => (id ? api.files(id, branch) : undefined), [id, branch]);
   const [set, setSet] = useState<ChangeSet>({ changes: [] });
   useEffect(() => {
@@ -327,17 +385,30 @@ export function FilesPage({
     setSet(next);
     if (id) keepSet(id, branch, next);
   };
+  // AFS-140: each change is added to the set as it is then, so several files picked at once (one
+  // change each, made one after the other) are all kept.
   const change = (c: FileChange, replaceWriteOf?: string) => {
-    const base = set.base ?? listing.data?.commit;
-    const changes =
-      replaceWriteOf !== undefined
-        ? set.changes.filter(
-            (x) => !(x.op === 'write' && x.path === replaceWriteOf && x.text !== undefined),
-          )
-        : set.changes;
-    update({ ...(base ? { base } : {}), changes: [...changes, c] });
+    // AFS-150: what the last save said goes once a new change starts.
+    setSaid(undefined);
+    setSet((before) => {
+      const base = before.base ?? listing.data?.commit;
+      const changes =
+        replaceWriteOf !== undefined
+          ? before.changes.filter(
+              (x) => !(x.op === 'write' && x.path === replaceWriteOf && x.text !== undefined),
+            )
+          : before.changes;
+      const next = { ...(base ? { base } : {}), changes: [...changes, c] };
+      if (id) keepSet(id, branch, next);
+      return next;
+    });
   };
 
+  // AFS-153: a file the listing does not have is added, not edited, in the change's words.
+  const existed = useMemo(() => {
+    const had = new Set((listing.data?.files ?? []).map((f) => f.path));
+    return (path: string) => had.has(path);
+  }, [listing.data]);
   const shown = useMemo(
     () => applyChanges(listing.data?.files ?? [], set.changes),
     [listing.data, set.changes],
@@ -402,12 +473,25 @@ export function FilesPage({
   );
 
   const [asking, setAsking] = useState<'new' | 'move'>();
+  // AFS-140: the file just made with New file, whose editor takes the cursor.
+  const [made, setMade] = useState<string>();
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [said, setSaid] = useState<{ ok?: string; error?: string; files?: string[] }>();
+  const [said, setSaid] = useState<{
+    ok?: string;
+    error?: string;
+    files?: string[];
+    /** AFS-150: `files` are what an archive would replace, asked about before it does. */
+    replaces?: boolean;
+  }>();
   const uploads = useRef<HTMLInputElement>(null);
   const archive = useRef<HTMLInputElement>(null);
   const join = (folderPath: string, name: string) => (folderPath ? `${folderPath}/${name}` : name);
+  /** AFS-140: the change set deletes the path, or a folder it is in. */
+  const deleting = (path: string) =>
+    set.changes.some(
+      (c) => c.op === 'delete' && (c.path === path || path.startsWith(`${c.path}/`)),
+    );
 
   const onUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const picked = [...(e.target.files ?? [])];
@@ -420,7 +504,7 @@ export function FilesPage({
     e.target.value = '';
     if (f) change({ op: 'unpack', path: here, base64: await base64Of(f) });
   };
-  const save = async () => {
+  const save = async (replace = false) => {
     if (!id || !set.changes.length) return;
     setBusy(true);
     setSaid(undefined);
@@ -428,15 +512,38 @@ export function FilesPage({
       const done = await api.saveFiles(id, {
         branch,
         ...(set.base ? { base: set.base } : {}),
-        ...(message.trim() ? { message: message.trim() } : {}),
-        changes: set.changes,
+        // AFS-140: the message is what the placeholder showed when none is typed.
+        message: message.trim() || defaultMessage(set.changes, existed),
+        // AFS-150: an archive replaces files that are there only once the person said it may.
+        changes: replace
+          ? set.changes.map((c) => (c.op === 'unpack' ? { ...c, replace: true } : c))
+          : set.changes,
       });
+      const n = set.changes.length;
+      // AFS-154: a file or folder this save deleted is no longer shown as picked.
+      const gone = set.changes.some(
+        (c) =>
+          c.op === 'delete' &&
+          !!selected &&
+          (selected === c.path || selected.startsWith(`${c.path}/`)),
+      );
+      if (gone) {
+        const q = new URLSearchParams(window.location.search);
+        q.delete('path');
+        const rest = q.toString();
+        // The same page: the address changes in place, and the update below draws it again.
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${rest ? `?${rest}` : ''}`,
+        );
+      }
       update({ changes: [] });
       setMessage('');
       setSaid({
         ok: done.unchanged
           ? 'Nothing to save: the branch has the files as they are.'
-          : `Saved ${done.files.length} file${done.files.length === 1 ? '' : 's'} as ${done.commit.slice(0, 12)} on ${done.branch}.`,
+          : `Saved ${n} change${n === 1 ? '' : 's'} as ${done.commit.slice(0, 12)} on ${done.branch}.`,
       });
       listing.reload();
       found.reload();
@@ -444,6 +551,7 @@ export function FilesPage({
       setSaid({
         error: messageOf(e),
         ...(e instanceof ApiError && e.details.files ? { files: e.details.files } : {}),
+        ...(e instanceof ApiError && e.code === 'replaces' ? { replaces: true } : {}),
       });
     } finally {
       setBusy(false);
@@ -452,18 +560,27 @@ export function FilesPage({
 
   const crumbs = (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <Link to={`/w/${workspace}/${key}`}>{key}</Link> / <span aria-current="page">Files</span>
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      /{' '}
+      <Link to={`/w/${workspace}/${key}`}>
+        <ProjectName workspace={workspace} project={key} />
+      </Link>{' '}
+      / <span aria-current="page">Files</span>
     </Breadcrumb>
   );
   if (!project)
-    return (
+    return found.loading ? (
       <>
         {crumbs}
         <PageHead title="Files" />
         <Loading state={found} />
-        {!found.loading && !found.error && <p className="empty">There is no such project.</p>}
       </>
+    ) : (
+      // AFS-143, AFS-152: what was looked for, with a way back to a page the person can open.
+      <MissingProject workspace={workspace} project={key} error={found.error} />
     );
   const editable =
     canEdit &&
@@ -477,8 +594,20 @@ export function FilesPage({
     <>
       {crumbs}
       <PageHead
+        help="web-pages.md#files-of-a-project"
         title={project.name}
-        lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+        lead={
+          <>
+            {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+            {/* AFS-152: one's own access on every tab of the project, as on the others. */}
+            {access && (
+              <>
+                {' · '}
+                <ProjectYourAccess access={access} flows={titled.data} />
+              </>
+            )}
+          </>
+        }
       />
       <ProjectStatus project={project} me={me} base={`/w/${workspace}/${key}`} />
       {/* AFS-94: Files is one of the project's tabs: the others stay a click away. */}
@@ -507,7 +636,23 @@ export function FilesPage({
       {said?.error && (
         <div className="notice error" role="alert">
           <p>{said.error}</p>
-          {said.files && (
+          {said.files && said.replaces ? (
+            <>
+              <ul>
+                {said.files.map((f) => (
+                  <li key={f}>
+                    <code>{f}</code>
+                  </li>
+                ))}
+              </ul>
+              <p>Nothing is saved yet. Replace them with the archive's files, or take it back.</p>
+              <p className="actions">
+                <button type="button" onClick={() => void save(true)} disabled={busy}>
+                  Replace them and save
+                </button>
+              </p>
+            </>
+          ) : said.files ? (
             <>
               <ul>
                 {said.files.map((f) => (
@@ -521,7 +666,7 @@ export function FilesPage({
                 now.
               </p>
             </>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -531,13 +676,16 @@ export function FilesPage({
           <ul className="change-list">
             {set.changes.map((c, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: a change is its place in the set
-              <li key={`${i}-${describe(c)}`}>
-                {describe(c)}{' '}
+              <li key={`${i}-${describe(c, existed)}`}>
+                {describe(c, existed)}{' '}
                 <button
                   type="button"
                   className="link"
-                  aria-label={`Take back: ${describe(c)}`}
-                  onClick={() => update({ ...set, changes: set.changes.filter((_, j) => j !== i) })}
+                  aria-label={`Take back: ${describe(c, existed)}`}
+                  onClick={() => {
+                    setSaid(undefined);
+                    update({ ...set, changes: set.changes.filter((_, j) => j !== i) });
+                  }}
                 >
                   Take back
                 </button>
@@ -551,21 +699,28 @@ export function FilesPage({
                 <input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder={
-                    set.changes.length === 1
-                      ? describe(set.changes[0] as FileChange)
-                      : 'What changed and why'
-                  }
+                  placeholder={defaultMessage(set.changes, existed)}
                   size={50}
                 />
               </label>{' '}
-              <button type="button" className="primary" onClick={save} disabled={busy}>
+              <button type="button" className="primary" onClick={() => void save()} disabled={busy}>
                 {busy ? 'Saving…' : `Save to ${branch}`}
               </button>{' '}
               <button
                 type="button"
                 className="link"
-                onClick={() => update({ changes: [] })}
+                onClick={() => {
+                  // AFS-150: every change goes, and cannot be brought back: asked first.
+                  const n = set.changes.length;
+                  if (
+                    !window.confirm(
+                      `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
+                    )
+                  )
+                    return;
+                  setSaid(undefined);
+                  update({ changes: [] });
+                }}
                 disabled={busy}
               >
                 Discard all
@@ -632,10 +787,12 @@ export function FilesPage({
               <PathForm
                 label="New file"
                 start={here ? `${here}/` : ''}
+                check={(path) => pathProblem(path, shown)}
                 onDone={(path) => {
                   setAsking(undefined);
                   if (path) {
                     change({ op: 'write', path, text: '' });
+                    setMade(path);
                     select(path);
                   }
                 }}
@@ -674,7 +831,16 @@ export function FilesPage({
           )}
           {selected && !file && listing.data && !folder && (
             <p className="muted">
-              There is no {selected} on {branch}.
+              {deleting(selected) ? (
+                <>
+                  <code>{selected}</code> is marked for deletion: it goes from {branch} when the
+                  changes are saved. Take it back in Changes not saved to keep it.
+                </>
+              ) : (
+                <>
+                  There is no {selected} on {branch}.
+                </>
+              )}
             </p>
           )}
           {folder && (
@@ -758,6 +924,7 @@ export function FilesPage({
             <PathForm
               label="New path"
               start={selected}
+              check={(to) => (to === selected ? undefined : pathProblem(to, shown, selected))}
               onDone={(to) => {
                 setAsking(undefined);
                 if (to && to !== selected) {
@@ -791,6 +958,7 @@ export function FilesPage({
                 text={text}
                 editable={editable}
                 dark={dark}
+                focus={made === file.path}
                 onChange={(t) => change({ op: 'write', path: file.path, text: t }, file.path)}
               />
             </>

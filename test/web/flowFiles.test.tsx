@@ -7,6 +7,7 @@ import {
   copiedFlowText,
   FlowFileActions,
   FlowFileMenu,
+  flowFileFor,
   keyOf,
   NewFlowForm,
 } from '../../src/web/flowFiles';
@@ -86,15 +87,18 @@ describe('flows in the pages', () => {
     expect(keyOf('Patch DB servers!')).toBe('patch-db-servers');
   });
 
-  it('New flow writes the template at flows/<key>.flow.yaml and opens it', async () => {
+  it('New flow writes the template at flows/<key>/<key>.flow.yaml and opens it', async () => {
     render(<NewFlowForm workspace="net" project={project} onCancel={() => undefined} />);
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Patch web servers' } });
+    // AFS-144: a folder of its own, as the samples have.
     expect((screen.getByLabelText('File') as HTMLInputElement).value).toBe(
-      'flows/patch-web-servers.flow.yaml',
+      'flows/patch-web-servers/patch-web-servers.flow.yaml',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Make the flow' }));
     await waitFor(() =>
-      expect(window.location.pathname).toBe('/w/net/edge/flow/flows/patch-web-servers.flow.yaml'),
+      expect(window.location.pathname).toBe(
+        '/w/net/edge/flow/flows/patch-web-servers/patch-web-servers.flow.yaml',
+      ),
     );
     const body = saved[0] as {
       branch: string;
@@ -105,9 +109,19 @@ describe('flows in the pages', () => {
     expect(body.message).toBe('Add the flow Patch web servers');
     expect(body.changes[0]).toMatchObject({
       op: 'write',
-      path: 'flows/patch-web-servers.flow.yaml',
+      path: 'flows/patch-web-servers/patch-web-servers.flow.yaml',
     });
     expect(body.changes[0]?.text).toMatch(/key: patch-web-servers\n {2}name: Patch web servers/);
+  });
+
+  it('a copy of a flow in a folder of its own gets one too; others stay beside the flow', () => {
+    expect(flowFileFor('patch-db')).toBe('flows/patch-db/patch-db.flow.yaml');
+    expect(flowFileFor('patch-db', 'flows/hello/hello.flow.yaml')).toBe(
+      'flows/patch-db/patch-db.flow.yaml',
+    );
+    expect(flowFileFor('patch-db', 'flows/patch-web.flow.yaml')).toBe('flows/patch-db.flow.yaml');
+    expect(flowFileFor('patch-db', 'site.flow.yaml')).toBe('patch-db.flow.yaml');
+    expect(flowFileFor('b', 'flows/a/other.flow.yaml')).toBe('flows/a/b.flow.yaml');
   });
 
   it('Copy writes the copy beside it; Delete says who runs it and deletes the file', async () => {
@@ -131,6 +145,7 @@ describe('flows in the pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete the flow…' }));
     const del = screen.getByRole('region', { name: 'Delete the flow' });
+    expect(del.classList.contains('danger-zone')).toBe(true);
     expect(del.textContent).toContain('Nightly patch');
     fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
     await waitFor(() => expect(saved).toHaveLength(2));
@@ -138,5 +153,52 @@ describe('flows in the pages', () => {
       message: 'Delete the flow Patch web servers',
       changes: [{ op: 'delete', path: 'flows/patch-web.flow.yaml' }],
     });
+  });
+  it('AFS-150: Delete names the schedules that fire it and turns them off with it', async () => {
+    const asked: { key: string; body?: unknown }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      const key = `${init.method ?? 'GET'} ${url.replace('/api/v1', '')}`;
+      asked.push({ key, ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) });
+      const body =
+        key === 'GET /launch-configs/c1'
+          ? { id: 'c1', name: 'Nightly patch', flowFile: 'flows/patch-web.flow.yaml' }
+          : key === 'GET /launch-configs/c2'
+            ? { id: 'c2', name: 'Pinned', commit: 'c'.repeat(40) }
+            : key === 'GET /launch-configs/c1/schedules'
+              ? [
+                  { id: 's1', config: 'c1', name: 'Every night', enabled: true },
+                  { id: 's2', config: 'c1', name: 'Paused one', enabled: false },
+                ]
+              : key === 'GET /launch-configs/c2/schedules'
+                ? [{ id: 's3', config: 'c2', name: 'On the pin', enabled: true }]
+                : { branch: 'main', commit: 'b'.repeat(40), files: [] };
+      return { ok: true, status: 200, json: async () => body } as Response;
+    });
+    render(
+      <FlowFileActions
+        workspace="net"
+        project={project}
+        file="flows/patch-web.flow.yaml"
+        name="Patch web servers"
+        commit={project.commit as string}
+        usedBy={['Nightly patch', 'Pinned']}
+        configIds={['c1', 'c2']}
+        doing="delete"
+        onDone={() => undefined}
+      />,
+    );
+    const del = screen.getByRole('region', { name: 'Delete the flow' });
+    // Only the one that would fire and fail: a paused one, or one on a pinned commit, stays.
+    await waitFor(() =>
+      expect(del.querySelector('[data-schedules]')?.textContent).toMatch(
+        /The schedule Every night fires it: it is turned off with it/,
+      ),
+    );
+    fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
+    await waitFor(() =>
+      expect(asked.filter((a) => a.key.startsWith('PATCH'))).toEqual([
+        { key: 'PATCH /launch-configs/c1/schedules/s1', body: { enabled: false } },
+      ]),
+    );
   });
 });

@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf, atLeast, type Level } from '../access/grants';
+import { READS } from '../audit/routes';
 import type { Schema } from '../db/schema';
 import { serverMeta } from '../meta';
 
@@ -31,6 +32,20 @@ export type Who =
  * project in the query, or none: then such a token may not call it. `self`: only the caller's
  * own session and tokens; `anyone`: needs no sign-in.
  */
+/** AFS-135: what a route says of something that does not exist, for what it reaches. */
+export function missingOf(reach: Reach): string {
+  if (typeof reach !== 'object') return 'Nothing here';
+  if ('workspace' in reach || 'gitWorkspace' in reach) return 'No such workspace';
+  if ('project' in reach || 'projectQuery' in reach) return 'No such project';
+  if ('config' in reach) return 'No such launch configuration';
+  if ('run' in reach) return 'No such run';
+  if ('credential' in reach) return 'No such credential';
+  if ('environment' in reach) return 'No such environment';
+  if ('grant' in reach) return 'No such grant';
+  if ('draft' in reach) return 'No such draft';
+  return 'Nothing here';
+}
+
 export type Reach =
   | 'self'
   | 'anyone'
@@ -80,7 +95,11 @@ export const ROUTES: Record<string, RouteDoc> = {
   )('Make the first administrator with the setup code from the log'),
 
   'POST /api/v1/session': S('Session', 'anyone', 'anyone')('Sign in with a login and password'),
-  'GET /api/v1/session': S('Session', 'signed in', 'self')('Who is signed in'),
+  'GET /api/v1/session': S(
+    'Session',
+    'signed in',
+    'self',
+  )('Who is signed in (with the header X-AFS-Session: optional, 204 when nobody is)'),
   'DELETE /api/v1/session': S('Session', 'anyone', 'self')('Sign out'),
   'PATCH /api/v1/session': S(
     'Session',
@@ -88,6 +107,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'self',
   )('Change your own name and email address; a webhook only as an administrator'),
   'PUT /api/v1/session/password': S('Session', 'session', 'self')('Change your own password'),
+  'GET /api/v1/session/access': S(
+    'Session',
+    'signed in',
+    'self',
+  )(
+    'Your own access, workspace by workspace (level, flows of your own, approves, through), and the administrators who give access',
+  ),
 
   'GET /api/v1/tokens': S('Tokens', 'signed in', 'self')('Your access tokens'),
   'POST /api/v1/tokens': S(
@@ -216,7 +242,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Projects',
     'signed in',
     P,
-  )('Pushes through the server, newest first'),
+  )('Pushes through the server, newest first: who, how (`kind`), the new commit and its message'),
   'GET /api/v1/projects/:id/flows': S(
     'Projects',
     'signed in',
@@ -307,7 +333,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     D,
   )(
-    'A draft as it changes, as server-sent events: `draft`, `edit` (who, which steps, the flow after), `people`, `saved`, `discarded`',
+    'A draft as it changes, as server-sent events: `draft`, `edit` (who, which steps and fields, the flow after), `people`, `saving` (send what is being typed, then answer `/flushed`), `saved`, `discarded`; `tab` names the page',
   ),
   'POST /api/v1/drafts/:id/commands': S(
     'Editing',
@@ -318,21 +344,43 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Editing',
     'signed in',
     D,
-  )("Take back the caller's own last edit; refused when someone changed the same place since"),
+  )(
+    "Take back the caller's own last edit (`nothing` when there is none); refused when someone changed the same place since",
+  ),
   'POST /api/v1/drafts/:id/tidy': S('Editing', 'signed in', D)('Lay out a level (`level`) again'),
   'POST /api/v1/drafts/:id/here': S(
     'Editing',
     'signed in',
     D,
   )('Say the caller is in the draft, and which step they have selected (`node`)'),
+  'POST /api/v1/drafts/:id/flushed': S(
+    'Editing',
+    'signed in',
+    D,
+  )("Say a page sent what it was typing for a save (the `saving` event's `flush` and `stream`)"),
   'POST /api/v1/drafts/:id/save': S(
     'Editing',
     'signed in',
     D,
   )(
-    "Save the draft as one commit on the project's branch (merged first when the branch moved; `force` keeps the draft's side of conflicts)",
+    "Save the draft as one commit on the project's branch (merged first when the branch moved; `choices` keeps the draft's or the branch's side per conflict, `force` the draft's side of the rest)",
   ),
   'DELETE /api/v1/drafts/:id': S('Editing', 'signed in', D)('Discard the draft'),
+  'GET /api/v1/drafts/:id/start-from': S(
+    'Editing',
+    'signed in',
+    D,
+  )("What an empty flow can start from: samples, the repository's playbooks, AWX credentials"),
+  'GET /api/v1/drafts/:id/start-from/awx': S(
+    'Editing',
+    'signed in',
+    D,
+  )("An AWX credential's workflow and job templates (`credential`)"),
+  'POST /api/v1/drafts/:id/start-from': S(
+    'Editing',
+    'signed in',
+    D,
+  )('An empty flow made from a sample, a playbook of the repository or an AWX template'),
   'POST /api/v1/drafts/:id/catalog': S(
     'Editing',
     'signed in',
@@ -433,9 +481,15 @@ export const ROUTES: Record<string, RouteDoc> = {
   )('Launch: the run goes in the queue'),
 
   'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
-    "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
+    "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
   ),
-  'GET /api/v1/runs/:id': S('Runs', 'signed in', R)('One run'),
+  'GET /api/v1/runs/:id': S(
+    'Runs',
+    'signed in',
+    R,
+  )(
+    'One run, with its credentials by name (`credentialNames`), the environment its image came from (`environment`) and the targets Ansible skipped because the inventory does not have them (`skippedTargets`)',
+  ),
   'GET /api/v1/runs/:id/output': S(
     'Runs',
     'signed in',
@@ -493,7 +547,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Approvals',
     'signed in',
     'server',
-  )('Approvals that wait for a decision, that you may see; each says whether you may decide it'),
+  )(
+    'Approvals that wait for a decision, that you may see; each says whether you may decide it. `?decided=1`: the newest 50 decided ones instead',
+  ),
   'GET /api/v1/runs/:id/approvals': S(
     'Approvals',
     'signed in',
@@ -547,7 +603,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Notifications',
     'administrator session',
     'server',
-  )('Send no email'),
+  )('Turn email off (forget the mail server)'),
   'POST /api/v1/notifications/webhook-key': S(
     'Notifications',
     'administrator session',
@@ -603,6 +659,20 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     E,
   )('The environment as ansible-builder v3 reads it, for AWX or AAP'),
+  'GET /api/v1/default-environment': S(
+    'Environments',
+    'signed in',
+    'self',
+  )(
+    "The server's default image: what runs get when their launch configuration names no environment or image; the environment picked for it, else AFS_EE_IMAGE",
+  ),
+  'PUT /api/v1/default-environment': S(
+    'Environments',
+    'administrators',
+    'server',
+  )(
+    "Pick the environment whose image is the server's default (`environment`: its id), or null for AFS_EE_IMAGE",
+  ),
   'GET /api/v1/search': S(
     'Search',
     'signed in',
@@ -657,7 +727,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Schedules',
     'signed in',
     'self',
-  )('The next times a cron expression fires in a time zone, or why it cannot be read'),
+  )(
+    'The next times a cron expression fires in a time zone, or why it cannot be read; with `check=1`, every problem in `problems` (each with its field) instead of a refusal',
+  ),
   // AFS-30: sign-in with OIDC providers.
   'GET /api/v1/auth/methods': S(
     'Session',
@@ -756,6 +828,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrator session',
     'server',
   )('Passwords for everyone (`all`) or administrators only (`admins`)'),
+  'GET /api/v1/certificate.pem': S(
+    'Certificate',
+    'anyone',
+    'anyone',
+  )('The server certificate in use, for git and scripts to trust a self-signed one'),
   'GET /api/v1/admin/certificate': S(
     'Certificate',
     'administrators',
@@ -823,9 +900,13 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/undo': 'rw',
   'POST /api/v1/drafts/:id/tidy': 'rw',
   'POST /api/v1/drafts/:id/here': 'ro',
+  'POST /api/v1/drafts/:id/flushed': 'ro',
   'POST /api/v1/drafts/:id/save': 'rw',
   'DELETE /api/v1/drafts/:id': 'rw',
   'POST /api/v1/drafts/:id/catalog': 'ro',
+  'GET /api/v1/drafts/:id/start-from': 'rw',
+  'GET /api/v1/drafts/:id/start-from/awx': 'rw',
+  'POST /api/v1/drafts/:id/start-from': 'rw',
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
   'GET /api/v1/projects/:id/files': 'ro',
@@ -1152,6 +1233,20 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
     }
   });
 
+  // AFS-145: a read-only token is refused before its body is checked: it must not learn what a
+  // write would need, nor fill the audit with refusals of its form. The routes still refuse it
+  // themselves (signedIn); this only answers first. A POST that changes nothing is the route's
+  // to judge (asking what a launch would run is open to a read-only token).
+  app.addHook('preValidation', async (request, reply) => {
+    if (!request.user?.token?.readOnly || ['GET', 'HEAD', 'OPTIONS'].includes(request.method))
+      return;
+    const route = request.routeOptions.url;
+    const key = `${request.method} ${route}`;
+    const doc = route ? ROUTES[key] : undefined;
+    if (!doc || doc.who === 'anyone' || doc.who === 'push hook token' || READS.has(key)) return;
+    return reply.code(403).send({ error: 'read_only_token', message: 'This token may only read' });
+  });
+
   // A token made for one workspace reaches that workspace only: what is not in it, or not in
   // any one workspace (people, the audit log, every workspace), is refused.
   app.addHook('preHandler', async (request, reply) => {
@@ -1167,7 +1262,7 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
       message:
         doc.reach === 'server'
           ? 'This token is for one workspace: it cannot reach this'
-          : 'This token is for another workspace',
+          : 'This token is for one workspace: it cannot reach this',
     });
   });
 
@@ -1195,9 +1290,10 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
             level,
           );
     if (allowed) return;
-    // Who may not see it at all is not told it is there.
+    // Who may not see it at all is not told it is there: the same answer as for one that does
+    // not exist (AFS-135), so neither a key nor an id can be tried for.
     if (!access.sees(target.workspace, target.project))
-      return reply.code(404).send({ error: 'not_found', message: 'Nothing here, or not for you' });
+      return reply.code(404).send({ error: 'not_found', message: missingOf(doc.reach) });
     return reply.code(403).send({
       error: 'forbidden',
       message: `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,

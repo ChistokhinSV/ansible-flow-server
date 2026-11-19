@@ -20,10 +20,11 @@ docker compose logs server | grep -i "setup code"
 
 ```text
 server-1  | [09:44:37 13.11.2026] WARN  Made a master key. Keep a copy somewhere safe: stored credentials cannot be read without it file=/var/lib/afs/master.key key=3fa1c2d4
-server-1  | [09:44:37 13.11.2026] WARN  No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
+server-1  | [09:44:37 13.11.2026] WARN  No user yet. Make the first administrator with this setup code: open https://flows.example.net:8443/setup?code=Jq3vN0c4TzWk (or POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
 ```
 
-- **The first administrator:** open the address and enter the setup code from the log, or
+- **The first administrator:** open the address in the log line (the setup page under
+  `AFS_PUBLIC_URL`, with the code filled in), or
   `docker compose exec server node dist/server.js user add dana --name "Dana Whitfield" --admin`
   (the password is asked).
 - **Data:** the `afs-data` volume holds the database (SQLite), repositories, runs, the

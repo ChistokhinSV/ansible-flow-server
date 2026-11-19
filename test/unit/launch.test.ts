@@ -234,7 +234,10 @@ for (const [name, config] of databases) {
       expect(await make({ gitRef: 'no-such-branch' })).toMatch(
         /^invalid\/gitRef: The repository has no branch/,
       );
-      expect(await make({ commit: 'abc123' })).toMatch(/^invalid\/commit: A commit is its full/);
+      expect(await make({ commit: 'abc12' })).toMatch(/^invalid\/commit: A commit is its id/);
+      expect(await make({ commit: 'f'.repeat(12) })).toMatch(
+        /^invalid\/commit: The repository has no commit/,
+      );
       expect(await make({ commit: 'f'.repeat(40) })).toMatch(
         /^invalid\/commit: The repository has no commit/,
       );
@@ -265,8 +268,23 @@ for (const [name, config] of databases) {
         secret: { privateKey: '-----BEGIN PRIVATE KEY-----\nQUFB\n-----END PRIVATE KEY-----' },
       });
       expect(await make({ credentials: [ssh, second.id] })).toMatch(/one ssh_key credential/);
+      // AFS-145: a run's message goes only to who may see the flow's runs.
+      await createUser(db(), { login: 'eve', name: 'eve', password: PASSWORD });
+      expect(await make({ notify: { when: 'ended', to: ['dana', 'omar', 'eve'] } })).toBe(
+        'invalid/notify: eve has no access to this flow: give a grant first, or leave them out',
+      );
       expect(await refused(() => configs.create('nothing', base))).toMatch(/^not_found/);
       expect(await configs.list(project.id)).toHaveLength(1);
+    });
+
+    it('AFS-140: pins a commit given as the pages show it (12 digits), keeping its full id', async () => {
+      const pinned = await configs.create(project.id, {
+        name: 'Pinned short',
+        flowFile: 'ping.flow.yaml',
+        commit: first.slice(0, 12).toUpperCase(),
+      } as never);
+      expect(pinned.commit).toBe(first);
+      await configs.delete(pinned.id);
     });
 
     it('changes one thing and checks the whole again', async () => {
@@ -439,6 +457,17 @@ for (const [name, config] of databases) {
       const body = { name: 'From the API', flowFile: 'ping.flow.yaml', inputs: { retries: 2 } };
       expect((await call('GET', list)).statusCode).toBe(401);
       expect((await call('POST', list, { cookie: member, body })).statusCode).toBe(403);
+      // AFS-145: a read-only token is told so before anything about the body.
+      for (const [url, sent] of [
+        [list, {}],
+        ['/api/v1/workspaces/net/credentials', {}],
+        ['/api/v1/workspaces/net/credentials', { name: 'k', kind: 'ssh_key' }],
+        ['/api/v1/workspaces/net/projects', {}],
+      ] as const) {
+        const reply = await call('POST', url, { auth: `Bearer ${readOnly}`, body: sent });
+        expect(reply.statusCode, url).toBe(403);
+        expect(reply.json().error).toBe('read_only_token');
+      }
       const made = await call('POST', list, { cookie: admin, body });
       expect(made.statusCode).toBe(201);
       const id = made.json().id;

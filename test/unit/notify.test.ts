@@ -6,7 +6,7 @@ import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createGrant } from '../../src/server/access/grants';
+import { createGrant, deleteGrant } from '../../src/server/access/grants';
 import { buildApp } from '../../src/server/app';
 import { decideGate, openGate } from '../../src/server/approvals/gates';
 import { listAudit } from '../../src/server/audit/store';
@@ -19,7 +19,12 @@ import type { PreparedLaunch } from '../../src/server/launch/prepare';
 import { createLogger } from '../../src/server/log';
 import { emailChannel, type Message, webhookChannel } from '../../src/server/notify/channels';
 import { Notifier } from '../../src/server/notify/notifier';
-import { contactsOfNames, placesOf, unknownNames } from '../../src/server/notify/recipients';
+import {
+  contactsOfNames,
+  namesWithoutAccess,
+  placesOf,
+  unknownNames,
+} from '../../src/server/notify/recipients';
 import { setSmtp, smtpForSending, webhookKey } from '../../src/server/notify/settings';
 import {
   enqueue,
@@ -271,8 +276,24 @@ for (const [name, config] of databases) {
       await database?.close();
     });
 
-    const launch = (by: 'dana' | 'omar', inputs: Record<string, unknown> = {}) =>
-      queue.enqueue(launchOf(project, inputs), {}, { id: ids[by] as string, login: by }, 'Upgrade');
+    /** A mail's text as read: quoted-printable soft breaks and escapes undone. */
+    const readable = (data: string) =>
+      data
+        .replace(/=\r?\n/g, '')
+        .replace(/=([0-9A-F]{2})/g, (_, hex: string) =>
+          String.fromCharCode(Number.parseInt(hex, 16)),
+        );
+    const launch = (
+      by: 'dana' | 'omar',
+      inputs: Record<string, unknown> = {},
+      shown: Record<string, unknown> = {},
+    ) =>
+      queue.enqueue(
+        launchOf(project, inputs),
+        shown,
+        { id: ids[by] as string, login: by },
+        'Upgrade',
+      );
     const gate = (run: string, approval: object = {}) =>
       openGate(db(), {
         run,
@@ -292,17 +313,72 @@ for (const [name, config] of databases) {
       expect(await unknownNames(db(), ['omar', 'NOC', 'nobody'])).toEqual(['nobody']);
     });
 
+    it('about a flow, only who may see its runs: a group no grant names is not told at its own address', async () => {
+      const place = {
+        workspace: ids.workspace as string,
+        project,
+        flowFile: 'flows/upgrade.flow.yaml',
+      };
+      // omar and gary approve through the change board; dana administers; the NOC has no grant.
+      expect(
+        await namesWithoutAccess(db(), ['change-board', 'NOC', 'omar', 'gary', 'dana'], place),
+      ).toEqual(['NOC']);
+      const places = placesOf(await contactsOfNames(db(), ['NOC', 'omar', 'dana'], place));
+      expect(places.map((p) => `${p.channel}:${p.recipient}`).sort()).toEqual([
+        'email:dana',
+        'email:omar',
+        'webhook:omar',
+      ]);
+      // A group without an address of its own and without a grant: each member as themself.
+      const loose = await createGroup(db(), { name: 'loose' });
+      await setMembers(db(), loose.id, [ids.omar as string, ids.gary as string]);
+      expect(await namesWithoutAccess(db(), ['loose'], place)).toEqual([]);
+      const other = await createUser(db(), {
+        login: 'eve',
+        name: 'eve',
+        password: PASSWORD,
+        email: 'eve@example.net',
+      });
+      await setMembers(db(), loose.id, [ids.omar as string, other.id]);
+      expect(await namesWithoutAccess(db(), ['loose', 'eve'], place)).toEqual(['loose', 'eve']);
+      expect(placesOf(await contactsOfNames(db(), ['loose'], place)).map((p) => p.target)).toEqual([
+        'omar@example.net',
+        `${receiver.url}/ok/omar-secret`,
+      ]);
+    });
+
     it('a waiting approval asks who holds approve (not who launched it) and whom it names to tell', async () => {
       const mails = smtp.received.length;
       const calls = receiver.got.length;
-      const run = await launch('dana', { api_password: 'hunter2-never-sent' });
+      const run = await launch(
+        'dana',
+        { api_password: 'hunter2-never-sent', target_version: '7.4.2' },
+        { api_password: '***', target_version: '7.4.2' },
+      );
       const g = await gate(run.id, { notify: ['NOC'], message: 'Check the change ticket first' });
+      // AFS-145: a flow's approval lists reach only who may see the flow: the NOC, no grant.
       notifier.approvalWaiting(run.id, g.id);
       await notifier.idle();
-      expect(sentTo(mails).sort()).toEqual(['noc@example.net', 'omar@example.net']);
-      const mail = smtp.received.at(-1)?.data ?? '';
+      expect(sentTo(mails)).toEqual(['omar@example.net']);
+      const noc = await createGrant(
+        db(),
+        ids.workspace as string,
+        { group: 'NOC', level: 'ro' },
+        'dana',
+      );
+      const asked = smtp.received.length;
+      notifier.approvalWaiting(run.id, g.id);
+      await notifier.idle();
+      await deleteGrant(db(), noc.id);
+      expect(sentTo(asked).sort()).toEqual(['noc@example.net', 'omar@example.net']);
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
       expect(mail).toContain('Check the change ticket first');
       expect(mail).toContain(`https://flows.example.net/runs/${run.id}`);
+      // AFS-146: what the approver needs to decide: the inputs, secret-looking ones as ***.
+      expect(mail).toContain('Inputs:');
+      expect(mail).toContain('api_password = ***');
+      expect(mail).toContain('target_version = 7.4.2');
+      expect(mail).not.toContain('hunter2');
       const [hook] = hooksSince(calls);
       expect(hook?.path).toBe('/ok/omar-secret');
       expect(hook?.body).toMatchObject({
@@ -326,6 +402,12 @@ for (const [name, config] of databases) {
       const mails = smtp.received.length;
       const run = await launch('dana');
       const g = await gate(run.id, { notify: ['NOC'] });
+      const noc = await createGrant(
+        db(),
+        ids.workspace as string,
+        { group: 'NOC', level: 'ro' },
+        'dana',
+      );
       await decideGate(db(), g.id, {
         status: 'rejected',
         by: 'omar',
@@ -333,8 +415,13 @@ for (const [name, config] of databases) {
       });
       notifier.approvalDecided(run.id, g.id);
       await notifier.idle();
+      await deleteGrant(db(), noc.id);
       expect(sentTo(mails).sort()).toEqual(['dana@example.net', 'noc@example.net']);
-      expect(smtp.received.at(-1)?.data).toContain('Not during the freeze');
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
+      expect(mail).toContain('Not during the freeze');
+      // AFS-146: who decided, without a stray comma.
+      expect(mail).toMatch(/was rejected by [^,]+?\./);
+      expect(mail).not.toContain('usually to a rollback');
     });
 
     it("a launch configuration's runs tell as it says: only failures, or every end", async () => {
@@ -377,7 +464,17 @@ for (const [name, config] of databases) {
       const mails = smtp.received.length;
       await finishOne('succeeded');
       expect(sentTo(mails)).toEqual([]);
+      // AFS-145: the NOC has no grant (taken back after the list was saved): it is not told.
       await finishOne('failed');
+      expect(sentTo(mails)).toEqual([]);
+      const grant = await createGrant(
+        db(),
+        ids.workspace as string,
+        { group: 'NOC', level: 'ro' },
+        'dana',
+      );
+      await finishOne('failed');
+      await deleteGrant(db(), grant.id);
       expect(sentTo(mails)).toEqual(['noc@example.net']);
       expect(smtp.received.at(-1)?.data).toContain('fw-edge-01 failed');
 
@@ -391,7 +488,7 @@ for (const [name, config] of databases) {
       await queue.cancel(stopped.id, 'dana');
       await notifier.idle();
       expect(sentTo(mails)).toEqual(['noc@example.net', 'dana@example.net']);
-      expect(smtp.received.at(-1)?.data).toContain('cancelled');
+      expect(smtp.received.at(-1)?.data).toContain('stopped');
     });
 
     it('the certificate: administrators are told at each step once, whatever restarts between', async () => {

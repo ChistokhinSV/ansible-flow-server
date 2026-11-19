@@ -111,7 +111,7 @@ describe('People and groups', () => {
       },
     };
     window.history.replaceState(null, '', '/admin/people');
-    render(<PeoplePage tab="people" />);
+    const view = render(<PeoplePage tab="people" />);
     await screen.findByText('Omar Haddad');
     fireEvent.click(screen.getByRole('button', { name: 'Add a person' }));
     const add = screen.getByRole('region', { name: 'Add a person or service account' });
@@ -134,6 +134,9 @@ describe('People and groups', () => {
     expect(screen.getByRole('status').textContent).toBe('Added rita.');
     expect(window.location.pathname).toBe('/admin/people');
     expect(screen.getByRole('button', { name: 'Add a person' })).toBeTruthy();
+    // AFS-144: the note goes with another tab.
+    view.rerender(<PeoplePage tab="groups" />);
+    await waitFor(() => expect(screen.queryByText(/^Added /)).toBeNull());
   });
 
   it('adds a group from the button on the groups tab', async () => {
@@ -172,7 +175,7 @@ describe('People and groups', () => {
               workspace: { id: 'w-ops', key: 'ops', name: 'Operations' },
               level: 'operator',
               approve: true,
-              flows: [{ project: 'core', file: 'upgrade.flow.yaml', level: 'rw' }],
+              flows: [{ project: 'core', projectId: 'p1', file: 'upgrade.flow.yaml', level: 'rw' }],
               through: ['user:omar', 'group:netops'],
             },
           ],
@@ -191,7 +194,8 @@ describe('People and groups', () => {
     expect(cells).toEqual([
       'Operations',
       'operator',
-      'upgrade.flow.yaml: rw in core',
+      // AFS-152: levels in words; a flow by its title when its project's list has one.
+      'upgrade: read and write in core',
       'yes',
       'their own grant, group netops',
     ]);
@@ -297,6 +301,24 @@ describe('People and groups', () => {
     await waitFor(() => expect(sent('DELETE /users/u2/tokens/t1')).toHaveLength(1));
   });
 
+  it("a person's groups link to their pages; deleting says so on the list (AFS-153)", async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /users/u2': () => ({ body: omar }),
+      'GET /users/u2/tokens': () => ({ body: [] }),
+      'GET /workspaces': () => ({ body: [] }),
+      'GET /groups': () => ({ body: [netops] }),
+      'GET /users': () => ({ body: [dana] }),
+      'DELETE /users/u2': () => ({ status: 204 }),
+    };
+    open('/admin/people/u2');
+    const link = await screen.findByRole('link', { name: 'netops' });
+    expect(link.getAttribute('href')).toBe('/admin/groups/g1');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect((await screen.findByText('Deleted Omar Haddad.')).getAttribute('role')).toBe('status');
+    expect(window.location.pathname).toBe('/admin/people');
+  });
+
   it('a service account gets its tokens here, shown once; it has no password', async () => {
     routes = {
       'GET /session': () => ({ body: dana }),
@@ -372,7 +394,7 @@ describe('People and groups', () => {
 
     // The group's grants, each leading to its workspace.
     const named = screen
-      .getByRole('heading', { name: 'Where it is named' })
+      .getByRole('heading', { name: 'Access this group gives' })
       .closest('section') as HTMLElement;
     const space = await within(named).findByRole('link', { name: 'Operations' });
     expect(space.getAttribute('href')).toBe('/w/ops');
@@ -382,11 +404,11 @@ describe('People and groups', () => {
         .map((c) => c.textContent),
     ).toEqual([
       'Operations',
-      'approve',
+      'approver',
       'the whole workspace',
       'Lab',
-      'ro',
-      'upgrade.flow.yaml in core',
+      'read only',
+      'upgrade in core',
     ]);
     expect(asked.some((a) => a.key.startsWith('GET /workspaces/'))).toBe(false);
 

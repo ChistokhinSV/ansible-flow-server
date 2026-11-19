@@ -145,7 +145,11 @@ async function launch(request: Parameters<typeof prepareLaunch>[2] = {}) {
 /** An executor whose Ansible is `fake`, and what it saw. */
 function executor(
   fake: Fake,
-  options: { timeoutMs?: number; repoConfig?: ExecutorOptions['repoConfig'] } = {},
+  options: {
+    timeoutMs?: number;
+    repoConfig?: ExecutorOptions['repoConfig'];
+    defaultImage?: ExecutorOptions['defaultImage'];
+  } = {},
 ) {
   const seen: Seen[] = [];
   const log = createLogger({ level: 'debug', format: 'json', write: (l) => lines.push(l) });
@@ -161,6 +165,7 @@ function executor(
       heartbeatMs: 30,
       pollMs: 20,
       ...(options.repoConfig ? { repoConfig: options.repoConfig } : {}),
+      ...(options.defaultImage ? { defaultImage: options.defaultImage } : {}),
       runner: async (request, hooks) => {
         const s: Seen = { request, hooks };
         const keyMount = request.env.kind === 'container' ? request.env.mounts[0] : undefined;
@@ -319,6 +324,24 @@ describe('a run', () => {
     expect(lines.join('\n')).not.toContain('S3CR3T');
   });
 
+  it("AFS-163: a run without its own image gets the server's default now, kept on the run", async () => {
+    let picked = 'registry.example.net/ee/team:1';
+    const { ex, seen } = executor(async () => ({ rc: 0 }), { defaultImage: async () => picked });
+    const run = await launch();
+    expect(run.eeImage).toBeUndefined();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect(seen[0]?.request.env).toMatchObject({ image: 'registry.example.net/ee/team:1' });
+    expect((await queue.get(run.id))?.eeImage).toBe('registry.example.net/ee/team:1');
+    expect(readFileSync(ex.outputFile(run.id), 'utf8')).toContain(
+      "The server's default image: registry.example.net/ee/team:1",
+    );
+    // Picked again: the catalogs and the next run follow it.
+    picked = 'registry.example.net/ee/team:2';
+    expect(await ex.defaultImage()).toBe('registry.example.net/ee/team:2');
+  });
+
   it('of another commit gets a folder of its own, removed afterwards', async () => {
     source.commit({ 'notes.txt': 'more\n' }, 'Second');
     const { ex, seen } = executor(async () => ({ rc: 0 }));
@@ -330,6 +353,87 @@ describe('a run', () => {
     expect(request.root).toBe(join(dataDir, 'work', project.id, `run-${run.id}`));
     expect(existsSync(request.root)).toBe(false);
     expect((await queue.get(run.id))?.state).toBe('succeeded');
+  });
+
+  it('a run that reached no host fails; no events gets the reason the output gave (AFS-132)', async () => {
+    const empty = {
+      nodes: {},
+      outcome: {},
+      failures: [],
+      unreachable: [],
+      hosts: [],
+      stoppedEarly: false,
+    };
+    const { ex } = executor(async () => ({ rc: 0, summary: empty }));
+    const none = await launch();
+    await ex.start();
+    await ended(none.id);
+    await ex.stop();
+    expect(await queue.get(none.id)).toMatchObject({ state: 'failed' });
+    expect((await queue.get(none.id))?.error).toMatch(/^No host ran/);
+
+    const pull = executor(async (_request, hooks) => {
+      hooks.log?.('Unable to find image locally');
+      hooks.log?.('docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.');
+      return { rc: 125, error: 'The run produced no events' };
+    });
+    const failed = await launch();
+    await pull.ex.start();
+    await ended(failed.id);
+    await pull.ex.stop();
+    expect((await queue.get(failed.id))?.error).toBe(
+      'The run produced no events: docker: Error response from daemon: dial tcp: lookup x.invalid: no such host.',
+    );
+
+    // Ansible's own words, as a limit that leaves no host gets them (seen on the lab server).
+    const LIMIT =
+      '[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target.';
+    const limited = executor(async (_request, hooks) => {
+      hooks.log?.(LIMIT);
+      return { rc: 1, error: 'The run produced no events' };
+    });
+    const none2 = await launch();
+    await limited.ex.start();
+    await ended(none2.id);
+    await limited.ex.stop();
+    // AFS-147: said plainly: which targets, which limit, which inventory.
+    expect((await queue.get(none2.id))?.error).toBe(
+      'No host ran: none of the targets (fw-edge-01) is in the inventory',
+    );
+    const limited2 = executor(async (_request, hooks) => {
+      hooks.log?.(LIMIT);
+      return { rc: 1, error: 'The run produced no events' };
+    });
+    const none3 = await launch({ limit: 'nosuchhost' });
+    await limited2.ex.start();
+    await ended(none3.id);
+    await limited2.ex.stop();
+    expect((await queue.get(none3.id))?.error).toBe(
+      'No host ran: the limit nosuchhost matched none of the targets (fw-edge-01) in the inventory',
+    );
+  });
+
+  it('names the targets Ansible skipped, on a run that went well too (AFS-147)', async () => {
+    const { ex } = executor(async (_request, hooks) => {
+      hooks.log?.('[WARNING]: Could not match supplied host pattern, ignoring: nosuchhost');
+      return {
+        rc: 0,
+        summary: {
+          nodes: {},
+          outcome: {},
+          failures: [],
+          unreachable: [],
+          hosts: ['fw-edge-01'],
+          stoppedEarly: false,
+        },
+      };
+    });
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect((await queue.get(run.id))?.state).toBe('succeeded');
+    expect(await queue.view(run.id)).toMatchObject({ skippedTargets: ['nosuchhost'] });
   });
 
   it('fails with the reason when Ansible fails, and when the run cannot start', async () => {
@@ -347,9 +451,10 @@ describe('a run', () => {
     const failed = await launch();
     await ex.start();
     await ended(failed.id);
+    // AFS-147: how many hosts failed, not the exit code.
     expect(await queue.get(failed.id)).toMatchObject({
       state: 'failed',
-      error: 'ansible-playbook ended with 2; 1 host(s) failed',
+      error: '1 of 1 host failed',
     });
     await ex.stop();
 
@@ -393,9 +498,10 @@ describe('a run', () => {
     await until(async () => !!(await queue.get(cancelled.id))?.startedAt);
     await queue.cancel(cancelled.id, 'omar');
     await ended(cancelled.id);
+    // AFS-147: who stopped it (a login the server does not know is said as it is).
     expect(await queue.get(cancelled.id)).toMatchObject({
       state: 'cancelled',
-      error: 'Stopped on request',
+      error: 'Stopped by omar',
       cancelledBy: 'omar',
     });
     await a.ex.stop();

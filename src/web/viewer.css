@@ -50,3 +50,32 @@
   cursor: pointer;
   color: inherit;
 }
+
+/* AFS-138: in a narrow frame (a phone, a tablet, a laptop with the page's menu) the designer's
+   three columns left the canvas a few pixels (its side panel is 320px, the palette 184px): the
+   palette takes at most 40% of the width (the designer opens it folded to icons there).
+   AFS-148: the side panel stays beside the canvas (the designer keeps it to 40% of the width, and
+   it folds to a strip): under the canvas it left a laptop 170 to 300px of canvas height. Only on
+   a phone, where 40% is too narrow to read, does it go under the canvas. */
+@media (max-width: 1100px) {
+  body .afd-shell {
+    grid-template-columns: min(var(--afd-left-width), 40vw) minmax(0, 1fr) var(--afd-right-width);
+  }
+}
+@media (max-width: 640px) {
+  body .afd-shell {
+    grid-template-columns: min(var(--afd-left-width), 40vw) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top top"
+      "left center"
+      "right right";
+  }
+  body .afd-right {
+    max-height: 42vh;
+    border-width: 1px 0 0;
+  }
+  body .afd-right.collapsed {
+    padding: 4px 8px;
+  }
+}

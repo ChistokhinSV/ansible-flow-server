@@ -2,13 +2,13 @@
 // so launching is one choice instead of a form filled in again each time. A configuration
 // names; it holds no secret (those are credentials) and no copy of the flow (that is git's).
 import { randomUUID } from 'node:crypto';
-import { parseFlow } from '@ansible-flow/core/flow/document';
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { inputText, launchFields, parseInput } from '@ansible-flow/core/run/launch';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
-import { summarizeFlow } from '../flows';
-import { unknownNames } from '../notify/recipients';
+import { errorsSentence, type FlowError } from '../flowErrors';
+import { checkFlow } from '../flows';
+import { namesWithoutAccess, unknownNames } from '../notify/recipients';
 import type { RunNotify } from '../notify/types';
 import { type Git, refProblem } from '../projects/git';
 import { getProject, type Project } from '../projects/store';
@@ -51,6 +51,14 @@ export interface LaunchConfig {
    * the list and the configuration read by id say it.
    */
   lastRun?: LastRun;
+  /**
+   * AFS-147: read by id only: its credentials by name (in order), and its environment by name with
+   * the image a launch gets now, or why it gets none.
+   */
+  credentialNames?: string[];
+  environmentInfo?: { name: string; image?: string; why?: string };
+  /** AFS-147: in the list and read by id: the flow is not in the repository any more. */
+  flowGone?: string;
 }
 
 export class LaunchError extends Error {
@@ -59,6 +67,8 @@ export class LaunchError extends Error {
     message: string,
     /** The input or setting the message is about, for a form. */
     readonly field?: string,
+    /** AFS-164: the errors of a flow that cannot run, with the step each is on. */
+    readonly errors?: FlowError[],
   ) {
     super(message);
     this.name = 'LaunchError';
@@ -85,8 +95,30 @@ export interface LaunchConfigInput {
 type Db = Kysely<Schema>;
 type Row = Schema['launch_config'];
 const now = () => new Date().toISOString();
-const invalid = (message: string, field?: string) => new LaunchError('invalid', message, field);
+const invalid = (message: string, field?: string, errors?: FlowError[]) =>
+  new LaunchError('invalid', message, field, errors);
 export const COMMIT = /^[0-9a-f]{40}$/;
+/** AFS-140: a commit as people copy it: the 12 digits the pages show, or more, or all 40. */
+export const SHORT_COMMIT = /^[0-9a-f]{7,40}$/;
+
+/**
+ * AFS-140: a commit typed in full or short, as its full id; or why it is not one of the
+ * repository's commits.
+ */
+export async function fullCommit(
+  git: Pick<Git, 'commitOf'>,
+  projectId: string,
+  typed: string,
+): Promise<{ commit: string } | { problem: string }> {
+  const asked = typed.trim().toLowerCase();
+  if (!SHORT_COMMIT.test(asked))
+    return { problem: 'A commit is its id: 7 to 40 hex digits, like c300821e56a6.' };
+  const commit = await git.commitOf(projectId, asked).catch(() => undefined);
+  // A branch named like the digits is not taken for the commit.
+  if (!commit || !COMMIT.test(commit) || !commit.startsWith(asked))
+    return { problem: `The repository has no commit ${asked.slice(0, 12)}.` };
+  return { commit };
+}
 /** The kinds of credential a run can be given; a git token is for a repository, not a run. */
 const RUN_KINDS: CredentialKind[] = ['ssh_key', 'login', 'become', 'vault', 'registry', 'env'];
 /** A run signs in to machines one way, and becomes another user one way. */
@@ -109,19 +141,15 @@ export async function flowAt(
   projectId: string,
   commit: string,
   file: string,
-): Promise<{ doc: FlowDocument } | { problem: string }> {
+): Promise<{ doc: FlowDocument } | { problem: string; errors?: FlowError[] }> {
   if (pathProblem(file) || !/\.flow\.ya?ml$/i.test(file))
     return { problem: 'A flow is a file named *.flow.yaml in the repository' };
   const bytes = await git.read(projectId, commit, file).catch(() => undefined);
   if (!bytes) return { problem: `There is no flow ${file} at commit ${commit.slice(0, 12)}` };
-  const text = bytes.toString('utf8');
-  const summary = summarizeFlow(file, text);
-  const doc = parseFlow(text).doc;
+  const { summary, doc, errors } = checkFlow(file, bytes.toString('utf8'));
   if (!summary.ok || !doc) return { problem: summary.problem ?? 'Not a flow file' };
-  if (summary.errors > 0)
-    return {
-      problem: `The flow has ${summary.errors} ${summary.errors === 1 ? 'error' : 'errors'}: it cannot run until they are fixed`,
-    };
+  // AFS-164: which errors and on which steps, so the pages link to each.
+  if (summary.errors > 0) return { problem: errorsSentence(summary.errors, errors), errors };
   return { doc };
 }
 
@@ -198,10 +226,9 @@ export class LaunchConfigs {
   ): Promise<string> {
     if (gitRef && commit) throw invalid('Name a branch or pin a commit, not both', 'commit');
     if (commit) {
-      if (!COMMIT.test(commit)) throw invalid('A commit is its full 40-character id', 'commit');
-      if (!(await this.git.hasCommit(project.id, commit)))
-        throw invalid(`The repository has no commit ${commit.slice(0, 12)}`, 'commit');
-      return commit;
+      const found = await fullCommit(this.git, project.id, commit);
+      if ('problem' in found) throw invalid(found.problem, 'commit');
+      return found.commit;
     }
     if (gitRef) {
       const problem = refProblem(gitRef);
@@ -215,7 +242,11 @@ export class LaunchConfigs {
     return project.commit;
   }
 
-  /** Everything a configuration says, checked against the project as it is now. */
+  /**
+   * Everything a configuration says, checked against the project as it is now. An environment
+   * with no image yet is accepted (it may be building): the launch refuses it until it has one,
+   * and the configuration's page says why (AFS-147).
+   */
   private async checked(project: Project, input: LaunchConfigInput) {
     const name = input.name.trim();
     if (name.length < 1 || name.length > 100)
@@ -225,7 +256,7 @@ export class LaunchConfigs {
     const at = await this.commitFor(project, gitRef, commit);
     const flowFile = input.flowFile.trim();
     const flow = await flowAt(this.git, project.id, at, flowFile);
-    if ('problem' in flow) throw invalid(flow.problem, 'flowFile');
+    if ('problem' in flow) throw invalid(flow.problem, 'flowFile', flow.errors);
 
     const inventory = input.inventory?.trim() || undefined;
     if (inventory) {
@@ -303,6 +334,17 @@ export class LaunchConfigs {
       const unknown = await unknownNames(this.db, to);
       if (unknown.length)
         throw invalid(`No user or group ${unknown.slice(0, 3).join(', ')}`, 'notify');
+      // AFS-145: a run's message says what it did: only to who may see the flow's runs.
+      const outside = await namesWithoutAccess(this.db, to, {
+        workspace: project.workspace,
+        project: project.id,
+        flowFile,
+      });
+      if (outside.length)
+        throw invalid(
+          `${outside.slice(0, 3).join(', ')}${outside.length > 3 ? ' and others' : ''} ${outside.length === 1 ? 'has' : 'have'} no access to this flow: give a grant first, or leave them out`,
+          'notify',
+        );
       if (to.length) notify = { when: input.notify.when, to };
     }
     return {
@@ -310,7 +352,8 @@ export class LaunchConfigs {
       description: input.description?.trim() || null,
       flow_file: flowFile,
       git_ref: gitRef ?? null,
-      commit_id: commit ?? null,
+      // AFS-140: a short commit is kept as its full id.
+      commit_id: commit ? at : null,
       inventory: inventory ?? null,
       ee_image: eeImage ?? null,
       environment_id: environment ?? null,

@@ -6,6 +6,7 @@ import type { Mapping, Provider, ProviderInput, SignInMethods } from '../server/
 import type { Group } from '../server/auth/users';
 import { api } from './api';
 import { DirectoriesSection } from './directories';
+import { followKey } from './flowFiles';
 import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 /** The sign-in page's provider buttons, and why the last sign-in failed (?error=). */
@@ -190,7 +191,13 @@ function ProviderForm({
         <Field
           label="Name"
           value={d.name}
-          onChange={(e) => set({ name: e.target.value })}
+          onChange={(e) =>
+            set({
+              name: e.target.value,
+              // AFS-125: a new provider's key follows its name until typed.
+              ...(d.id ? {} : { key: followKey(e.target.value, d.name ?? '', d.key ?? '', 40) }),
+            })
+          }
           required
           hint="On the sign-in button"
         />
@@ -200,8 +207,23 @@ function ProviderForm({
           onChange={(e) => set({ key: e.target.value.toLowerCase() })}
           required
           pattern="[a-z0-9][a-z0-9-]{0,39}"
+          title="Lower-case letters, digits and dashes, up to 40"
           hint="In the sign-in address; lower-case letters, digits and dashes"
         />
+        {/* AFS-140: the address the provider is told about, while it is added (it follows the key). */}
+        {!d.id && /^[a-z0-9][a-z0-9-]{0,39}$/.test(d.key ?? '') && (
+          <div className="field">
+            <span>Redirect address</span>
+            <Copyable
+              text={`${window.location.origin}/api/v1/auth/oidc/${encodeURIComponent(d.key ?? '')}/callback`}
+              label="the redirect address"
+            />
+            <small className="muted">
+              Give it to the provider as the redirect (callback) address. A server set up with
+              another public address shows that one once the provider is added.
+            </small>
+          </div>
+        )}
         <Field
           label="Issuer"
           value={d.issuer}
@@ -284,6 +306,7 @@ export function SignInPage() {
   return (
     <>
       <PageHead
+        help="people-and-sign-in.md"
         title="Sign-in"
         lead={
           <>
@@ -292,31 +315,33 @@ export function SignInPage() {
             Directory). Their groups there can be groups here.{' '}
           </>
         }
-      >
-        {!editing && (
-          <button type="button" className="primary" onClick={() => setEditing({ ...EMPTY })}>
-            Add a provider
-          </button>
-        )}
-      </PageHead>
+      />
       {error && (
         <p className="notice error" role="alert">
           {error}
         </p>
       )}
-      {editing && (
-        <ProviderForm
-          draft={editing}
-          groups={groups.data ?? []}
-          onCancel={() => setEditing(undefined)}
-          onDone={() => {
-            setEditing(undefined);
-            providers.reload();
-          }}
-        />
-      )}
       <section className="panel" aria-labelledby="providers">
-        <h2 id="providers">Providers</h2>
+        {/* AFS-144: each section's add button at its head, the same as Add a directory. */}
+        <div className="section-head">
+          <h2 id="providers">Providers</h2>
+          {!editing && (
+            <button type="button" onClick={() => setEditing({ ...EMPTY })}>
+              Add a provider
+            </button>
+          )}
+        </div>
+        {editing && (
+          <ProviderForm
+            draft={editing}
+            groups={groups.data ?? []}
+            onCancel={() => setEditing(undefined)}
+            onDone={() => {
+              setEditing(undefined);
+              providers.reload();
+            }}
+          />
+        )}
         <Loading state={providers} />
         {providers.data?.length === 0 && (
           <p className="muted">None yet: people sign in with a password.</p>
@@ -413,6 +438,14 @@ export function SignInPage() {
                   name="local"
                   checked={local.data?.local === v}
                   onChange={async () => {
+                    // AFS-134: this one signs people out of their passwords: asked first.
+                    if (
+                      v === 'admins' &&
+                      !window.confirm(
+                        'Only administrators keep signing in with a password. Everyone else must sign in with a provider or a directory from now on. Go on?',
+                      )
+                    )
+                      return;
                     try {
                       await api.setLocalSignIn(v);
                       local.reload();

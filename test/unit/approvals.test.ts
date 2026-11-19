@@ -324,7 +324,7 @@ describe('a run of a flow with an approval', () => {
     expect(await mine('rita')).toMatchObject({ mayDecide: false });
     expect(await mine('dana')).toMatchObject({
       mayDecide: false,
-      why: 'Who launched the run does not decide its approvals here',
+      why: 'Who launched the run does not decide its approvals here. The workspace can allow it on its Access page',
     });
     const decide = (who: string, decision: string, comment?: string) =>
       call(who, 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
@@ -341,7 +341,7 @@ describe('a run of a flow with an approval', () => {
       run: { id: run.id, flow: { file: 'flows/change.flow.yaml' } },
       requestedBy: 'dana',
       mayDecide: true,
-      gate: { node: { key: 'gate' } },
+      gate: { node: { key: 'gate' }, hosts: ['fw-edge-01'] },
     });
     expect((await call('gary', 'GET', '/api/v1/approvals')).json()[0]).toMatchObject({
       mayDecide: false,
@@ -365,9 +365,92 @@ describe('a run of a flow with an approval', () => {
       .entries;
     expect(audit[0]).toMatchObject({
       actor: { login: 'omar' },
-      detail: { decision: 'approved', approval: GATE },
+      // AFS-133: the approval by its title, and the comment it was decided with.
+      detail: {
+        decision: 'approved',
+        approval: inbox[0].gate.node.title,
+        comment: 'Window confirmed with the NOC',
+      },
     });
     expect((await call('omar', 'GET', '/api/v1/approvals')).json()).toEqual([]);
+    // AFS-133: decided ones are listed apart, newest first, with who and why.
+    const history = (await call('gary', 'GET', '/api/v1/approvals?decided=1')).json();
+    expect(history[0]).toMatchObject({
+      run: { id: run.id },
+      mayDecide: false,
+      gate: { status: 'approved', decidedBy: 'omar', comment: 'Window confirmed with the NOC' },
+    });
+  });
+
+  it('refuses a rejection without a comment, names who may decide and people by name (AFS-146)', async () => {
+    await database.db
+      .updateTable('user_account')
+      .set({ name: 'Omar Haddad' })
+      .where('login', '=', 'omar')
+      .execute();
+    await database.db
+      .updateTable('user_account')
+      .set({ name: 'Dana Ruiz' })
+      .where('login', '=', 'dana')
+      .execute();
+    try {
+      const ex = executor(join(root, 'data-146'));
+      const run = await launch();
+      await ex.start();
+      await stateIs(run.id, 'waiting');
+      // Whatever asks (the pages, the canvas, the API): no comment, no rejection.
+      for (const comment of [undefined, '   ']) {
+        const refused = await call('omar', 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
+          decision: 'rejected',
+          ...(comment !== undefined ? { comment } : {}),
+        });
+        expect(refused.statusCode).toBe(400);
+        expect(refused.json()).toMatchObject({ error: 'comment_required' });
+      }
+      expect((await gatesOf(database.db, run.id))[0]?.status).toBe('waiting');
+      // The refused try names the approval by its title in the audit log, not by its key, and
+      // the run by its flow and number.
+      const refusedEntry = (
+        await listAudit(database.db, { action: 'approval.decide', result: 'refused' })
+      ).entries.find((e) => e.object.id === run.id);
+      expect(refusedEntry?.detail?.approval).toBe('Approve the change');
+      expect(refusedEntry?.object.name).toBe(`Engine test · approval segments #${run.number}`);
+
+      // Who may decide, by name; what the approver needs; who launched it, by name.
+      const [mine] = (await call('dana', 'GET', `/api/v1/runs/${run.id}/approvals`)).json();
+      expect(mine.deciders).toEqual(['change-board']);
+      const [inbox] = (await call('omar', 'GET', '/api/v1/approvals')).json();
+      expect(inbox).toMatchObject({
+        requestedBy: 'dana',
+        requestedByName: 'Dana Ruiz',
+        run: { mode: 'real', projectName: 'Edge', inputs: { devices: ['fw-edge-01'] } },
+        gate: { deciders: ['change-board'] },
+      });
+
+      const rejected = await call('omar', 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
+        decision: 'rejected',
+        comment: 'Window not confirmed',
+      });
+      expect(rejected.statusCode).toBe(200);
+      expect(rejected.json()).toMatchObject({ decidedBy: 'omar', decidedByName: 'Omar Haddad' });
+      await stateIs(run.id, 'succeeded');
+      await ex.stop();
+      expect(((await queue.view(run.id)) as RunView).approvals?.[GATE]).toMatchObject({
+        status: 'rejected',
+        by: 'Omar Haddad',
+      });
+    } finally {
+      await database.db
+        .updateTable('user_account')
+        .set({ name: 'omar' })
+        .where('login', '=', 'omar')
+        .execute();
+      await database.db
+        .updateTable('user_account')
+        .set({ name: 'dana' })
+        .where('login', '=', 'dana')
+        .execute();
+    }
   });
 
   it('waits across a restart; a gate whose time ran out times out, through the timeout port', async () => {

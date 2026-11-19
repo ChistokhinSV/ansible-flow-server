@@ -2,10 +2,32 @@
 // what a launch gets now, what that image holds, its spec (collections with a version, a range or
 // latest; pip and Debian packages; certificates), Build, the builds with their logs (followed while
 // one goes), the ansible-builder file, and Delete. rw on the workspace changes and builds; ro reads.
-import { useCallback, useEffect, useId, useState } from 'react';
-import { api, type Environment, type EnvironmentBuild, type EnvironmentSpec } from './api';
+import { type InputHTMLAttributes, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { collectionProblem } from '../server/environments/collections';
+import {
+  api,
+  type Environment,
+  type EnvironmentBuild,
+  type EnvironmentSpec,
+  type ServerDefault,
+} from './api';
 import { Link, navigate } from './router';
-import { Breadcrumb, Field, Fold, Form, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Field,
+  Fold,
+  Form,
+  Labelled,
+  Loading,
+  messageOf,
+  PageHead,
+  refuse,
+  Scroll,
+  Time,
+  useFieldProblem,
+  useLoad,
+  WorkspaceName,
+} from './ui';
 
 const STATE_TONE: Record<string, string> = {
   done: 'ok',
@@ -31,15 +53,50 @@ function BuildBadge({ build }: { build?: EnvironmentBuild }) {
   );
 }
 
+/**
+ * AFS-163: the server's default image: what runs get when their launch configuration names no
+ * environment or image. An administrator picks an environment for it on that environment's page.
+ */
+function DefaultImage({ now, admin }: { now: ServerDefault; admin: boolean }) {
+  const env = now.environment;
+  return (
+    <p className="muted" data-server-default>
+      The server's default image, for launch configurations without an environment:{' '}
+      <code className="wrap">{now.image}</code>
+      {env ? (
+        <>
+          {' '}
+          from the environment{' '}
+          {env.workspaceKey ? (
+            <Link to={environmentAddress(env.workspaceKey, env.id)}>{env.name}</Link>
+          ) : (
+            env.name
+          )}
+          {now.why ? ` (${now.why}: AFS_EE_IMAGE is used until it has one)` : ''}.
+        </>
+      ) : (
+        <>
+          {' '}
+          (AFS_EE_IMAGE).
+          {admin ? " To use one of these instead, open it and make it the server's default." : ''}
+        </>
+      )}
+    </p>
+  );
+}
+
 /** A workspace's environments, and a form to add one. */
 export function WorkspaceEnvironments({
   workspace,
   mayManage,
+  admin = false,
 }: {
   workspace: string;
   mayManage: boolean;
+  admin?: boolean;
 }) {
   const list = useLoad(() => api.environments(workspace), [workspace]);
+  const serverImage = useLoad(() => api.defaultEnvironment(), []);
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState({ name: '', kind: 'spec' as 'spec' | 'image', image: '' });
   const kindId = useId();
@@ -58,6 +115,7 @@ export function WorkspaceEnvironments({
         The images runs happen in: built here from a list of collections and packages, or an image
         that exists already. A launch configuration chooses one.
       </p>
+      {serverImage.data && <DefaultImage now={serverImage.data} admin={admin} />}
       {adding && (
         <Form
           submit="Add"
@@ -107,7 +165,7 @@ export function WorkspaceEnvironments({
         <p className="empty">No environment yet: runs use the server's default image.</p>
       )}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -122,6 +180,12 @@ export function WorkspaceEnvironments({
                 <tr key={e.id}>
                   <td>
                     <Link to={environmentAddress(workspace, e.id)}>{e.name}</Link>
+                    {serverImage.data?.environment?.id === e.id && (
+                      <>
+                        {' '}
+                        <span className="badge ok">server's default</span>
+                      </>
+                    )}
                     <div className="muted">
                       {e.kind === 'spec'
                         ? `${e.spec?.collections.length ?? 0} collection${e.spec?.collections.length === 1 ? '' : 's'}`
@@ -138,12 +202,17 @@ export function WorkspaceEnvironments({
                   <td>
                     <BuildBadge build={e.latest} />
                   </td>
-                  <td>{e.usedBy || 'nothing'}</td>
+                  {/* AFS-153: one way of saying it in every row. */}
+                  <td>
+                    {e.usedBy
+                      ? `${e.usedBy} launch configuration${e.usedBy === 1 ? '' : 's'}`
+                      : 'nothing'}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );
@@ -178,15 +247,51 @@ function specBody(
 /** Saves the spec form's changes; given to the page while there are unsaved ones (AFS-92). */
 export type SaveSpec = () => Promise<Environment>;
 
+/** AFS-140: a collection row's input, marked with the problem the form's refusal has about it. */
+function RowInput(props: InputHTMLAttributes<HTMLInputElement> & { name: string }) {
+  const problem = useFieldProblem(props.name);
+  const id = useId();
+  return (
+    <span className="row-input">
+      <input
+        {...props}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={problem ? `${id}-problem` : undefined}
+      />
+      {problem && (
+        <small id={`${id}-problem`} className="bad-text">
+          {problem}
+        </small>
+      )}
+    </span>
+  );
+}
+
+/** AFS-140: the server's refusal about the collections as a whole, said above them. */
+function CollectionsProblem() {
+  const problem = useFieldProblem('collections');
+  return problem ? <p className="bad-text">{problem}</p> : null;
+}
+
+/** AFS-161: the build button beside Save, in the spec form's action bar. */
+interface SpecBuild {
+  label: string;
+  disabled: boolean;
+  /** Builds the saved spec (the form saves its changes first). */
+  run(): Promise<void>;
+}
+
 function SpecForm({
   env,
   onSaved,
   onDraft,
+  build,
 }: {
   env: Environment;
   onSaved(e: Environment): void;
   /** Told whether the form holds changes not saved, with how to save them. */
   onDraft(save: SaveSpec | undefined): void;
+  build?: SpecBuild;
 }) {
   const spec = env.spec as EnvironmentSpec;
   const [base, setBase] = useState(spec.baseImage);
@@ -200,7 +305,8 @@ function SpecForm({
   const [keep, setKeep] = useState(env.keep);
   const [saved, setSaved] = useState(false);
   const [more, setMore] = useState(!!spec.caCertificates);
-  const ids = { python: useId(), system: useId(), ca: useId() };
+  // Set by the build button, which submits the form: the same checks, then the build.
+  const building = useRef(false);
   const set = (i: number, part: 'name' | 'version', v: string) =>
     setCollections(collections.map((c, j) => (j === i ? { ...c, [part]: v } : c)));
   const body = specBody(keep, {
@@ -225,8 +331,42 @@ function SpecForm({
     <Form
       wide
       submit="Save the spec"
+      quiet={!!build}
+      more={
+        build && (
+          <button
+            type="submit"
+            className="primary"
+            disabled={build.disabled}
+            onClick={() => {
+              // The submit reads it at once; a submit the browser's checks stopped leaves no mark.
+              building.current = true;
+              setTimeout(() => {
+                building.current = false;
+              });
+            }}
+          >
+            {build.label}
+          </button>
+        )
+      }
       onSubmit={async () => {
+        const andBuild = building.current;
+        building.current = false;
         setSaved(false);
+        // AFS-140: a wrong row is said at its name or version, before the server is asked.
+        const seen = new Set<string>();
+        for (const [i, c] of collections.entries()) {
+          if (!c.name.trim()) continue;
+          const problem = collectionProblem(c, seen);
+          if (problem) refuse(`collection-${problem.part}-${i}`, problem.message);
+          seen.add(c.name);
+        }
+        if (andBuild && build) {
+          if (dirty) await save();
+          await build.run();
+          return;
+        }
         await save();
         setSaved(true);
       }}
@@ -234,6 +374,7 @@ function SpecForm({
       <div className="pair">
         <Field
           label="ansible-core"
+          name="ansibleCore"
           value={core}
           onChange={(e) => setCore(e.target.value)}
           required
@@ -253,6 +394,7 @@ function SpecForm({
           under it. */}
       <fieldset className="spec-collections">
         <legend>Collections</legend>
+        <CollectionsProblem />
         {collections.length > 0 && (
           <div className="spec-rows">
             <div className="spec-row spec-head" aria-hidden="true">
@@ -263,14 +405,16 @@ function SpecForm({
             {collections.map((c, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity but their place
               <div key={i} className="spec-row">
-                <input
+                <RowInput
+                  name={`collection-name-${i}`}
                   aria-label={`Collection ${i + 1}`}
                   value={c.name}
                   onChange={(e) => set(i, 'name', e.target.value)}
                   placeholder="cisco.ios"
                   spellCheck={false}
                 />
-                <input
+                <RowInput
+                  name={`collection-version-${i}`}
                   aria-label={`Version ${i + 1}`}
                   value={c.version}
                   onChange={(e) => set(i, 'version', e.target.value)}
@@ -290,6 +434,7 @@ function SpecForm({
           </div>
         )}
         <CollectionSearch
+          added={collections.map((c) => c.name.trim())}
           onAdd={(name) =>
             setCollections((now) =>
               now.some((c) => c.name === name)
@@ -305,59 +450,69 @@ function SpecForm({
         </small>
       </fieldset>
       <div className="pair">
-        <div className="field">
-          <label htmlFor={ids.python}>Python packages</label>
-          <textarea
-            id={ids.python}
-            rows={4}
-            className="mono"
-            value={python}
-            onChange={(e) => setPython(e.target.value)}
-            spellCheck={false}
-            placeholder="netaddr>=1.3"
-          />
-          <small className="muted">One per line, as pip reads them: a name and versions.</small>
-        </div>
-        <div className="field">
-          <label htmlFor={ids.system}>Debian packages</label>
-          <textarea
-            id={ids.system}
-            rows={4}
-            className="mono"
-            value={system}
-            onChange={(e) => setSystem(e.target.value)}
-            spellCheck={false}
-            placeholder="iputils-ping"
-          />
-          <small className="muted">One per line, as apt names them.</small>
-        </div>
+        <Labelled
+          label="Python packages"
+          name="python"
+          hint="One per line, as pip reads them: a name and versions."
+        >
+          {(props) => (
+            <textarea
+              {...props}
+              name="python"
+              rows={4}
+              className="mono"
+              value={python}
+              onChange={(e) => setPython(e.target.value)}
+              spellCheck={false}
+              placeholder="netaddr>=1.3"
+            />
+          )}
+        </Labelled>
+        <Labelled label="Debian packages" name="system" hint="One per line, as apt names them.">
+          {(props) => (
+            <textarea
+              {...props}
+              name="system"
+              rows={4}
+              className="mono"
+              value={system}
+              onChange={(e) => setSystem(e.target.value)}
+              spellCheck={false}
+              placeholder="iputils-ping"
+            />
+          )}
+        </Labelled>
       </div>
       {/* Rarely changed: folded until asked for, open when certificates are set. */}
       <Fold summary="Base image and certificate authorities" open={more} onToggle={setMore}>
         <div className="form wide">
           <Field
             label="Base image"
+            name="baseImage"
             value={base}
             onChange={(e) => setBase(e.target.value)}
             required
             spellCheck={false}
             hint="A Debian-based Python image; the default is the one afd-ee uses."
           />
-          <div className="field">
-            <label htmlFor={ids.ca}>Extra certificate authorities</label>
-            <textarea
-              id={ids.ca}
-              rows={4}
-              className="mono"
-              value={ca}
-              onChange={(e) => setCa(e.target.value)}
-              spellCheck={false}
-              placeholder="-----BEGIN CERTIFICATE-----"
-            />
-            <small className="muted">
-              PEM. Trusted in the image: by pip, ansible-galaxy and the hosts runs reach.
-            </small>
-          </div>
+          <Labelled
+            label="Extra certificate authorities"
+            name="caCertificates"
+            hint="PEM. Trusted in the image: by pip, ansible-galaxy and the hosts runs reach."
+          >
+            {(props) => (
+              <textarea
+                {...props}
+                name="caCertificates"
+                rows={4}
+                className="mono"
+                value={ca}
+                onChange={(e) => setCa(e.target.value)}
+                spellCheck={false}
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+            )}
+          </Labelled>
         </div>
       </Fold>
       {saved && (
@@ -401,7 +556,7 @@ function Builds({
   if (!builds.length) return <p className="empty">Not built yet.</p>;
   return (
     <>
-      <div className="scroll">
+      <Scroll>
         <table>
           <thead>
             <tr>
@@ -443,7 +598,7 @@ function Builds({
             ))}
           </tbody>
         </table>
-      </div>
+      </Scroll>
       {open && (
         <>
           <h3>Log of build {builds.find((b) => b.id === open)?.number}</h3>
@@ -463,7 +618,9 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
   if (!newest)
     return (
       <p className="notice" role="status">
-        Not built yet: runs cannot use this environment until a build is done.
+        {env.kind === 'image'
+          ? 'Not pulled here yet: a run pulls the image when it starts. Pull and read it to check it first.'
+          : 'Not built yet: runs cannot use this environment until a build is done.'}
       </p>
     );
   // `latest`, a range or `2.19` may settle on newer versions at the next build; exact ones do not.
@@ -507,12 +664,23 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
   );
 }
 
-export function EnvironmentPage({ workspace, id }: { workspace: string; id: string }) {
+export function EnvironmentPage({
+  workspace,
+  id,
+  admin = false,
+}: {
+  workspace: string;
+  id: string;
+  admin?: boolean;
+}) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
+  const serverImage = useLoad(() => api.defaultEnvironment(), []);
+  const [defaultError, setDefaultError] = useState<string>();
   const load = useLoad(() => api.environment(id), [id]);
   const builds = useLoad(() => api.environmentBuilds(id), [id]);
   const [env, setEnv] = useState<Environment>();
   const [error, setError] = useState<string>();
+  const [deleteError, setDeleteError] = useState<string>();
   useEffect(() => setEnv(load.data), [load.data]);
   const level = space.data?.level;
   const mayManage = level === 'admin' || level === 'rw';
@@ -527,8 +695,11 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
   const onDraft = useCallback((save: SaveSpec | undefined) => setUnsaved(() => save), []);
   const crumbs = (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <span aria-current="page">{env?.name ?? 'environment'}</span>
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      / <span aria-current="page">{env?.name ?? 'environment'}</span>
     </Breadcrumb>
   );
   if (!env)
@@ -548,10 +719,12 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
     <>
       {crumbs}
       <PageHead
+        help="environments.md"
         title={env.name}
         lead={env.kind === 'spec' ? 'Built here from its spec' : `The existing image ${env.image}`}
       >
-        {mayManage && (
+        {/* AFS-161: a spec's build is in the spec's action bar, beside Save. */}
+        {mayManage && env.kind === 'image' && (
           <button
             type="button"
             className="primary"
@@ -568,17 +741,7 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
               }
             }}
           >
-            {going
-              ? 'Building…'
-              : unsaved
-                ? 'Save and build'
-                : env.kind === 'spec'
-                  ? newest
-                    ? 'Build again'
-                    : 'Build now'
-                  : newest
-                    ? 'Pull and read it again'
-                    : 'Pull and read it'}
+            {going ? 'Pulling…' : newest ? 'Pull and read it again' : 'Pull and read it'}
           </button>
         )}
         {env.kind === 'spec' && (
@@ -628,7 +791,10 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
               {env.current ? (
                 <code className="wrap">{env.current}</code>
               ) : (
-                <span className="muted">none yet: build it</span>
+                <span className="muted">
+                  {/* AFS-153: the action is the environment's own: an image is pulled. */}
+                  none yet: {env.kind === 'spec' ? 'build it' : 'pull it'}
+                </span>
               )}
             </dd>
             <dt>ansible-core</dt>
@@ -639,6 +805,52 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
                 ? `${env.usedBy} launch configuration${env.usedBy === 1 ? '' : 's'}`
                 : 'nothing'}
             </dd>
+            {/* AFS-163: whether its image is the one runs without an environment get. */}
+            {serverImage.data && (
+              <>
+                <dt>Server's default</dt>
+                <dd data-server-default>
+                  {serverImage.data.environment?.id === env.id ? (
+                    <>
+                      yes: launch configurations without an environment run in it
+                      {serverImage.data.why
+                        ? ` once it has an image (${serverImage.data.why})`
+                        : ''}
+                    </>
+                  ) : (
+                    <>
+                      no: they get <code className="wrap">{serverImage.data.image}</code>
+                    </>
+                  )}
+                  {admin && (
+                    <div className="actions">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setDefaultError(undefined);
+                          const mine = serverImage.data?.environment?.id === env.id;
+                          try {
+                            await api.setDefaultEnvironment(mine ? null : env.id);
+                            serverImage.reload();
+                          } catch (e) {
+                            setDefaultError(messageOf(e));
+                          }
+                        }}
+                      >
+                        {serverImage.data.environment?.id === env.id
+                          ? 'Go back to AFS_EE_IMAGE'
+                          : "Make it the server's default"}
+                      </button>
+                    </div>
+                  )}
+                  {defaultError && (
+                    <p className="bad-text" role="alert">
+                      {defaultError}
+                    </p>
+                  )}
+                </dd>
+              </>
+            )}
           </dl>
           {env.catalog && (
             <>
@@ -663,7 +875,26 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
           <section className="panel env-spec" aria-labelledby="spec">
             <h2 id="spec">Spec</h2>
             {mayManage ? (
-              <SpecForm key={env.id} env={env} onSaved={setEnv} onDraft={onDraft} />
+              <SpecForm
+                key={env.id}
+                env={env}
+                onSaved={setEnv}
+                onDraft={onDraft}
+                build={{
+                  label: going
+                    ? 'Building…'
+                    : unsaved
+                      ? 'Save and build'
+                      : newest
+                        ? 'Build again'
+                        : 'Build now',
+                  disabled: !!going,
+                  run: async () => {
+                    await api.buildEnvironment(env.id);
+                    reload();
+                  },
+                }}
+              />
             ) : (
               <dl className="facts">
                 <dt>ansible-core</dt>
@@ -688,33 +919,41 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
       </section>
       {/* AFS-94: what cannot be undone is last on the page, away from Build. */}
       {mayManage && (
-        <section className="panel" aria-labelledby="delete">
-          <h2 id="delete">Delete</h2>
+        <section className="panel danger-zone" aria-labelledby="delete">
+          <h2 id="delete">Delete the environment</h2>
           <p className="muted">
             Its builds and their images go with it.
             {env.usedBy
-              ? ` ${env.usedBy} launch configuration${env.usedBy === 1 ? ' uses' : 's use'} it.`
+              ? ` ${env.usedBy} launch configuration${env.usedBy === 1 ? ' uses' : 's use'} it: give ${env.usedBy === 1 ? 'it' : 'them'} another environment first.`
               : ''}
           </p>
           <button
             type="button"
             className="danger"
+            // AFS-140: refused while in use, with the reason beside it, not at the top of the page.
+            disabled={!!env.usedBy}
             onClick={async () => {
               if (
                 !window.confirm(`Delete the environment ${env.name}, its builds and their images?`)
               )
                 return;
-              setError(undefined);
+              setDeleteError(undefined);
               try {
                 await api.deleteEnvironment(env.id);
-                navigate(`/w/${workspace}`);
+                // AFS-134: back to the list it was on, not the workspace's projects.
+                navigate(`/w/${workspace}/-/environments`);
               } catch (e) {
-                setError(messageOf(e));
+                setDeleteError(messageOf(e));
               }
             }}
           >
             Delete the environment
           </button>
+          {deleteError && (
+            <p className="notice error" role="alert">
+              {deleteError}
+            </p>
+          )}
         </section>
       )}
     </>
@@ -725,12 +964,22 @@ export function EnvironmentPage({ workspace, id }: { workspace: string; id: stri
  * Collections on the collection server (AFS-33), to add to a spec. When it cannot be reached, it
  * says so: a name and version can still be typed.
  */
-function CollectionSearch({ onAdd, onBlank }: { onAdd(name: string): void; onBlank(): void }) {
+function CollectionSearch({
+  added,
+  onAdd,
+  onBlank,
+}: {
+  /** AFS-161: the spec's collections: not offered again; one removed is offered again. */
+  added: string[];
+  onAdd(name: string): void;
+  onBlank(): void;
+}) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState<{ name: string; version: string; description?: string }[]>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const id = useId();
+  const offered = (found ?? []).filter((c) => !added.includes(c.name));
   const search = async () => {
     if (q.trim().length < 2 || busy) return;
     setBusy(true);
@@ -774,9 +1023,12 @@ function CollectionSearch({ onAdd, onBlank }: { onAdd(name: string): void; onBla
         </p>
       )}
       {found && found.length === 0 && <p className="muted">Nothing found.</p>}
-      {found && found.length > 0 && (
-        <ul className="tight" aria-label="Collections found">
-          {found.map((c) => (
+      {found && found.length > 0 && offered.length === 0 && (
+        <p className="muted">Every collection found is in the spec already.</p>
+      )}
+      {offered.length > 0 && (
+        <ul className="found" aria-label="Collections found">
+          {offered.map((c) => (
             <li key={c.name}>
               <button type="button" onClick={() => onAdd(c.name)} aria-label={`Add ${c.name}`}>
                 Add
@@ -828,13 +1080,14 @@ export function EnvironmentCheck({
                 {c.environment.ansibleCore ? ` (ansible-core ${c.environment.ansibleCore})` : ''}.
               </>
             ) : (
-              '. The configuration has no environment to check against.'
+              // AFS-139: said as the run and What would run say it: the server's default image.
+              ". The configuration names no environment: its runs use the server's default image, which is not checked here."
             )}
           </p>
           {c.lines.length === 0 ? (
             <p className="muted">Only what comes with ansible-core.</p>
           ) : (
-            <div className="scroll">
+            <Scroll>
               <table>
                 <thead>
                   <tr>
@@ -876,7 +1129,7 @@ export function EnvironmentCheck({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Scroll>
           )}
           {c.environment && c.lines.length > 0 && (
             <p className={`notice ${c.ok ? 'ok' : 'error'}`} role="status">

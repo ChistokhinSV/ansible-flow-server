@@ -66,6 +66,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/projects/:id/files': { action: 'project.files-save', id: at() },
   'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
   'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },
+  'POST /api/v1/drafts/:id/start-from': { action: 'draft.start', id: at() },
   'POST /api/v1/projects/:id/branches': { action: 'project.branch-create', id: at() },
   'DELETE /api/v1/projects/:id/branches': { action: 'project.branch-delete', id: at() },
   'POST /api/v1/projects/:id/hook': { action: 'project.hook-set', id: at() },
@@ -123,6 +124,7 @@ export const ACTIONS: Record<string, Action> = {
   'PATCH /api/v1/environments/:id': { action: 'environment.change', id: at() },
   'DELETE /api/v1/environments/:id': { action: 'environment.delete', id: at() },
   'POST /api/v1/environments/:id/builds': { action: 'environment.build', id: at() },
+  'PUT /api/v1/default-environment': { action: 'environment.server-default', id: 'none' },
   'POST /api/v1/launch-configs/:id/schedules': {
     action: 'schedule.create',
     id: 'reply',
@@ -165,11 +167,28 @@ export const READS = new Set([
   'POST /api/v1/drafts/:id/undo',
   'POST /api/v1/drafts/:id/tidy',
   'POST /api/v1/drafts/:id/here',
+  'POST /api/v1/drafts/:id/flushed',
   'POST /api/v1/drafts/:id/catalog',
   'POST /api/v1/projects/:id/flows/catalog',
 ]);
 
 const CHANGES = ['POST', 'PUT', 'PATCH', 'DELETE'];
+/**
+ * AFS-141: the kinds whose refusals keep the server's reason: their messages name rules and
+ * names, never a value sent (a credential's, a sign-in's or a notification's could).
+ */
+const REASONED = new Set([
+  'user',
+  'group',
+  'workspace',
+  'project',
+  'grant',
+  'launch-config',
+  'schedule',
+  'environment',
+  'run',
+  'approval',
+]);
 const typeOf = (action: string) => action.slice(0, action.indexOf('.'));
 
 /** Where an object's name is, to name it in the entry: what is deleted cannot be asked later. */
@@ -226,28 +245,54 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
         .selectFrom('access_grant')
         .leftJoin('user_account', 'user_account.id', 'access_grant.principal_id')
         .leftJoin('user_group', 'user_group.id', 'access_grant.principal_id')
+        .leftJoin('workspace', 'workspace.id', 'access_grant.workspace_id')
+        .leftJoin('project', 'project.id', 'access_grant.project_id')
         .select([
           'access_grant.level',
           'access_grant.principal_type',
           'access_grant.flow_file',
           'user_account.login',
           'user_group.name',
+          'workspace.key as workspace',
+          'project.key as project',
         ])
         .where('access_grant.id', '=', id)
         .executeTakeFirst()
         .catch(() => undefined);
       if (!grant) return undefined;
       const who = grant.principal_type === 'user' ? grant.login : `group ${grant.name}`;
-      return `${grant.level} for ${who}${grant.flow_file ? ` on ${grant.flow_file}` : ''}`;
+      // AFS-141: and where: the workspace, or the flow in it.
+      const where = grant.flow_file
+        ? `${grant.workspace}/${grant.project ? `${grant.project}/` : ''}${grant.flow_file}`
+        : `${grant.workspace}`;
+      return `${grant.level} for ${who} on ${where}`;
     }
+    // AFS-141: named, not left as ids: what is deleted cannot be asked later.
+    case 'environment':
+      return one(
+        db.selectFrom('environment').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'schedule':
+      return one(
+        db.selectFrom('schedule').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'oidc-provider':
+      return one(
+        db.selectFrom('oidc_provider').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'ldap-directory':
+      return one(
+        db.selectFrom('ldap_directory').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
     case 'run': {
       const run = await db
         .selectFrom('run')
-        .select('number')
+        .select(['number', 'flow_name'])
         .where('id', '=', id)
         .executeTakeFirst()
         .catch(() => undefined);
-      return run ? `#${run.number}` : undefined;
+      // AFS-146: as the pages name a run (its flow and number), on every run's entry.
+      return run ? `${run.flow_name} #${run.number}` : undefined;
     }
     default:
       return undefined;
@@ -288,15 +333,20 @@ function sourceOf(request: FastifyRequest): AuditSource {
   return request.headers['sec-fetch-site'] ? 'ui' : 'api';
 }
 
+// AFS-153: the server said no (a field that is not right, a login taken, no access): refused;
+// it could not do what it was asked: failed.
 const resultOf = (status: number): AuditResult =>
-  status < 400 ? 'ok' : [401, 403, 429].includes(status) ? 'refused' : 'failed';
+  status < 400 ? 'ok' : status < 500 ? 'refused' : 'failed';
 
 declare module 'fastify' {
   interface FastifyRequest {
     /** The name of the object a change is about, read before the change. */
     auditName?: string;
-    /** Names a route adds to its entry that are not secret (a branch, AFS-59). */
-    auditDetail?: Record<string, string | boolean>;
+    /**
+     * Names a route adds to its entry that are not secret (a branch, AFS-59; who joined or left
+     * a group and the fields a change really changed, AFS-141).
+     */
+    auditDetail?: Record<string, string | boolean | string[]>;
   }
 }
 
@@ -357,7 +407,12 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     const detail = detailOfBody(request.method, request.body);
     if (spec.parent && params.id) detail[spec.parent] = params.id;
     Object.assign(detail, request.auditDetail);
+    // AFS-145: the token by its name, as it was then: a revoked token's row is gone.
+    if (request.user?.token) detail.token = request.user.token.name;
     if (result !== 'ok' && typeof answer.error === 'string') detail.error = answer.error;
+    // AFS-141: why, in the server's words, where those words echo nothing secret.
+    if (result !== 'ok' && REASONED.has(type) && typeof answer.message === 'string')
+      detail.reason = answer.message.slice(0, 300);
 
     let actor: AuditEntry['actor'] = request.user
       ? { id: request.user.id, login: request.user.login }
@@ -383,13 +438,41 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
         if (typeof tried === 'string') detail.login = tried.slice(0, 64).toLowerCase();
       }
     }
+    // AFS-141: a person not made is named by the login tried.
+    if (spec.action === 'user.create' && status >= 400) {
+      const tried = (request.body as { login?: unknown } | undefined)?.login;
+      if (typeof tried === 'string') object = { type, name: tried.slice(0, 64).toLowerCase() };
+    }
     if (spec.action === 'run.relaunch' && typeof answer.id === 'string') detail.run = answer.id;
     // AFS-28: the decision is one of two words, and the approval is named by its node.
     if (spec.action === 'approval.decide') {
-      const said = request.body as { decision?: unknown } | undefined;
+      const said = request.body as { decision?: unknown; comment?: unknown } | undefined;
       if (said?.decision === 'approved' || said?.decision === 'rejected')
         detail.decision = said.decision;
-      detail.approval = params.node;
+      // AFS-133: the approval by its title, and the comment the decision was given with.
+      const gate = answer as { node?: { title?: unknown; key?: unknown } };
+      // AFS-146: a refused decision names the approval by its title too, not by its key.
+      const asked =
+        params.id && params.node
+          ? await db
+              .selectFrom('run_gate')
+              .select('title')
+              .where('run_id', '=', params.id)
+              .where((eb) =>
+                eb.or([
+                  eb('node_id', '=', params.node as string),
+                  eb('node_key', '=', params.node as string),
+                ]),
+              )
+              .executeTakeFirst()
+              .catch(() => undefined)
+          : undefined;
+      detail.approval =
+        typeof gate.node?.title === 'string'
+          ? gate.node.title
+          : (asked?.title ?? params.node ?? undefined);
+      if (typeof said?.comment === 'string' && said.comment.trim() && status < 400)
+        detail.comment = said.comment.trim().slice(0, 500);
     }
     // AFS-29: which channel a test went by (not where: a webhook's address can be its secret).
     if (spec.action === 'notification.test') {

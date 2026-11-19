@@ -4,11 +4,25 @@
 // AFS-87: people and groups are two tabs, each a table first with its add form behind a button; a
 // person's page starts with what they reach and ends with disable and delete; a group's page
 // starts with its members and the workspaces that name it.
-import { useEffect, useId, useState } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
+import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
+import { flowTitle, LEVEL_NAME, throughWords, useFlowTitles } from './access';
 import { api, type Group, type User } from './api';
-import { Link, navigate } from './router';
+import { Link, navigate, noteHere } from './router';
 import { TokensPanel } from './tokens';
-import { Breadcrumb, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  Breadcrumb,
+  Field,
+  Form,
+  Loading,
+  messageOf,
+  PageHead,
+  refuse,
+  Scroll,
+  Tabs,
+  Time,
+  useLoad,
+} from './ui';
 
 type Kind = 'person' | 'admin' | 'service';
 
@@ -42,6 +56,12 @@ function AddPerson({ onAdded, onCancel }: { onAdded(user: User): void; onCancel(
       submit="Add"
       onCancel={onCancel}
       onSubmit={async () => {
+        // AFS-140: the rules are checked here first, all said under the field.
+        const problem =
+          input.kind !== 'service' && input.password
+            ? passwordProblem(input.password, input.login.trim())
+            : undefined;
+        if (problem) refuse('password', `${problem}.`);
         onAdded(
           await api.addUser({
             login: input.login.trim(),
@@ -79,11 +99,12 @@ function AddPerson({ onAdded, onCancel }: { onAdded(user: User): void; onCancel(
       {input.kind !== 'service' && (
         <Field
           label="Password"
+          name="password"
           type="password"
           autoComplete="new-password"
           value={input.password}
           onChange={set('password')}
-          hint="Without one they cannot sign in until you set it on their page."
+          hint={`${PASSWORD_RULES} Without one they cannot sign in until you set it on their page.`}
         />
       )}
       <Field
@@ -175,7 +196,7 @@ function PeopleTable({ users }: { users: User[] }) {
           No one matches.
         </p>
       ) : (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -211,7 +232,7 @@ function PeopleTable({ users }: { users: User[] }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </>
   );
@@ -219,7 +240,7 @@ function PeopleTable({ users }: { users: User[] }) {
 
 function GroupsTable({ groups }: { groups: Group[] }) {
   return (
-    <div className="scroll">
+    <Scroll>
       <table>
         <thead>
           <tr>
@@ -242,7 +263,7 @@ function GroupsTable({ groups }: { groups: Group[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </Scroll>
   );
 }
 
@@ -253,6 +274,14 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
   // The tab whose add form is open; going to the other tab leaves it closed there.
   const [adding, setAdding] = useState<'people' | 'groups'>();
   const [added, setAdded] = useState<{ to: string; name: string }>();
+  // AFS-153: what was done on the page before (a person or group deleted).
+  const [deleted, setDeleted] = useState(noteHere);
+  // AFS-144: the "Added" note belongs to the tab it was added on: another tab clears it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
+  useEffect(() => {
+    setAdded(undefined);
+    setDeleted(noteHere());
+  }, [tab]);
   const open = adding === tab;
   const done = (to: string, name: string, reload: () => void) => {
     setAdding(undefined);
@@ -262,6 +291,7 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
   return (
     <>
       <PageHead
+        help="people-and-sign-in.md"
         title="People and groups"
         lead="Who can sign in, who are administrators, and the groups that access levels and approvals name."
       >
@@ -306,6 +336,11 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
       {added && (
         <p className="notice ok" role="status">
           Added <Link to={added.to}>{added.name}</Link>.
+        </p>
+      )}
+      {deleted && !added && (
+        <p className="notice ok" role="status">
+          {deleted}
         </p>
       )}
       {tab === 'people' ? (
@@ -395,6 +430,8 @@ function SetPassword({ user }: { user: User }) {
         submit="Set password"
         onSubmit={async () => {
           setDone(false);
+          const problem = passwordProblem(password, user.login);
+          if (problem) refuse('password', `${problem}.`);
           await api.setUserPassword(user.id, password);
           setPassword('');
           setDone(true);
@@ -402,6 +439,7 @@ function SetPassword({ user }: { user: User }) {
       >
         <Field
           label="New password"
+          name="password"
           type="password"
           autoComplete="new-password"
           value={password}
@@ -410,7 +448,7 @@ function SetPassword({ user }: { user: User }) {
             setDone(false);
           }}
           required
-          hint="Their sessions end. Tell them the password; they can change it on My account."
+          hint={`${PASSWORD_RULES} Their sessions end. Tell them the password; they can change it on My account.`}
         />
         {done && (
           <p className="notice ok" role="status">
@@ -455,11 +493,19 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
         <div className="actions">
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              // AFS-134: disabling signs them out and stops their tokens: asked first.
+              if (
+                !user.disabled &&
+                !window.confirm(
+                  `Disable ${user.name || user.login}? They are signed out at once, cannot sign in, and their tokens stop working. Their grants are kept.`,
+                )
+              )
+                return;
               act(async () =>
                 onChanged(await api.changeUser(user.id, { disabled: !user.disabled })),
-              )
-            }
+              );
+            }}
           >
             {user.disabled ? 'Enable' : 'Disable'}
           </button>
@@ -475,7 +521,7 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
                 )
                   return;
                 await api.deleteUser(user.id);
-                navigate('/admin/people');
+                navigate('/admin/people', { note: `Deleted ${user.name || user.login}.` });
               })
             }
           >
@@ -487,9 +533,24 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
   );
 }
 
-/** A grant's holder as the overview names it (`user:omar`, `group:netops`), in words. */
-const throughWords = (through: string) =>
-  through.startsWith('group:') ? `group ${through.slice(6)}` : 'their own grant';
+/** AFS-153: a person's groups by name, each linked to its page. */
+function GroupLinks({ names }: { names: string[] }) {
+  const groups = useLoad(api.groups, []);
+  const idOf = new Map((groups.data ?? []).map((g) => [g.name, g.id]));
+  return (
+    <>
+      {names.map((name, i) => {
+        const id = idOf.get(name);
+        return (
+          <Fragment key={name}>
+            {i > 0 && ', '}
+            {id ? <Link to={`/admin/groups/${id}`}>{name}</Link> : name}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
 
 /**
  * What a person reaches: their row of each workspace's "Who can do what", in one answer of the
@@ -502,12 +563,14 @@ function Reach({ user }: { user: User }) {
     [user.id, user.groups.join(',')],
   );
   const rows = load.data?.workspaces ?? [];
+  // AFS-152: flows by their titles, levels in words.
+  const titles = useFlowTitles(rows.flatMap((r) => r.flows.map((f) => f.projectId)));
   return (
     <>
       <Loading state={load} />
       {load.data && rows.length === 0 && <p className="muted">No access to any workspace.</p>}
       {rows.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -524,11 +587,12 @@ function Reach({ user }: { user: User }) {
                   <td>
                     <Link to={`/w/${workspace.key}`}>{workspace.name || workspace.key}</Link>
                   </td>
-                  <td>{who.level && <span className="badge">{who.level}</span>}</td>
+                  <td>{who.level && <span className="badge">{LEVEL_NAME[who.level]}</span>}</td>
                   <td>
                     {who.flows.map((f) => (
                       <div key={`${f.project}/${f.file}`}>
-                        <code>{f.file}</code>: {f.level}{' '}
+                        {flowTitle(titles, f.projectId, f.file)}:{' '}
+                        {f.level ? LEVEL_NAME[f.level] : 'none'}{' '}
                         <span className="muted">in {f.project}</span>
                       </div>
                     ))}
@@ -539,7 +603,7 @@ function Reach({ user }: { user: User }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </>
   );
@@ -579,7 +643,7 @@ export function UserPage({ id, me }: { id: string; me: User }) {
               <p className="muted">In no group. Members are chosen on a group's page.</p>
             ) : (
               <p>
-                {user.groups.join(', ')}{' '}
+                <GroupLinks names={user.groups} />{' '}
                 <span className="muted">· members are chosen on a group's page</span>
               </p>
             )}
@@ -735,15 +799,17 @@ function Members({ group, onSaved }: { group: Group; onSaved(g: Group): void }) 
 function NamedIn({ group }: { group: Group }) {
   const load = useLoad(() => api.groupGrants(group.id), [group.id]);
   const rows = load.data ?? [];
+  // AFS-152: flows by their titles.
+  const titles = useFlowTitles(rows.flatMap((r) => (r.flow ? [r.flow.project] : [])));
   return (
     <section className="panel" aria-labelledby="named-in">
-      <h2 id="named-in">Where it is named</h2>
+      <h2 id="named-in">Access this group gives</h2>
       <Loading state={load} />
       {load.data && rows.length === 0 && (
         <p className="muted">No workspace gives this group a level.</p>
       )}
       {rows.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -759,12 +825,12 @@ function NamedIn({ group }: { group: Group }) {
                     <Link to={`/w/${workspace.key}`}>{workspace.name || workspace.key}</Link>
                   </td>
                   <td>
-                    <span className="badge">{grant.level}</span>
+                    <span className="badge">{LEVEL_NAME[grant.level]}</span>
                   </td>
                   <td>
                     {grant.flow ? (
                       <>
-                        <code>{grant.flow.file}</code>{' '}
+                        {flowTitle(titles, grant.flow.project, grant.flow.file)}{' '}
                         <span className="muted">in {grant.flow.projectKey}</span>
                       </>
                     ) : (
@@ -775,7 +841,7 @@ function NamedIn({ group }: { group: Group }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );
@@ -796,6 +862,7 @@ export function GroupPage({ id }: { id: string }) {
       {group && (
         <>
           <PageHead
+            help="people-and-sign-in.md"
             title={group.name}
             lead={`Group · ${group.members.length} member${group.members.length === 1 ? '' : 's'}`}
           >
@@ -811,7 +878,7 @@ export function GroupPage({ id }: { id: string }) {
                   return;
                 try {
                   await api.deleteGroup(group.id);
-                  navigate('/admin/groups');
+                  navigate('/admin/groups', { note: `Deleted the group ${group.name}.` });
                 } catch (e) {
                   setError(messageOf(e));
                 }

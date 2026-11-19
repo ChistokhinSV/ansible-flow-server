@@ -6,6 +6,10 @@ The server speaks HTTPS itself. At its first start it makes a self-signed certif
 is ever sent in the clear; browsers warn about it until you install one from a certificate
 authority. The `--insecure` above is for that first certificate only.
 
+Anyone can download the certificate in use at `/api/v1/certificate.pem` (every client is shown
+it anyway), to tell git, curl or a script to trust a self-signed one (see
+[Git](workspaces-and-projects.md#git-clone-fetch-and-push-through-the-server)).
+
 ```sh
 just cert show
 just cert request flows.example.net --org "Example Ltd" --out flows.csr

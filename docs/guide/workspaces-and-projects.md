@@ -36,14 +36,14 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | `/workspaces`, `/workspaces/:id`      | List, add, change, delete (by id or key)                                                                                                    | read: what you see; change: administrators |
 | `/workspaces/:id/projects`            | A workspace's projects; add one (its source is looked at at once)                                                                           | as above                                   |
-| `/projects/:id`                       | A project; change its name, source, branch, timer; delete                                                                                   | as above                                   |
+| `/projects/:id`                       | A project; change its name, description, source, branch, timer; delete                                                                      | as above                                   |
 | `POST /projects/:id/sync`             | Look at the source now                                                                                                                      | `rw` on the workspace                      |
 | `GET /samples`                        | The sample projects a hosted project can start from                                                                                         | signed in                                  |
 | `POST /projects/:id/start`            | A hosted project's first commit: `{"sample":"hello"}`, or a zip or tar.gz as the body                                                       | `rw` on the workspace                      |
 | `GET /projects/:id/branches`          | The branches: names, and each with its newest commit, commits not on the project's branch and the launch configurations that run it         | signed in                                  |
 | `POST /projects/:id/branches`         | `{"name","from"}`: a branch from a branch or a commit                                                                                       | `rw` on the workspace                      |
 | `DELETE /projects/:id/branches?name=` | Delete a branch; `&force=true` for one with commits not on the project's branch                                                             | `rw` on the workspace                      |
-| `GET /projects/:id/pushes`            | Who pushed what through the server, newest first                                                                                            | signed in                                  |
+| `GET /projects/:id/pushes`            | Who pushed what through the server, newest first: name, how (`kind`), commits and the new commit's message                                  | signed in                                  |
 | `GET /projects/:id/flows`             | The flows (`*.flow.yaml`) at the project's commit, each with name, version, steps, errors, warnings and `lastRun`, or why it cannot be read | signed in                                  |
 | `GET /projects/:id/flows/view?path=`  | One flow as the designer shows it (the flow, findings, positions, generated plays)                                                          | signed in                                  |
 | `POST /projects/:id/hook`, `DELETE`   | Make a push hook (its token is shown once); remove it                                                                                       | administrators                             |
@@ -72,6 +72,9 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   Secret        <the hook's token>
   Events        Just the push event
   ```
+- **Name, description and branch:** administrators change them on the project's **Settings**
+  tab. A new branch is what the flows, launch configurations and schedules that name no other
+  branch run from then on.
 - **Deleting:** administrators delete a project at the bottom of its **Settings** tab, and a workspace at the bottom of its **Access** tab, after typing its key. A project goes with its launch configurations, their schedules, its run history and the server's copy of its repository (an external source stays as it is); it is refused while one of its runs goes. A workspace is refused while it still has projects or execution environments. Over the API: `DELETE /api/v1/projects/:id`, `DELETE /api/v1/workspaces/:id`.
 - The server needs the `git` program.
 
@@ -90,7 +93,10 @@ curl ... -X POST https://flows.example.net:8443/api/v1/projects/<id>/start \
 
 - **Samples:** Hello, Ansible (runs on localhost), Edge baseline (with the playbooks and roles it
   binds) and Firewall firmware upgrade (with an approval). Each flow is at
-  `flows/<key>/<key>.flow.yaml`, with an `inventory.ini`.
+  `flows/<key>/<key>.flow.yaml`, with an `inventory.ini`. Each comes with a launch configuration
+  of its flow, its inputs filled in for the sample's hosts, so **Launch** runs it at once (a check
+  run unless you change its mode): **Hello on localhost**, **Edge switches (simulated)** and
+  **Skeleton on localhost**.
 - **Archives:** zip (`application/zip`) or tar.gz (`application/gzip`). One folder that holds
   everything is taken off. The files are committed as they are, `.gitignore` or not; programs in
   a tar.gz stay programs.
@@ -113,8 +119,15 @@ git clone https://flows.example.net:8443/git/network/edge.git
 git push origin main
 ```
 
-While the server uses its own first certificate, tell git to trust it:
-`git -c http.sslCAInfo=data/tls/certificate.pem clone …`.
+The project's **Overview** (while it is empty) and **Settings** show the clone command with a
+**Copy** button. While the server uses a self-signed certificate, git does not trust it (on
+Windows: `SEC_E_UNTRUSTED_ROOT`). Download the certificate in use, from the page's hint or from
+`/api/v1/certificate.pem`, and clone with it; `clone -c` keeps the setting in the clone:
+
+```sh
+git clone -c http.sslCAInfo=/home/dana/server-certificate.pem https://flows.example.net:8443/git/network/edge.git
+# On Windows, add -c http.sslBackend=openssl after clone.
+```
 
 - **Who:** `ro` on the workspace clones and fetches, `rw` on it pushes (see
   [Access levels](people-and-sign-in.md#access-levels)). A read-only token never pushes.

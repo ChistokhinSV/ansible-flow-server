@@ -30,23 +30,41 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
 }
 ```
 
-| Kind        | Open part            | Secret part                | For                              |
-| ----------- | -------------------- | -------------------------- | -------------------------------- |
-| `ssh_key`   | `username`           | `privateKey`, `passphrase` | Machines over SSH                |
-| `login`     | `username`           | `password`                 | Machines; a git host over HTTPS  |
-| `become`    | `method`, `username` | `password`                 | Becoming another user (sudo)     |
-| `vault`     | `vaultId`            | `password`                 | An Ansible vault                 |
-| `git_token` | `username`           | `token`                    | A git host over HTTPS            |
-| `registry`  | `host`, `username`   | `password`                 | A container registry             |
-| `env`       | the variables' names | the variables' values      | Variables of a run's environment |
+| Kind        | Open part            | Secret part                | For                                                          |
+| ----------- | -------------------- | -------------------------- | ------------------------------------------------------------ |
+| `ssh_key`   | `username`           | `privateKey`, `passphrase` | Machines over SSH                                            |
+| `login`     | `username`           | `password`                 | Machines; a git host over HTTPS                              |
+| `become`    | `method`, `username` | `password`                 | Becoming another user (sudo)                                 |
+| `vault`     | `vaultId`            | `password`                 | An Ansible vault                                             |
+| `git_token` | `username`           | `token`                    | A git host over HTTPS                                        |
+| `registry`  | `host`, `username`   | `password`                 | A container registry                                         |
+| `awx`       | `url`                | `token`                    | Importing an AWX workflow or job template into an empty flow |
+| `env`       | the variables' names | the variables' values      | Variables of a run's environment                             |
 
 | Address (under `/api/v1`)     | Does                                                     | Who                                                 |
 | ----------------------------- | -------------------------------------------------------- | --------------------------------------------------- |
 | `/workspaces/:id/credentials` | List; add                                                | read: `ro` on the workspace; change: administrators |
 | `/credentials/:id`            | One; change name, open part, or the whole secret; delete | as above                                            |
 
+- **The open part is checked:** a become method is a plugin's name (`sudo`, `su`,
+  `community.general.doas`; the form offers the usual ones), a registry host is a host name with a
+  port if needed and no path (a typed `https://` and a slash at the end are left out), an AWX address starts with `https://` or `http://`, a
+  vault id is one word. A private key is the whole key, from `-----BEGIN` to the `-----END` line.
+  The form checks these before sending and says a problem at its field; two variables of one name,
+  and a variable with no value (refused by the server too), are refused there too.
 - **A secret goes in and never comes out.** Answers name what a credential holds (`has`), not
   the values. To change a secret, send it again whole.
+- **An AWX token** (kind `awx`, **AWX token** in the form): the address of an AWX or Automation
+  Controller (`url`, like `https://awx.example.net`) and a token of a user there who can read
+  its templates (in AWX: **Users > Tokens**, scope `read`). It is used only to import a workflow
+  or job template into an empty flow (see [Editing flows in the pages](web-pages.md#editing-flows-in-the-pages));
+  runs never get it.
+
+  ```sh
+  curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/credentials \
+    -d '{"name":"AWX","kind":"awx","fields":{"url":"https://awx.example.net"},"secret":{"token":"<the token>"}}'
+  ```
+
 - **A private repository:** give the project a credential of its workspace:
   `"gitCredential": "<credential id>"` when adding it, or `PATCH /projects/:id` (`null` takes it
   away). A `git_token` or `login` for an `https://` source, an `ssh_key` for an `ssh://` or
@@ -62,7 +80,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/creden
   administrator who knows why it changed presses **Accept the new host key**
   (`POST /projects/:id/host-key/forget`), and the next look trusts the key it finds.
   `GET /projects/:id/host-key` gives the fingerprints.
-- A credential a project uses is not deleted until the project has another.
+- A credential a project uses is not deleted until the project has another. Administrators see
+  what uses each credential by name (`uses` in the list), with a link to it.
 - With authorities of your own (`AFS_CA_FILE`), the server's git trusts them too.
 
 | Command          | Does                                                                                                                                              |

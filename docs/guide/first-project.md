@@ -17,8 +17,10 @@ The server prints a one-time **setup code** in its log at the first start:
 docker compose logs server | grep -i "setup code"
 ```
 
-Open the server's address. It shows **Set up Ansible Flow Server**: enter the setup code, your
-login, name and a password, then **Make the administrator**. You are signed in.
+The line names the address to open, such as
+`https://flows.example.net:8443/setup?code=Jq3vN0c4TzWk`. It shows **Set up Ansible Flow
+Server** with the setup code filled in: enter your login, name and a password, then **Make the
+administrator**. You are signed in.
 
 The server's certificate is self-signed at first; the browser warns once. To give it a real one,
 see [HTTPS and the certificate](certificates.md).
@@ -38,10 +40,14 @@ it in VS Code, the project's **Work on it with git** shows the address to clone 
 Open the flow `flows/firewall-upgrade/firewall-upgrade.flow.yaml` from the project's Overview: its
 page shows the flow on the designer's canvas.
 
-In the project, **Add a launch configuration**: name `Upgrade branch firewalls` and the flow above.
-On its **Launch** tab fill the flow's inputs, `devices` `localhost` and `target_version` `7.4.1`,
-and **Keep as start values**. A launch configuration is what **Launch** runs: the flow with its
-inputs, inventory, credentials and image (see [Launch configurations](launch-configurations.md)).
+The sample came with one: **Skeleton on localhost**, with the flow's inputs filled in (`devices`
+`localhost`, `target_version` `7.4.3`). A launch configuration is what **Launch** runs: the flow
+with its inputs, inventory, credentials and image (see
+[Launch configurations](launch-configurations.md)).
+
+To make your own, **Add a launch configuration** in the project: name `Upgrade branch firewalls`
+and the flow above. On its **Launch** tab fill the flow's inputs, `devices` `localhost` and
+`target_version` `7.4.1`, and **Keep as start values**.
 
 ![A launch configuration's Launch tab](images/launch.png)
 

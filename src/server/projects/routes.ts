@@ -24,6 +24,7 @@ import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
 import { type Git, GitError, sshHost } from './git';
 import type { Library } from './library';
 import {
+  addSampleLaunchConfigs,
   archiveFiles,
   listSamples,
   MAX_FILES,
@@ -105,7 +106,9 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         return await handler(request, reply);
       } catch (e) {
         if (e instanceof ProjectError)
-          return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
+          return reply
+            .code(STATUS[e.code])
+            .send({ error: e.code, message: e.message, ...(e.field ? { field: e.field } : {}) });
         if (e instanceof StartRefused)
           return reply.code(400).send({ error: 'invalid', message: e.message });
         if (e instanceof BranchRefused)
@@ -247,10 +250,19 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       // The sample is read before the project is made: a wrong key makes nothing.
       const start = sample ? sampleFiles(sample) : undefined;
       const project = await createProject(db, workspace.id, asked, deps.allowLocal);
-      if (start) {
+      if (start && sample) {
         const started = await startProject(deps, project, start, me, `the ${sample} sample`);
+        // AFS-124: and the sample's launch configurations, so it runs at once.
+        const launch = await addSampleLaunchConfigs(deps, started.project, sample);
         request.log.info(
-          { by: me.login, workspace: workspace.key, project: project.key, sample },
+          {
+            by: me.login,
+            workspace: workspace.key,
+            project: project.key,
+            sample,
+            launchConfigs: launch.made,
+            ...(launch.skipped.length ? { skipped: launch.skipped } : {}),
+          },
           'Project added from a sample',
         );
         return reply.code(201).send(started.project);
@@ -271,6 +283,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
 
   type ProjectChangeBody = {
     name?: string;
+    description?: string | null;
     gitUrl?: string;
     gitCredential?: string | null;
     gitRef?: string;
@@ -284,6 +297,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
         ...ID,
         ...body([], {
           name: text(200, 1),
+          description: { type: ['string', 'null'], maxLength: 2000 },
           gitUrl: text(2000, 1),
           gitCredential: { type: ['string', 'null'], minLength: 1, maxLength: 64 },
           gitRef: text(200, 1),
@@ -360,6 +374,11 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
             'Send {"sample": "<key>"}, or a zip (application/zip) or tar.gz (application/gzip) as the body',
         });
       const started = await startProject(deps, project, files, me, what);
+      // AFS-124: a sample brings its launch configurations.
+      const launch =
+        !Buffer.isBuffer(body) && typeof body?.sample === 'string'
+          ? await addSampleLaunchConfigs(deps, started.project, body.sample)
+          : undefined;
       request.log.info(
         {
           by: me.login,
@@ -367,6 +386,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           from: what,
           files: started.files,
           commit: started.commit.slice(0, 12),
+          ...(launch ? { launchConfigs: launch.made } : {}),
+          ...(launch?.skipped.length ? { skipped: launch.skipped } : {}),
         },
         'Project started',
       );
@@ -491,7 +512,22 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       if (!signedIn(request, reply)) return reply;
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
-      return listPushes(db, project.id, request.query.limit);
+      const pushes = await listPushes(db, project.id, request.query.limit);
+      // AFS-149: each new commit's first line, so the list says what came, not only commits.
+      const subjects = new Map<string, string>();
+      for (const p of pushes)
+        if (p.to && !subjects.has(p.to))
+          subjects.set(
+            p.to,
+            await deps.git
+              .commitInfo(project.id, p.to)
+              .then((c) => c.subject)
+              .catch(() => ''),
+          );
+      return pushes.map((p) => {
+        const message = p.to ? subjects.get(p.to) : undefined;
+        return message ? { ...p, message } : p;
+      });
     },
   );
 

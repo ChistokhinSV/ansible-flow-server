@@ -17,7 +17,9 @@ The server tells people what concerns them, by email and by webhook:
   the workspace allows self-approval.
 - **Email** goes through the mail server an administrator sets on the **Notifications** page
   (`/admin/notifications`): STARTTLS (587, required), TLS (465), or a relay on the network as it
-  allows. Its password is kept encrypted with the master key and never shown.
+  allows. Its password is kept encrypted with the master key and never shown. **Turn email
+  off**, beside **Save the mail server**, forgets it after a question: nobody gets email until a
+  mail server is saved again; webhooks still go.
 - **A webhook** gets the event as JSON, with a `text` line that Slack, Mattermost and
   Rocket.Chat incoming webhooks show:
 
@@ -59,13 +61,20 @@ A launch configuration says whom its runs tell (`notify`, see
 { "notify": { "when": "failed", "to": ["network-oncall", "dana"] } }
 ```
 
+A run's message says what it did, so it goes only to who may see the flow's runs: a person with
+a grant on the flow or its workspace (their own or a group's), an administrator, or a group a
+grant names (a group without an address of its own and without a grant: each member who has
+access). Saving a list that names someone without access is refused, naming them. Access taken
+back later counts at once: they are not told. An approval's own lists in the flow (who
+is asked, who is told) follow the same rule when the message goes out.
+
 | Address (under `/api/v1`)         | Does                                                                        | Who                   |
 | --------------------------------- | --------------------------------------------------------------------------- | --------------------- |
 | `GET /notifications`              | The delivery log (`status`, `event`, `run`, `before`, `limit`)              | administrators        |
 | `POST /notifications/:id/retry`   | Try a message given up on again                                             | administrators        |
 | `GET /notifications/settings`     | The mail server (never its password), whether webhooks are signed           | administrators        |
 | `PUT /notifications/smtp`         | Set the mail server: `host`, `port`, `security`, `user`, `password`, `from` | administrator session |
-| `DELETE /notifications/smtp`      | Send no email                                                               | administrator session |
+| `DELETE /notifications/smtp`      | Turn email off (forget the mail server)                                     | administrator session |
 | `POST /notifications/webhook-key` | A new signing key, in this answer only; the old one stops working           | administrator session |
 | `POST /notifications/test`        | Send a test now (`channel`, `to`; no `to`: your own address); tried once    | administrators        |
 

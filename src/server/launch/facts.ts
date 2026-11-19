@@ -11,6 +11,8 @@ export interface InventoryAnswer {
   /** The inventory's groups and what each holds (only when asked). */
   groups?: string[];
   groupHosts?: Record<string, { count: number; hosts: string[] }>;
+  /** AFS-130: the hosts the launch's limit leaves of the targets' (none: nothing would run). */
+  limited?: { pattern: string; hosts: string[]; count: number };
   /** The image the inventory was read in, as the run's log names it. */
   environment: string;
 }
@@ -32,6 +34,8 @@ export interface InventoryQuestion {
   inventory?: string;
   image: string;
   credentials: string[];
+  /** Ansible's --limit of the launch. */
+  limit?: string;
   /** Also the inventory's groups (the dialog opening), not only the facts. */
   groups?: boolean;
 }

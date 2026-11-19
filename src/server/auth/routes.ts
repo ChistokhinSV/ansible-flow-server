@@ -231,14 +231,22 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
         }
       }
       const right = await verifyPassword(request.body.password, account?.password_hash ?? null);
-      if (!account || !right || account.disabled === 1) {
+      if (!account || !right) {
         byLogin.fail(keys[0]);
         byAddress.fail(keys[1]);
         request.log.warn({ login }, 'Sign-in refused');
-        // One answer for a wrong login, a wrong password and a disabled account.
+        // One answer for a wrong login and a wrong password.
         return reply
           .code(401)
           .send({ error: 'invalid_credentials', message: 'The login or the password is wrong' });
+      }
+      // AFS-134: only whoever knows the password learns the account is disabled, and whom to ask.
+      if (account.disabled === 1) {
+        request.log.warn({ login }, 'Sign-in refused: the account is disabled');
+        return reply.code(403).send({
+          error: 'disabled',
+          message: 'This account is disabled: ask an administrator to enable it',
+        });
       }
       byLogin.clear(keys[0]);
       // AFS-30: when people sign in with a provider, passwords may be kept for administrators.
@@ -256,6 +264,10 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
   );
 
   app.get('/api/v1/session', async (request, reply) => {
+    // AFS-144: the pages ask on every load whether anyone is signed in; a 401 there is logged as
+    // an error by the browser, so they may ask for "nobody" as an empty answer instead.
+    if (!request.user && request.headers['x-afs-session'] === 'optional')
+      return reply.code(204).send();
     const me = signedIn(request, reply);
     return me ? getUser(db, me.id) : reply;
   });
@@ -348,10 +360,12 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     workspace: text(64, 1),
   });
   /** What a token is made with, the workspace named by its id or its key, checked. */
-  const tokenInput = async (input: TokenBody) => {
+  const tokenInput = async (input: TokenBody, request: FastifyRequest) => {
     const workspace = input.workspace ? await getWorkspace(db, input.workspace) : undefined;
     if (input.workspace && !workspace)
       throw new UserError('invalid', `No workspace ${input.workspace}`);
+    // AFS-145: the audit says what the token reaches.
+    request.auditDetail = { reaches: workspace ? workspace.key : 'every workspace' };
     return {
       name: input.name,
       days: input.expiresInDays,
@@ -368,7 +382,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       // Not with a token: a token that leaked must not be able to make itself a successor.
       const me = inSession(request, reply);
       if (!me) return reply;
-      const made = await createToken(db, me.id, await tokenInput(request.body));
+      const made = await createToken(db, me.id, await tokenInput(request.body, request));
       request.log.info({ login: me.login, name: made.info.name }, 'Access token made');
       // The token is in this answer and nowhere else, ever.
       return reply.code(201).send({ ...made.info, token: made.token });
@@ -404,7 +418,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
           'invalid',
           'Tokens are made by the person themself; administrators make them for service accounts only',
         );
-      const made = await createToken(db, account.id, await tokenInput(request.body));
+      const made = await createToken(db, account.id, await tokenInput(request.body, request));
       request.log.info(
         { by: me.login, login: account.login, name: made.info.name },
         'Access token made for a service account',
@@ -623,7 +637,13 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     answering(async (request, reply) => {
       const me = administrator(request, reply);
       if (!me) return reply;
+      const before = (await getGroup(db, request.params.id))?.members ?? [];
       const group = await setMembers(db, request.params.id, request.body.users);
+      // AFS-141: the audit entry says who joined and who left, by login.
+      request.auditDetail = {
+        added: group.members.filter((login) => !before.includes(login)),
+        removed: before.filter((login) => !group.members.includes(login)),
+      };
       request.log.info(
         { by: me.login, group: group.name, members: group.members.length },
         'Group members set',

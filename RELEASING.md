@@ -81,8 +81,9 @@ Going back to the release before (a candidate failed and staging must be as user
    candidate, or its release when only the server changed); `package.json` and `galaxy.yml` to
    `X.Y.Z-rc.N`; `just check`, `just test`. Commit, push the branch, tag `vX.Y.Z-rc.N` on it,
    push the tag. Image and Release publish the candidate.
-4. **Deploy to staging** (above), and install the designer candidate's VSIX in VS Code
-   (**Extensions: Install from VSIX…**) on the tester's machine.
+4. **Deploy to staging** (above), and put the designer candidate into the tester's editors: in
+   the designer's checkout `just try X.Y.Z-rc.N` (VS Code and Antigravity IDE), then **Developer:
+   Reload Window**.
 5. **Test** with the [release test plan](docs/testing/release-test-plan.md): every check of the
    core part, and a check for each line under Unreleased. Record the result in the release's
    YouTrack ticket (the plan's table, with what failed).

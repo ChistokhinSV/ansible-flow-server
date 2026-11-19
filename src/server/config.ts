@@ -2,6 +2,7 @@
 // Nothing is read from the repository, and a value that is wrong stops the start with every
 // problem named at once.
 import { isAbsolute, join, resolve } from 'node:path';
+import { DEFAULT_EE_IMAGE } from './environments/serverDefault';
 
 export const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -165,7 +166,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const engineText = (text('AFS_CONTAINER_ENGINE') ?? 'auto').toLowerCase();
   if (!['auto', 'docker', 'podman', 'off'].includes(engineText))
     problems.push(`AFS_CONTAINER_ENGINE is "${engineText}": use auto, docker, podman or off`);
-  const eeImage = text('AFS_EE_IMAGE') ?? 'ghcr.io/ansible/community-ansible-dev-tools:latest';
+  const eeImage = text('AFS_EE_IMAGE') ?? DEFAULT_EE_IMAGE;
   if (!/^[A-Za-z0-9][\w.\-/:@]{0,299}$/.test(eeImage))
     problems.push(`AFS_EE_IMAGE is "${eeImage}": not the name of a container image`);
   const timeoutText = text('AFS_RUN_TIMEOUT_MINUTES') ?? '240';

@@ -7,9 +7,11 @@
 // Events are written to the outbox (store.ts) and sent from there by the channels, with tries again
 // on failures that can pass. What happens never waits for its notification, and never fails
 // because of one: an error here is logged.
+
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
+import { STATE_WORDS } from '../runs/words';
 import type { CertificateInfo } from '../tls/certificates';
 import type { Channel, Message } from './channels';
 import {
@@ -59,6 +61,10 @@ interface RunFacts {
   configName: string | null;
   requestedBy: string;
   requestedLogin: string;
+  /** AFS-146: who launched it, by display name (the login when they have none). */
+  requestedName: string;
+  /** The inputs, secret-looking values as ***. */
+  inputs: Record<string, unknown>;
   error: string | null;
   project: { id: string; key: string; name: string };
   workspace: { id: string; key: string; name: string };
@@ -66,6 +72,8 @@ interface RunFacts {
 
 const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'lost']);
 const UNSUCCESSFUL = new Set(['failed', 'lost']);
+/** AFS-143: how a run ended, in the words the pages use. */
+const ENDED_WORDS = STATE_WORDS;
 
 export class Notifier {
   private readonly channels: Map<ChannelKind, Channel>;
@@ -189,6 +197,7 @@ export class Notifier {
         'run.config_name',
         'run.requested_by',
         'run.requested_login',
+        'run.inputs_shown_json',
         'run.error',
         'project.id as project_id',
         'project.key as project_key',
@@ -200,6 +209,17 @@ export class Notifier {
       .where('run.id', '=', id)
       .executeTakeFirst();
     if (!row) return undefined;
+    const person = await this.db
+      .selectFrom('user_account')
+      .select('name')
+      .where('id', '=', row.requested_by)
+      .executeTakeFirst();
+    let inputs: Record<string, unknown> = {};
+    try {
+      inputs = JSON.parse(row.inputs_shown_json) as Record<string, unknown>;
+    } catch {
+      // No inputs to tell.
+    }
     return {
       id: row.id,
       number: row.number,
@@ -211,6 +231,8 @@ export class Notifier {
       configName: row.config_name,
       requestedBy: row.requested_by,
       requestedLogin: row.requested_login,
+      requestedName: person?.name || row.requested_login,
+      inputs,
       error: row.error,
       project: { id: row.project_id, key: row.project_key, name: row.project_name },
       workspace: { id: row.workspace_id, key: row.workspace_key, name: row.workspace_name },
@@ -244,8 +266,9 @@ export class Notifier {
     };
   }
 
+  // AFS-143: a run as the pages name it (flow #number), its workspace and project by name.
   private where(run: RunFacts) {
-    return `${run.flowName}, run ${run.number} (${run.workspace.key} / ${run.project.key})`;
+    return `${run.flowName} #${run.number} (${run.workspace.name} / ${run.project.name})`;
   }
 
   /** A run waits at an approval: its approvers are asked. */
@@ -270,25 +293,41 @@ export class Notifier {
         .executeTakeFirst();
       // Who launched the run is not asked when they may not decide it (no self-approval).
       const approvers = approval.approvers?.length
-        ? (await contactsOfNames(this.db, approval.approvers)).filter(
-            (c) => self?.self_approve === 1 || c.label !== run.requestedLogin,
-          )
+        ? (
+            await contactsOfNames(this.db, approval.approvers, {
+              workspace: run.workspace.id,
+              project: run.project.id,
+              flowFile: run.flowFile,
+            })
+          ).filter((c) => self?.self_approve === 1 || c.label !== run.requestedLogin)
         : await approverContacts(
             this.db,
             { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
             self?.self_approve === 1 ? undefined : run.requestedBy,
           );
-      const told = await contactsOfNames(this.db, approval.notify ?? []);
+      // AFS-145: a flow's approval lists, like a configuration's, reach only who may see the flow.
+      const told = await contactsOfNames(this.db, approval.notify ?? [], {
+        workspace: run.workspace.id,
+        project: run.project.id,
+        flowFile: run.flowFile,
+      });
       const link = this.link(`/runs/${run.id}`);
+      // AFS-146: what the approver needs to decide: the run's inputs (secrets as ***), and
+      // whether it changes anything.
+      const inputs = Object.entries(run.inputs).map(
+        ([name, value]) =>
+          `  ${name} = ${(typeof value === 'string' ? value : JSON.stringify(value)).slice(0, 200)}`,
+      );
       const lines = [
         `${this.where(run)} waits for a decision at "${gate.title}".`,
         ...(approval.message ? ['', approval.message, ''] : []),
-        `Launched by ${run.requestedLogin}.`,
+        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'}).`,
+        ...(inputs.length ? ['Inputs:', ...inputs] : []),
         ...(gate.deadline ? [`Nobody deciding by ${readable(gate.deadline)}: it times out.`] : []),
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',
       ];
       const message: Message = {
-        subject: `Approval waits: ${gate.title} - ${run.flowName}, run ${run.number}`,
+        subject: `Approval waits: ${gate.title} - ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('approval.waiting', {
           run: this.runPayload(run),
@@ -322,17 +361,39 @@ export class Notifier {
       if (!run || !gate || gate.status === 'waiting' || gate.status === 'cancelled') return;
       const approval = (gate.approval_json ? JSON.parse(gate.approval_json) : {}) as {
         notify?: string[];
+        next?: { approved?: string; rejected?: string; timeout?: string };
       };
       const link = this.link(`/runs/${run.id}`);
-      const by = gate.status === 'timed out' ? 'nobody decided in time' : `by ${gate.decided_by}`;
+      // AFS-146: the decider by name; the hosts' next step by its title, as the flow names it.
+      const decider = gate.decided_by
+        ? ((
+            await this.db
+              .selectFrom('user_account')
+              .select('name')
+              .where('login', '=', gate.decided_by)
+              .executeTakeFirst()
+          )?.name ?? gate.decided_by)
+        : undefined;
+      const next =
+        gate.status === 'approved'
+          ? approval.next?.approved
+          : gate.status === 'rejected'
+            ? approval.next?.rejected
+            : (approval.next?.timeout ?? approval.next?.rejected);
       const lines = [
-        `"${gate.title}" of ${this.where(run)} was ${gate.status}, ${by}.`,
+        gate.status === 'timed out'
+          ? `"${gate.title}" of ${this.where(run)} timed out: nobody decided in time.`
+          : `"${gate.title}" of ${this.where(run)} was ${gate.status} by ${decider ?? 'nobody'}.`,
         ...(gate.comment && gate.status !== 'timed out' ? [`Comment: ${gate.comment}`] : []),
-        'The run goes on.',
+        gate.status === 'approved'
+          ? `The run goes on with the approved hosts${next ? `, to "${next}"` : ''}.`
+          : next
+            ? `The hosts that waited go to "${next}", not on to the change.`
+            : 'The hosts that waited go where the flow sends them, not on to the change.',
         ...(link ? [link] : []),
       ];
       const message: Message = {
-        subject: `Approval ${gate.status}: ${gate.title} - ${run.flowName}, run ${run.number}`,
+        subject: `Approval ${gate.status}: ${gate.title} - ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('approval.decided', {
           run: this.runPayload(run),
@@ -351,7 +412,11 @@ export class Notifier {
         { kind: 'approval.decided', message, run: run.id },
         placesOf([
           ...(await launcherContacts(this.db, run.requestedBy)),
-          ...(await contactsOfNames(this.db, approval.notify ?? [])),
+          ...(await contactsOfNames(this.db, approval.notify ?? [], {
+            workspace: run.workspace.id,
+            project: run.project.id,
+            flowFile: run.flowFile,
+          })),
         ]),
       );
     });
@@ -374,14 +439,14 @@ export class Notifier {
       if (notify.when === 'failed' && !UNSUCCESSFUL.has(run.state)) return;
       const link = this.link(`/runs/${run.id}`);
       const lines = [
-        `${this.where(run)} ${run.state}.`,
+        `${this.where(run)} ${ENDED_WORDS[run.state] ?? run.state}.`,
         ...(run.configName ? [`Launch configuration: ${run.configName}.`] : []),
-        `Launched by ${run.requestedLogin}.`,
+        `Launched by ${run.requestedName}.`,
         ...(run.error && run.state !== 'succeeded' ? [`Why: ${run.error}`] : []),
         ...(link ? [link] : []),
       ];
       const message: Message = {
-        subject: `Run ${run.state}: ${run.flowName}, run ${run.number}`,
+        subject: `Run ${ENDED_WORDS[run.state] ?? run.state}: ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('run.ended', {
           run: this.runPayload(run),
@@ -391,7 +456,14 @@ export class Notifier {
       await enqueue(
         this.db,
         { kind: 'run.ended', message, run: run.id },
-        placesOf(await contactsOfNames(this.db, notify.to)),
+        // AFS-145: only who may see the flow's runs now, whatever the list said when saved.
+        placesOf(
+          await contactsOfNames(this.db, notify.to, {
+            workspace: run.workspace.id,
+            project: run.project.id,
+            flowFile: run.flowFile,
+          }),
+        ),
       );
     });
   }

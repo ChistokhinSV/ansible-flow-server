@@ -10,10 +10,18 @@ adds, changes, pauses and deletes them, `ro` reads them.
   service account). The owner's access is checked every time: gone, disabled, or without
   `operator` on the flow, and the fire is refused and recorded instead.
 - It runs the configuration with its own mode and input values if it has them (never a secret:
-  those come from credentials), on the newest commit of the configuration's branch, or a pinned
-  commit.
+  those come from credentials), on its own pinned commit if it has one, else on the
+  configuration's: its pinned commit, or the newest commit of its branch.
+- A schedule whose flow is gone from the branch is turned off at its next fire, and says why;
+  turn it on again once the flow is back. Deleting a flow on its page names the schedules that
+  fire it and turns them off with it.
 - Cron: five fields (`minute hour day month weekday`) or a nickname like `@daily`, at most once a
   minute; the time zone follows summer time. The page shows the next times as you type.
+- The schedule's **Time zone** is the zone its rule is read in: the cron, and the **At** of a
+  one-time schedule (the date and time on that zone's clocks). The page shows every time (next
+  times, the last fire) in your browser's time zone, named. A schedule fires at its time.
+- The list follows fires while the page is open: **Next** moves on, and **Last** shows the run a
+  fire launched as it stands now (`last.runNumber`, `last.runState` in the API).
 - After downtime: one catch-up run (default), or none. While its last run has not ended: skip
   this fire (default), or queue another.
 - Every fire is kept on the schedule (launched, skipped, refused, failed, with why) and in the
@@ -25,7 +33,7 @@ adds, changes, pauses and deletes them, `ro` reads them.
 | `POST /launch-configs/:id/schedules`             | Add one; the caller owns it                                 | `rw`      |
 | `PATCH /launch-configs/:id/schedules/:schedule`  | Change, pause (`enabled: false`); `owner` by administrators | `rw`      |
 | `DELETE /launch-configs/:id/schedules/:schedule` | Delete one                                                  | `rw`      |
-| `GET /schedule-times?cron=&timezone=`            | The next times a cron fires                                 | signed in |
+| `GET /schedule-times?cron=&timezone=`            | The next times a cron fires; `&check=1`: every problem      | signed in |
 
 ```json
 {

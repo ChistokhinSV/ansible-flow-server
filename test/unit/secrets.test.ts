@@ -1,11 +1,13 @@
 // The master key, sealing, and the credentials store: the rules on both databases the server
 // supports (PostgreSQL when AFS_TEST_POSTGRES_URL is set), the API and the commands.
+
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
+import { listAudit } from '../../src/server/audit/store';
 import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Config, loadConfig } from '../../src/server/config';
@@ -18,6 +20,7 @@ import {
   CredentialError,
   checkKey,
   createCredential,
+  credentialUses,
   deleteCredential,
   getCredential,
   gitAuthOf,
@@ -260,11 +263,11 @@ for (const [name, config] of databases) {
         /name of 1 to 100/,
       );
       expect(await make({ name: 'a', kind: 'login', secret: { password: 'p' } })).toMatch(
-        /needs username/,
+        /needs a user name/,
       );
       expect(
         await make({ name: 'a', kind: 'login', fields: { username: 'u' }, secret: {} }),
-      ).toMatch(/needs password/);
+      ).toMatch(/needs a password/);
       expect(
         await make({ name: 'a', kind: 'vault', secret: { password: 'p', token: 't' } }),
       ).toMatch(/no secret "token"/);
@@ -278,7 +281,55 @@ for (const [name, config] of databases) {
       expect(await make({ name: 'a', kind: 'env', secret: { '1BAD': 'x' } })).toMatch(
         /not a variable name/,
       );
+      // AFS-150: a variable set to nothing is refused.
+      expect(await make({ name: 'a', kind: 'env', secret: { API_KEY: '' } })).toMatch(
+        /API_KEY has no value/,
+      );
       expect(await make({ name: 'a', kind: 'nope' as never, secret: {} })).toMatch(/no kind nope/);
+      // AFS-140: the visible fields are checked, with the field each problem is about.
+      const at = (input: Parameters<typeof createCredential>[3]) =>
+        createCredential(db(), key, workspace, input).then(
+          () => 'done',
+          (e: { field?: string; message: string }) => `${e.field}: ${e.message}`,
+        );
+      expect(
+        await at({
+          name: 'a',
+          kind: 'become',
+          fields: { method: 'notamethod!!' },
+          secret: { password: 'p' },
+        }),
+      ).toMatch(/^method: A become method is a name/);
+      expect(
+        await at({
+          name: 'a',
+          kind: 'registry',
+          fields: { host: 'https://bad host/with path', username: 'u' },
+          secret: { password: 'p' },
+        }),
+      ).toMatch(/^host: A registry host is a name/);
+      expect(
+        await at({ name: 'a', kind: 'awx', fields: { url: 'not a url' }, secret: { token: 't' } }),
+      ).toMatch(/^url: An AWX address starts with https:\/\//);
+      expect(
+        await at({
+          name: 'a',
+          kind: 'vault',
+          fields: { vaultId: 'prod id' },
+          secret: { password: 'p' },
+        }),
+      ).toMatch(/^vaultId: A vault id is one word/);
+      expect(await at({ name: 'a', kind: 'ssh_key', secret: { privateKey: 'not a key' } })).toMatch(
+        /^privateKey: This is not a private key/,
+      );
+      expect(
+        await at({
+          name: 'a',
+          kind: 'become',
+          fields: { method: 'community.general.doas' },
+          secret: { password: 'p' },
+        }),
+      ).toBe('done');
       // What was refused is in no message.
       expect(
         await make({ name: 'a', kind: 'ssh_key', secret: { privateKey: 'S3CR3T' } }),
@@ -317,7 +368,7 @@ for (const [name, config] of databases) {
         secret: { token: 'second' },
       });
       expect(await refused(() => updateCredential(db(), key, made.id, { secret: {} }))).toMatch(
-        /needs token/,
+        /needs a token/,
       );
       await createCredential(db(), key, workspace, {
         name: 'other',
@@ -397,6 +448,10 @@ for (const [name, config] of databases) {
       // In use: counted, not deleted from under the project; freed, it goes.
       const id = (project as { id: string }).id;
       expect((await getCredential(db(), token.id))?.usedBy).toBe(1);
+      // AFS-150: and named, for an administrator's list.
+      expect((await credentialUses(db(), workspace)).get(token.id)).toEqual([
+        { kind: 'project', project: (project as { key: string }).key, name: 'P' },
+      ]);
       expect(await refused(() => deleteCredential(db(), token.id))).toMatch(
         /^in_use: The project p/,
       );
@@ -552,6 +607,25 @@ describe('credentials over the API', () => {
     expect((await reveal(database.db, key, id))?.secret).toEqual({ password: `${SECRET}-2` });
   });
 
+  it('the audit log lists only the fields a change changed (AFS-153)', async () => {
+    const made = await call('POST', '/api/v1/workspaces/net/credentials', {
+      cookie: admin,
+      body: { name: 'Audited', kind: 'vault', fields: { vaultId: 'a' }, secret: { password: 'p' } },
+    });
+    const id = made.json().id;
+    const changedOf = async (body: object) => {
+      expect(
+        (await call('PATCH', `/api/v1/credentials/${id}`, { cookie: admin, body })).statusCode,
+      ).toBe(200);
+      const { entries } = await listAudit(database.db, { action: 'credential.change' });
+      return entries[0]?.detail?.changed;
+    };
+    expect(
+      await changedOf({ name: 'Audited', description: 'Prod vault', fields: { vaultId: 'a' } }),
+    ).toEqual(['description']);
+    expect(await changedOf({ name: 'Audited', secret: { password: 'q' } })).toEqual(['secret']);
+  });
+
   it('everyone signed in sees which there are; administrators change them', async () => {
     const body = { name: 'Token', kind: 'git_token', secret: { token: 't' } };
     expect((await call('GET', '/api/v1/workspaces/net/credentials')).statusCode).toBe(401);
@@ -571,6 +645,10 @@ describe('credentials over the API', () => {
     ).toBe(200);
     const made = await call('POST', '/api/v1/workspaces/net/credentials', { cookie: admin, body });
     const id = made.json().id;
+    // AFS-150: a name taken is said at the name field.
+    const twice = await call('POST', '/api/v1/workspaces/net/credentials', { cookie: admin, body });
+    expect(twice.statusCode).toBe(409);
+    expect(twice.json()).toMatchObject({ error: 'taken', field: 'name' });
     expect(
       (await call('PATCH', `/api/v1/credentials/${id}`, { cookie: member, body: { name: 'x' } }))
         .statusCode,

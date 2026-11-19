@@ -256,6 +256,39 @@ describe('the files of a project', () => {
     expect((await files('nope')).statusCode).toBe(404);
   });
 
+  it('AFS-150: an archive replaces a file that is there only when the save says it may', async () => {
+    const hosted = (
+      await call(dana, 'POST', '/api/v1/workspaces/net/projects', { key: 'zips', name: 'Zips' })
+    ).json();
+    const at = (body: unknown) => call(omar, 'POST', `/api/v1/projects/${hosted.id}/files`, body);
+    expect(
+      (await at({ changes: [{ op: 'write', path: 'README.md', text: '# Zips\n' }] })).statusCode,
+    ).toBe(201);
+    const zipOf = (files: Record<string, string>) =>
+      Buffer.from(
+        zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)]))),
+      ).toString('base64');
+    // The same bytes, or a new file, replace nothing: saved at once.
+    const same = await at({
+      changes: [
+        { op: 'unpack', path: '', base64: zipOf({ 'README.md': '# Zips\n', 'a.txt': 'a' }) },
+      ],
+    });
+    expect(same.statusCode, same.body).toBe(201);
+    expect(same.json().files).toEqual(['a.txt']);
+    // Other bytes for README.md: refused with the files named, nothing saved.
+    const other = { op: 'unpack', path: '', base64: zipOf({ 'README.md': 'other', 'b.txt': 'b' }) };
+    const refused = await at({ changes: [other] });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'replaces', files: ['README.md'] });
+    const before = (await call(lina, 'GET', `/api/v1/projects/${hosted.id}/files`)).json();
+    expect(before.files.map((f: { path: string }) => f.path)).not.toContain('b.txt');
+    // Said it may: saved.
+    const replaced = await at({ changes: [{ ...other, replace: true }] });
+    expect(replaced.statusCode, replaced.body).toBe(201);
+    expect(replaced.json().files).toEqual(['README.md', 'b.txt']);
+  });
+
   it('makes the first commit of an empty hosted project (AFS-113)', async () => {
     const empty = (
       await call(dana, 'POST', '/api/v1/workspaces/net/projects', { key: 'empty', name: 'Empty' })
@@ -279,5 +312,35 @@ describe('the files of a project', () => {
       changes: [{ op: 'write', path: 'README.md', text: '# Empty\n' }],
     });
     expect(next.statusCode, next.body).toBe(201);
+  });
+
+  it('takes playbooks, uploaded or unpacked, as the first commit of an empty project (AFS-159)', async () => {
+    const empty = (
+      await call(dana, 'POST', '/api/v1/workspaces/net/projects', { key: 'books', name: 'Books' })
+    ).json();
+    // The Files page of an empty project lists nothing, without an error.
+    const none = await call(lina, 'GET', `/api/v1/projects/${empty.id}/files`);
+    expect(none.statusCode, none.body).toBe(200);
+    expect(none.json()).toEqual({ branch: 'main', files: [] });
+    const zip = Buffer.from(
+      zipSync({
+        'site.yml': strToU8('- hosts: all\n  tasks: []\n'),
+        'roles/ntp/tasks/main.yml': strToU8('- debug: msg=ntp\n'),
+      }),
+    ).toString('base64');
+    const r = await call(omar, 'POST', `/api/v1/projects/${empty.id}/files`, {
+      branch: 'main',
+      changes: [
+        { op: 'unpack', path: 'playbooks', base64: zip },
+        { op: 'write', path: 'README.md', text: '# Books\n' },
+      ],
+    });
+    expect(r.statusCode, r.body).toBe(201);
+    const there = (await call(lina, 'GET', `/api/v1/projects/${empty.id}/files`)).json();
+    expect(there.files.map((f: { path: string }) => f.path).sort()).toEqual([
+      'README.md',
+      'playbooks/roles/ntp/tasks/main.yml',
+      'playbooks/site.yml',
+    ]);
   });
 });

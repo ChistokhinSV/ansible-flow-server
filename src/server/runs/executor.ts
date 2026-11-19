@@ -44,14 +44,27 @@ import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
+import { withLimit } from './limit';
 import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
 import type { Job, Outcome, RunQueue } from './queue';
 import { pullWithSignIn } from './registry';
 import { repositoryConfig } from './repoConfig';
+import { failedWhy, NO_HOSTS, noHostWhy, skippedTarget, titleOf } from './words';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
 /** How often the worker says it still has a run. */
 export const HEARTBEAT_MS = 15_000;
+/** What runFlow says when Ansible wrote no event. */
+const NO_EVENTS = 'The run produced no events';
+/**
+ * An output line that says why a container or Ansible could not start ("[ERROR]: Specified
+ * inventory, host pattern and/or --limit leaves us with no hosts to target." is Ansible's own).
+ */
+const ERROR_LINE =
+  /^(\[?error\]?|\[?fatal\]?|docker:|podman:|Error response)|\b(no such host|not found|denied|unauthorized|manifest unknown)\b/i;
+/** A finished view in which no host did anything. */
+const noHostRan = (view: RunView) => view.summary !== undefined && view.summary.hosts.length === 0;
+
 /** How often it looks for queued runs. */
 const POLL_MS = 2_000;
 /** A run's output is kept up to this size. */
@@ -60,6 +73,16 @@ const MAX_OUTPUT = 20 * 1024 * 1024;
 export const DEFAULT_IMAGE = 'ghcr.io/ansible/community-ansible-dev-tools:latest';
 
 export type Engine = 'docker' | 'podman';
+
+/**
+ * The designer's name of a run (and of a segment of it): its folder and its container's name. Its
+ * start time first, so run folders sort by time; then the run's number and, AFS-120, the start of
+ * its id: two projects' runs with the same number starting in the same second had the same
+ * container name, and the second one failed ("The container name is already in use").
+ */
+export function runName(r: { id: string; number: number }, segment?: string, now = new Date()) {
+  return `${stamp(now)}-${r.number}-${r.id.slice(0, 8)}${segment ? `-${segment}` : ''}`;
+}
 
 /** AFS-118: the version of the collection in `dir` (its galaxy.yml); none without one. */
 export function collectionVersion(dir: string): string | undefined {
@@ -79,8 +102,13 @@ export interface ExecutorOptions {
   dataDir: string;
   /** The container engine; `auto` finds docker, else podman; `off` runs nothing. */
   engine: Engine | 'auto' | 'off';
-  /** The image a run uses unless it names its own. */
+  /** The image a run uses unless it names its own (AFS_EE_IMAGE). */
   image: string;
+  /**
+   * AFS-163: the server's default image now (an environment an administrator picked, else
+   * `image`), asked for each run without its own image.
+   */
+  defaultImage?: () => Promise<string>;
   /** AFS-35: the data folder as the engine's machine sees it (AFS_ENGINE_DATA_DIR). */
   engineDataDir?: string;
   /** This worker's name in the queue (a server's instance id). */
@@ -192,6 +220,8 @@ export class Executor {
   private toHost: ToHost = sameAs;
   /** AFS-116: the Ansible collection in the data folder (where run containers can mount it). */
   private collection?: Promise<string | undefined>;
+  /** AFS-163: the server's default image as last asked (for what cannot wait to ask). */
+  private serverImage: string;
   /** The user each image runs as, found once. */
   private readonly owners = new Map<string, Promise<{ uid: number; gid: number } | undefined>>();
 
@@ -200,6 +230,9 @@ export class Executor {
     private readonly options: ExecutorOptions,
   ) {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
+    this.serverImage = options.image;
+    // AFS-131: a stop asked on this server stops the run at once, not at the next heartbeat.
+    deps.queue.onStopAsked = (id) => this.active.get(id)?.abort('cancel');
     this.probeDir = join(options.dataDir, 'probe');
     this.outputDir = join(options.dataDir, 'output');
     const version = collectionVersion(this.collectionSource());
@@ -254,22 +287,35 @@ export class Executor {
     return this.collection;
   }
 
+  /** AFS-163: the server's default image now; AFS_EE_IMAGE when it cannot be read. */
+  async defaultImage(): Promise<string> {
+    if (!this.options.defaultImage) return this.options.image;
+    try {
+      this.serverImage = await this.options.defaultImage();
+    } catch (e) {
+      this.deps.log.warn({ err: e }, "The server's default image could not be read");
+    }
+    return this.serverImage;
+  }
+
   /** AFS-76: the module catalog of an image (the server's default without one). */
   catalog(image?: string): CatalogState {
-    return this.catalogs.get(image ?? this.options.image);
+    return this.catalogs.get(image ?? this.serverImage);
   }
 
   /** AFS-76: Rebuild in the designer: a catalog that failed is tried again. */
   retryCatalog(image?: string): void {
-    this.catalogs.retry(image ?? this.options.image);
+    this.catalogs.retry(image ?? this.serverImage);
   }
 
   /**
    * AFS-67: what a launch would touch, as the inventory has it: read by the designer's probe in
    * the launch's image (else this server's), over the repository at the launch's commit.
    */
-  inventory(q: Omit<InventoryQuestion, 'image'> & { image?: string }): Promise<InventoryAnswer> {
-    return this.probes.ask({ ...q, image: q.image ?? this.options.image });
+  async inventory(
+    q: Omit<InventoryQuestion, 'image'> & { image?: string },
+  ): Promise<InventoryAnswer> {
+    return this.probes.ask({ ...q, image: q.image ?? (await this.defaultImage()) });
   }
 
   /**
@@ -385,7 +431,7 @@ export class Executor {
     this.timer.unref();
     void this.fill();
     this.deps.log.info(
-      { engine: this.engine, image: this.options.image, slots: this.options.slots },
+      { engine: this.engine, image: await this.defaultImage(), slots: this.options.slots },
       'Taking runs',
     );
     return this.engine;
@@ -396,6 +442,8 @@ export class Executor {
     if (this.filling || this.stopping || !this.engine) return;
     this.filling = true;
     try {
+      // AFS-163: kept fresh for the module catalogs, which cannot wait to ask.
+      await this.defaultImage();
       while (!this.stopping && this.active.size < this.options.slots) {
         const job = await this.deps.queue.claim(this.options.worker);
         if (!job) break;
@@ -455,8 +503,21 @@ export class Executor {
     let output: WriteStream | undefined;
     let written = 0;
     let hidden: string[] = [];
+    // AFS-132: the last lines that read as an error, for a run that ends before Ansible says why.
+    const errorLines: string[] = [];
+    // AFS-147: targets Ansible ignored because the inventory does not have them.
+    const skipped = new Set<string>();
+    /** The flow's steps, once it is read: a stopped or failed run names its step. */
+    let steps: Parameters<typeof titleOf>[0] = [];
     const line = (text: string) => {
       if (!output) return;
+      const said = hide(stripAnsi(text), hidden).trim();
+      const target = skippedTarget(said);
+      if (target) skipped.add(target);
+      if (ERROR_LINE.test(said)) {
+        errorLines.push(said.slice(0, 300));
+        if (errorLines.length > 3) errorLines.shift();
+      }
       if (written > MAX_OUTPUT) return;
       // Ansible's colours are kept for the run page's terminal (AFS-96); the text download and
       // agents get plain text. A line with a secret in it is kept plain, so that no colour code
@@ -475,7 +536,23 @@ export class Executor {
         return;
       }
       const ended = new Date();
-      const done = await queue.finish(r.id, token, outcome, error, ended, view);
+      // AFS-147: the step a stopped run was in (the canvas marks it), and the targets it skipped.
+      const at = outcome === 'cancelled' ? this.deps.hub?.live(r.id)?.summary?.running : undefined;
+      const kept =
+        view && (at || skipped.size)
+          ? {
+              ...view,
+              ...(at ? { stoppedAt: at } : {}),
+              ...(skipped.size ? { skippedTargets: [...skipped] } : {}),
+            }
+          : view;
+      // AFS-147: a stopped run's output ends saying who stopped it and where, as its page does.
+      if (outcome === 'cancelled') {
+        const step = titleOf(steps, at);
+        const by = (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
+        line(`Stopped${by ? ` by ${by}` : ' on request'}${step ? ` during ${step}` : ''}`);
+      }
+      const done = await queue.finish(r.id, token, outcome, error, ended, kept);
       this.deps.hub?.ended(r.id);
       // AFS-37: from the run's first start (a run that waited for approval spans several).
       const began = r.startedAt ? Date.parse(r.startedAt) : handled;
@@ -484,7 +561,10 @@ export class Executor {
       say.info({ outcome, ...(error ? { why: error } : {}) }, 'Run ended');
     };
     const stoppedWhy = (): [Outcome, string] => {
-      if (why === 'cancel') return ['cancelled', 'Stopped on request'];
+      if (why === 'cancel') {
+        const step = titleOf(steps, this.deps.hub?.live(r.id)?.summary?.running);
+        return ['cancelled', `Stopped on request${step ? ` during ${step}` : ''}`];
+      }
       if (why === 'timeout')
         return [
           'failed',
@@ -512,6 +592,7 @@ export class Executor {
       const text = await readFile(join(workdir.dir, ...r.flow.file.split('/')), 'utf8');
       const doc = parseFlow(text).doc;
       if (!doc) return await finish('failed', `${r.flow.file} is not a flow at this commit`);
+      steps = doc.nodes;
       const errors = validateFlow(doc, schemaIssues(doc)).findings.filter(
         (f) => f.severity === 'error',
       );
@@ -529,7 +610,12 @@ export class Executor {
       const playbook = await writeGenerated(workdir.dir, r.flow.file, code);
 
       // Credentials: variables, the vault password, a key file, the container's environment.
-      const image = r.eeImage ?? this.options.image;
+      // AFS-163: a run without its own image gets the server's default now, kept on the run.
+      const image = r.eeImage ?? (await this.defaultImage());
+      if (!r.eeImage) {
+        await queue.keepImage(r.id, image);
+        line(`The server's default image: ${image}`);
+      }
       // AFS-66: a registry credential signs in and pulls the image first; reading the image's
       // user (below) already needs the image.
       const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials);
@@ -674,7 +760,7 @@ export class Executor {
                 line(text);
               };
               return startProcess(
-                { ...spec, args: rewriteMounts(spec.args, this.toHost) },
+                { ...spec, args: withLimit(rewriteMounts(spec.args, this.toHost), r.limit) },
                 { ...processEnv, ...creds.processEnv, ...serverEnv },
                 said,
               );
@@ -682,21 +768,30 @@ export class Executor {
           },
         );
       /** How a run that has ended is recorded, from the view of how it went. */
-      const ended = async (view: RunView) => {
+      const ended = async (view: RunView, whole = false, decided?: string) => {
         if (why) return await finish(...stoppedWhy(), view);
+        // AFS-133: hosts that failed after a rejection (or a timeout) failed because of it: the
+        // run says who decided and what they said, not Ansible's exit code.
+        if (decided && !(view.state === 'done' && view.rc === 0 && !view.error))
+          return await finish('failed', decided, view);
         if (agentFailure) return await finish('failed', agentFailure, view);
+        // AFS-132: no events, and the container said why (an image that cannot be pulled, an
+        // engine error): that is the reason, not "no events".
+        // AFS-147: no host to target says which targets or limit left none, not Ansible's words.
+        if (view.error === NO_EVENTS && errorLines.some((l) => NO_HOSTS.test(l)))
+          return await finish('failed', noHostWhy({ ...r, skipped: [...skipped] }), view);
+        if (view.error === NO_EVENTS && errorLines.length)
+          return await finish('failed', `${NO_EVENTS}: ${errorLines.at(-1)}`, view);
+        // AFS-132: a run that reached no host did nothing: not a success.
+        if (view.state === 'done' && view.rc === 0 && !view.error && whole && noHostRan(view))
+          return await finish('failed', noHostWhy({ ...r, skipped: [...skipped] }), view);
         // Without events nothing says what the flow did: that is not a success, whatever the code.
         if (view.state === 'done' && view.rc === 0 && !view.error)
           return await finish('succeeded', undefined, view);
         if (view.state === 'done' && view.error) return await finish('failed', view.error, view);
-        if (view.state === 'done') {
-          const failedHosts = Object.keys(view.summary?.outcome ?? {}).length;
-          return await finish(
-            'failed',
-            `ansible-playbook ended with ${view.rc}${failedHosts ? `; ${failedHosts} host(s) failed` : ''}`,
-            view,
-          );
-        }
+        // AFS-147: "1 of 4 hosts failed at Pre-checks", not the exit code.
+        if (view.state === 'done')
+          return await finish('failed', failedWhy(view, steps, view.rc, errorLines.at(-1)), view);
         return await finish('failed', view.error ?? 'The run could not be started', view);
       };
 
@@ -716,13 +811,13 @@ export class Executor {
         );
       }
       if (segments.length === 0) {
-        const runId = `${stamp()}-${r.number}`;
+        const runId = runName(r);
         if (!(await queue.start(r.id, token, new Date(), folder(runId)))) {
           why ??= 'lost';
           return;
         }
         this.deps.hub?.publish(r.id, { kind: 'state' });
-        return await ended(await runOnce(runId, playbook, inputs, (v) => v));
+        return await ended(await runOnce(runId, playbook, inputs, (v) => v), true);
       }
 
       // AFS-28: a flow with approvals runs segment by segment. Where this run is: at the start,
@@ -744,10 +839,16 @@ export class Executor {
         ? nextSegment(segments, gate.segment, decision as GateDecision)
         : segments.find((g) => g.name === 'start');
       let segInputs = gate ? segmentInputs(inputs, gate.carried, decision) : inputs;
+      let decidedAgainst: string | undefined;
       if (gate) {
-        const by = gate.decidedBy ? ` by ${gate.decidedBy}` : '';
+        // AFS-146: people by their names, as the pages name them.
+        const by = gate.decidedBy ? ` by ${gate.decidedByName ?? gate.decidedBy}` : '';
         const said = gate.comment ? `: ${gate.comment}` : '';
         line(`Approval ${gate.node.title}: ${gate.status}${by}${said}`);
+        if (gate.status === 'rejected')
+          decidedAgainst = `Rejected at ${gate.node.title}${by}${said}`;
+        else if (gate.status === 'timed out')
+          decidedAgainst = `Nobody decided ${gate.node.title} in time`;
       }
       const generated = posix.dirname(playbook);
       const eventsOf = async (dirs: string[]) =>
@@ -755,7 +856,7 @@ export class Executor {
       const before = await queue.segments(r.id);
       while (segment) {
         const current = segment;
-        const runId = `${stamp()}-${r.number}-${current.name}`;
+        const runId = runName(r, current.name);
         if (!(await queue.addSegment(r.id, token, { name: current.name, dir: folder(runId) }))) {
           why ??= 'lost';
           return;
@@ -766,9 +867,10 @@ export class Executor {
         const approvals = approvalsOf(await gatesOf(this.deps.db, r.id));
         const withApprovals = Object.keys(approvals).length ? { approvals } : {};
         // What the canvas shows while a segment runs: the segments before it, and this one.
+        // AFS-132: until the segment has a summary of its own, the earlier ones' stays shown.
         const view = await runOnce(runId, `${generated}/${current.file}`, segInputs, (v) => ({
           ...v,
-          ...(v.summary ? { summary: mergeSummaries(earlier, v.summary) } : {}),
+          summary: v.summary ? mergeSummaries(earlier, v.summary) : earlier,
           ...withApprovals,
         }));
         before.push({ name: current.name, dir: folder(runId) });
@@ -800,6 +902,7 @@ export class Executor {
             carried: outcome.carried,
             ...(seconds ? { deadline: new Date(Date.now() + seconds * 1000) } : {}),
             ...(node?.approval ? { approval: node.approval } : {}),
+            next: nextSteps(doc, current.gate),
           });
           const waiting: RunView = {
             ...whole,
@@ -814,7 +917,9 @@ export class Executor {
           const until = opened.deadline ? ` (until ${opened.deadline})` : '';
           line(`Waiting for approval: ${opened.node.title}${until}`);
           this.deps.hub?.publish(r.id, { kind: 'view', view: waiting });
-          this.deps.hub?.publish(r.id, { kind: 'state' });
+          // AFS-147: the run is not going here any more: its view is the record's from now on,
+          // so a stop while it waits (which writes the record) is what the canvas shows.
+          this.deps.hub?.ended(r.id);
           say.info({ gate: opened.node.key }, 'Run waits for approval');
           this.deps.approvalWaiting?.(r.id, opened.id);
           return;
@@ -825,7 +930,7 @@ export class Executor {
             view.error ?? `The segment ${current.name} ended before its hosts reached the approval`,
             whole,
           );
-        return await ended(whole);
+        return await ended(whole, false, decidedAgainst);
       }
       return await finish('failed', 'The flow has no segment to run next');
     } catch (e) {
@@ -879,4 +984,24 @@ function hasApproval(nodes: readonly { type: string; subflow?: { nodes?: unknown
       n.type === 'approval' ||
       hasApproval((n.subflow?.nodes ?? []) as { type: string; subflow?: { nodes?: unknown[] } }[]),
   );
+}
+
+/**
+ * AFS-146: where each decision of an approval sends its waiting hosts, by the next step's title
+ * (approvals are on the top level): what the decider and the mails name.
+ */
+function nextSteps(
+  doc: {
+    nodes: { id: string; title: string }[];
+    edges?: { from: { node: string; port: string }; to: { node: string } }[];
+  },
+  gate: string,
+): { approved?: string; rejected?: string; timeout?: string } {
+  const out: Record<string, string> = {};
+  for (const port of ['approved', 'rejected', 'timeout']) {
+    const edge = doc.edges?.find((e) => e.from.node === gate && e.from.port === port);
+    const title = edge && doc.nodes.find((n) => n.id === edge.to.node)?.title;
+    if (title) out[port] = title;
+  }
+  return out;
 }

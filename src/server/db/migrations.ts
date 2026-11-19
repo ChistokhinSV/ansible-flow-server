@@ -9,6 +9,18 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-149: how a push came (a git client, a draft saved in the pages, …), for the Pushes list.
+  '0028_push_kind': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('git_push').addColumn('kind', 'varchar(16)').execute();
+    },
+  },
+  // AFS-150: a project's description, changed in its Settings as its name is.
+  '0027_project_description': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('project').addColumn('description', 'text').execute();
+    },
+  },
   // AFS-105: a run's host counts beside its view, so a list of runs says them without the views.
   '0026_run_host_counts': {
     async up(db: Kysely<unknown>) {

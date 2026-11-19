@@ -92,6 +92,8 @@ beforeEach(() => {
   asked = [];
   window.localStorage.clear();
   window.scrollTo = () => undefined;
+  // AFS-134: a real launch asks first; the tests say yes.
+  window.confirm = () => true;
   // Launch opens the run's page, which follows the run's stream: here it says nothing.
   vi.stubGlobal(
     'EventSource',
@@ -202,13 +204,17 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     routes = common(dana);
     page('launch');
     const launch = await screen.findByRole('button', { name: 'Launch' });
-    // The inputs come before the button, the branch and limit after it, folded.
+    // AFS-152: the form is read once the configuration is there.
+    await screen.findByLabelText(/^devices/);
+    // The inputs come before the button; AFS-138: the branch and limit too, folded, before the
+    // mode, so a limit is seen before Launch.
     const precedes = (a: Element, b: Element) =>
       !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(precedes(screen.getByLabelText(/^devices/), launch)).toBe(true);
-    expect(precedes(screen.getByLabelText('Real'), launch)).toBe(true);
+    expect(precedes(screen.getByLabelText(/^Real/), launch)).toBe(true);
     const fold = screen.getByLabelText(/^Branch/).closest('details') as HTMLDetailsElement;
-    expect(precedes(launch, fold)).toBe(true);
+    expect(precedes(screen.getByLabelText(/^devices/), fold)).toBe(true);
+    expect(precedes(fold, screen.getByLabelText(/^Real/))).toBe(true);
     expect(fold.open).toBe(false);
     expect(fold.contains(screen.getByLabelText('Limit'))).toBe(true);
     // No settings section over the form: one line, with the flow as a link to its page.
@@ -219,7 +225,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     );
     expect(line.textContent).toContain('newest of main');
     expect(line.textContent).toContain('inventory inventory/hosts.yaml');
-    expect(line.textContent).toContain("image the server's default");
+    expect(line.textContent).toContain("the server's default image");
     expect(line.textContent).toContain('1 credential');
     // The tabs are addresses; Change is one of them now.
     const tabs = screen.getByRole('navigation', { name: 'Launch configuration' });
@@ -238,6 +244,44 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     expect(screen.getByRole('heading', { name: 'What the flow needs' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Schedules' })).toBeNull();
     expect(asked.some((a) => a.key.startsWith('GET /runs'))).toBe(false);
+  });
+
+  it('Launch: a flow with errors names them, each a link to its step (AFS-164)', async () => {
+    const errors = [
+      { node: 'n1', step: 'Ping', message: 'No module is bound' },
+      { node: 'n2', step: 'Backup', message: 'The fail port is not handled' },
+      { message: 'The flow has no title' },
+      ...['n4', 'n5', 'n6'].map((n) => ({ node: n, step: n, message: 'Wrong' })),
+    ];
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1/form?': () => ({
+        status: 422,
+        body: {
+          error: 'not_ready',
+          message: 'The flow has 6 errors, so it cannot run until they are fixed: …',
+          problems: [{ field: 'flowFile', message: 'The flow has 6 errors…', errors }],
+        },
+      }),
+    };
+    page('launch');
+    const note = (await screen.findAllByRole('alert')).find((a) =>
+      a.textContent?.startsWith('The flow has'),
+    ) as HTMLElement;
+    expect(note.textContent).toContain(
+      'The flow has 6 errors, so it cannot run until they are fixed:',
+    );
+    const links = within(note).getAllByRole('link');
+    // Five, then how many more; an administrator may edit: the flow opens for editing there.
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Ping', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n1&edit=1'],
+      ['Backup', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n2&edit=1'],
+      ['The flow', '/w/net/core/flow/flows/upgrade.flow.yaml?edit=1'],
+      ['n4', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n4&edit=1'],
+      ['n5', '/w/net/core/flow/flows/upgrade.flow.yaml?step=n5&edit=1'],
+      ['and 1 more', '/w/net/core/flow/flows/upgrade.flow.yaml?edit=1'],
+    ]);
+    expect(note.textContent).toContain('Ping: No module is bound');
   });
 
   it('Launch: a configuration with a limit shows it, the fold open', async () => {
@@ -420,6 +464,10 @@ describe('the launch form', () => {
 
     refuse = false;
     fireEvent.change(secret, { target: { value: 's3cret-value' } });
+    // AFS-140: the problem goes once its field is changed, not at the next question.
+    expect(secret.getAttribute('aria-invalid')).toBeNull();
+    expect(screen.queryByText('api_password is required')).toBeNull();
+    expect(screen.queryByText(/Some fields need a look/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'What would run' }));
     await screen.findByRole('heading', { name: 'What would run' });
     expect(secret.getAttribute('aria-invalid')).toBeNull();
@@ -520,6 +568,77 @@ describe('the launch form', () => {
     expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
   });
 
+  it('targets the inventory lacks and a limit that leaves none are said at the field (AFS-147)', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/facts': (body) => {
+        const typed = (body as { inputs?: { devices?: string }; limit?: string }) ?? {};
+        const unknown = /nosuchhost/.test(typed.inputs?.devices ?? '') ? ['nosuchhost'] : [];
+        return {
+          body: {
+            groups: ['edge'],
+            groupHosts: { edge: { count: 2, hosts: ['fw-edge-01', 'fw-edge-02'] } },
+            facts: {
+              sources: ['inventory/hosts.yaml'],
+              count: 1,
+              hosts: ['fw-edge-01'],
+              unknown,
+              uses: [],
+              prod: [],
+              vault: false,
+              environment: 'ee:1 (docker)',
+            },
+            ...(typed.limit ? { limited: { pattern: typed.limit, hosts: [], count: 0 } } : {}),
+            environment: 'ee:1 (docker)',
+            commit: COMMIT,
+          },
+        };
+      },
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const devices = (await screen.findByLabelText(/devices/)) as HTMLInputElement;
+    // A group's button says how many hosts it adds.
+    const groups = await screen.findByRole('group', { name: 'Groups for devices' });
+    expect(within(groups).getByRole('button', { name: /edge/ }).textContent).toBe('edge · 2');
+    fireEvent.change(devices, { target: { value: 'fw-edge-01, nosuchhost' } });
+    expect(
+      await screen.findByText(
+        /Not in the inventory, so nothing runs there: nosuchhost/,
+        undefined,
+        {
+          timeout: 3000,
+        },
+      ),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Limit'), { target: { value: 'sw-edge-01' } });
+    expect(
+      await screen.findByText(/leaves none of the targets' hosts/, undefined, { timeout: 3000 }),
+    ).toBeTruthy();
+  });
+
+  it('the groups keep one place while they are read, so the buttons do not move (AFS-138)', async () => {
+    let answer: (v: unknown) => void = () => undefined;
+    routes = {
+      ...common(dana),
+      // The answer's body comes when the test says.
+      'POST /launch-configs/c1/facts': () => ({
+        body: new Promise((r) => {
+          answer = r;
+        }),
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const reading = await screen.findByText("Reading the inventory's groups…");
+    const slot = reading.closest('.group-slot');
+    expect(slot).toBeTruthy();
+    // None found: the same place says so, rather than closing up under the buttons.
+    answer({ groups: [], environment: 'ee:1 (docker)', commit: COMMIT });
+    const none = await screen.findByText('No groups to pick from the inventory.');
+    expect(none.closest('.group-slot')).toBe(slot);
+  });
+
   it('Recipients suggests the people and groups of the server (AFS-97)', async () => {
     routes = {
       ...common(dana),
@@ -564,7 +683,7 @@ describe('the launch form', () => {
     const secret = await screen.findByLabelText(/api_password/);
     fireEvent.change(secret, { target: { value: 's3cret-value' } });
     fireEvent.change(screen.getByLabelText(/^retries/), { target: { value: '5' } });
-    fireEvent.click(screen.getByLabelText('Real'));
+    fireEvent.click(screen.getByLabelText(/^Real/));
 
     fireEvent.click(screen.getByRole('button', { name: 'Keep as start values' }));
     await screen.findByText(/Start values kept: devices, retries/);
@@ -594,7 +713,101 @@ describe('what a level shows', () => {
     expect(screen.queryByRole('button', { name: 'Keep as start values' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
     expect((screen.getByLabelText(/^Branch/) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/another branch or commit needs rw/)).toBeTruthy();
+    expect(screen.getByText(/another branch or commit needs read/)).toBeTruthy();
+  });
+});
+
+describe('AFS-150: leaving with typing not saved', () => {
+  const LEAVE = 'Leave this page? What you typed is not saved.';
+  const tab = (name: string) =>
+    within(screen.getByRole('navigation', { name: 'Launch configuration' })).getByRole('link', {
+      name,
+    });
+  const settingsRoutes = () => ({
+    ...common(dana),
+    'GET /projects/p1/access': () => ({
+      body: { admin: true, workspace: 'rw', approve: true, flows: {} },
+    }),
+    'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
+    'GET /workspaces/net/credentials': () => ({ body: [] }),
+    'GET /workspaces/net/environments': () => ({ body: [] }),
+  });
+
+  it("a configuration's Settings ask before a tab loses the typing; typing it back does not", async () => {
+    routes = settingsRoutes();
+    const questions: string[] = [];
+    let answer = false;
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return answer;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1/settings');
+    render(<App />);
+    const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+    fireEvent.change(name, { target: { value: 'a10 lc one' } });
+    fireEvent.click(tab('Launch'));
+    expect(questions).toEqual([LEAVE]);
+    expect(window.location.pathname).toBe('/w/net/core/launch/c1/settings');
+    expect(name.value).toBe('a10 lc one');
+    // As it was saved: nothing to lose, nothing asked.
+    fireEvent.change(name, { target: { value: 'Nightly check' } });
+    fireEvent.click(tab('Runs'));
+    expect(questions).toHaveLength(1);
+    await waitFor(() => expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs'));
+    answer = true;
+  });
+
+  it('the launch page asks when the configuration is left, not on its own tabs', async () => {
+    routes = {
+      ...settingsRoutes(),
+      'GET /runs?config=c1&limit=100': () => ({ body: [] }),
+    };
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/^retries/), { target: { value: '5' } });
+    // Runs is a tab of the same page, which keeps the typing.
+    fireEvent.click(tab('Runs'));
+    await waitFor(() => expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs'));
+    expect(questions).toEqual([]);
+    // The project's page does not.
+    // AFS-154: the breadcrumb names the project (Core), or its key until the name is read.
+    fireEvent.click(screen.getByRole('link', { name: /^(core|Core)$/ }));
+    expect(questions).toEqual([LEAVE]);
+    expect(window.location.pathname).toBe('/w/net/core/launch/c1/runs');
+  });
+
+  it('a new configuration asks before the page is left', async () => {
+    routes = settingsRoutes();
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Upgrade' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(questions).toEqual([LEAVE]);
+    expect(window.location.pathname).toBe('/w/net/core/launch/new');
+  });
+
+  it('an operator who types the address is told it needs rw, not given the form', async () => {
+    routes = {
+      ...common(omar),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'ro', approve: false, flows: { [flow.file]: 'operator' } },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    expect(await screen.findByText(/needs rw on the flow it runs/)).toBeTruthy();
+    expect(screen.queryByLabelText('Name')).toBeNull();
+    expect(asked.some((a) => a.key.startsWith('GET /workspaces/net/recipients'))).toBe(false);
   });
 });
 
@@ -640,6 +853,20 @@ describe('adding a launch configuration', () => {
       credentials: ['k1'],
       mode: 'check',
     });
+  });
+});
+
+describe('AFS-140: a launch configuration of a project without flows', () => {
+  it('says there is no flow to run instead of an empty list', async () => {
+    routes = {
+      ...common(dana),
+      'GET /projects/p1/flows': () => ({ body: { flows: [] } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    expect(await screen.findByText(/The project has no flow yet/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Flow/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Make a flow on the project page' })).toBeTruthy();
   });
 });
 

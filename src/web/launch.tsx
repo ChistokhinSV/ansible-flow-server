@@ -5,7 +5,8 @@
 // AFS-85: a configuration's page is four tabs (Launch, Runs, Schedules, Settings), each with an
 // address; the launch form comes first, and what is rarely typed is folded away.
 import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { errorsLead, type FlowError } from '../server/flowErrors';
 import type { FactsReply } from '../server/launch/facts';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
@@ -22,10 +23,30 @@ import {
   type User,
 } from './api';
 import { EnvironmentCheck, environmentAddress } from './environments';
-import { Link, navigate } from './router';
+import { Missing, MissingProject } from './help';
+import { Link, navigate, useUnsaved } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
-import { ago, Breadcrumb, Fold, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  ago,
+  Breadcrumb,
+  COMMIT_PATTERN,
+  COMMIT_TITLE,
+  Fold,
+  Labelled,
+  Loading,
+  limitNote,
+  messageOf,
+  PageHead,
+  ProjectName,
+  reveal,
+  Scroll,
+  Tabs,
+  Time,
+  useLoad,
+  useReveal,
+  WorkspaceName,
+} from './ui';
 
 type LaunchField = LaunchForm['fields'][number];
 /** The kinds of credential a run can be given (a git token is for a repository). */
@@ -41,6 +62,14 @@ const KIND_LABEL: Record<string, string> = {
 
 const base = (workspace: string, project: string) =>
   `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}`;
+/** AFS-149: a flow's page, where the canvas's Run asked for a new configuration. */
+const flowPage = (workspace: string, project: string, file: string) =>
+  `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}/flow/${file.split('/').map(encodeURIComponent).join('/')}`;
+/** AFS-149: the flow whose canvas asked for a new configuration (`?flow=…&back=flow`). */
+const canvasFlow = () => {
+  const q = new URLSearchParams(window.location.search);
+  return q.get('back') === 'flow' ? (q.get('flow') ?? undefined) : undefined;
+};
 export const launchAddress = (workspace: string, project: string, id: string) =>
   `${base(workspace, project)}/launch/${encodeURIComponent(id)}`;
 /** A flow's page (as the project page builds it: that page reads this file, so it is not read here). */
@@ -58,48 +87,8 @@ function Takes({ config, project }: { config: LaunchConfig; project?: Project })
   );
 }
 
-/** A field of a form, with its problem said under it and to a screen reader. */
 /** The choice of the environment chooser that asks for an image's name instead. */
 const IMAGE_BY_NAME = ':image';
-
-function Labelled({
-  label,
-  hint,
-  problem,
-  children,
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  problem?: string;
-  children: (props: {
-    id: string;
-    'aria-describedby'?: string;
-    'aria-invalid'?: boolean;
-  }) => ReactNode;
-}) {
-  const id = useId();
-  const described = [hint && `${id}-hint`, problem && `${id}-problem`].filter(Boolean).join(' ');
-  return (
-    <div className={`field${problem ? ' invalid' : ''}`}>
-      <label htmlFor={id}>{label}</label>
-      {children({
-        id,
-        ...(described ? { 'aria-describedby': described } : {}),
-        ...(problem ? { 'aria-invalid': true } : {}),
-      })}
-      {hint && (
-        <small id={`${id}-hint`} className="muted">
-          {hint}
-        </small>
-      )}
-      {problem && (
-        <small id={`${id}-problem`} className="bad-text">
-          {problem}
-        </small>
-      )}
-    </div>
-  );
-}
 
 /**
  * A project's launch configurations, on its page. Each row says how the configuration's newest
@@ -116,6 +105,7 @@ export function LaunchConfigsSection({
 }) {
   const list = useLoad(() => api.launchConfigs(project.id), [project.id]);
   const access = useProjectAccess(project.id).data;
+  const flowNames = useFlowNames(project.id);
   // Who has rw on the workspace, or on one of its flows, may add a configuration for it.
   const mayAdd =
     me.admin ||
@@ -139,14 +129,14 @@ export function LaunchConfigsSection({
         </p>
       )}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
                 <th scope="col">Name</th>
                 <th scope="col">Flow</th>
                 <th scope="col">Last run</th>
-                <th scope="col">
+                <th scope="col" className="act">
                   <span className="sr-only">Launch</span>
                 </th>
               </tr>
@@ -161,7 +151,14 @@ export function LaunchConfigsSection({
                       <Link to={launchAddress(workspace, project.key, c.id)}>{c.name}</Link>
                     </td>
                     <td>
-                      <code>{c.flowFile}</code>
+                      <FlowLabel file={c.flowFile} names={flowNames} />
+                      {/* AFS-147: a flow deleted from the branch: its configuration cannot run. */}
+                      {c.flowGone && (
+                        <span className="warn-text" title={c.flowGone}>
+                          {' '}
+                          · the flow is gone
+                        </span>
+                      )}
                       {/* The branch is said only when it is not the project's own. */}
                       {(c.commit || c.gitRef) && (
                         <span className="muted">
@@ -180,8 +177,8 @@ export function LaunchConfigsSection({
                         <span className="muted">none yet</span>
                       )}
                     </td>
-                    <td>
-                      {mayLaunch && (
+                    <td className="act">
+                      {mayLaunch && !c.flowGone && (
                         <Link
                           to={launchAddress(workspace, project.key, c.id)}
                           className="button"
@@ -197,9 +194,38 @@ export function LaunchConfigsSection({
               })}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
+  );
+}
+
+/**
+ * AFS-152: a launch configuration not there, or not shared (the server answers both the same
+ * way), in a project the person can open.
+ */
+function MissingConfig({
+  workspace,
+  project,
+  id,
+}: {
+  workspace: string;
+  project: Project;
+  id: string;
+}) {
+  return (
+    <>
+      <Crumbs workspace={workspace} project={project.key} last="Launch configuration" />
+      <Missing
+        what={
+          <>
+            The launch configuration <code>{id}</code> in {project.name}
+          </>
+        }
+        back={{ to: base(workspace, project.key), label: `Back to ${project.name}` }}
+        help="launch-configurations.md"
+      />
+    </>
   );
 }
 
@@ -209,6 +235,24 @@ function useProject(workspace: string, key: string) {
     async () => (await api.projects(workspace)).find((p) => p.key === key),
     [workspace, key],
   );
+}
+
+/** AFS-153: a project's flows by their names, for what names a flow by its file. */
+function useFlowNames(projectId: string | undefined): Map<string, string> {
+  const flows = useLoad(
+    async () => (projectId ? (await api.flows(projectId)).flows : []),
+    [projectId],
+  );
+  return useMemo(
+    () => new Map((flows.data ?? []).flatMap((f) => (f.name ? [[f.file, f.name]] : []))),
+    [flows.data],
+  );
+}
+
+/** A flow by its name, its file on hover; by its file while the name is not known. */
+function FlowLabel({ file, names }: { file: string; names: Map<string, string> }) {
+  const name = names.get(file);
+  return name ? <span title={file}>{name}</span> : <code>{file}</code>;
 }
 
 function Crumbs({
@@ -224,8 +268,15 @@ function Crumbs({
 }) {
   return (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <Link to={base(workspace, project)}>{project}</Link> /{' '}
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      /{' '}
+      <Link to={base(workspace, project)}>
+        <ProjectName workspace={workspace} project={project} />
+      </Link>{' '}
+      /{' '}
       {config && (
         <>
           <Link to={launchAddress(workspace, project, config.id)}>{config.name}</Link> /{' '}
@@ -295,11 +346,17 @@ function InputField({
   problem,
   onChange,
   groups,
+  counts,
+  warning,
 }: {
   field: LaunchField;
   value: string;
   problem?: string;
   onChange: (text: string) => void;
+  /** AFS-147: how many hosts each group holds, for its chip. */
+  counts?: Record<string, { count: number }>;
+  /** AFS-147: what the inventory says of the typed targets, before Launch. */
+  warning?: ReactNode;
   /**
    * AFS-97/99: the inventory's groups for a host list, as the canvas's dialog offers them: a button
    * each under the field (adds or takes out the group) and suggestions while typing.
@@ -355,28 +412,105 @@ function InputField({
               {...(suggest.length ? { list: listId } : {})}
             />
             {suggest.length > 0 && <Suggestions id={listId} values={suggest} />}
-            {field.targets && groups === 'reading' && (
-              <small className="muted">Reading the inventory's groups…</small>
+            {/* AFS-138: the groups come a moment after the form: their row keeps its height from
+                the start, so Launch does not move under the pointer. */}
+            {field.targets && groups !== undefined && (
+              <div className="group-slot">
+                {groups === 'reading' ? (
+                  <small className="muted">Reading the inventory's groups…</small>
+                ) : known.length > 0 ? (
+                  <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
+                    {/* AFS-147: what the chips are, and how many hosts each adds. */}
+                    <small className="muted">Groups in the inventory:</small>
+                    {known.map((g) => {
+                      const count = counts?.[g]?.count;
+                      return (
+                        <button
+                          key={g}
+                          type="button"
+                          className={`chip${chosen.has(g) ? ' on' : ''}`}
+                          aria-pressed={chosen.has(g)}
+                          title={
+                            count === undefined
+                              ? undefined
+                              : `${chosen.has(g) ? 'Take out' : 'Add'} the group ${g}: ${count} ${count === 1 ? 'host' : 'hosts'}`
+                          }
+                          onClick={() => onChange(toggleName(value, g))}
+                        >
+                          {g}
+                          {count !== undefined && <span className="muted"> · {count}</span>}
+                        </button>
+                      );
+                    })}
+                  </fieldset>
+                ) : (
+                  <small className="muted">No groups to pick from the inventory.</small>
+                )}
+              </div>
             )}
-            {known.length > 0 && (
-              <fieldset className="name-chips" aria-label={`Groups for ${field.name}`}>
-                {known.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    className={`chip${chosen.has(g) ? ' on' : ''}`}
-                    aria-pressed={chosen.has(g)}
-                    onClick={() => onChange(toggleName(value, g))}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </fieldset>
-            )}
+            {warning}
           </>
         )
       }
     </Labelled>
+  );
+}
+
+/** AFS-147: the key of the targets and the limit as typed: what a reading of the inventory is of. */
+function targetsKey(
+  fields: readonly LaunchField[],
+  texts: Record<string, string>,
+  limit: string,
+): string {
+  return JSON.stringify([
+    fields.filter((f) => f.targets).map((f) => (texts[f.name] ?? f.text).trim()),
+    limit.trim(),
+  ]);
+}
+
+/**
+ * AFS-147: what the inventory says of the targets typed, at their field: those it does not have,
+ * or that they match no host at all.
+ */
+function TargetsWarning({ reply }: { reply: FactsReply }) {
+  const facts = reply.facts;
+  if (facts?.unknown.length)
+    return (
+      <small className="warn-text" data-unknown-hosts role="status">
+        Not in the inventory{reply.inventory ? ` ${reply.inventory}` : ''}, so nothing runs there:{' '}
+        {facts.unknown.join(', ')}
+        {facts.count === 0 ? '. No host would run.' : ''}
+      </small>
+    );
+  if (facts && facts.count === 0)
+    return (
+      <small className="warn-text" data-unknown-hosts role="status">
+        These targets match no host in the inventory{reply.inventory ? ` ${reply.inventory}` : ''}:
+        no host would run.
+      </small>
+    );
+  if (!facts && reply.factsError && !reply.field)
+    return (
+      <small className="warn-text" data-unknown-hosts role="status">
+        {reply.factsError}
+      </small>
+    );
+  return null;
+}
+
+/** AFS-147: what the limit leaves of the targets' hosts, at the Limit field. */
+function LimitWarning({ limited }: { limited: NonNullable<FactsReply['limited']> }) {
+  return limited.count === 0 ? (
+    <p className="error-text small" data-limit-hosts role="status">
+      The limit <code>{limited.pattern}</code> leaves none of the targets' hosts: the run would stop
+      at once.
+    </p>
+  ) : (
+    <p className="muted small" data-limit-hosts>
+      The limit leaves {limited.count} {limited.count === 1 ? 'host' : 'hosts'}:{' '}
+      {limited.hosts.slice(0, 10).join(', ')}
+      {limited.count > 10 ? ', …' : ''}
+    </p>
   );
 }
 
@@ -390,14 +524,34 @@ function InventoryHosts({ hosts }: { hosts: HostsState }) {
       ) : 'error' in hosts ? (
         <p className="error-text">{hosts.error}</p>
       ) : hosts.facts ? (
-        <ul className="plain" data-facts>
-          {/* The first line says "not check mode": the mode is said above. */}
-          {realRunLines(hosts.facts)
-            .slice(1)
-            .map((l) => (
-              <li key={l}>{l}</li>
+        <>
+          <ul className="plain" data-facts>
+            {/* The first line says "not check mode": the mode is said above. */}
+            {realRunLines(hosts.facts)
+              .slice(1)
+              .map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+          </ul>
+          {hosts.facts.unknown.length > 0 && (
+            <p className="warn-text" data-unknown-hosts>
+              Not in the inventory, so nothing runs there: {hosts.facts.unknown.join(', ')}
+            </p>
+          )}
+          {hosts.limited &&
+            (hosts.limited.count === 0 ? (
+              <p className="error-text" data-limit-hosts>
+                The limit <code>{hosts.limited.pattern}</code> leaves none of these hosts: the run
+                would stop at once.
+              </p>
+            ) : (
+              <p data-limit-hosts>
+                The limit <code>{hosts.limited.pattern}</code> leaves {hosts.limited.count} of them:{' '}
+                {hosts.limited.hosts.slice(0, 10).join(', ')}
+                {hosts.limited.count > 10 ? ', …' : ''}
+              </p>
             ))}
-        </ul>
+        </>
       ) : (
         <p className="error-text">{hosts.factsError}</p>
       )}
@@ -412,14 +566,19 @@ function WouldRun({
   launch,
   form,
   hosts,
+  names,
 }: {
   launch: PreparedLaunch;
   form: LaunchForm;
   hosts?: HostsState;
+  /** AFS-147: the credentials by name. */
+  names?: string[];
 }) {
   const shown = Object.entries(launch.inputs);
+  // AFS-140: the answer comes below the form: it is brought into view.
+  const place = useReveal<HTMLElement>(launch, false);
   return (
-    <section className="panel ok-panel" aria-labelledby="would-run" aria-live="polite">
+    <section ref={place} className="panel ok-panel" aria-labelledby="would-run" aria-live="polite">
       <h2 id="would-run">What would run</h2>
       <dl className="facts">
         <dt>Flow</dt>
@@ -453,7 +612,7 @@ function WouldRun({
         <dt>Image</dt>
         <dd>{form.eeImage ? <code>{form.eeImage}</code> : "the server's default"}</dd>
         <dt>Credentials</dt>
-        <dd>{launch.credentials.length}</dd>
+        <dd>{launch.credentials.length ? (names ?? launch.credentials).join(', ') : 'none'}</dd>
       </dl>
       {hosts && <InventoryHosts hosts={hosts} />}
       {shown.length > 0 && (
@@ -475,6 +634,30 @@ function WouldRun({
   );
 }
 
+/**
+ * AFS-147: a configuration's environment by name, and what a launch gets from it now: its image,
+ * or why there is none.
+ */
+function EnvironmentWords({ config: c, workspace }: { config: LaunchConfig; workspace: string }) {
+  if (!c.environment) return null;
+  const info = c.environmentInfo;
+  return (
+    <>
+      <Link to={environmentAddress(workspace, c.environment)}>
+        {info ? `environment ${info.name}` : 'its environment'}
+      </Link>
+      {info?.why ? (
+        <span className="bad-text"> · {info.why}</span>
+      ) : info?.image ? (
+        <>
+          {' '}
+          · <code>{info.image}</code>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 /** A configuration's settings, read: for who may not change them. */
 function SettingsFacts({
   config: c,
@@ -485,11 +668,12 @@ function SettingsFacts({
   project: Project;
   workspace: string;
 }) {
+  const flowNames = useFlowNames(project.id);
   return (
     <dl className="facts">
       <dt>Flow</dt>
       <dd>
-        <code>{c.flowFile}</code>
+        <FlowLabel file={c.flowFile} names={flowNames} />
       </dd>
       <dt>Runs</dt>
       <dd>
@@ -503,7 +687,7 @@ function SettingsFacts({
         <>
           <dt>Environment</dt>
           <dd>
-            <Link to={environmentAddress(workspace, c.environment)}>its newest good build</Link>
+            <EnvironmentWords config={c} workspace={workspace} />
           </dd>
         </>
       )}
@@ -518,7 +702,7 @@ function SettingsFacts({
         </>
       )}
       <dt>Credentials</dt>
-      <dd>{c.credentials.length || 'none'}</dd>
+      <dd>{(c.credentialNames ?? c.credentials).join(', ') || 'none'}</dd>
       <dt>Tells</dt>
       <dd>
         {c.notify
@@ -572,8 +756,8 @@ function DeleteConfig({ config, to }: { config: LaunchConfig; to: string }) {
     }
   };
   return (
-    <section className="panel" aria-labelledby="delete-config">
-      <h2 id="delete-config">Delete</h2>
+    <section className="panel danger-zone" aria-labelledby="delete-config">
+      <h2 id="delete-config">Delete the launch configuration</h2>
       <p className="muted">Its runs stay.</p>
       {error && (
         <p className="notice error" role="alert">
@@ -607,6 +791,7 @@ export function LaunchConfigPage({
   tab: LaunchTab;
 }) {
   const project = useProject(workspace, key);
+  const flowNames = useFlowNames(project.data?.id);
   const config = useLoad(() => api.launchConfig(id), [id]);
   const access = useProjectAccess(project.data?.id).data;
   const branches = useLoad(
@@ -619,16 +804,21 @@ export function LaunchConfigPage({
   const [limit, setLimit] = useState<string | undefined>();
   /** The commit and branch the form was read at: what the inputs are of. */
   const [at, setAt] = useState({ ref: '', commit: '' });
+  // AFS-152: asked for once the configuration is there, so one not there is asked for once.
   const form = useLoad(
-    () =>
-      api.launchForm(id, {
-        ...(mode ? { mode } : {}),
-        ...(at.ref ? { ref: at.ref } : {}),
-        ...(at.commit ? { commit: at.commit } : {}),
-      }),
-    [id, mode, at.ref, at.commit],
+    async () =>
+      config.data
+        ? api.launchForm(id, {
+            ...(mode ? { mode } : {}),
+            ...(at.ref ? { ref: at.ref } : {}),
+            ...(at.commit ? { commit: at.commit } : {}),
+          })
+        : undefined,
+    [id, mode, at.ref, at.commit, !!config.data],
   );
   const [texts, setTexts] = useState<Record<string, string>>({});
+  /** AFS-150: the inputs typed into (not a text the form changed by itself, on a new mode). */
+  const [typed, setTyped] = useState<ReadonlySet<string>>(new Set());
   // A newly read form starts from its own texts; what was typed into a field of the same name
   // stays.
   useEffect(() => {
@@ -650,9 +840,16 @@ export function LaunchConfigPage({
    * launch's image, so only for who may launch.
    */
   const [groups, setGroups] = useState<string[] | 'reading'>();
+  const [groupCounts, setGroupCounts] = useState<Record<string, { count: number }>>();
+  /**
+   * AFS-147: what the inventory says of the targets and the limit as typed now (read again a moment
+   * after they change), so a target it does not have is said at its field before Launch.
+   */
+  const [live, setLive] = useState<{ key: string; reply: FactsReply }>();
   const configId = config.data?.id;
   const flowFile = config.data?.flowFile;
   const formFields = form.data?.fields;
+  const formLimit = form.data?.limit ?? '';
   const mayRead =
     !!flowFile && (me.admin || (!!access && atLeast(flowLevel(access, flowFile), 'operator')));
   useEffect(() => {
@@ -675,12 +872,68 @@ export function LaunchConfigPage({
         groups: true,
       } as LaunchRequest)
       .then(
-        (r) => setGroups(r.groups ?? []),
+        (r) => {
+          setGroups(r.groups ?? []);
+          if (r.groupHosts) setGroupCounts(r.groupHosts);
+          // The start values' targets and the configuration's limit: what the form shows first.
+          setLive({ key: targetsKey(formFields, start, formLimit), reply: r });
+        },
         () => setGroups([]),
       );
-  }, [tab, groups, configId, mayRead, formFields, mode]);
+  }, [tab, groups, configId, mayRead, formFields, mode, formLimit]);
+  const typedLimit = limit ?? formLimit;
+  const typedKey = formFields ? targetsKey(formFields, texts, typedLimit) : '';
+  const hasTargets = !!formFields?.some((f) => f.targets);
+  const liveKey = live?.key;
+  useEffect(() => {
+    if ((tab && tab !== 'launch') || !configId || !mayRead || !hasTargets || !formFields) return;
+    if (groups === 'reading' || typedKey === liveKey) return;
+    const timer = setTimeout(() => {
+      const inputs = Object.fromEntries(
+        formFields.filter((f) => !f.secret).map((f) => [f.name, texts[f.name] ?? f.text]),
+      );
+      api
+        .launchFacts(configId, {
+          ...(mode ? { mode } : {}),
+          inputs,
+          ...(limit !== undefined ? { limit: limit.trim() } : {}),
+        })
+        .then(
+          (reply) => setLive({ key: typedKey, reply }),
+          () => undefined,
+        );
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [
+    tab,
+    configId,
+    mayRead,
+    hasTargets,
+    formFields,
+    groups,
+    typedKey,
+    liveKey,
+    texts,
+    limit,
+    mode,
+  ]);
+  // AFS-150: typing not launched or kept (an input, a branch, a commit, a limit) asks before the
+  // page is left; the other tabs of the configuration keep it, so going to them does not ask.
+  const release = useUnsaved(
+    !!formFields?.some((f) => typed.has(f.name) && (texts[f.name] ?? f.text) !== f.text) ||
+      ref.trim() !== '' ||
+      commit.trim() !== '' ||
+      (limit !== undefined && limit.trim() !== formLimit),
+    launchAddress(workspace, key, id),
+  );
 
   const c = config.data;
+  // AFS-152: a project or a configuration not there (or not shared): what was looked for, with a
+  // way back to a page the person can open.
+  if (!project.loading && !project.data)
+    return <MissingProject workspace={workspace} project={key} error={project.error} />;
+  if (config.error && project.data)
+    return <MissingConfig workspace={workspace} project={project.data} id={id} />;
   if (!c || !project.data)
     return (
       <>
@@ -703,6 +956,11 @@ export function LaunchConfigPage({
       Object.entries(texts).filter(([name]) => fields.some((f) => f.name === name)),
     ),
   });
+  const formErrors =
+    form.failure instanceof ApiError
+      ? form.failure.details.problems?.find((p) => p.errors?.length)?.errors
+      : undefined;
+  const flowErrors = problems.find((p) => p.errors?.length)?.errors;
   const refused = (e: unknown) => {
     if (e instanceof ApiError && e.details.problems?.length) {
       setProblems(e.details.problems);
@@ -713,6 +971,11 @@ export function LaunchConfigPage({
   const isShown = (field: string) =>
     ['ref', 'commit', 'limit', 'mode'].includes(field) || fields.some((f) => f.name === field);
   const problemOf = (field: string) => problems.find((p) => p.field === field)?.message;
+  // AFS-140: a problem goes once the field it is about is changed.
+  const settle = (field: string) =>
+    setProblems((before) =>
+      before.some((p) => p.field === field) ? before.filter((p) => p.field !== field) : before,
+    );
   const start = (what: 'check' | 'launch' | 'save') => {
     setBusy(what);
     setProblems([]);
@@ -739,9 +1002,25 @@ export function LaunchConfigPage({
     }
   };
   const launch = async () => {
+    // AFS-134: a real run changes the hosts: asked first, with what it runs and where.
+    const real = (mode ?? form.data?.mode ?? c.mode) === 'real';
+    const unknown = liveNow?.facts?.unknown ?? [];
+    const skipped = unknown.length
+      ? ` Not in the inventory, so nothing runs there: ${unknown.join(', ')}.`
+      : '';
+    if (real) {
+      const where = limitText.trim() ? ` limited to ${limitText.trim()}` : '';
+      if (
+        !window.confirm(
+          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.${skipped}`,
+        )
+      )
+        return;
+    } else if (skipped && !window.confirm(`Launch the check run?${skipped}`)) return;
     start('launch');
     try {
       const run = await api.launch(c.id, request());
+      release();
       navigate(`/runs/${run.id}`);
     } catch (e) {
       refused(e);
@@ -761,6 +1040,11 @@ export function LaunchConfigPage({
     try {
       const changed = await api.changeLaunchConfig(c.id, { inputs: read.inputs });
       config.reload();
+      // The kept values are the form's start values now: no longer unsaved.
+      form.reload();
+      setTyped(
+        (names) => new Set([...names].filter((n) => fields.some((f) => f.name === n && f.secret))),
+      );
       setSaved(
         `Start values kept: ${Object.keys(changed.inputs).join(', ') || 'none'}. Secret inputs are never kept.`,
       );
@@ -776,22 +1060,25 @@ export function LaunchConfigPage({
   };
   const here = launchAddress(workspace, key, c.id);
   const limitText = limit ?? form.data?.limit ?? '';
+  // AFS-147: only what the inventory said of the targets as they are typed now.
+  const liveNow = live && live.key === typedKey ? live.reply : undefined;
   // The fold opens by itself when something in it has a value, and always when the server points
   // at one of its fields.
   const foldOpen =
     ['ref', 'commit', 'limit'].some((f) => problemOf(f)) ||
+    liveNow?.limited?.count === 0 ||
     (folded ?? !!(ref || commit || limitText));
 
   return (
     <>
       <Crumbs workspace={workspace} project={key} last={c.name} />
-      <PageHead title={c.name} lead={c.description} />
+      <PageHead help="launch-configurations.md" title={c.name} lead={c.description} />
       {/* What it runs with, in a line: all of it is on the Settings tab. */}
       <p className="statusline">
         <span>
           Flow{' '}
           <Link to={flowAddress(workspace, key, c.flowFile)}>
-            <code>{c.flowFile}</code>
+            <FlowLabel file={c.flowFile} names={flowNames} />
           </Link>
         </span>
         <span>
@@ -800,23 +1087,36 @@ export function LaunchConfigPage({
         </span>
         <span>inventory {c.inventory ? <code>{c.inventory}</code> : 'as ansible.cfg names'}</span>
         <span>
-          image{' '}
           {c.environment ? (
-            <Link to={environmentAddress(workspace, c.environment)}>
-              its environment's newest good build
-            </Link>
+            <EnvironmentWords config={c} workspace={workspace} />
           ) : c.eeImage ? (
-            <code>{c.eeImage}</code>
+            <>
+              image <code>{c.eeImage}</code>
+            </>
           ) : (
-            "the server's default"
+            "the server's default image"
           )}
         </span>
+        {/* AFS-147: the limit and the credentials by name, as What ran says them. */}
+        {c.limit && (
+          <span>
+            limit <code>{c.limit}</code>
+          </span>
+        )}
         <span>
-          {c.credentials.length
-            ? `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`
-            : 'no credentials'}
+          {!c.credentials.length
+            ? 'no credentials'
+            : c.credentialNames?.length
+              ? `${c.credentials.length === 1 ? 'credential' : 'credentials'} ${c.credentialNames.join(', ')}`
+              : `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`}
         </span>
       </p>
+      {c.flowGone && (
+        <p className="notice warn" role="status">
+          {c.flowGone}: it cannot be launched until the flow is back, or the configuration is
+          pointed at another flow.
+        </p>
+      )}
       <Tabs
         label="Launch configuration"
         base={here}
@@ -832,7 +1132,16 @@ export function LaunchConfigPage({
       {tab === 'runs' ? (
         <ConfigRuns config={c} me={me} />
       ) : tab === 'schedules' ? (
-        <SchedulesSection config={c.id} form={form.data} mayManage={mayManage} me={me} />
+        <SchedulesSection
+          config={c.id}
+          form={form.data}
+          takes={{
+            ...(c.commit ? { pinned: c.commit } : {}),
+            branch: c.gitRef ?? project.data.gitRef,
+          }}
+          mayManage={mayManage}
+          me={me}
+        />
       ) : tab === 'settings' ? (
         mayManage ? (
           <>
@@ -871,7 +1180,16 @@ export function LaunchConfigPage({
               }}
               aria-describedby={error ? 'launch-error' : undefined}
             >
-              <Loading state={form} />
+              {/* AFS-164: a flow with errors: which, each a link to its step. */}
+              {formErrors ? (
+                <FlowErrorsNote
+                  errors={formErrors}
+                  to={flowAddress(workspace, key, c.flowFile)}
+                  edit={mayManage}
+                />
+              ) : (
+                <Loading state={form} />
+              )}
               {fields.length === 0 && form.data && (
                 <p className="muted">The flow takes no inputs.</p>
               )}
@@ -881,10 +1199,105 @@ export function LaunchConfigPage({
                   field={f}
                   value={texts[f.name] ?? f.text}
                   problem={problemOf(f.name)}
-                  onChange={(text) => setTexts((t) => ({ ...t, [f.name]: text }))}
+                  onChange={(text) => {
+                    setTexts((t) => ({ ...t, [f.name]: text }));
+                    setTyped((names) => (names.has(f.name) ? names : new Set([...names, f.name])));
+                    settle(f.name);
+                  }}
                   groups={groups}
+                  {...(groupCounts ? { counts: groupCounts } : {})}
+                  {...(f.targets && liveNow ? { warning: <TargetsWarning reply={liveNow} /> } : {})}
                 />
               ))}
+              {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
+                  Launch. */}
+              <Fold
+                summary="Another branch or commit, a limit"
+                open={foldOpen}
+                onToggle={setFolded}
+              >
+                <div className="pair">
+                  <Labelled
+                    label="Branch"
+                    // AFS-152: a field that cannot be typed in says why.
+                    hint={
+                      mayManage
+                        ? `Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
+                        : `${c.commit ? 'The pinned commit' : (c.gitRef ?? project.data.gitRef)}: another branch needs read and write access to this flow`
+                    }
+                    problem={problemOf('ref')}
+                  >
+                    {(props) => (
+                      <input
+                        {...props}
+                        list="branches"
+                        value={ref}
+                        onChange={(e) => {
+                          setRef(e.target.value);
+                          settle('ref');
+                        }}
+                        onBlur={reread}
+                        disabled={!mayManage}
+                        spellCheck={false}
+                      />
+                    )}
+                  </Labelled>
+                  <datalist id="branches">
+                    {branches.data?.map((b) => (
+                      <option key={b} value={b} />
+                    ))}
+                  </datalist>
+                  <Labelled
+                    label="Or a commit"
+                    hint={
+                      mayManage
+                        ? 'As shown here (12 digits) or in full'
+                        : 'Another commit needs read and write access to this flow'
+                    }
+                    problem={problemOf('commit')}
+                  >
+                    {(props) => (
+                      <input
+                        {...props}
+                        value={commit}
+                        onChange={(e) => {
+                          setCommit(e.target.value);
+                          settle('commit');
+                        }}
+                        onBlur={reread}
+                        disabled={!mayManage}
+                        pattern={COMMIT_PATTERN}
+                        title={COMMIT_TITLE}
+                        spellCheck={false}
+                      />
+                    )}
+                  </Labelled>
+                </div>
+                {mayLaunch && !mayManage && (
+                  <p className="muted">
+                    You launch what the configuration names: another branch or commit needs read and
+                    write access.
+                  </p>
+                )}
+                <Labelled
+                  label="Limit"
+                  hint="Ansible's --limit: fewer hosts than the flow starts on."
+                  problem={problemOf('limit')}
+                >
+                  {(props) => (
+                    <input
+                      {...props}
+                      value={limitText}
+                      onChange={(e) => {
+                        setLimit(e.target.value);
+                        settle('limit');
+                      }}
+                      spellCheck={false}
+                    />
+                  )}
+                </Labelled>
+                {liveNow?.limited && <LimitWarning limited={liveNow.limited} />}
+              </Fold>
               <fieldset className="choices">
                 <legend>Mode</legend>
                 {(['check', 'real'] as const).map((m) => (
@@ -896,17 +1309,26 @@ export function LaunchConfigPage({
                       checked={(mode ?? form.data?.mode ?? c.mode) === m}
                       onChange={() => setMode(m)}
                     />
+                    {/* AFS-143: one name, "check run", and both modes said in a few words. */}
                     {m === 'check'
-                      ? 'Check: a skeleton run, nothing is changed, approvals pass by themselves'
-                      : 'Real'}
+                      ? 'Check: nothing is changed, approvals pass by themselves'
+                      : 'Real: the hosts are changed, approvals wait for a decision'}
                   </label>
                 ))}
               </fieldset>
-              {error && (
-                <p className="notice error" role="alert" id="launch-error">
-                  {error}
-                </p>
-              )}
+              {error &&
+                (flowErrors ? (
+                  <FlowErrorsNote
+                    id="launch-error"
+                    errors={flowErrors}
+                    to={flowAddress(workspace, key, c.flowFile)}
+                    edit={mayManage}
+                  />
+                ) : (
+                  <p className="notice error" role="alert" id="launch-error">
+                    {error}
+                  </p>
+                ))}
               {problems.some((p) => p.field && isShown(p.field)) && !error && (
                 <p className="notice error" role="alert">
                   Some fields need a look: see the ones marked.
@@ -957,72 +1379,16 @@ export function LaunchConfigPage({
                   You may see what would run; launching needs operator on this flow.
                 </p>
               )}
-              {/* Rarely typed, so under the buttons and folded: Launch stays near the top. */}
-              <Fold
-                summary="Another branch or commit, a limit"
-                open={foldOpen}
-                onToggle={setFolded}
-              >
-                <div className="pair">
-                  <Labelled
-                    label="Branch"
-                    hint={`Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`}
-                    problem={problemOf('ref')}
-                  >
-                    {(props) => (
-                      <input
-                        {...props}
-                        list="branches"
-                        value={ref}
-                        onChange={(e) => setRef(e.target.value)}
-                        onBlur={reread}
-                        disabled={!mayManage}
-                        spellCheck={false}
-                      />
-                    )}
-                  </Labelled>
-                  <datalist id="branches">
-                    {branches.data?.map((b) => (
-                      <option key={b} value={b} />
-                    ))}
-                  </datalist>
-                  <Labelled label="Or a commit" hint="40 hex digits" problem={problemOf('commit')}>
-                    {(props) => (
-                      <input
-                        {...props}
-                        value={commit}
-                        onChange={(e) => setCommit(e.target.value)}
-                        onBlur={reread}
-                        disabled={!mayManage}
-                        pattern="[0-9a-f]{40}"
-                        spellCheck={false}
-                      />
-                    )}
-                  </Labelled>
-                </div>
-                {mayLaunch && !mayManage && (
-                  <p className="muted">
-                    You launch what the configuration names: another branch or commit needs rw.
-                  </p>
-                )}
-                <Labelled
-                  label="Limit"
-                  hint="Ansible's --limit: fewer hosts than the flow starts on."
-                  problem={problemOf('limit')}
-                >
-                  {(props) => (
-                    <input
-                      {...props}
-                      value={limitText}
-                      onChange={(e) => setLimit(e.target.value)}
-                      spellCheck={false}
-                    />
-                  )}
-                </Labelled>
-              </Fold>
             </form>
           </section>
-          {result && <WouldRun launch={result.launch} form={result.form} hosts={hosts} />}
+          {result && (
+            <WouldRun
+              launch={result.launch}
+              form={result.form}
+              hosts={hosts}
+              {...(c.credentialNames ? { names: c.credentialNames } : {})}
+            />
+          )}
           <EnvironmentCheck config={c.id} workspace={workspace} mayManage={mayManage} />
         </>
       )}
@@ -1087,16 +1453,34 @@ function ConfigForm({
     tellTo,
     (recipients.data ?? []).map((r) => r.name),
   );
-  const [problem, setProblem] = useState<{ field?: string; message: string }>();
+  const [problem, setProblem] = useState<{
+    field?: string;
+    message: string;
+    errors?: FlowError[];
+  }>();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  // AFS-150: what the form holds now against what was saved (or first shown): leaving with a
+  // difference asks first, on the Settings tab of a configuration as on a new one.
+  const holds = JSON.stringify([input, tellWhen, tellTo]);
+  const [kept, setKept] = useState(holds);
+  const release = useUnsaved(holds !== kept);
   // AFS-94: the image is asked for only when "an image by name" is what runs get.
   const [byImage, setByImage] = useState(!existing?.environment && !!existing?.eeImage);
   const set = (key: keyof LaunchConfigInput, value: unknown) => {
     setSaved(false);
     setInput((i) => ({ ...i, [key]: value }));
+    // AFS-140: a refusal goes once what it is about is changed.
+    setProblem((p) => (p && (!p.field || p.field === key) ? undefined : p));
   };
   const at = (field: string) => (problem?.field === field ? problem.message : undefined);
+  // AFS-140: a refusal is brought into view: the field it is about, or its notice.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (!problem) return;
+    const shown = formRef.current?.querySelector<HTMLElement>('.field.invalid, .notice.error');
+    reveal(shown, shown?.querySelector<HTMLElement>('input, select, textarea'));
+  }, [problem]);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -1132,10 +1516,13 @@ function ConfigForm({
         : await api.addLaunchConfig(pid, body);
       setBusy(false);
       setSaved(true);
+      setKept(holds);
+      release();
       onSaved(done);
     } catch (e) {
       setProblem({
         ...(e instanceof ApiError && e.details.field ? { field: e.details.field } : {}),
+        ...(e instanceof ApiError && e.details.errors?.length ? { errors: e.details.errors } : {}),
         message: messageOf(e),
       });
       setBusy(false);
@@ -1160,11 +1547,44 @@ function ConfigForm({
       ? problem.message
       : undefined;
 
+  // AFS-140: a configuration runs a flow: with none to choose, the form says why instead.
+  if (!existing && flows.data?.length === 0 && !input.flowFile)
+    return (
+      <div className="notice" role="status">
+        <p>
+          {project.sync.state === 'error'
+            ? `The project's source cannot be read, so there is no flow to choose: ${project.sync.error ?? ''}`
+            : project.commit
+              ? 'The project has no flow yet: a launch configuration runs a flow (a file named *.flow.yaml).'
+              : 'The project has no commit yet, so no flow to run.'}
+        </p>
+        <p>
+          <Link to={base(workspace, project.key)}>
+            {project.sync.state === 'error'
+              ? 'Back to the project'
+              : 'Make a flow on the project page'}
+          </Link>
+          {project.sync.state === 'error' && (
+            <>
+              {' · '}
+              <Link to={`${base(workspace, project.key)}/settings`}>
+                Check its source in Settings
+              </Link>
+            </>
+          )}
+        </p>
+        {onCancel && (
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    );
   return (
-    <form className="form wide" onSubmit={save}>
+    <form className="form wide" onSubmit={save} ref={formRef}>
       {/* AFS-94: fields that belong together share a row; what is chosen first comes first. */}
       <div className="pair">
-        <Labelled label="Name" problem={at('name')}>
+        <Labelled label="Name" problem={at('name')} hint={limitNote(input.name, 100)}>
           {(props) => (
             <input
               {...props}
@@ -1196,6 +1616,15 @@ function ConfigForm({
           )}
         </Labelled>
       </div>
+      {/* AFS-164: the flow's errors, each a link to its step, opened for editing. */}
+      {problem?.field === 'flowFile' && problem.errors?.length ? (
+        <FlowErrorsNote
+          errors={problem.errors}
+          to={flowAddress(workspace, project.key, input.flowFile)}
+          edit
+          quiet
+        />
+      ) : null}
       <Labelled label="Description">
         {(props) => (
           <input
@@ -1249,7 +1678,7 @@ function ConfigForm({
         </Labelled>
         <Labelled
           label="Pinned commit"
-          hint="Always this commit; empty: the newest of the branch."
+          hint="Always this commit, as shown here (12 digits) or in full; empty: the newest of the branch."
           problem={at('commit')}
         >
           {(props) => (
@@ -1257,7 +1686,8 @@ function ConfigForm({
               {...props}
               value={input.commit ?? ''}
               onChange={(e) => set('commit', e.target.value)}
-              pattern="[0-9a-f]{40}"
+              pattern={COMMIT_PATTERN}
+              title={COMMIT_TITLE}
               spellCheck={false}
             />
           )}
@@ -1312,7 +1742,8 @@ function ConfigForm({
               {environments.data?.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.name}
-                  {e.current ? '' : ' (not built yet)'}
+                  {/* AFS-153: an image is pulled, a definition is built. */}
+                  {e.current ? '' : e.kind === 'spec' ? ' (not built yet)' : ' (not pulled yet)'}
                 </option>
               ))}
               <option value={IMAGE_BY_NAME}>an image by name…</option>
@@ -1356,7 +1787,10 @@ function ConfigForm({
                 )
               }
             />
-            {k.name} <span className="muted">· {KIND_LABEL[k.kind] ?? k.kind}</span>
+            {/* AFS-154: the name and its kind wrap as one text beside the box. */}
+            <span>
+              {k.name} <span className="muted">· {KIND_LABEL[k.kind] ?? k.kind}</span>
+            </span>
           </label>
         ))}
         <small id="credentials-hint" className="muted">
@@ -1455,16 +1889,53 @@ export function LaunchConfigEdit({
 }) {
   const project = useProject(workspace, key);
   const existing = useLoad(async () => (id ? api.launchConfig(id) : undefined), [id]);
+  const access = useProjectAccess(project.data?.id);
+  const fromCanvas = canvasFlow();
   const title = id
     ? `Change ${existing.data?.name ?? 'launch configuration'}`
     : 'Add a launch configuration';
 
-  if (!project.data || (id && !existing.data))
+  if (!project.loading && !project.data)
+    return <MissingProject workspace={workspace} project={key} error={project.error} />;
+  if (id && existing.error && project.data)
+    return <MissingConfig workspace={workspace} project={project.data} id={id} />;
+  if (!project.data || (id && !existing.data) || (!access.data && !access.error))
     return (
       <>
         <Crumbs workspace={workspace} project={key} last={title} />
         <PageHead title={title} />
         <Loading state={existing.error ? existing : project} />
+      </>
+    );
+
+  // AFS-150: a configuration is added or changed with rw on its flow. Who has rw on none of the
+  // project's flows (or not on this one) is told so, not given a form refused only at Add.
+  // Access that cannot be read leaves it to the server, which refuses what it must.
+  const a = access.data;
+  const mayManage =
+    !a ||
+    (existing.data
+      ? atLeast(flowLevel(a, existing.data.flowFile), 'rw')
+      : a.admin ||
+        atLeast(a.workspace, 'rw') ||
+        Object.values(a.flows).some((level) => atLeast(level, 'rw')));
+  if (!mayManage)
+    return (
+      <>
+        <Crumbs workspace={workspace} project={key} last={title} />
+        <PageHead help="launch-configurations.md" title={title} />
+        <section className="panel">
+          <p className="notice" role="status">
+            {existing.data
+              ? 'Changing this launch configuration needs rw on its flow.'
+              : "Adding a launch configuration needs rw on the flow it runs, and you have rw on none of this project's flows."}
+          </p>
+          <p>
+            <Link to={id ? launchAddress(workspace, key, id) : base(workspace, key)}>
+              {id ? 'Back to the launch configuration' : 'Back to the project'}
+            </Link>
+          </p>
+        </section>
       </>
     );
 
@@ -1477,8 +1948,11 @@ export function LaunchConfigEdit({
         {...(id && existing.data ? { config: { id, name: existing.data.name } } : {})}
       />
       <PageHead
+        help="launch-configurations.md"
         title={title}
-        lead="Saved only if it could run now. Secret inputs are never kept: they are typed at launch."
+        // AFS-147: what saving checks, as it is: the hosts and an environment still building are
+        // checked at launch, where the form says what stands in the way.
+        lead="Saved when its flow, inventory and credentials are there. The hosts it reaches and its environment's image are checked at launch. Secret inputs are never kept: they are typed at launch."
       />
       <section className="panel">
         <ConfigForm
@@ -1486,10 +1960,80 @@ export function LaunchConfigEdit({
           workspace={workspace}
           project={project.data}
           {...(existing.data ? { existing: existing.data } : {})}
-          onSaved={(saved) => navigate(launchAddress(workspace, key, saved.id))}
-          onCancel={() => navigate(id ? launchAddress(workspace, key, id) : base(workspace, key))}
+          // AFS-149: opened from the canvas's Run (`back=flow`): back to the flow, where Run now
+          // offers the new configuration with its inputs.
+          onSaved={(saved) =>
+            navigate(
+              fromCanvas && !id
+                ? flowPage(workspace, key, fromCanvas)
+                : launchAddress(workspace, key, saved.id),
+            )
+          }
+          onCancel={() =>
+            navigate(
+              fromCanvas && !id
+                ? flowPage(workspace, key, fromCanvas)
+                : id
+                  ? launchAddress(workspace, key, id)
+                  : base(workspace, key),
+            )
+          }
         />
       </section>
     </>
+  );
+}
+
+/** How many of a flow's errors are listed before "and N more" (AFS-164). */
+const LISTED = 5;
+
+/**
+ * AFS-164: the errors that stop a flow from running, each a link to its step on the flow's page:
+ * opened for editing for who may edit it, else shown. `quiet`: the list only (the field above it
+ * says how many there are).
+ */
+export function FlowErrorsNote({
+  id,
+  errors,
+  to,
+  edit,
+  quiet,
+}: {
+  id?: string;
+  errors: FlowError[];
+  to: string;
+  edit: boolean;
+  quiet?: boolean;
+}) {
+  const at = (node?: string) => {
+    const query = new URLSearchParams();
+    if (node) query.set('step', node);
+    if (edit) query.set('edit', '1');
+    const text = query.toString();
+    return text ? `${to}?${text}` : to;
+  };
+  const shown = errors.slice(0, LISTED);
+  const list = (
+    <ul className="plain flow-errors">
+      {shown.map((e, i) => (
+        // Two errors may be alike (same step, same words): the place in the list tells them apart.
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list, read once
+        <li key={i}>
+          <Link to={at(e.node)}>{e.step ?? 'The flow'}</Link>: {e.message}
+        </li>
+      ))}
+      {errors.length > shown.length && (
+        <li>
+          <Link to={at()}>and {errors.length - shown.length} more</Link>
+        </li>
+      )}
+    </ul>
+  );
+  if (quiet) return list;
+  return (
+    <div className="notice error flow-errors-note" role="alert" id={id}>
+      <p>{errorsLead(errors.length)}:</p>
+      {list}
+    </div>
   );
 }

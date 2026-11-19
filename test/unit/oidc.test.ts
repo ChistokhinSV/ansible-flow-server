@@ -304,5 +304,10 @@ describe('sign-in with an OIDC provider', () => {
     expect(user.admin).toBe(false);
     expect(user.groups).toEqual(['lab']);
     expect((await call('GET', '/api/v1/auth/methods')).json().providers).toEqual([]);
+    // AFS-134: with no provider left, passwords for administrators only would lock others out.
+    const locked = await call('PUT', '/api/v1/admin/sign-in', admin, { local: 'admins' });
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json().error).toBe('locks_out');
+    expect((await call('GET', '/api/v1/auth/methods')).json().local).toBe('all');
   });
 });

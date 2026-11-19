@@ -5,7 +5,18 @@
 import { type ReactNode, useEffect, useId, useState } from 'react';
 import { api, type Delivery, type NotifySettings, type SmtpSecurity } from './api';
 import { Link } from './router';
-import { Copyable, Field, Form, Loading, messageOf, PageHead, Tabs, Time, useLoad } from './ui';
+import {
+  Copyable,
+  Field,
+  Form,
+  Loading,
+  messageOf,
+  PageHead,
+  Scroll,
+  Tabs,
+  Time,
+  useLoad,
+} from './ui';
 
 const EVENT_LABEL: Record<string, string> = {
   'approval.waiting': 'approval waits',
@@ -23,7 +34,7 @@ function SmtpForm({
 }: {
   settings: NotifySettings;
   onSaved(): void;
-  /** AFS-101: Send no email, in the same row as Save. */
+  /** AFS-101: Turn email off, in the same row as Save. */
   more?: ReactNode;
 }) {
   const smtp = settings.smtp;
@@ -100,6 +111,7 @@ function TestForm({ onSent }: { onSent(): void }) {
   return (
     <Form
       submit="Send a test"
+      keeps={false}
       onSubmit={async () => {
         setResult(undefined);
         setResult(await api.testNotification(channel, to.trim() || undefined));
@@ -124,7 +136,7 @@ function TestForm({ onSent }: { onSent(): void }) {
         hint={`Empty: your own ${channel === 'email' ? 'email address' : 'webhook'}`}
       />
       {result && (
-        <p className={`notice ${result.status === 'sent' ? '' : 'error'}`} role="status">
+        <p className={`notice ${result.status === 'sent' ? 'ok' : 'error'}`} role="status">
           {result.status === 'sent'
             ? `Sent to ${result.target}.`
             : `Not sent: ${result.lastError ?? 'no answer yet'}`}
@@ -225,7 +237,7 @@ function DeliveryLog({
         <p className="empty">{status ? 'No such message.' : 'No message yet.'}</p>
       )}
       {!!list?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -250,8 +262,9 @@ function DeliveryLog({
                   </td>
                   <td>
                     {d.recipient}
+                    {/* AFS-144: a test is sent to an address, not a person: said once. */}
                     <div className="muted">
-                      {d.channel}: {d.target}
+                      {d.target === d.recipient ? d.channel : `${d.channel}: ${d.target}`}
                     </div>
                   </td>
                   <td>
@@ -289,7 +302,7 @@ function DeliveryLog({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
     </section>
   );
@@ -327,15 +340,22 @@ function Settings({
             onSaved={onChanged}
             more={
               settings.smtp && (
+                // AFS-153: what it does said on it, in its hint and in its question.
                 <button
                   type="button"
+                  title="Forget the mail server: the server sends no email to anyone until one is saved again. Webhooks still go."
                   onClick={async () => {
-                    if (!window.confirm('Send no email any more?')) return;
+                    if (
+                      !window.confirm(
+                        'Turn email off for the whole server? The mail server settings are removed, and nobody gets email until a mail server is saved again. Webhooks still go.',
+                      )
+                    )
+                      return;
                     await api.clearSmtp().catch(() => undefined);
                     onChanged();
                   }}
                 >
-                  Send no email
+                  Turn email off
                 </button>
               )
             }
@@ -380,6 +400,7 @@ export function NotificationsPage({ tab }: { tab: 'log' | 'settings' }) {
   return (
     <>
       <PageHead
+        help="notifications.md"
         title="Notifications"
         lead="What the server told people, and how it sends: approvals that wait and how they were decided, runs that fail or end, the server certificate nearing its end."
       />

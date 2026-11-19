@@ -3,8 +3,10 @@
 // designer's own code does the reading, so the page shows what VS Code would.
 import { codePreview } from '@ansible-flow/core/engine/preview';
 import { parseFlow } from '@ansible-flow/core/flow/document';
+import { buildModel } from '@ansible-flow/core/flow/model';
 import { openFailPorts } from '@ansible-flow/core/flow/openPorts';
-import { validateFlow } from '@ansible-flow/core/flow/validate';
+import type { FlowDocument } from '@ansible-flow/core/flow/types';
+import { type Finding, validateFlow } from '@ansible-flow/core/flow/validate';
 import type { Snapshot } from '@ansible-flow/core/protocol';
 import { autoPositions, shownLayout } from '@ansible-flow/node/autoLayout';
 import { type FlowSummary, summarizeFlow } from '../flows';
@@ -94,7 +96,13 @@ export class ProjectFlows {
       if (!FLOW_FILE.test(file)) throw new FlowError('not_found', 'Not a flow file');
       const bytes = await this.git.read(projectId, commit, file);
       if (!bytes) throw new FlowError('not_found', 'The project has no such flow at this commit');
-      return { commit, file, snapshot: await snapshotOf(bytes.toString('utf8'), file) };
+      return {
+        commit,
+        file,
+        snapshot: await snapshotOf(bytes.toString('utf8'), file, 1, (p) =>
+          this.git.exists(projectId, commit, p),
+        ),
+      };
     });
   }
 }
@@ -104,7 +112,60 @@ export class ProjectFlows {
  * (AFS-76: also a draft's text, with the draft's revision as its version). Rejects with a
  * FlowError when the text is not a flow this server can read.
  */
-export async function snapshotOf(text: string, file: string, docVersion = 1): Promise<Snapshot> {
+/** True when the repository has a file or folder at this path (at the commit shown). */
+export type RepoProbe = (path: string) => Promise<boolean>;
+
+/** A repository role's name: no dots (a collection's role is namespace.collection.role). */
+const ROLE_NAME = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * AFS-151: steps bound to a role the repository does not have (roles/<name> at its top or beside
+ * the flow): a warning on each, so the designer does not show them implemented. Collection roles
+ * are not checked here.
+ */
+export async function roleGaps(
+  doc: FlowDocument,
+  file: string,
+  has: RepoProbe,
+): Promise<Finding[]> {
+  const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '';
+  const known = new Map<string, Promise<boolean>>();
+  const present = (role: string) => {
+    let p = known.get(role);
+    if (!p) {
+      // A path that cannot be checked counts as there: no warning on a guess.
+      const ask = (path: string) =>
+        Promise.resolve()
+          .then(() => has(path))
+          .catch(() => true);
+      p = (async () =>
+        (await ask(`roles/${role}`)) || (!!dir && (await ask(`${dir}/roles/${role}`))))();
+      known.set(role, p);
+    }
+    return p;
+  };
+  const out: Finding[] = [];
+  for (const { node, path } of buildModel(doc).nodes.values()) {
+    const role = node.impl?.kind === 'role' ? node.impl.ref : undefined;
+    if (!role || !ROLE_NAME.test(role) || (await present(role))) continue;
+    out.push({
+      code: 'role-missing',
+      severity: 'warning',
+      message: `"${node.title}" runs the role ${role}, which this project does not have: add roles/${role} to the repository, or bind another`,
+      path: [...path, 'impl', 'ref'],
+      node: node.id,
+      subject: role,
+    });
+  }
+  return out;
+}
+
+export async function snapshotOf(
+  text: string,
+  file: string,
+  docVersion = 1,
+  has?: RepoProbe,
+): Promise<Snapshot> {
   const summary = summarizeFlow(file, text);
   const parsed = parseFlow(text);
   if (!summary.ok || !parsed.doc)
@@ -124,7 +185,11 @@ export async function snapshotOf(text: string, file: string, docVersion = 1): Pr
     doc: shown,
     stale: false,
     file: file.split('/').at(-1),
-    findings: [...findings, ...(preview?.findings ?? [])],
+    findings: [
+      ...findings,
+      ...(preview?.findings ?? []),
+      ...(has ? await roleGaps(parsed.doc, file, has) : []),
+    ],
     openPorts: openFailPorts(model),
     autoPositions: Object.assign({}, ...positions),
     ...(preview?.plays ? { plays: preview.plays } : {}),

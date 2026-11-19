@@ -10,18 +10,7 @@ const derive = promisify(argon2);
 const COST = { memory: 19_456, passes: 2, parallelism: 1 };
 const TAG_BYTES = 32;
 
-export const PASSWORD_MIN = 12;
-export const PASSWORD_MAX = 256;
-
-/** Why a password is not accepted, for the person choosing it; undefined when it is. */
-export function passwordProblem(password: string, login?: string): string | undefined {
-  if (password.length < PASSWORD_MIN) return `A password has at least ${PASSWORD_MIN} characters`;
-  if (password.length > PASSWORD_MAX) return `A password has at most ${PASSWORD_MAX} characters`;
-  if (login && password.toLowerCase().includes(login.toLowerCase()))
-    return 'A password does not contain the login';
-  if (new Set(password).size < 5) return 'A password uses more than a few different characters';
-  return undefined;
-}
+export { PASSWORD_MAX, PASSWORD_MIN, passwordProblem } from './passwordRules';
 
 const b64 = (bytes: Buffer) => bytes.toString('base64').replace(/=+$/, '');
 

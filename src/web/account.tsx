@@ -1,9 +1,11 @@
 // My account: the profile and the access tokens of who is signed in, each on its own tab (AFS-88).
 import { useState } from 'react';
+import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
+import { accessWords, flowTitle, throughWords, useFlowTitles, useMyAccess } from './access';
 import { api, type User } from './api';
 import { Link } from './router';
 import { TokensPanel } from './tokens';
-import { Field, Form, PageHead, Tabs, useLoad } from './ui';
+import { Field, Form, Loading, PageHead, refuse, Tabs, useLoad } from './ui';
 
 /** A webhook's address as a page shows it to someone who may not change it: its host only. */
 const hookHost = (url: string) => {
@@ -94,7 +96,11 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
   const [mine, setMine] = useState(me);
   return (
     <>
-      <PageHead title="My account" lead={`${mine.name} (${mine.login})`} />
+      <PageHead
+        help="people-and-sign-in.md#access-tokens"
+        title="My account"
+        lead={`${mine.name} (${mine.login})`}
+      />
       <Tabs
         label="My account"
         base="/account"
@@ -126,7 +132,8 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
       ) : (
         <>
           <Profile me={mine} onSaved={setMine} />
-          {!mine.service && <PasswordForm />}
+          <MyAccessPanel />
+          {!mine.service && <PasswordForm login={mine.login} />}
         </>
       )}
     </>
@@ -134,10 +141,66 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
 }
 
 /**
+ * AFS-152: what one may do, workspace by workspace, in words: the level on the workspace, flows
+ * whose own grant gives another (by title), approving, and whose grants gave it. Who gives access
+ * is named for who has none.
+ */
+function MyAccessPanel() {
+  const mine = useMyAccess();
+  const titles = useFlowTitles(
+    (mine.data?.workspaces ?? []).flatMap((w) => w.flows.map((f) => f.projectId)),
+  );
+  const admins = mine.data?.administrators ?? [];
+  return (
+    <section className="panel" aria-labelledby="my-access">
+      <h2 id="my-access">Your access</h2>
+      <Loading state={mine} />
+      {mine.data?.admin && <p>Administrator: you may do everything, in every workspace.</p>}
+      {mine.data && !mine.data.admin && mine.data.workspaces.length === 0 && (
+        <p className="muted">
+          You have no access to a workspace yet: ask an administrator for it
+          {admins.length ? ` (${admins.join(', ')})` : ''}.
+        </p>
+      )}
+      {!!mine.data?.workspaces.length && (
+        <>
+          <ul className="rows">
+            {mine.data.workspaces.map((w) => (
+              <li key={w.workspace.id}>
+                <p>
+                  <Link to={`/w/${w.workspace.key}`}>{w.workspace.name}</Link>:{' '}
+                  {accessWords({
+                    level: w.level,
+                    flows: w.flows.map((f) => ({
+                      title: flowTitle(titles, f.projectId, f.file),
+                      level: f.level,
+                    })),
+                    approve: w.approve,
+                  })}
+                </p>
+                <p className="muted">
+                  Through{' '}
+                  {w.through
+                    .map((t) => (t.startsWith('user:') ? 'your own grant' : throughWords(t)))
+                    .join(', ')}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="muted">
+            An administrator changes it{admins.length ? ` (${admins.join(', ')})` : ''}.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
  * AFS-104: your own password (people an administrator was told can change it here). Directory and
  * organisation sign-ins change theirs where they come from.
  */
-function PasswordForm() {
+function PasswordForm({ login }: { login: string }) {
   const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [again, setAgain] = useState('');
@@ -156,6 +219,9 @@ function PasswordForm() {
           setDone(false);
           setMismatch(password !== again);
           if (password !== again) return;
+          // AFS-140: the rules are checked here first.
+          const problem = passwordProblem(password, login);
+          if (problem) refuse('password', `${problem}.`);
           await api.changePassword(current, password);
           setCurrent('');
           setPassword('');
@@ -173,6 +239,7 @@ function PasswordForm() {
         />
         <Field
           label="New password"
+          name="password"
           type="password"
           autoComplete="new-password"
           value={password}
@@ -181,6 +248,7 @@ function PasswordForm() {
             setPassword(e.target.value);
           }}
           required
+          hint={PASSWORD_RULES}
         />
         <Field
           label="New password again"

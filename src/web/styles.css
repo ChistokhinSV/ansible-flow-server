@@ -412,6 +412,16 @@ code,
 .crumbs a {
   text-decoration: none;
 }
+/* AFS-153: the page's own name (a project's name, not its key) stays on one line in the
+   breadcrumb: the title under it says it whole. */
+.crumbs [aria-current="page"] {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .page-head {
   display: flex;
   flex-wrap: wrap;
@@ -446,6 +456,19 @@ button:hover:not(:disabled),
 a.button:hover {
   background: var(--button-hover);
   color: var(--fg);
+}
+/* AFS-135: a field that cannot be used looks it. */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  /* AFS-147: an empty disabled field reads as one too: filled like a raised surface, dashed. */
+  background: var(--raised);
+  border-style: dashed;
+}
+label.choice:has(input:disabled) {
+  color: var(--muted);
 }
 button:disabled {
   opacity: 0.55;
@@ -834,22 +857,52 @@ a.row-main:hover strong {
 .filters input {
   max-width: 11rem;
 }
-td.detail {
+td.detail,
+td.long code,
+td.detail code {
   font-size: 0.85em;
   overflow-wrap: anywhere;
   min-width: 12rem;
+}
+/* AFS-153: a login stays on one line (a1-nora, not a1- over nora). */
+.audit-who .login {
+  white-space: nowrap;
 }
 /* AFS-106: an entry's whole detail, on demand. */
 .audit-all summary {
   color: var(--muted);
   cursor: pointer;
 }
+/* AFS-141: the detail column wraps within the page instead of running off its side. */
+.audit-detail {
+  max-width: 24rem;
+}
 .audit-all pre {
-  max-width: 32rem;
+  max-width: 100%;
   max-height: 16rem;
   overflow: auto;
   white-space: pre-wrap;
   margin: 0.25rem 0 0;
+}
+
+/* --- AFS-143: help beside a page's title; the clone help's certificate hint */
+.title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+.help-link {
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: var(--muted);
+}
+.help-link:hover {
+  color: inherit;
+}
+.clone-trust summary {
+  color: var(--muted);
+  cursor: pointer;
 }
 
 /* --- launch configurations */
@@ -875,10 +928,27 @@ textarea {
   font-family: var(--mono);
   resize: vertical;
 }
-.field.invalid input,
-.field.invalid select,
-.field.invalid textarea {
+.field.invalid > input,
+.field.invalid > select,
+.field.invalid > textarea,
+.field [aria-invalid="true"] {
   border-color: var(--bad);
+}
+/* AFS-150: a field's other parts (a file chooser in its hint) are not marked with it. */
+.field.invalid .file-pick input {
+  border-color: var(--input-border);
+}
+/* AFS-150: rows of fields (a credential's variables) in fixed columns, tops aligned: a problem
+   under one field adds height under it and moves nothing beside it. */
+.variable-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: start;
+  margin-bottom: 0.6rem;
+}
+.label-space {
+  font-size: 14px;
 }
 .facts .fact {
   display: contents;
@@ -1071,9 +1141,95 @@ ul.tight {
 .draft-bar p {
   margin: 0 0 0.5rem;
 }
+/* AFS-149: one line for what the others did; the earlier ones open over what is under it. AFS-165:
+   shown only while someone else (or another tab) is in the draft. */
 .draft-edits {
+  position: relative;
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  height: 1.5em;
   margin: 0 0 0.5rem;
-  padding-left: 1.2rem;
+  white-space: nowrap;
+}
+.draft-edits-newest {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.draft-edits button.link {
+  flex: none;
+}
+.draft-earlier {
+  position: absolute;
+  z-index: 30;
+  top: 1.6em;
+  left: 0;
+  max-width: min(40rem, 100%);
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  white-space: normal;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+}
+.draft-earlier li + li {
+  margin-top: 0.25rem;
+}
+/* AFS-149: the draft's notes (the branch moved, a save's clashes) lie over the canvas's top, not
+   above it: the canvas keeps its place and size. */
+.draft-float {
+  position: absolute;
+  z-index: 6;
+  top: 2.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(40rem, calc(100% - 2rem));
+  max-height: calc(100% - 4rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.draft-float .notice {
+  margin: 0;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+}
+.draft-float .notice.warn {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.draft-float .notice.warn p {
+  flex: 1;
+  margin: 0;
+}
+.draft-float .draft-conflict {
+  flex-direction: column;
+  align-items: stretch;
+}
+.draft-float .draft-conflict p {
+  flex: none;
+}
+.draft-clashes {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.draft-clashes li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.draft-clashes label {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.draft-clash-value {
+  white-space: pre-wrap;
 }
 /* AFS-112: notices in the bar keep apart from the row of buttons under them. */
 .draft-bar .notice {
@@ -1086,7 +1242,7 @@ ul.tight {
   gap: 0.5rem 1rem;
   padding: 0.5rem 0.75rem;
 }
-.draft-bar .draft-conflict p {
+.draft-conflict p {
   flex: 1 1 24rem;
   margin: 0;
 }
@@ -1095,15 +1251,47 @@ ul.tight {
   gap: 0.5rem;
   align-items: center;
 }
-.draft-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
+/* AFS-165: Save, Stop editing and Discard in the flow's head, as its own buttons. */
+.draft-tools {
+  display: contents;
 }
-.draft-actions input {
-  flex: 1 1 16rem;
-  min-width: 0;
+/* AFS-165: Save asks for the commit's message over the canvas. */
+.draft-save {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: var(--menu-shadow);
+}
+.draft-save label {
+  font-weight: 600;
+}
+.draft-error {
+  margin: 0 0 0.6rem;
+}
+/* AFS-165: the "i" beside Full screen: the draft's commit, in a few lines. */
+.draft-info {
+  width: min(24rem, calc(100vw - 2rem));
+  font-size: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  gap: 0.4rem;
+}
+.draft-info p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* AFS-164: the errors that stop a flow from running, a link to each step. */
+.flow-errors {
+  margin: 0.25rem 0 0;
+}
+.flow-errors li + li {
+  margin-top: 0.15rem;
+}
+.flow-errors-note p {
+  margin: 0;
 }
 
 /* AFS-60: a short list without bullets (host key fingerprints). */
@@ -1635,6 +1823,15 @@ textarea.code {
     max-width: none;
   }
 }
+/* AFS-146: beside a long side panel the canvas does not grow past the window: it fits what is
+   left under the run's header, so the whole flow and its zoom controls are in sight. */
+@media (min-width: 1101px) {
+  .run-flow {
+    align-self: flex-start;
+    min-height: 480px;
+    height: calc(100vh - 160px);
+  }
+}
 @media (max-width: 860px) {
   .run-head,
   .run-below {
@@ -1677,6 +1874,15 @@ textarea.code {
   color: var(--bad);
   box-shadow: inset 0 0 0 1px var(--bad);
 }
+/* AFS-146: Keep waiting is neither answer: it looks neutral, not like Reject. */
+.decision .actions button.neutral {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* AFS-146: a comment is prose, not code. */
+.decide textarea {
+  font-family: inherit;
+}
 .decision .gate + .gate {
   border-top-color: var(--warn-badge);
 }
@@ -1699,6 +1905,21 @@ textarea.code {
 }
 .panel.sheet + .panel {
   padding-top: 0;
+}
+
+/* AFS-162: what cannot be undone (delete a project, a workspace, a flow, an environment, a launch
+   configuration) sits in one red-bordered box, apart from the settings around it. */
+.panel.danger-zone,
+.panel + .panel.danger-zone,
+.panel.sheet + .panel.danger-zone,
+section + .panel.danger-zone {
+  border: 1px solid var(--bad);
+  border-radius: 14px;
+  padding: 20px;
+  background: none;
+}
+.panel.danger-zone > h2 {
+  color: var(--bad);
 }
 
 /* AFS-82: runs as rows; the state and the commit at the end. */
@@ -1969,6 +2190,14 @@ section + .columns,
   padding: 0.25rem 0.6rem;
   font-size: 13px;
 }
+.run-find {
+  /* AFS-147: the runs' text filter: room for a flow's name, never wider than its row. */
+  width: 16rem;
+  max-width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 13px;
+}
 .run-more {
   margin: 1rem 0 0;
 }
@@ -2033,11 +2262,24 @@ section + .columns,
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 5rem;
   gap: 0.6rem;
-  align-items: center;
+  /* AFS-150: tops aligned, so a problem under a version leaves the name and Remove on its line. */
+  align-items: start;
+}
+.spec-row > button {
+  min-height: 2.5rem;
 }
 .spec-head {
   font-size: 13px;
   color: var(--muted);
+}
+/* AFS-161: Save and Build stay in reach at the bottom of the window while the spec is long. */
+.env-spec .form > .actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 0.75rem 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
 }
 .spec-add {
   display: flex;
@@ -2501,8 +2743,33 @@ fieldset.name-chips {
   background: var(--bg);
   border-radius: 12px;
 }
+/* AFS-136: shown in full screen only. */
+.fullscreen-bar {
+  display: none;
+}
+.flow-stage:fullscreen .fullscreen-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
 .flow-stage:fullscreen {
   border-radius: 0;
+}
+/* AFS-148: under an open picker the canvas steps back (the picker floated over the side panel). */
+.library-pick-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
 }
 .library-pick {
   position: absolute;
@@ -2547,3 +2814,612 @@ fieldset.name-chips {
   margin: 0 0 0.25rem;
   color: var(--fg2);
 }
+
+/* ===== AFS-142 / AFS-144: focus, small spacing, colour and alignment fixes (kept together) ===== */
+/* AFS-142: a page's title takes the focus after a page change (app.tsx); it is not a control, so
+   it gets no ring. */
+main h1[tabindex="-1"]:focus {
+  outline: none;
+}
+/* AFS-144: a badge in a state line: its dot stands before the pill, not inside it. */
+.statusline > * + .badge {
+  position: relative;
+  margin-left: calc(14px + 0.3em);
+}
+.statusline > * + .badge::before {
+  position: absolute;
+  right: calc(100% + 14px);
+  margin: 0;
+  font-size: 14px;
+}
+/* AFS-144: the sign-in card is opaque: the picture behind it does not show through. */
+.entry-card {
+  background: var(--panel);
+}
+/* AFS-144: a table's column of buttons sits at the row's right end; the buttons stay in a row. */
+th.act,
+td.act {
+  width: 1%;
+  text-align: right;
+  padding-right: 0;
+}
+td.act .actions {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+/* AFS-144: a line of words under facts or fields keeps a gap from them. */
+.facts + p,
+.fold-body > * + * {
+  margin-top: 1rem;
+}
+/* AFS-144: a row of fields with a button (a variable's name, value and Remove): the button lines
+   up with the fields' boxes, not their labels. */
+.row:has(> .field) {
+  align-items: flex-end;
+}
+.inline-form > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* AFS-144: a tab is as wide open as closed (tab-label reserves the bold width). */
+.tab-label {
+  display: inline-grid;
+}
+.tab-label::after {
+  content: attr(data-label);
+  font-weight: 600;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+/* AFS-144: a file chooser in the theme's colours, its button like the others. */
+input[type="file"] {
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0.25rem;
+  color: var(--fg2);
+}
+input[type="file"]::file-selector-button {
+  font: inherit;
+  font-size: 14px;
+  margin-right: 0.75rem;
+  padding: 0.35rem 0.9rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--button);
+  color: var(--fg);
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover {
+  background: var(--button-hover);
+}
+/* AFS-144: a radio button shows its ring when not chosen, in both themes (the dark theme's own was
+   a dark disc on a dark page). The chips' radios stay hidden. */
+input[type="radio"]:not(.chip input) {
+  appearance: none;
+  flex: none;
+  display: inline-grid;
+  place-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin: 0.15rem 0.35rem 0 0;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+  background: var(--input-bg);
+  vertical-align: -0.2rem;
+  cursor: pointer;
+}
+input[type="radio"]:not(.chip input)::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+}
+input[type="radio"]:not(.chip input):checked {
+  border-color: var(--accent);
+}
+input[type="radio"]:not(.chip input):checked::before {
+  transform: scale(1);
+}
+input[type="radio"]:not(.chip input):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* AFS-144: collections found: rows with their Add button, no list bullets. */
+ul.found {
+  list-style: none;
+  padding-left: 0;
+}
+ul.found > li {
+  margin: 0.35rem 0;
+}
+/* AFS-144: a run's head and what is under it start where the breadcrumbs above them start. */
+@media (min-width: 861px) {
+  .run-head,
+  .run-below {
+    padding-left: 44px;
+    padding-right: 44px;
+  }
+}
+/* AFS-144: a flow's long name is shortened on one line; its buttons stay beside it. */
+@media (min-width: 641px) {
+  .flow-head .page-head {
+    flex-wrap: nowrap;
+  }
+  .flow-head .page-head > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .flow-head .page-head h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flow-head .page-head > .actions {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+}
+/* ===== end AFS-142 / AFS-144 ===== */
+/* AFS-140: forms. A field marked by a problem shows it under itself (Labelled, .bad-text); a
+   problem in a status line starts its own line, without the dot between items; the private key's
+   "Or a file:" stays on one line; a collection row's input carries its own problem; an LDAP
+   filter is a few lines of monospaced text. */
+.statusline > .bad-text::before {
+  content: none;
+}
+.file-pick {
+  white-space: nowrap;
+}
+.row-input {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.row-input > * {
+  width: 100%;
+}
+.row-input input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+.filter-text {
+  width: 100%;
+  min-height: 3.5rem;
+}
+.inline-form .bad-text {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+}
+/* === AFS-138: layout at phone, tablet and desktop widths, both themes ==========================
+   Kept together so other changes to this file merge around it. test/layout checks the pages at
+   390, 768, 1024 and 1440 px. */
+
+/* One frame on every page: the top bar (breadcrumbs, search) keeps the reading column's width and
+   left edge, also over pages that take the screen (a flow, a run, files), so the search box does
+   not move between pages and tabs. */
+.bar.bar-of.broad,
+.bar.bar-of.wide,
+.bar.bar-of.full,
+.bar.bar-of.run {
+  max-width: 1180px;
+}
+/* A page with no breadcrumbs leaves no empty place before the search box, which stays right. */
+.bar-crumbs:empty {
+  display: none;
+}
+.bar > .search {
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  /* The breadcrumbs take a line of their own above the search box: squeezed beside it they were
+     a column one letter wide. */
+  .bar {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+  .bar-crumbs {
+    flex: 1 1 100%;
+  }
+  /* All the tabs are seen: they wrap instead of scrolling out of sight. */
+  .tabs {
+    flex-wrap: wrap;
+  }
+  /* A date range wraps too when the row has no room for both dates. */
+  .range {
+    flex-wrap: wrap;
+  }
+}
+
+/* On a phone a flow's head (title, buttons, the draft's bar) fills most of the window: the page
+   scrolls, and the canvas's frame keeps most of a window's height of its own. */
+@media (max-width: 640px) {
+  .flow-page {
+    height: auto;
+  }
+  .flow-page .flow-stage {
+    flex: none;
+    height: 85dvh;
+  }
+}
+
+/* A run's page: its head and the blocks under the canvas start where the breadcrumbs start, and
+   its head ends where the search box ends. */
+.run-head {
+  max-width: 1180px;
+  padding-inline: 44px;
+}
+.run-below,
+.run-flow > p {
+  padding-inline: 44px;
+}
+@media (max-width: 1100px) {
+  /* The side panel goes under the canvas: its blocks keep the page's edge. */
+  .run-side {
+    padding-inline: 44px;
+  }
+}
+@media (max-width: 860px) {
+  .run-head,
+  .run-below,
+  .run-flow > p,
+  .run-side {
+    padding-inline: 16px;
+  }
+}
+
+/* Terminal output keeps its columns (PLAY RECAP): long lines scroll sideways in their box, as in
+   a terminal, instead of breaking. */
+.run-output .output {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Tables fit their column: cells wrap when the table would be wider than the page (a long name,
+   a path, an audit detail), times and buttons stay whole. A table that still does not fit scrolls
+   in its box, with a shade at the side that has more. */
+td,
+td code {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+/* What can be long without a space (a name, a link, a user name, an audit detail) may break
+   anywhere; other words stay whole, so short columns are not squeezed to a letter. A name keeps
+   a readable column. */
+td:first-child,
+td:first-child code,
+td a,
+td a code,
+td .long,
+td.long,
+td.detail,
+td.long code,
+td.detail code {
+  overflow-wrap: anywhere;
+}
+td:first-child {
+  min-width: 8rem;
+}
+td.long {
+  min-width: 10rem;
+}
+td button,
+td a.button,
+td .badge {
+  white-space: nowrap;
+}
+/* A time with its zone (AFS-139) is long: in a table it may wrap between the date and the clock. */
+td time {
+  white-space: normal;
+}
+.scroll {
+  --scroll-cue: color-mix(in srgb, var(--fg) 24%, transparent);
+  background:
+    linear-gradient(to right, var(--bg) 40%, transparent) left / 1.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--bg) 40%, transparent) right / 1.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--scroll-cue), transparent) left / 0.6rem 100%
+    no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--scroll-cue), transparent) right / 0.6rem 100%
+    no-repeat scroll;
+}
+@media (max-width: 640px) {
+  /* On a phone a row's buttons (Revoke, Change, Delete, Launch) stay in reach at the right edge
+     while the rest of the row scrolls. */
+  .scroll td:last-child:has(button, a.button),
+  .scroll th:last-child:has(.sr-only) {
+    position: sticky;
+    right: 0;
+    background: var(--bg);
+    padding-left: 0.5rem;
+    box-shadow: -10px 0 8px -8px var(--scroll-cue);
+  }
+}
+
+/* The runs' project filter is as wide as its column allows, not as its longest project name. */
+.run-filters > label {
+  min-width: 0;
+  max-width: 100%;
+}
+.run-project {
+  width: 16rem;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* The search's results: the kind in a column of its own width, so the titles line up. */
+@media (max-width: 640px) {
+  .search-hit {
+    grid-template-columns: 5.75rem minmax(0, 1fr);
+  }
+}
+
+/* A launch form's groups take their row's height from the start (see launch.tsx). */
+.group-slot {
+  min-height: 2.25rem;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+}
+.group-slot .name-chips {
+  margin-top: 0;
+}
+/* === end AFS-138 ============================================================================= */
+
+/* === AFS-154: one frame, phone tables, small layout points ===================================
+   Kept together so other changes to this file merge around it. test/layout checks one right edge
+   and no covered table cell. */
+
+/* One frame on every page: the top bar and every page (lists, a flow, files, an environment, a
+   run) share one width, so they all end where the search box ends. At 1440 px the frame takes the
+   window (a flow being edited needs the room for its canvas beside the designer's panel); a very
+   wide screen widens it for every page alike. */
+:root {
+  --frame: 1240px;
+}
+@media (min-width: 1880px) {
+  :root {
+    --frame: 1480px;
+  }
+}
+.page,
+.page.wide,
+.page.broad,
+.page.full,
+.page.run,
+.bar,
+.bar.bar-of.broad,
+.bar.bar-of.wide,
+.bar.bar-of.full,
+.bar.bar-of.run {
+  max-width: var(--frame);
+}
+/* A run's page has the page's edges too: its head, the canvas with the side panel, and what is
+   under them keep inside the frame instead of running to the window's edge. */
+.page.run {
+  padding: 0 44px 48px;
+}
+.run-head,
+.run-below,
+.run-flow > p {
+  max-width: none;
+  padding-inline: 0;
+}
+@media (max-width: 1100px) {
+  .run-side {
+    padding-inline: 16px;
+  }
+}
+@media (max-width: 860px) {
+  .page.run {
+    padding: 0 16px 40px;
+  }
+  .run-head,
+  .run-below,
+  .run-flow > p {
+    padding-inline: 0;
+  }
+}
+
+/* On a phone a table's rows stack: each row a block, each value under or beside the name of its
+   column (ui.tsx Scroll sets data-label), a row's buttons on a line of their own. Nothing is
+   covered by a button column that stays in place, and nothing scrolls sideways. */
+@media (max-width: 640px) {
+  .scroll {
+    background: none;
+  }
+  .scroll > table,
+  .scroll > table > tbody,
+  .scroll > table > tbody > tr,
+  .scroll > table > tbody > tr > td {
+    display: block;
+    width: auto;
+  }
+  .scroll > table > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .scroll > table > tbody > tr {
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel .scroll > table > tbody > tr:last-child {
+    border-bottom: 0;
+  }
+  .scroll > table > tbody > tr > td,
+  .scroll > table > tbody > tr > td:first-child {
+    border: 0;
+    min-width: 0;
+    padding: 0.15rem 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  /* The column's name floats in the cell's left padding; the cell grows to hold a long one. */
+  .scroll > table > tbody > tr > td[data-label] {
+    display: flow-root;
+    padding-left: 9rem;
+  }
+  .scroll > table > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    float: left;
+    width: 8.25rem;
+    margin-left: -9rem;
+    color: var(--muted);
+    font-size: 13px;
+    overflow-wrap: break-word;
+  }
+  /* A column with nothing in this row is left out of its card. */
+  .scroll > table > tbody > tr > td[data-label]:empty {
+    display: none;
+  }
+  /* The first value names the row: it reads as a title, without its column's name. */
+  .scroll > table > tbody > tr > td:first-child[data-label] {
+    padding-left: 0;
+    font-weight: 600;
+  }
+  .scroll > table > tbody > tr > td:first-child[data-label]::before {
+    content: none;
+  }
+  .scroll td:last-child:has(button, a.button),
+  .scroll th:last-child:has(.sr-only) {
+    position: static;
+    box-shadow: none;
+    padding-left: 0;
+    background: none;
+  }
+  .scroll td:last-child:has(button, a.button) {
+    padding-top: 0.4rem;
+  }
+  .scroll td .actions {
+    justify-content: flex-start;
+  }
+}
+
+/* A status line's facts are divided by dots; a fact that starts a line has none (the dot sits in
+   the gap before it, and the line's left edge cuts the first one off). */
+.statusline > * {
+  position: relative;
+}
+.statusline > * + *::before {
+  position: absolute;
+  left: -10px;
+  margin: 0;
+}
+.statusline {
+  clip-path: inset(-1rem -100vw -1rem -3px);
+}
+
+/* A button that cannot be pressed looks it: faded, unfilled, with a dashed edge. */
+button:disabled,
+button.primary:disabled,
+button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+  filter: none;
+}
+button.link:disabled {
+  box-shadow: none;
+}
+
+/* The Help page's descriptions start at one edge in every section. */
+@media (min-width: 561px) {
+  .facts.guide-list {
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+}
+
+/* The side menu's Workspaces heading is a link as easy to hit as the others. */
+.side-label a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 4px;
+  margin-left: -4px;
+}
+
+/* A choice's label with a long name (a credential) wraps inside its column. */
+label.choice,
+label.inline {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* "git says the certificate is not trusted?" keeps a line's space from what follows it. */
+.clone-trust {
+  margin-bottom: 1.25rem;
+}
+
+/* A field with a problem keeps its red mark while it has the focus (the page focuses it). */
+.field [aria-invalid="true"]:focus-visible {
+  outline-color: var(--bad);
+}
+
+/* The Files tab fits a window's height: the file's pane is tall, not taller than what is left. */
+@media (min-width: 901px) {
+  .files > .files-view {
+    min-height: min(60vh, calc(100dvh - 25rem));
+  }
+}
+
+/* A long project name in the breadcrumbs is shortened on its line (its whole name is its title). */
+.crumbs .crumb-name {
+  display: inline-block;
+  max-width: min(28ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* AFS-155: the user guide, as the server shows it. */
+.guide {
+  max-width: 54rem;
+  line-height: 1.6;
+}
+.guide h2 {
+  margin-top: 2rem;
+}
+.guide img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75rem 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.guide .guide-code {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--code-bg);
+  font: 13px / 1.55 var(--mono);
+  overflow-x: auto;
+}
+.guide .scroll {
+  margin-bottom: 1rem;
+}
+.guide blockquote {
+  margin: 1rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.guide li + li {
+  margin-top: 0.3rem;
+}
+.out-link .icon {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.2em;
+  vertical-align: -0.05em;
+}
+/* === end AFS-154 ============================================================================= */

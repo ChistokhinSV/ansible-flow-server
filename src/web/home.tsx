@@ -2,11 +2,12 @@
 // sentences and short lists; the only tinted thing is the first approval that waits.
 // AFS-85: and what this person launched lately, one step from launching it again.
 import { useEffect } from 'react';
+import { launchesAny, useMyAccess } from './access';
 import { api, type Run, type User, type Workspace } from './api';
 import { launchAddress } from './launch';
 import { Link } from './router';
 import { RunList } from './runs';
-import { ago, Loading, PageHead, useLoad } from './ui';
+import { ago, Loading, PageHead, span, useLoad } from './ui';
 
 const greeting = (hour: number) =>
   hour < 5
@@ -78,6 +79,7 @@ export function Home({ me }: { me: User }) {
   const runs = useLoad(() => api.runs({ limit: 100 }), []);
   const approvals = useLoad(() => api.approvals(), []);
   const workspaces = useLoad(api.workspaces, []);
+  const myAccess = useMyAccess();
   // Runs end and approvals arrive while the page is open: it looks again now and then.
   useEffect(() => {
     const timer = setInterval(() => {
@@ -88,26 +90,69 @@ export function Home({ me }: { me: User }) {
   }, [runs.reload, approvals.reload]);
 
   const mine = approvals.data?.filter((a) => a.mayDecide) ?? [];
+  const yours = [
+    ...new Set(
+      (approvals.data ?? [])
+        .filter((a) => !a.mayDecide && a.requestedBy === me.login)
+        .map((a) => a.run.id),
+    ),
+  ];
   const today = new Date().toDateString();
   const todays = (runs.data ?? []).filter((r) => new Date(r.createdAt).toDateString() === today);
   const well = todays.filter((r) => r.state === 'succeeded').length;
   // AFS-102: what did not go well is said too, not only what did.
   const failed = todays.filter((r) => r.state === 'failed' || r.state === 'lost').length;
   const waiting = todays.filter((r) => r.state === 'waiting').length;
-  const summary = [
-    todays.length
-      ? `${plural(todays.length, 'run', 'runs')} today: ${[
-          `${well} went well`,
-          failed ? `${failed} failed` : '',
-          waiting ? `${waiting} ${waiting === 1 ? 'waits' : 'wait'} for a decision` : '',
-        ]
-          .filter(Boolean)
-          .join(', ')}.`
-      : 'No run yet today.',
-    mine.length
-      ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
-      : 'Nothing waits for you.',
-  ].join(' ');
+  // AFS-147: every run of the day is counted somewhere: stopped and still going too.
+  const stopped = todays.filter((r) => r.state === 'cancelled').length;
+  const going = todays.filter((r) => r.state === 'running' || r.state === 'queued').length;
+  const counts = [
+    `${well} went well`,
+    failed ? `${failed} failed` : '',
+    stopped ? `${stopped} stopped` : '',
+    going ? `${going} still ${going === 1 ? 'goes' : 'go'}` : '',
+  ].filter(Boolean);
+  // AFS-146: whose decision your own held run waits for, when it is one run.
+  const heldFor =
+    yours.length === 1
+      ? approvals.data?.find((a) => a.run.id === yours[0])?.gate.deciders
+      : undefined;
+  const summary = (
+    <>
+      {todays.length ? (
+        <>
+          {plural(todays.length, 'run', 'runs')} today: {counts.join(', ')}
+          {waiting ? (
+            <>
+              {', '}
+              {/* AFS-147: the runs that wait are a link to them. */}
+              <Link to="/runs?state=waiting">
+                {waiting} {waiting === 1 ? 'waits' : 'wait'} for a decision
+              </Link>
+            </>
+          ) : null}
+          .
+        </>
+      ) : (
+        'No run yet today.'
+      )}{' '}
+      {mine.length
+        ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
+        : 'Nothing waits for you.'}
+      {/* AFS-144: your own runs held at a gate for someone else are said too. */}
+      {yours.length > 0 && (
+        <>
+          {' '}
+          <Link to={yours.length === 1 ? `/runs/${yours[0]}` : '/runs?state=waiting&mine=1'}>
+            {heldFor?.length
+              ? `1 run of yours waits for a decision by ${heldFor.length === 1 ? heldFor[0] : `${heldFor.slice(0, -1).join(', ')} or ${heldFor.at(-1)}`}`
+              : `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision`}
+          </Link>
+          .
+        </>
+      )}
+    </>
+  );
   const first = me.name.split(/\s+/)[0] || me.name;
   // AFS-85: the newest run of each configuration this person launched themselves (a schedule's
   // runs are its owner's, and not launched by hand). A few more than are shown, for the ones
@@ -126,6 +171,7 @@ export function Home({ me }: { me: User }) {
   return (
     <div className="home">
       <PageHead
+        help="web-pages.md"
         title={`${greeting(new Date().getHours())}, ${first}`}
         lead={runs.data && approvals.data ? summary : undefined}
       />
@@ -140,11 +186,11 @@ export function Home({ me }: { me: User }) {
                     <span>
                       <strong>{a.gate.node.title}</strong>{' '}
                       <span className="muted">
-                        · {a.run.flow.name}, run {a.run.number}
+                        · {a.run.flow.name} #{a.run.number}
                       </span>
                     </span>
                   </span>
-                  <span className="since">waiting since {ago(a.gate.createdAt)}</span>
+                  <span className="since">waiting for {span(a.gate.createdAt)}</span>
                 </Link>
               </li>
             ))}
@@ -185,7 +231,10 @@ export function Home({ me }: { me: User }) {
           <Loading state={runs} />
           {runs.data?.length === 0 && (
             <p className="empty">
-              No run yet. Runs start from a launch configuration of a project.
+              {/* AFS-152: where runs start, only to who may start one. */}
+              {launchesAny(myAccess.data)
+                ? 'No run yet. Runs start from a launch configuration of a project.'
+                : 'No run yet.'}
             </p>
           )}
           {!!runs.data?.length && <RunList runs={runs.data.slice(0, 8)} me={me} />}
@@ -198,11 +247,18 @@ export function Home({ me }: { me: User }) {
           <Loading state={workspaces} />
           {workspaces.data?.length === 0 && (
             <p className="empty">
-              No workspace yet.{' '}
               {me.admin ? (
-                <Link to="/workspaces">Add the first one.</Link>
+                <>
+                  No workspace yet. <Link to="/workspaces">Add the first one.</Link>
+                </>
               ) : (
-                'An administrator makes the first one.'
+                // AFS-135: the server may have workspaces this person has no access to yet.
+                // AFS-152: who to ask.
+                `You have no access to a workspace yet: ask an administrator for it${
+                  myAccess.data?.administrators.length
+                    ? ` (${myAccess.data.administrators.slice(0, 3).join(', ')})`
+                    : ''
+                }.`
               )}
             </p>
           )}

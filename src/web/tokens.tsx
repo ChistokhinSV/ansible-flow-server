@@ -3,7 +3,7 @@
 // may do. The list comes first: making a token is behind a button (AFS-88).
 import { type ReactNode, useId, useState } from 'react';
 import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
-import { Copyable, Field, Form, Loading, Time, useLoad } from './ui';
+import { Copyable, Field, Form, Loading, Scroll, Time, useLoad, useRefresh } from './ui';
 
 export function TokensPanel({
   load,
@@ -29,16 +29,13 @@ export function TokensPanel({
   onChanged?: () => void;
 }) {
   const list = useLoad(load, []);
+  // AFS-139: Last used follows a token's use elsewhere (the API, an MCP client).
+  useRefresh(list.reload, 30_000);
   const workspaces = useLoad(api.workspaces, []);
-  const [input, setInput] = useState({
-    name: '',
-    days: 90,
-    readOnly: false,
-    workspace: '',
-    mcpApprovals: false,
-  });
+  const fresh = { name: '', days: 90, readOnly: false, workspace: '', mcpApprovals: false };
+  const [input, setInput] = useState(fresh);
   const workspaceName = (id?: string) =>
-    id ? (workspaces.data?.find((w) => w.id === id)?.key ?? 'a deleted workspace') : 'all';
+    id ? (workspaces.data?.find((w) => w.id === id)?.name ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
   const [adding, setAdding] = useState(false);
   return (
@@ -69,7 +66,7 @@ export function TokensPanel({
       <Loading state={list} />
       {list.data?.length === 0 && <p className="muted">{none}</p>}
       {!!list.data?.length && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -122,7 +119,7 @@ export function TokensPanel({
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       {add && adding && (
         <section className="panel sheet" aria-label="Make a token">
@@ -139,7 +136,8 @@ export function TokensPanel({
                   ...(input.workspace ? { workspace: input.workspace } : {}),
                 }),
               );
-              setInput({ ...input, name: '' });
+              // AFS-134: the next token starts from the defaults, not this one's choices.
+              setInput(fresh);
               // The form closes: what is left to look at is the token, shown this once.
               setAdding(false);
               list.reload();
@@ -182,6 +180,7 @@ export function TokensPanel({
               />
               An agent with this token may decide approvals over MCP (off: approvals stay with
               people)
+              {input.readOnly ? ' · not for a read-only token' : ''}
             </label>
             <WorkspaceChoice
               value={input.workspace}

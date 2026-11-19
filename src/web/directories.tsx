@@ -10,8 +10,9 @@ import {
 } from '../server/auth/ldap/types';
 import type { Group } from '../server/auth/users';
 import { api } from './api';
+import { followKey } from './flowFiles';
 import { MappingRows } from './signin';
-import { Field, Form, Loading, messageOf, Time, useLoad } from './ui';
+import { Field, Form, Labelled, Loading, messageOf, Time, useLoad } from './ui';
 
 type Draft = DirectoryInput & { id?: string; replacePassword: boolean };
 
@@ -77,6 +78,23 @@ function DirectoryForm({
       {...(hint ? { hint } : {})}
     />
   );
+  // AFS-140: a filter is long (Active Directory's person filter): several lines, the whole width.
+  const filter = (label: string, key: 'userFilter' | 'groupFilter', hint: string) => (
+    <Labelled label={label} hint={hint} name={key}>
+      {(props) => (
+        <textarea
+          {...props}
+          name={key}
+          className="mono filter-text"
+          rows={3}
+          spellCheck={false}
+          value={String(d[key] ?? '')}
+          onChange={(e) => set({ [key]: e.target.value } as Partial<Draft>)}
+          required
+        />
+      )}
+    </Labelled>
+  );
   return (
     <section className="panel sheet" aria-label={d.id ? `Change ${d.name}` : 'Add a directory'}>
       <Form
@@ -100,8 +118,11 @@ function DirectoryForm({
         {!d.id && (
           <div className="field">
             <label htmlFor="dir-preset">Kind</label>
+            {/* AFS-156: the form takes the focus when it opens, as Give access now does. */}
             <select
               id="dir-preset"
+              // biome-ignore lint/a11y/noAutofocus: the form was opened by its button just now
+              autoFocus
               onChange={(e) => set({ ...PRESETS[e.target.value as keyof typeof PRESETS] })}
               defaultValue="active-directory"
             >
@@ -110,7 +131,20 @@ function DirectoryForm({
             </select>
           </div>
         )}
-        {text('Name', 'name', 'Said where people see it')}
+        <Field
+          label="Name"
+          autoFocus={!!d.id}
+          value={d.name ?? ''}
+          onChange={(e) =>
+            set({
+              name: e.target.value,
+              // AFS-125: a new directory's key follows its name until typed.
+              ...(d.id ? {} : { key: followKey(e.target.value, d.name ?? '', d.key ?? '', 40) }),
+            })
+          }
+          required
+          hint="Said where people see it"
+        />
         <Field
           label="Key"
           value={d.key}
@@ -151,7 +185,7 @@ function DirectoryForm({
           </p>
         )}
         {text('Where people are', 'userBase', 'OU=Staff,DC=example,DC=net')}
-        {text('Person filter', 'userFilter', '{login} is where the typed login goes')}
+        {filter('Person filter', 'userFilter', '{login} is where the typed login goes')}
         {text(
           'Id attribute',
           'idAttr',
@@ -174,7 +208,7 @@ function DirectoryForm({
         {d.groupMode === 'search' && (
           <>
             {text('Where groups are', 'groupBase')}
-            {text('Group filter', 'groupFilter', "{dn} is where the person's DN goes")}
+            {filter('Group filter', 'groupFilter', "{dn} is where the person's DN goes")}
           </>
         )}
         <label className="check">

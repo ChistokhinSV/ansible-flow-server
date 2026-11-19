@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { buildApp } from '../../src/server/app';
 import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
@@ -166,7 +166,10 @@ describe('editing a flow together', () => {
     expect(refused.status).toBe(422);
     expect(refused.json.message).toMatch(/Someone changed the same place since/);
     // Omar's own last edit goes back to Mia's title; his other edit stays.
-    expect((await call('omar', 'POST', `/drafts/${draft}/undo`)).status).toBe(200);
+    const undone = await call('omar', 'POST', `/drafts/${draft}/undo`);
+    expect(undone.status).toBe(200);
+    // AFS-136: it says what it took back.
+    expect(undone.json.steps).toEqual(['Ping it']);
     const doc = (await call('omar', 'GET', `/drafts/${draft}`)).json.snapshot.doc;
     const titleOf = (id: string) => doc.nodes.find((n: { id: string }) => n.id === id).title;
     expect(titleOf(PING)).toBe('Ping it');
@@ -182,14 +185,44 @@ describe('editing a flow together', () => {
   });
 
   it('Save is one commit on the branch by the saver, with the other as co-author', async () => {
+    // AFS-136: Omar is in the draft: he hears "saving" before the commit is made, so his page
+    // sends what he is typing.
+    await call('omar', 'POST', `/drafts/${draft}/here`, {});
+    await call('mia', 'POST', `/drafts/${draft}/here`, {});
+    const stream = await fetch(`${api()}/drafts/${draft}/events`, {
+      headers: { authorization: `Bearer ${tokens.omar}` },
+    });
+    const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
+    const heard: string[] = [];
+    const listening = (async () => {
+      let buffer = '';
+      while (!heard.includes('saved')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += new TextDecoder().decode(value);
+        const cut = buffer.lastIndexOf('\n\n');
+        if (cut < 0) continue;
+        for (const m of buffer.slice(0, cut).matchAll(/^event: (.*)$/gm))
+          if (m[1]) heard.push(m[1]);
+        buffer = buffer.slice(cut + 2);
+      }
+    })();
     const saved = await call('mia', 'POST', `/drafts/${draft}/save`, {
       message: 'Friendlier titles',
     });
+    await Promise.race([listening, new Promise((r) => setTimeout(r, 3000))]);
+    await reader.cancel().catch(() => undefined);
+    expect(heard.indexOf('saving')).toBeGreaterThan(-1);
+    expect(heard.indexOf('saving')).toBeLessThan(heard.indexOf('saved'));
     expect(saved.status).toBe(200);
     const commit = saved.json.commit as string;
     const git = (...args: string[]) =>
       execFileSync('git', args, { cwd: bare, encoding: 'utf8' }).trim();
     expect(git('rev-parse', 'refs/heads/main')).toBe(commit);
+    // AFS-136: listed with the pushes through this server, by the saver.
+    const pushes = (await call('mia', 'GET', `/projects/${project.id}/pushes`)).json;
+    expect(JSON.stringify(pushes)).toContain(commit);
+    expect(JSON.stringify(pushes)).toContain('mia');
     expect(git('log', '-1', '--format=%an <%ae>%n%B', commit)).toBe(
       'Mia Ortega <mia@example.net>\nFriendlier titles\n\nCo-authored-by: Omar Haddad <omar@example.net>',
     );
@@ -246,6 +279,192 @@ describe('editing a flow together', () => {
     ).toEqual([opened]);
     expect((await call('omar', 'DELETE', `/drafts/${opened}`)).status).toBe(204);
     expect((await call('omar', 'GET', `/projects/${project.id}/drafts`)).json).toEqual([]);
+  });
+});
+
+/** AFS-149: a draft's stream, as a page (tab) follows it. */
+function follow(who: string, draft: string, tab?: string) {
+  const events: { event: string; data: Loose }[] = [];
+  const controller = new AbortController();
+  const waiters: (() => void)[] = [];
+  const done = (async () => {
+    const reply = await fetch(`${api()}/drafts/${draft}/events${tab ? `?tab=${tab}` : ''}`, {
+      headers: { authorization: `Bearer ${tokens[who]}` },
+      signal: controller.signal,
+    });
+    const reader = (reply.body as ReadableStream<Uint8Array>).getReader();
+    let buffer = '';
+    for (;;) {
+      const { value, done: ended } = await reader.read();
+      if (ended) break;
+      buffer += new TextDecoder().decode(value);
+      for (let at = buffer.indexOf('\n\n'); at >= 0; at = buffer.indexOf('\n\n')) {
+        const block = buffer.slice(0, at);
+        buffer = buffer.slice(at + 2);
+        const event = /^event: (.*)$/m.exec(block)?.[1];
+        const data = /^data: (.*)$/m.exec(block)?.[1];
+        if (event && data) events.push({ event, data: JSON.parse(data) });
+        for (const w of waiters.splice(0)) w();
+      }
+    }
+  })().catch(() => undefined);
+  const until = async (seen: () => boolean, ms = 5000) => {
+    const end = Date.now() + ms;
+    while (!seen() && Date.now() < end)
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve);
+        setTimeout(resolve, 50);
+      });
+    return seen();
+  };
+  return {
+    events,
+    until,
+    close: async () => {
+      controller.abort();
+      await done;
+    },
+  };
+}
+
+describe('saving a draft open in several tabs (AFS-149)', () => {
+  it("asks the saver's other tab for its typing, saves it, and spares the saver's own tab", async () => {
+    const draft = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('mia', 'POST', `/drafts/${draft}/commands`, retitle(HELLO, 'Hello from tab A'));
+    // Mia has the draft open in two tabs; she is "here" once, with two pages.
+    await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-a' });
+    const here = await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-b' });
+    expect(here.json.people).toEqual([expect.objectContaining({ login: 'mia', tabs: 2 })]);
+    const a = follow('mia', draft, 'tab-a');
+    const b = follow('mia', draft, 'tab-b');
+    await a.until(() => a.events.some((e) => e.event === 'draft'));
+    await b.until(() => b.events.some((e) => e.event === 'draft'));
+    // Tab B, told of the save, sends what it was typing, then says so.
+    const typed = (async () => {
+      await b.until(() => b.events.some((e) => e.event === 'saving'));
+      const saving = b.events.find((e) => e.event === 'saving')?.data;
+      expect(saving.by).toMatchObject({ login: 'mia', name: 'Mia Ortega' });
+      await call('mia', 'POST', `/drafts/${draft}/commands`, retitle(PING, 'Typed in tab B'));
+      expect(
+        (
+          await call('mia', 'POST', `/drafts/${draft}/flushed`, {
+            flush: saving.flush,
+            stream: saving.stream,
+          })
+        ).status,
+      ).toBe(204);
+    })();
+    const started = Date.now();
+    const saved = await call('mia', 'POST', `/drafts/${draft}/save`, { tab: 'tab-a' });
+    await typed;
+    expect(saved.status).toBe(200);
+    // It did not wait for the longest a page may take (3 s): tab B said it was done.
+    expect(Date.now() - started).toBeLessThan(2900);
+    const text = execFileSync('git', ['show', `${saved.json.commit}:${FILE}`], {
+      cwd: bare,
+      encoding: 'utf8',
+    });
+    expect(titleIn(text, PING)).toBe('Typed in tab B');
+    expect(titleIn(text, HELLO)).toBe('Hello from tab A');
+    await a.until(() => a.events.some((e) => e.event === 'saved'));
+    expect(a.events.some((e) => e.event === 'saving')).toBe(false);
+    expect(a.events.find((e) => e.event === 'saved')?.data).toMatchObject({
+      by: { login: 'mia' },
+      coAuthors: [],
+    });
+    await a.close();
+    await b.close();
+  });
+
+  it('says what each edit did: a step removed, the fields of a step changed', async () => {
+    const draft = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    const watch = follow('mia', draft);
+    await watch.until(() => watch.events.some((e) => e.event === 'draft'));
+    await call('omar', 'POST', `/drafts/${draft}/commands`, retitle(HELLO, 'Greet them'));
+    await call('omar', 'POST', `/drafts/${draft}/commands`, {
+      command: { kind: 'deleteNodes', ids: [PING] },
+    });
+    await watch.until(() => watch.events.filter((e) => e.event === 'edit').length >= 2);
+    const [changed, removed] = watch.events.filter((e) => e.event === 'edit').map((e) => e.data);
+    expect(changed.changes).toEqual([{ step: 'Greet them', kind: 'changed', fields: ['title'] }]);
+    expect(removed.changes).toContainEqual(expect.objectContaining({ kind: 'removed' }));
+    await watch.close();
+    await call('omar', 'DELETE', `/drafts/${draft}`);
+  });
+
+  it('answers "nothing to undo" without a refusal', async () => {
+    const draft = (await call('lena', 'GET', `/projects/${project.id}/drafts`)).json;
+    expect(draft).toEqual([]);
+    const opened = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    const undo = await call('omar', 'POST', `/drafts/${opened}/undo`);
+    expect(undo.status).toBe(200);
+    expect(undo.json).toMatchObject({ nothing: true, steps: [] });
+    await call('omar', 'DELETE', `/drafts/${opened}`);
+  });
+
+  it('shows both sides of a clash and keeps the side picked at each place; saves are listed as such', async () => {
+    const opened = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('mia', 'POST', `/drafts/${opened}/commands`, retitle(HELLO, 'Draft hello'));
+    await call('mia', 'POST', `/drafts/${opened}/commands`, retitle(PING, 'Draft ping'));
+    const clone = join(root, 'other2');
+    execFileSync('git', ['clone', '--quiet', bare, clone]);
+    const path = join(clone, FILE);
+    const doc = parse(readFileSync(path, 'utf8'));
+    for (const n of doc.nodes as { id: string; title: string }[]) {
+      if (n.id === HELLO) n.title = 'Branch hello';
+      if (n.id === PING) n.title = 'Branch ping';
+    }
+    execFileSync(process.execPath, [
+      '-e',
+      `require('fs').writeFileSync(${JSON.stringify(path)}, ${JSON.stringify(stringify(doc))})`,
+    ]);
+    const g = (...args: string[]) => execFileSync('git', args, { cwd: clone, encoding: 'utf8' });
+    g('-c', 'user.name=Dana', '-c', 'user.email=dana@example.net', 'commit', '-qam', 'Both');
+    g('push', '--quiet', 'origin', 'HEAD:main');
+    // The pages ask for clashes as an answer: no 409.
+    const asked = await call('mia', 'POST', `/drafts/${opened}/save`, { answerConflicts: true });
+    expect(asked.status).toBe(200);
+    expect(asked.json.saved).toBe(false);
+    const clashes = asked.json.conflicts as {
+      id: string;
+      label: string;
+      draft: string;
+      branch: string;
+    }[];
+    expect(clashes.map((c) => [c.draft, c.branch]).sort()).toEqual([
+      ['Draft hello', 'Branch hello'],
+      ['Draft ping', 'Branch ping'],
+    ]);
+    // One place picked only: still refused (over the API, a 409).
+    const hello = clashes.find((c) => c.draft === 'Draft hello')?.id as string;
+    const ping = clashes.find((c) => c.draft === 'Draft ping')?.id as string;
+    expect(
+      (await call('mia', 'POST', `/drafts/${opened}/save`, { choices: { [hello]: 'branch' } }))
+        .status,
+    ).toBe(409);
+    const saved = await call('mia', 'POST', `/drafts/${opened}/save`, {
+      choices: { [hello]: 'branch', [ping]: 'draft' },
+      message: 'Picked per place',
+    });
+    expect(saved.status).toBe(200);
+    const text = execFileSync('git', ['show', `${saved.json.commit}:${FILE}`], {
+      cwd: bare,
+      encoding: 'utf8',
+    });
+    expect(titleIn(text, HELLO)).toBe('Branch hello');
+    expect(titleIn(text, PING)).toBe('Draft ping');
+    // The Pushes list: the saver's name, how it came, and the commit's message.
+    const pushes = (await call('mia', 'GET', `/projects/${project.id}/pushes`)).json as Loose[];
+    expect(pushes.find((p) => p.to === saved.json.commit)).toMatchObject({
+      login: 'mia',
+      name: 'Mia Ortega',
+      kind: 'save',
+      message: 'Picked per place',
+    });
   });
 });
 

@@ -74,7 +74,10 @@ const common = (level: string) => ({
     body: { admin: false, workspace: level, approve: false, flows: {} },
   }),
 });
-const show = () => render(<FlowPage workspace="net" project="core" file={FILE} theme="dark" />);
+const show = () =>
+  render(
+    <FlowPage me={{ login: 'dana' }} workspace="net" project="core" file={FILE} theme="dark" />,
+  );
 const line = () => document.querySelector('.flow-line') as HTMLElement;
 
 describe("a flow's page", () => {
@@ -114,6 +117,25 @@ describe("a flow's page", () => {
     expect(screen.getByTitle(/on the designer's canvas/)).toBeTruthy();
   });
 
+  it('reads its Latest runs again when the canvas launches a run or one ends (AFS-139)', async () => {
+    let list = [run(1, 'succeeded')];
+    routes = {
+      ...common('ro'),
+      'GET /projects/p1/launch-configs': () => ({ body: [config('c1', 'Nightly check')] }),
+      [RUNS]: () => ({ body: list }),
+    };
+    show();
+    await screen.findByRole('link', { name: '#1 went well' });
+    list = [run(2, 'succeeded'), run(1, 'succeeded')];
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'afs-flow-runs' },
+        origin: window.location.origin,
+      }),
+    );
+    await screen.findByRole('link', { name: '#2 went well' });
+  });
+
   it('offers who has rw to add a configuration for this flow when there is none', async () => {
     routes = {
       ...common('rw'),
@@ -135,5 +157,56 @@ describe("a flow's page", () => {
     show();
     expect(await screen.findByText('No launch configuration')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'Add a launch configuration' })).toBeNull();
+  });
+
+  it('opens a flow just made for editing, even when its list comes after the access (AFS-160)', async () => {
+    window.history.replaceState(null, '', `/w/net/core/flow/${FILE}?edit=1`);
+    let listed: (() => void) | undefined;
+    const late = new Promise<void>((done) => {
+      listed = done;
+    });
+    routes = {
+      ...common('rw'),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, ok: true, steps: 0 }] } }),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'rw', approve: false, flows: { [FILE]: 'rw' } },
+      }),
+      'GET /projects/p1/launch-configs': () => ({ body: [] }),
+      [RUNS]: () => ({ body: [] }),
+      'POST /projects/p1/drafts?path=flows%2Fupgrade.flow.yaml': () => ({
+        status: 201,
+        body: { id: 'd1', project: 'p1', file: FILE, baseCommit: COMMIT, editors: [] },
+      }),
+    };
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      // The flow list answers last: the access is known before the page knows the flow is there.
+      if (url.endsWith('/projects/p1/flows')) await late;
+      return answer(url, init);
+    });
+    show();
+    await vi.waitFor(() => expect(asked).toContain('GET /projects/p1/access'));
+    await new Promise((r) => setTimeout(r, 20));
+    listed?.();
+    await vi.waitFor(() =>
+      expect(asked).toContain('POST /projects/p1/drafts?path=flows%2Fupgrade.flow.yaml'),
+    );
+    expect(window.location.search).toBe('');
+  });
+
+  it('offers Edit first on a flow with no steps yet to who may edit (AFS-160)', async () => {
+    window.history.replaceState(null, '', `/w/net/core/flow/${FILE}`);
+    routes = {
+      ...common('rw'),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, ok: true, steps: 0 }] } }),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'rw', approve: false, flows: { [FILE]: 'rw' } },
+      }),
+      'GET /projects/p1/launch-configs': () => ({ body: [] }),
+      [RUNS]: () => ({ body: [] }),
+    };
+    show();
+    const edit = await screen.findByRole('button', { name: 'Edit' });
+    expect(edit.className).toContain('primary');
   });
 });

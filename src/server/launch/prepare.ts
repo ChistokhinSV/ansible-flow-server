@@ -12,10 +12,11 @@ import {
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { environmentImage } from '../environments/image';
+import type { FlowError } from '../flowErrors';
 import { type Git, GitError, refProblem } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
-import { COMMIT, flowAt, type LaunchConfig, type RunMode } from './configs';
+import { flowAt, fullCommit, type LaunchConfig, type RunMode } from './configs';
 
 /** What a launch may say beyond its configuration. */
 export interface LaunchRequest {
@@ -35,6 +36,8 @@ export interface Problem {
   /** The input or setting it is about, when it is about one. */
   field?: string;
   message: string;
+  /** AFS-164: a flow that cannot run: its errors, with the step each is on. */
+  errors?: FlowError[];
 }
 
 /** Everything a run needs, settled. */
@@ -99,9 +102,9 @@ export async function prepareLaunch(
   request: LaunchRequest = {},
   look = true,
 ): Promise<Prepared> {
-  const fail = (message: string, field?: string): Prepared => ({
+  const fail = (message: string, field?: string, errors?: FlowError[]): Prepared => ({
     ok: false,
-    problems: [{ message, ...(field ? { field } : {}) }],
+    problems: [{ message, ...(field ? { field } : {}), ...(errors?.length ? { errors } : {}) }],
   });
   let project = await getProject(deps.db, config.project);
   if (!project) return fail('The project is gone');
@@ -113,10 +116,9 @@ export async function prepareLaunch(
   const ref = request.ref ?? (request.commit ? undefined : config.gitRef);
   let commit: string;
   if (pinned) {
-    if (!COMMIT.test(pinned)) return fail('A commit is its full 40-character id', 'commit');
-    if (!(await deps.git.hasCommit(project.id, pinned)))
-      return fail(`The repository has no commit ${pinned.slice(0, 12)}`, 'commit');
-    commit = pinned;
+    const found = await fullCommit(deps.git, project.id, pinned);
+    if ('problem' in found) return fail(found.problem, 'commit');
+    commit = found.commit;
   } else if (ref) {
     const problem = refProblem(ref);
     if (problem) return fail(problem, 'ref');
@@ -136,7 +138,7 @@ export async function prepareLaunch(
   }
 
   const flow = await flowAt(deps.git, project.id, commit, config.flowFile);
-  if ('problem' in flow) return fail(flow.problem, 'flowFile');
+  if ('problem' in flow) return fail(flow.problem, 'flowFile', flow.errors);
   const mode = request.mode ?? config.mode;
   if (mode !== 'check' && mode !== 'real') return fail('A run is check or real', 'mode');
   const limit = request.limit?.trim() || config.limit;

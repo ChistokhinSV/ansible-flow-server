@@ -35,6 +35,8 @@ export interface LauncherDeps {
   askName(suggested: string): Promise<string | undefined>;
   /** Goes to a page of the server (the whole window, not the canvas's frame). */
   go(to: string): void;
+  /** AFS-135: the person may add launch configurations (rw on the flow); default true. */
+  mayAddConfig?: boolean;
 }
 
 type Reply = { ok: boolean; status: number; data: unknown };
@@ -91,11 +93,14 @@ export function launcher(deps: LauncherDeps) {
     if (!form?.ok)
       return notify('error', form ? why(form, 'The launch form could not be read') : 'No answer');
     const { flow, fields, inventory, eeImage } = form.data as Form;
-    notify('info', 'Reading the hosts from the inventory…');
+    // AFS-149: said only when the read takes a while: a toast said every time stayed over the
+    // dialog after the hosts were listed.
+    const slow = setTimeout(() => notify('info', 'Reading the hosts from the inventory…'), 1500);
     const start = Object.fromEntries(fields.filter((f) => !f.secret).map((f) => [f.name, f.text]));
     const read = await facts(config.id, { mode, groups: true, inputs: start }).catch(
       () => undefined,
     );
+    clearTimeout(slow);
     if (!read?.ok)
       return notify('error', read ? why(read, 'The inventory could not be read') : 'No answer');
     const answer = read.data as FactsReply;
@@ -114,7 +119,7 @@ export function launcher(deps: LauncherDeps) {
       environment: answer.environment || eeImage || 'the server’s image',
       ...((answer.inventory ?? inventory) ? { inventory: answer.inventory ?? inventory } : {}),
       // AFS-97: Save as Launch Configuration (a designer without it leaves it out).
-      canSave: true,
+      canSave: deps.mayAddConfig !== false,
     };
     open.set(token, { config: config.id, plan });
     deps.send({ type: 'launch', plan });
@@ -183,7 +188,7 @@ export function launcher(deps: LauncherDeps) {
     const w = space?.ok ? (space.data as { key: string }) : undefined;
     if (!p || !w) return notify('error', 'The project could not be read');
     deps.go(
-      `/w/${encodeURIComponent(w.key)}/${encodeURIComponent(p.key)}/launch/new?flow=${encodeURIComponent(deps.path)}`,
+      `/w/${encodeURIComponent(w.key)}/${encodeURIComponent(p.key)}/launch/new?flow=${encodeURIComponent(deps.path)}&back=flow`,
     );
   }
 

@@ -18,12 +18,13 @@ import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { layoutLevel } from '@ansible-flow/node/autoLayout';
 import { mergeFlowTexts } from '@ansible-flow/node/flowMerge';
 import type { Kysely } from 'kysely';
-import type { Schema } from '../db/schema';
+import type { FlowDraftEditTable, Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { FLOW_FILE } from '../projects/flows';
 import type { Git } from '../projects/git';
-import { getProject, type Project } from '../projects/store';
+import { getProject, type Project, recordPushes } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
+import { hasNoSteps, startedFrom } from './startFrom';
 
 export interface Editor {
   id: string;
@@ -48,17 +49,44 @@ export class DraftError extends Error {
     readonly code: 'not_found' | 'refused' | 'conflict' | 'invalid',
     message: string,
     /** For a conflict on Save: the places both the draft and the branch changed. */
-    readonly conflicts?: { id: string; label: string }[],
+    readonly conflicts?: SaveConflict[],
   ) {
     super(message);
     this.name = 'DraftError';
   }
 }
 
+/**
+ * AFS-149: a place both the draft and the branch changed since the draft began, with each side's
+ * value in short (null: that side removed it or has none).
+ */
+export interface SaveConflict {
+  id: string;
+  label: string;
+  draft: string | null;
+  branch: string | null;
+}
+
+/** AFS-149: what one edit did, in words for the others' pages. */
+export interface EditChange {
+  /** A step, or the flow itself (its name, goal, inputs) when absent. */
+  step?: string;
+  kind: 'added' | 'removed' | 'changed';
+  /** The fields changed, dotted (`settings.timeout`); none for a step added, removed or moved. */
+  fields: string[];
+}
+
 /** What happened to a draft, for the pages watching it. */
 export type DraftNews =
-  | { kind: 'edit'; revision: number; by: Editor; nodes: string[] }
-  | { kind: 'saved'; commit: string; by: Editor }
+  | {
+      kind: 'edit';
+      revision: number;
+      by: Editor;
+      nodes: string[];
+      changes: EditChange[];
+      wires: number;
+    }
+  | { kind: 'saved'; commit: string; by: Editor; coAuthors: string[] }
   | { kind: 'discarded'; by: Editor };
 
 type Db = Kysely<Schema>;
@@ -71,11 +99,39 @@ function changedNodes(before: string, after: string): string[] {
   return a && b ? diffFlows(a, b).nodes.map((n) => n.id) : [];
 }
 
+/** AFS-149: what an edit did, step by step and to the flow's own fields. */
+function changesOf(before: string, after: string): { changes: EditChange[]; wires: number } {
+  const a = parseFlow(before).doc;
+  const b = parseFlow(after).doc;
+  if (!a || !b) return { changes: [], wires: 0 };
+  const diff = diffFlows(a, b);
+  const changes: EditChange[] = diff.nodes.map((n) => ({
+    step: n.title,
+    kind: n.kind,
+    fields: n.kind === 'changed' ? n.fields.map((f) => f.field) : [],
+  }));
+  if (diff.flow.length) changes.push({ kind: 'changed', fields: diff.flow.map((f) => f.field) });
+  return { changes, wires: diff.wires.length };
+}
+
+/** AFS-149: one side's value of a clashing place, in short. */
+function shortValue(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const cut = (text: string) => (text.length > 160 ? `${text.slice(0, 159)}…` : text);
+  if (typeof value === 'string') return cut(value);
+  if (typeof value === 'object' && 'title' in value && typeof value.title === 'string')
+    return `the step "${value.title}"`;
+  return cut(JSON.stringify(value) ?? String(value));
+}
+
 export class Drafts {
   private readonly newId = createIdFactory();
   /** One change of a draft at a time on this server; the revision guards across servers. */
   private readonly queue = new Map<string, Promise<unknown>>();
   private readonly listeners = new Map<string, Set<(news: DraftNews) => void>>();
+
+  /** AFS-151: what git said is at a path of a commit (`probe`). */
+  private readonly seen = new Map<string, Promise<boolean>>();
 
   constructor(private readonly deps: { db: Db; git: Git; sync: ProjectSync; log: Logger }) {}
 
@@ -217,7 +273,7 @@ export class Drafts {
   private async write(
     id: string,
     by: Editor,
-    kind: 'command' | 'undo' | 'layout',
+    kind: FlowDraftEditTable['kind'],
     before: { text: string; revision: number },
     after: string,
   ): Promise<number> {
@@ -247,7 +303,13 @@ export class Drafts {
         })
         .execute();
     });
-    this.tell(id, { kind: 'edit', revision, by, nodes: changedNodes(before.text, after) });
+    this.tell(id, {
+      kind: 'edit',
+      revision,
+      by,
+      nodes: changedNodes(before.text, after),
+      ...changesOf(before.text, after),
+    });
     return revision;
   }
 
@@ -281,6 +343,35 @@ export class Drafts {
     });
   }
 
+  /**
+   * AFS-126: the draft's flow replaced by one made from something (a sample, a playbook, an AWX
+   * template), as one edit Ctrl+Z takes back. Only while the flow has no step: it never writes
+   * over someone's work.
+   */
+  async replace(
+    id: string,
+    by: Editor,
+    make: (current: string) => Promise<string>,
+  ): Promise<{ revision: number }> {
+    return this.one(id, async () => {
+      const current = await this.text(id);
+      if (!current) throw new DraftError('not_found', 'No such draft');
+      if (!hasNoSteps(current.text))
+        throw new DraftError(
+          'refused',
+          'The flow has steps already: start from something only in an empty flow',
+        );
+      let text: string;
+      try {
+        text = await make(current.text);
+      } catch (e) {
+        throw new DraftError('refused', (e as Error).message);
+      }
+      // AFS-151: kind 'start', so its undo says what it took back as one thing.
+      return { revision: await this.write(id, by, 'start', current, text) };
+    });
+  }
+
   /** Tidy Up: the level laid out again, as one edit. */
   async tidy(id: string, by: Editor, level = ROOT): Promise<{ revision: number }> {
     const current = await this.text(id);
@@ -298,7 +389,17 @@ export class Drafts {
    * version before it, so what others changed since stays. Refused when they changed the same
    * place.
    */
-  async undo(id: string, by: Editor): Promise<{ revision: number }> {
+  async undo(
+    id: string,
+    by: Editor,
+  ): Promise<{
+    revision: number;
+    steps: string[];
+    nothing?: true;
+    message?: string;
+    /** AFS-151: a start from a sample or an import was taken back: what it was, and its steps. */
+    started?: { what: string; steps: number };
+  }> {
     return this.one(id, async () => {
       const current = await this.text(id);
       if (!current) throw new DraftError('not_found', 'No such draft');
@@ -311,7 +412,14 @@ export class Drafts {
         .where('kind', '!=', 'undo')
         .orderBy('revision', 'desc')
         .executeTakeFirst();
-      if (!last) throw new DraftError('refused', 'Nothing of yours to undo in this draft');
+      // AFS-149: nothing to take back is an answer, not a refusal.
+      if (!last)
+        return {
+          revision: current.revision,
+          steps: [],
+          nothing: true,
+          message: 'Nothing of yours to undo in this draft',
+        };
       const doc = (t: string) => parseFlow(t).doc as FlowDocument;
       const merged = mergeFlows(doc(last.after_text), doc(current.text), doc(last.before_text));
       if (merged.conflicts.length)
@@ -326,7 +434,19 @@ export class Drafts {
         .set({ undone: 1 })
         .where('id', '=', last.id)
         .execute();
-      return { revision };
+      if (last.kind === 'start')
+        return { revision, steps: [], started: startedFrom(last.after_text) };
+      // AFS-136: what was taken back, by the steps' titles as they are again (none: a move).
+      // AFS-151: steps inside subflows are named too, not "a step".
+      const titles = new Map(
+        [doc(last.after_text), doc(last.before_text)].flatMap((d) =>
+          [...buildModel(d).nodes.values()].map(({ node }) => [node.id, node.title] as const),
+        ),
+      );
+      const steps = changedNodes(last.before_text, last.after_text).map(
+        (n) => titles.get(n) ?? 'a step',
+      );
+      return { revision, steps };
     });
   }
 
@@ -338,8 +458,13 @@ export class Drafts {
   async save(
     id: string,
     by: Editor & { email?: string | null },
-    options: { message?: string; force?: boolean } = {},
-  ): Promise<{ commit: string; unchanged?: boolean }> {
+    options: {
+      message?: string;
+      force?: boolean;
+      /** AFS-149: per clashing place (by its id), whose side to keep; the draft's when not given. */
+      choices?: Record<string, 'draft' | 'branch'>;
+    } = {},
+  ): Promise<{ commit: string; unchanged?: boolean; coAuthors?: string[] }> {
     const row = await this.row(id);
     if (!row) throw new DraftError('not_found', 'No such draft');
     const { git, sync } = this.deps;
@@ -360,25 +485,38 @@ export class Drafts {
           const base = (await git.read(project.id, draft.base_commit, draft.file))?.toString(
             'utf8',
           );
+          const choices = Object.fromEntries(
+            Object.entries(options.choices ?? {}).map(([c, side]) => [
+              c,
+              side === 'branch' ? ('theirs' as const) : ('ours' as const),
+            ]),
+          );
           const merged =
-            base !== undefined ? mergeFlowTexts(base, draft.text, headText) : undefined;
+            base !== undefined ? mergeFlowTexts(base, draft.text, headText, choices) : undefined;
           if (merged?.kind !== 'merged')
             throw new DraftError(
               'refused',
               'The branch changed this flow in a way that cannot be merged',
             );
-          if (merged.merge.conflicts.length && !options.force)
+          // AFS-149: a place with a side chosen is settled; any other refuses unless forced.
+          const open = merged.merge.conflicts.filter((c) => !options.choices?.[c.id]);
+          if (open.length && !options.force)
             throw new DraftError(
               'conflict',
               'The branch changed the same places since the draft began',
-              merged.merge.conflicts.map((c) => ({ id: c.id, label: c.label })),
+              merged.merge.conflicts.map((c) => ({
+                id: c.id,
+                label: c.label,
+                draft: shortValue(c.ours),
+                branch: shortValue(c.theirs),
+              })),
             );
           text = merged.text;
         }
         const editors = await this.editors(id);
         if (text === headText) {
           await this.drop(id);
-          this.tell(id, { kind: 'saved', commit: head, by });
+          this.tell(id, { kind: 'saved', commit: head, by, coAuthors: [] });
           return { commit: head, unchanged: true };
         }
         const people = await this.deps.db
@@ -413,14 +551,23 @@ export class Drafts {
           commit,
           project.gitUrl ? { url: project.gitUrl, auth: await sync.auth(project) } : undefined,
         );
+        // AFS-136: a save is a push through this server, listed with the others.
+        await recordPushes(
+          this.deps.db,
+          project.id,
+          { id: by.id, login: by.login },
+          [{ ref: project.gitRef, from: head, to: commit }],
+          'save',
+        );
         await sync.refresh(project.id);
         await this.drop(id);
-        this.tell(id, { kind: 'saved', commit, by });
+        const coAuthors = others.map((p) => p.name);
+        this.tell(id, { kind: 'saved', commit, by, coAuthors });
         this.deps.log.info(
           { project: project.key, file: draft.file, commit: commit.slice(0, 12), by: by.login },
           'Draft saved',
         );
-        return { commit };
+        return { commit, coAuthors };
       }),
     );
   }
@@ -437,6 +584,23 @@ export class Drafts {
   }
 
   /** The draft's project, for the routes' checks. */
+  /** AFS-151: what the draft's base commit has, for the designer's findings (roles). */
+  async probe(id: string): Promise<((path: string) => Promise<boolean>) | undefined> {
+    const row = await this.row(id);
+    if (!row) return undefined;
+    // A commit does not change: each path is asked of git once (snapshots are made per edit).
+    return async (path) => {
+      const key = `${row.project_id}:${row.base_commit}:${path}`;
+      let found = this.seen.get(key);
+      if (!found) {
+        found = this.deps.git.exists(row.project_id, row.base_commit, path);
+        if (this.seen.size > 5000) this.seen.clear();
+        this.seen.set(key, found);
+      }
+      return found;
+    };
+  }
+
   async projectOf(id: string): Promise<Project | undefined> {
     const row = await this.row(id);
     return row ? getProject(this.deps.db, row.project_id) : undefined;

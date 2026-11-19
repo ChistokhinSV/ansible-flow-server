@@ -2,10 +2,11 @@
 // archive is unpacked in memory with every path checked and every byte counted, then committed as
 // the project's first commit by the person who sent it, with a row in the record of pushes.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { samplesDir } from '@ansible-flow/assets';
 import type { FastifyInstance } from 'fastify';
 import { zipSync } from 'fflate';
 import { pack } from 'tar-stream';
@@ -20,6 +21,7 @@ import { Git } from '../../src/server/projects/git';
 import {
   archiveFiles,
   listSamples,
+  type SampleLaunch,
   type StartFiles,
   StartRefused,
   sampleFiles,
@@ -261,6 +263,19 @@ describe('starting a hosted project over the API', () => {
     expect((await listPushes(database.db, project.id)).map((p) => [p.login, p.ref, p.to])).toEqual([
       ['dana', 'main', project.commit],
     ]);
+    // AFS-124: the sample's launch configurations come with it, so the flow runs at once.
+    const wanted = sampleLaunches('hello');
+    const configs = (
+      await call(dana, 'GET', `/api/v1/projects/${project.id}/launch-configs`)
+    ).json();
+    expect(
+      configs.map((c: { name: string; flowFile: string; inputs: unknown; mode: string }) => [
+        c.name,
+        c.flowFile,
+        c.inputs,
+        c.mode,
+      ]),
+    ).toEqual(wanted.map((c) => [c.name, c.flowFile, c.inputs ?? {}, c.mode ?? 'check']));
 
     // Only while empty.
     const again = await call(dana, 'POST', `/api/v1/projects/${project.id}/start`, {
@@ -297,10 +312,10 @@ describe('starting a hosted project over the API', () => {
     const audit = (await listAudit(database.db, { action: 'project.start' })).entries;
     // With the refused second start of the sample project before.
     expect(audit.map((a) => `${a.actor?.login ?? ''} ${a.result} ${a.status}`).sort()).toEqual([
-      'dana failed 409',
+      'dana refused 409',
       'lina refused 403',
-      'omar failed 400',
       'omar ok 201',
+      'omar refused 400',
     ]);
   });
 
@@ -334,6 +349,14 @@ describe('starting a hosted project over the API', () => {
     );
   });
 });
+
+/** The launch configurations samples/projects.json gives a sample (none in older designers). */
+function sampleLaunches(key: string): SampleLaunch[] {
+  const read = JSON.parse(readFileSync(join(samplesDir, 'projects.json'), 'utf8')) as {
+    projects?: { key: string; launchConfigs?: SampleLaunch[] }[];
+  };
+  return read.projects?.find((p) => p.key === key)?.launchConfigs ?? [];
+}
 
 function sampleText(key: string): string {
   return text(sampleFiles(key), `flows/${key}/${key}.flow.yaml`) ?? '';

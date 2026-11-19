@@ -94,6 +94,39 @@ describe('the HTTP server', () => {
     expect(reply.json()).toHaveProperty('message');
   });
 
+  it('AFS-140: a request the schema refuses says so in plain words, with the field', async () => {
+    app.post(
+      '/named',
+      {
+        schema: {
+          body: {
+            type: 'object',
+            required: ['name'],
+            properties: {
+              name: { type: 'string', minLength: 1, maxLength: 200 },
+              privateKey: { type: 'string', maxLength: 5 },
+            },
+          },
+        },
+      },
+      async () => ({}),
+    );
+    const send = async (payload: object) =>
+      (await app.inject({ method: 'POST', url: '/named', payload })).json();
+    expect(await send({ name: 'x'.repeat(201) })).toEqual({
+      error: 'invalid',
+      message: 'Name: at most 200 characters.',
+      field: 'name',
+    });
+    expect(await send({ name: '' })).toMatchObject({ message: 'Name is needed.', field: 'name' });
+    expect(await send({})).toMatchObject({ message: 'Name is needed.', field: 'name' });
+    expect(await send({ name: 'a', privateKey: 'too long' })).toMatchObject({
+      message: 'Private key: at most 5 characters.',
+      field: 'privateKey',
+    });
+    expect(JSON.stringify(await send({ name: 'x'.repeat(201) }))).not.toMatch(/body\/|must NOT/);
+  });
+
   it('logs each request with its method, path and status, and no query or headers', async () => {
     await app.inject({
       method: 'GET',

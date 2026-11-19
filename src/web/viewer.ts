@@ -5,26 +5,59 @@
 //                [&commit=<40 hex>]   the flow at that commit (a run's), not the project's
 //                [&run=<run id>]      that run on the canvas, live while it goes
 //                [&draft=<draft id>]  AFS-76: the flow's draft, edited (viewerDraft.ts)
+//                [&tab=<id>]          AFS-149: the page (tab) around it, for a draft's Save
+//                [&node=<step id>]    AFS-164: that step selected and in view (a flow's error)
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
 // Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
 // When someone changes the flow on the branch, a bar says so (AFS-75, viewerChanges.ts).
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
-import type { PastRun } from '@ansible-flow/core/run/pastRuns';
 import { mount } from '@ansible-flow/designer';
+import { isSaveKey, SAVE_KEY } from './saveKey';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
 import { askName, chooseConfig, launcher } from './viewerLaunch';
+import { going, pastRunOf, type RunRecord, runnerOf } from './viewerRuns';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? '';
 const path = params.get('path') ?? '';
 const commit = params.get('commit') ?? '';
 const runId = params.get('run') ?? '';
+const node = params.get('node') ?? '';
 const wanted = params.get('theme');
 const theme = wanted === 'light' || wanted === 'dark' ? wanted : 'auto';
 const root = document.getElementById('root') as HTMLElement;
+
+// AFS-142: / and Ctrl+K open the pages' search on every page, also while the designer here has
+// the focus: the frame hands them to the page around it (search.tsx, SEARCH_KEY).
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (window.parent === window) return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    if (!((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing))) return;
+    e.preventDefault();
+    window.parent.postMessage({ type: 'afs-search-key' }, window.location.origin);
+    // Before the canvas: it may keep the keys it reads to itself.
+  },
+  true,
+);
+
+// AFS-166: Ctrl+S in the canvas is the page's Ctrl+S (a draft's Save, on the flow's page around the
+// frame), and never the browser's Save page dialog. Before the canvas, which keeps keys to itself.
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!isSaveKey(e)) return;
+    e.preventDefault();
+    if (window.parent !== window && !e.repeat)
+      window.parent.postMessage({ type: SAVE_KEY }, window.location.origin);
+  },
+  true,
+);
 
 /** Says why there is no flow to show, in the page itself. */
 function say(text: string): void {
@@ -42,31 +75,6 @@ const get = (url: string) =>
     data: await reply.json().catch(() => undefined),
   }));
 
-/** A run as the designer's run list shows it. */
-interface RunRecord {
-  id: string;
-  mode: 'check' | 'real';
-  state: string;
-  createdAt: string;
-  startedAt?: string;
-  flow: { version: number };
-  /** AFS-105: how many hosts it ran on and how many failed, once it went. */
-  hosts?: { total: number; failed: number };
-}
-/**
- * AFS-105: "ok" is the designer's "the run itself finished": a run that failed because hosts
- * failed did finish (its list line says how many); one stopped, lost or broken did not.
- */
-const pastRunOf = (run: RunRecord): PastRun => ({
-  id: run.id,
-  mode: run.mode,
-  startedAt: run.startedAt ?? run.createdAt,
-  ok: run.state === 'succeeded' || (run.state === 'failed' && (run.hosts?.failed ?? 0) > 0),
-  hosts: run.hosts?.total ?? 0,
-  failed: run.hosts?.failed ?? 0,
-  flowVersion: run.flow.version,
-});
-
 /** AFS-105: the person's level on the flow (its own, else the workspace's), as the server says. */
 interface ProjectAccess {
   admin: boolean;
@@ -75,6 +83,9 @@ interface ProjectAccess {
 }
 const RANK: Partial<Record<string, number>> = { ro: 1, operator: 2, rw: 3 };
 const OPERATOR = 2;
+/** AFS-135: rw on the flow: may add and change its launch configurations. */
+const mayManage = (access: ProjectAccess | undefined, file: string): boolean =>
+  !!access && (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= 3);
 const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
   !!access &&
   (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= OPERATOR);
@@ -82,6 +93,24 @@ const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
 /** Opens a page of the application: in the window that holds this frame, when there is one. */
 function go(to: string): void {
   (window.top ?? window).location.assign(to);
+}
+
+/**
+ * AFS-132: Open in Text Editor in the pages: the file on its project's Files tab. Resolves with
+ * false when the project or its workspace cannot be read.
+ */
+async function openInFiles(file: string): Promise<boolean> {
+  const read = async (url: string) => {
+    const reply = await fetch(url, { credentials: 'same-origin' });
+    return reply.ok ? ((await reply.json()) as { key?: string; workspace?: string }) : undefined;
+  };
+  const p = await read(`/api/v1/projects/${encodeURIComponent(project)}`).catch(() => undefined);
+  const w =
+    p?.workspace &&
+    (await read(`/api/v1/workspaces/${encodeURIComponent(p.workspace)}`).catch(() => undefined));
+  if (!p?.key || !w || !w.key) return false;
+  go(`/w/${w.key}/${p.key}/files?path=${encodeURIComponent(file)}`);
+  return true;
 }
 
 async function start(): Promise<void> {
@@ -96,10 +125,14 @@ async function start(): Promise<void> {
       me: String(me.data?.login ?? ''),
       theme,
       stateKey: `afs.draft.${draft}`,
+      ...(params.get('tab') ? { tab: params.get('tab') as string } : {}),
+      ...(node ? { reveal: node } : {}),
     });
     return;
   }
-  if (!project || !path) return say('This address names no flow.');
+  // AFS-143: the viewer opened by itself, without a flow: where flows are opened instead.
+  if (!project || !path)
+    return say('This address names no flow. Open a flow from its project page in Workspaces.');
   // AFS-105: what the person may do here, asked beside the flow: the canvas offers only that.
   const accessAsked = get(`/api/v1/projects/${encodeURIComponent(project)}/access`).catch(
     () => undefined,
@@ -118,14 +151,23 @@ async function start(): Promise<void> {
     return say(
       flow.status === 401
         ? 'Sign in to see this flow.'
-        : (flow.data?.message ?? `The server answered ${flow.status}`),
+        : flow.status === 404
+          ? `The flow ${path} is not here, or is not shared with you.`
+          : (flow.data?.message ?? `The server answered ${flow.status}`),
     );
 
   const access = await accessAsked;
   const operate = mayOperate(access?.ok ? (access.data as ProjectAccess) : undefined, path);
+  const manage = mayManage(access?.ok ? (access.data as ProjectAccess) : undefined, path);
   // AFS-105: on a run's page the page shows the run (state, hosts, outputs, approvals, Stop, Run
   // again): the canvas does not repeat it. Elsewhere it launches and stops for an operator.
-  const embed = { runShown: !!runId, mayRun: operate && !commit, mayStop: operate };
+  // AFS-153: the canvas tells runs in the pages' words (check run, went well, stopped).
+  const embed = {
+    runShown: !!runId,
+    mayRun: operate && !commit,
+    mayStop: operate,
+    words: 'server' as const,
+  };
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
@@ -133,16 +175,47 @@ async function start(): Promise<void> {
     setTimeout(() => {
       for (const listener of listeners) listener(message);
     }, 0);
+  // AFS-152: the canvas here only shows the flow; Delete on it is not ignored without a word.
+  let toldReadOnly = 0;
+  window.addEventListener('keydown', (e) => {
+    if ((e.key !== 'Delete' && e.key !== 'Backspace') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (e.repeat || Date.now() - toldReadOnly < 4000) return;
+    toldReadOnly = Date.now();
+    send({
+      type: 'notify',
+      level: 'info',
+      text:
+        manage && !runId && !commit
+          ? 'The flow is shown read only: Edit on its page opens a draft to change it.'
+          : 'The flow is shown read only: changing it needs read and write access to it.',
+    });
+  });
   /** The run on the canvas now, for a step's host output and Stop. */
   let shown = runId;
   let stream: EventSource | undefined;
+  /** AFS-139: the flow's runs as last read, newest first. */
+  let known: RunRecord[] = [];
+  /** AFS-139: tells the page around the frame that the flow's runs changed (Latest runs). */
+  const runsChanged = () => {
+    if (window.parent !== window)
+      window.parent.postMessage({ type: 'afs-flow-runs' }, window.location.origin);
+  };
 
   /** Shows a run on the canvas: live while it goes, from its record once it ended. */
   const showRun = (id: string, past: boolean) => {
     shown = id;
     stream?.close();
-    stream = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
-    stream.addEventListener('view', (event) => {
+    const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
+    stream = events;
+    // AFS-139: the run's record (the events send it first) says where it ran and how it stands.
+    let record = known.find((r) => r.id === id);
+    let ended = !!record && !going(record.state);
+    events.addEventListener('run', (event) => {
+      record = JSON.parse((event as MessageEvent).data) as RunRecord;
+    });
+    events.addEventListener('view', (event) => {
       const view = JSON.parse((event as MessageEvent).data);
       void decidable(id, view).then((approvals) =>
         // Named by the server's run id, as the run list names it, so the canvas knows it there.
@@ -150,6 +223,7 @@ async function start(): Promise<void> {
           type: 'run',
           run: {
             ...view,
+            ...(record ? runnerOf(record) : {}),
             id,
             ...(approvals ? { approvals } : {}),
             ...(past ? { past: true } : {}),
@@ -157,7 +231,15 @@ async function start(): Promise<void> {
         }),
       );
     });
-    stream.addEventListener('end', () => stream?.close());
+    events.addEventListener('end', () => {
+      events.close();
+      // AFS-139: a run that ended while shown: the run list and the page's Latest runs say how.
+      if (!ended) {
+        ended = true;
+        void runs();
+        runsChanged();
+      }
+    });
   };
 
   /**
@@ -175,16 +257,31 @@ async function start(): Promise<void> {
       () => undefined,
     );
     if (!gates?.ok) return approvals;
-    const may = new Set(
-      (gates.data as { node: { id: string }; mayDecide: boolean }[])
-        .filter((g) => g.mayDecide)
-        .map((g) => g.node.id),
-    );
+    type Told = {
+      node: { id: string };
+      mayDecide: boolean;
+      deciders?: string[];
+      hosts?: string[];
+      next?: Record<string, string>;
+    };
+    const told = new Map((gates.data as Told[]).map((g) => [g.node.id, g]));
     return Object.fromEntries(
-      Object.entries(approvals).map(([node, a]) => [
-        node,
-        a.status === 'waiting' && may.has(node) ? { ...a, mayDecide: true } : a,
-      ]),
+      Object.entries(approvals).map(([node, a]) => {
+        const g = told.get(node);
+        if (a.status !== 'waiting' || !g) return [node, a];
+        // AFS-146: and who may decide it, the hosts that wait, and where each decision sends
+        // them, for the node's Run tab.
+        return [
+          node,
+          {
+            ...a,
+            ...(g.mayDecide ? { mayDecide: true } : {}),
+            ...(g.deciders ? { deciders: g.deciders } : {}),
+            ...(g.hosts?.length ? { hosts: g.hosts } : {}),
+            ...(g.next ? { next: g.next } : {}),
+          },
+        ];
+      }),
     );
   };
 
@@ -192,7 +289,19 @@ async function start(): Promise<void> {
     const list = await get(
       `/api/v1/runs?project=${encodeURIComponent(project)}&flow=${encodeURIComponent(path)}&limit=50`,
     ).catch(() => undefined);
-    if (list?.ok) send({ type: 'runs', runs: (list.data as RunRecord[]).map(pastRunOf) });
+    if (!list?.ok) return;
+    known = list.data as RunRecord[];
+    send({ type: 'runs', runs: known.map(pastRunOf) });
+  };
+  /**
+   * AFS-139: the flow page shows the flow's newest run on the canvas, the one its header lists
+   * first: live while it goes, else as it ended. Not on a run's page (it names its run) nor at
+   * an older commit.
+   */
+  const showLatest = async () => {
+    await runs();
+    const latest = known[0];
+    if (latest && !shown) showRun(latest.id, !going(latest.state));
   };
 
   const launch = launcher({
@@ -202,9 +311,10 @@ async function start(): Promise<void> {
     choose: chooseConfig,
     askName,
     go,
+    mayAddConfig: manage,
     launched: (id) => {
-      showRun(id, false);
-      void runs();
+      void runs().then(() => showRun(id, false));
+      runsChanged();
     },
   });
 
@@ -247,8 +357,13 @@ async function start(): Promise<void> {
             send({ type: 'config', testMode: false, viewer: true, embed } as HostMessage);
             send({ type: 'catalogStatus', status: { state: 'idle' } });
             send({ type: 'snapshot', snapshot: flow.data.snapshot });
-            void runs();
-            if (runId) showRun(runId, false);
+            // AFS-164: the step a link names (an error on it): selected, its level open.
+            if (node) send({ type: 'reveal', node });
+            if (runId) {
+              void runs();
+              showRun(runId, false);
+            } else if (commit) void runs();
+            else void showLatest();
             return;
           case 'run':
             // AFS-67: the designer's launch dialog, backed by a launch configuration of the flow.
@@ -278,11 +393,23 @@ async function start(): Promise<void> {
             following.compareWith(message.ref);
             return;
           case 'showRun':
-            showRun(message.id, true);
+            // AFS-139: a run picked from the list that has not ended is followed live.
+            showRun(message.id, !going(known.find((r) => r.id === message.id)?.state));
             return;
           case 'openLink':
             // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
             openWebLink(message.url);
+            return;
+          case 'openText':
+            // The flow's file (the designer names a node in it, which the Files tab cannot show).
+            void openInFiles(path).then((opened) => {
+              if (!opened)
+                send({
+                  type: 'notify',
+                  level: 'error',
+                  text: `${path} could not be opened: open it on the project's Files tab.`,
+                });
+            });
             return;
           case 'catalog': {
             // AFS-118: a step's module docs, from the catalog of the flow's image.
@@ -358,7 +485,16 @@ async function start(): Promise<void> {
                 body: JSON.stringify({ decision, ...(comment ? { comment } : {}) }),
               },
             ).then(async (reply) => {
-              if (reply.ok) return;
+              if (reply.ok) {
+                // AFS-146: the page around the frame counts what waits again at once (its
+                // Approvals badge) and reads the run's approvals again.
+                if (window.parent !== window)
+                  window.parent.postMessage(
+                    { type: 'afs-approvals-changed' },
+                    window.location.origin,
+                  );
+                return;
+              }
               const why = (await reply.json().catch(() => undefined))?.message;
               send({ type: 'notify', level: 'error', text: why ?? 'The decision was not taken' });
             });

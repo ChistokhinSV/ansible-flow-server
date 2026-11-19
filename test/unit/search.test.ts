@@ -200,10 +200,12 @@ for (const [name, config] of databases) {
         expect.arrayContaining([
           'flow Hello, Ansible',
           'launch-config Hello nightly',
-          `run Run ${runNumber} · Hello, Ansible`,
+          `run Hello, Ansible #${runNumber}`,
         ]),
       );
-      expect(hello.some((h) => h.detail.startsWith('ops/'))).toBe(false);
+      expect(hello.some((h) => h.detail.startsWith('Operations'))).toBe(false);
+      // AFS-153: where a hit is, by name, and a run's state in the run pages' words.
+      expect(hello.find((h) => h.kind === 'run')?.detail).toBe('Network / Edge routers · queued');
       const flow = hello.find((h) => h.kind === 'flow');
       expect(flow?.to).toBe('/w/net/edge/flow/flows/hello.flow.yaml');
       expect((await find('rita', 'edge rout'))[0]).toMatchObject({
@@ -222,7 +224,7 @@ for (const [name, config] of databases) {
     it('a grant on one flow finds that flow and its runs, not the flow beside it', async () => {
       const kinds = (await find('omar', 'hello')).map((h) => `${h.kind} ${h.title}`);
       expect(kinds).toContain('flow Hello, Ansible');
-      expect(kinds).toContain(`run Run ${runNumber} · Hello, Ansible`);
+      expect(kinds).toContain(`run Hello, Ansible #${runNumber}`);
       expect(await find('omar', 'backup')).toEqual([]);
     });
 
@@ -230,6 +232,8 @@ for (const [name, config] of databases) {
       expect((await find('rita', `#${runNumber}`))[0]).toMatchObject({
         kind: 'run',
         to: expect.stringMatching(/^\/runs\//),
+        // AFS-139: the time as a time, for the page to show in the viewer's zone.
+        at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
       });
       expect((await find('rita', `run ${runNumber}`))[0]).toMatchObject({ kind: 'run' });
       const people = await find('dana', 'omar');

@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 import { NotificationsPage } from '../../src/web/notifications';
+import { mayLeave } from '../../src/web/router';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Reyes', admin: true, groups: [] };
 
@@ -129,6 +130,16 @@ describe('the Notifications page', () => {
     fireEvent.click(within(hooks).getByRole('button', { name: 'Make a key' }));
     expect(await within(hooks).findByText('afs_whk_example-key')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Send a test' })).toBeTruthy();
+    // AFS-150: an address typed for a test is not kept anywhere: leaving does not ask.
+    const test = screen.getByRole('heading', { name: 'Test' }).closest('section') as HTMLElement;
+    fireEvent.change(within(test).getByLabelText('To'), { target: { value: 'a8@example.net' } });
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    expect(mayLeave('/runs')).toBe(true);
+    expect(questions).toEqual([]);
 
     cleanup();
     render(<NotificationsPage tab="log" />);
@@ -161,6 +172,38 @@ describe('the profile on My account', () => {
     'GET /tokens': () => ({ body: [] }),
     'GET /workspaces': () => ({ body: [] }),
     'PATCH /session': (body?: unknown) => ({ body: { ...me, ...(body as object) } }),
+  });
+
+  it('Turn email off says what it does and asks first (AFS-153)', async () => {
+    let settings: Record<string, unknown> = {
+      webhookKey: false,
+      smtp: { host: 'smtp.example.net', port: 587, security: 'starttls', from: 'afs@example.net' },
+    };
+    let answer = false;
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (q: string) => {
+      questions.push(q);
+      return answer;
+    });
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /notifications/settings': () => ({ body: settings }),
+      'DELETE /notifications/smtp': () => {
+        settings = { webhookKey: false };
+        return { status: 204 };
+      },
+    };
+    window.history.replaceState(null, '', '/admin/notifications/settings');
+    render(<App />);
+    const off = await screen.findByRole('button', { name: 'Turn email off' });
+    expect(off.getAttribute('title')).toMatch(/sends no email to anyone/);
+    fireEvent.click(off);
+    expect(questions[0]).toMatch(/for the whole server/);
+    expect(asked.some((a) => a.key === 'DELETE /notifications/smtp')).toBe(false);
+    answer = true;
+    fireEvent.click(off);
+    await screen.findByText(/No mail server yet/);
+    expect(asked.filter((a) => a.key === 'DELETE /notifications/smtp')).toHaveLength(1);
   });
 
   it('a person changes their own email; their webhook is shown by its host, set by an administrator', async () => {

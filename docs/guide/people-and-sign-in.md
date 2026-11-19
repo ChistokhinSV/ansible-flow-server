@@ -3,10 +3,12 @@
 [The guide](README.md)
 
 A new server has no user. At start it writes a setup code to its log; the first administrator is
-made with it, so by someone who can read the server's log:
+made with it, so by someone who can read the server's log. The line names the page to open with
+the code: the setup page under `AFS_PUBLIC_URL`, or under the address the server listens on when
+that is not set:
 
 ```text
-[09:44:38 13.11.2026] WARN  No user yet. Make the first administrator with this setup code (POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
+[09:44:38 13.11.2026] WARN  No user yet. Make the first administrator with this setup code: open https://flows.example.net:8443/setup?code=Jq3vN0c4TzWk (or POST /api/v1/setup, or: user add --admin) setup=Jq3vN0c4TzWk
 ```
 
 ```sh
@@ -27,6 +29,7 @@ just user add dana --name "Dana Whitfield" --admin
 | `GET /session`                                             | Who am I, with my groups                                            | signed in                         |
 | `DELETE /session`                                          | Sign out                                                            | anyone                            |
 | `PUT /session/password`                                    | Change my password: `{"current","password"}`                        | signed in                         |
+| `GET /session/access`                                      | My own access, workspace by workspace, and who gives access (below) | signed in                         |
 | `PATCH /session`                                           | Change my `name` and `email`; `webhookUrl` only as an administrator | session (not a token)             |
 | `GET /tokens`, `POST /tokens`                              | My access tokens; make one (shown once)                             | signed in; making needs a session |
 | `DELETE /tokens/:id`                                       | Revoke one of my tokens                                             | signed in, with a session         |
@@ -38,16 +41,22 @@ just user add dana --name "Dana Whitfield" --admin
 | `GET /users/:id/access`                                    | What one person reaches, workspace by workspace (below)             | administrators                    |
 | `GET /groups/:id/grants`                                   | The grants that name a group, in every workspace (below)            | administrators                    |
 
-- A password has at least 12 characters and is kept only as an argon2id hash.
+- A password has at least 12 characters, at least 5 different ones, and does not contain the
+  login. The pages say these rules under every password field and check them before sending. It
+  is kept only as an argon2id hash.
 - A session lasts 8 hours without use and 7 days at most. Its cookie is not readable by scripts
   and is sent over HTTPS only.
 - After five wrong passwords for a login in fifteen minutes, sign-in for it waits.
 - The last administrator cannot be demoted, disabled or deleted.
+- A wrong login and a wrong password get one answer. A disabled account is told so (403
+  `disabled`) only with its right password.
 - `GET /users/:id/access` answers `{"admin", "workspaces"}`: a row for each workspace where a
   grant names the person or one of their groups, with the `workspace` (`id`, `key`, `name`),
-  their `level` there, `approve`, the `flows` with a grant of their own, and `through` (whose
-  grants gave it: `user:omar`, `group:netops`). For an administrator it is `"admin": true` and
-  no rows. `GET /groups/:id/grants` lists the grants that name the group: each with the
+  their `level` there, `approve`, the `flows` with a grant of their own (`project` key,
+  `projectId`, `file`, `level`), and `through` (whose grants gave it: `user:omar`,
+  `group:netops`). For an administrator it is `"admin": true` and no rows. `GET /session/access`
+  is the same answer for whoever asks, about themself, with `administrators`: the names of the
+  administrators, who give access. **My account** shows it under **Your access**. `GET /groups/:id/grants` lists the grants that name the group: each with the
   `workspace` (`id`, `key`, `name`), the `level`, and the `flow` when it is on one flow.
 - A person and a group each have an email address and a webhook address: where a notification
   for them goes (see [Notifications](notifications.md)).
@@ -96,7 +105,8 @@ curl --cacert data/tls/certificate.pem -H "Authorization: Bearer $AFS_TOKEN" \
 - The server keeps a hash of the token: it cannot show it again. Lost means revoke and make anew.
 - A token lasts 90 days unless you say otherwise, a year at most. It stops when it is revoked,
   at its end, and while its owner is disabled. A person has at most 50.
-- A read-only token (`"readOnly": true`) reads and changes nothing.
+- A read-only token (`"readOnly": true`) reads and changes nothing: a change is refused
+  (`403 read_only_token`) before what it sent is looked at.
 - An agent with a token made with `"mcpApprovals": true` may decide approvals over MCP (see
   [Agents (MCP)](api-and-mcp.md#agents-mcp)); without it approvals stay with people. Not for a read-only token.
 - A token for one workspace (`"workspace": "net"`, its key or id) reaches that workspace only:
@@ -122,7 +132,8 @@ administrator adds a provider:
 | Mappings      | A value of the groups claim and what it is here: a server group, or administrator         |
 
 Register the address the page shows (`https://flows.example.net/api/v1/auth/oidc/<key>/callback`)
-as the client's redirect URI at the provider, and Test the provider. Then:
+as the client's redirect URI at the provider, and Test the provider. The address shows while the
+provider is added, as soon as its key is typed. Then:
 
 - The sign-in page has a button per provider. The sign-in is the authorization code flow with
   PKCE, state and nonce; the ID token's signature, issuer and audience are checked.
@@ -131,7 +142,8 @@ as the client's redirect URI at the provider, and Test the provider. Then:
 - At each sign-in their groups and the administrator right follow the mapped claim values: what the
   provider no longer says is taken back. Groups and rights given here by hand are kept.
 - **Passwords for administrators only:** the page's Passwords setting lets everyone else sign in
-  only with a provider (a way in stays if the provider is down).
+  only with a provider (a way in stays if the provider is down). It asks first, and is refused
+  (409) while no provider or directory is enabled: nobody else could sign in.
 - Removing a provider keeps its people; the groups and administrator rights it gave go.
 - A provider's certificate authority: `AFS_CA_FILE`. Every change is in the audit log.
 
@@ -190,9 +202,12 @@ Administrators may do everything. Everyone else sees and does only what they are
 - **Git is the workspace's:** clone needs `ro` on the workspace and push `rw` on it; a grant on
   one flow does not open the repository, which holds every flow.
 - **What a person may not see is not there for them:** lists leave it out, and asking for it
-  answers 404. What they may see but not do answers 403.
+  answers 404 with the words a missing one gets ("No such run"). What they may see but not do answers 403.
 - **Tokens act as their owner,** narrowed further when read-only or made for one workspace.
 - Workspaces, projects, credentials and grants are changed by administrators.
+- **The pages say the levels in words:** read only, operator, read and write, approver. Each
+  workspace and every tab of a project says your own access there under its title, with the
+  flows a grant of your own gives another level on, by their titles.
 
 Give and take grants on the workspace's page (Access), or:
 

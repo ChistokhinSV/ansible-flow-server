@@ -2,9 +2,10 @@
 // flow. The page is public, so the picture is only shapes: no names, hosts, runs or numbers.
 import { type ReactNode, useEffect, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
+import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
 import { api, type User } from './api';
 import { ProviderButtons } from './signin';
-import { Field, Form, useLoad } from './ui';
+import { Field, Form, refuse, useLoad } from './ui';
 
 /** Steps and wires, drawn once; it says nothing about this server. */
 function Picture() {
@@ -135,7 +136,14 @@ export function Entry({
 }
 
 export function Setup({ onDone }: { onDone: (user: User) => void }) {
-  const [input, setInput] = useState({ code: '', login: '', name: '', password: '' });
+  // AFS-158: the address in the log brings the code with it (/setup?code=…).
+  const [input, setInput] = useState(() => ({
+    code: new URLSearchParams(window.location.search).get('code') ?? '',
+    login: '',
+    name: '',
+    password: '',
+  }));
+  const [given] = useState(() => !!input.code);
   const set = (key: keyof typeof input) => (e: { target: { value: string } }) =>
     setInput((before) => ({ ...before, [key]: e.target.value }));
   return (
@@ -144,13 +152,28 @@ export function Setup({ onDone }: { onDone: (user: User) => void }) {
       title="Set up Ansible Flow Server"
       lead="This server has no user yet. Make its first administrator. The setup code is in the server's log, written when it started."
     >
-      <Form submit="Make the administrator" onSubmit={async () => onDone(await api.setup(input))}>
-        <Field label="Setup code" value={input.code} onChange={set('code')} required autoFocus />
+      <Form
+        submit="Make the administrator"
+        onSubmit={async () => {
+          // AFS-140: the rules are checked here first.
+          const problem = passwordProblem(input.password, input.login.trim());
+          if (problem) refuse('password', `${problem}.`);
+          onDone(await api.setup(input));
+        }}
+      >
+        <Field
+          label="Setup code"
+          value={input.code}
+          onChange={set('code')}
+          required
+          autoFocus={!given}
+        />
         <Field
           label="Login"
           value={input.login}
           onChange={set('login')}
           required
+          autoFocus={given}
           autoComplete="username"
         />
         <Field
@@ -162,13 +185,14 @@ export function Setup({ onDone }: { onDone: (user: User) => void }) {
         />
         <Field
           label="Password"
+          name="password"
           type="password"
           value={input.password}
           onChange={set('password')}
           required
           minLength={12}
           autoComplete="new-password"
-          hint="At least 12 characters. A few words work well."
+          hint={PASSWORD_RULES}
         />
       </Form>
     </Entry>

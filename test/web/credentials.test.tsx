@@ -18,6 +18,10 @@ const sshKey = {
   fields: { username: 'netops' },
   has: ['privateKey'],
   usedBy: 2,
+  uses: [
+    { kind: 'project', project: 'edge', name: 'Edge' },
+    { kind: 'launch', project: 'edge', id: 'lc1', name: 'nightly backup' },
+  ],
   createdAt: '2026-11-13T09:00:00.000Z',
   updatedAt: '2026-11-13T09:00:00.000Z',
 };
@@ -122,10 +126,85 @@ describe("a workspace's credentials", () => {
       { name: 'edge-ssh-2026', description: null, fields: { username: 'netops' } },
     ]);
 
-    fireEvent.click(within(section).getByRole('button', { name: 'Delete edge-ssh-2026' }));
-    expect((await within(section).findByRole('alert')).textContent).toMatch(
-      /signs in to its repository with it/,
+    // AFS-134: launch configurations use it: Delete is not offered, and says why.
+    const del = within(section).getByRole('button', { name: 'Delete edge-ssh-2026' });
+    expect((del as HTMLButtonElement).disabled).toBe(true);
+    expect(del.getAttribute('title')).toMatch(/In use \(see Used by\)/);
+    // AFS-150: what uses it, by name, each a link.
+    expect(within(section).getByRole('link', { name: 'nightly backup' }).getAttribute('href')).toBe(
+      '/w/network/edge/launch/lc1/settings',
     );
+    expect(within(section).getByRole('link', { name: 'Edge' }).getAttribute('href')).toBe(
+      '/w/network/edge/settings',
+    );
+  });
+
+  it('AFS-140: checks fields before sending and says each problem at its field', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /workspaces/network': () => ({ body: network }),
+      'GET /workspaces/network/projects': () => ({ body: [] }),
+      'GET /workspaces/network/credentials': () => ({ body: [] }),
+      'POST /workspaces/network/credentials': () => ({
+        status: 400,
+        body: { error: 'invalid', message: 'This is not a private key.', field: 'privateKey' },
+      }),
+    };
+    open('/w/network/-/credentials');
+    const section = await panel();
+    fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
+    // The form opened takes the cursor.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(section).getByLabelText('Kind')),
+    );
+
+    // Two variables of one name: one value would be lost, so it is refused at the second.
+    fireEvent.change(within(section).getByLabelText('Kind'), { target: { value: 'env' } });
+    fireEvent.change(within(section).getByLabelText('Name'), { target: { value: 'api' } });
+    fireEvent.change(within(section).getByLabelText('Name 1'), { target: { value: 'API_KEY' } });
+    // AFS-150: a variable with no value is refused at its value.
+    fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
+    const value1 = within(section).getByLabelText('Value 1');
+    await waitFor(() => expect(value1.getAttribute('aria-invalid')).toBe('true'));
+    expect(within(section).getByText(/API_KEY has no value/)).toBeTruthy();
+    fireEvent.change(value1, { target: { value: 'a' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Add a variable' }));
+    fireEvent.change(within(section).getByLabelText('Name 2'), { target: { value: 'API_KEY' } });
+    fireEvent.change(within(section).getByLabelText('Value 2'), { target: { value: 'b' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
+    const second = within(section).getByLabelText('Name 2');
+    await waitFor(() => expect(second.getAttribute('aria-invalid')).toBe('true'));
+    expect(within(section).getByText(/API_KEY is given twice/)).toBeTruthy();
+    expect(sent('POST /workspaces/network/credentials')).toEqual([]);
+    // Changing it takes the problem away.
+    fireEvent.change(second, { target: { value: 'API_URL' } });
+    expect(within(section).queryByText(/is given twice/)).toBeNull();
+
+    // A become method that is no name.
+    fireEvent.change(within(section).getByLabelText('Kind'), { target: { value: 'become' } });
+    fireEvent.change(within(section).getByLabelText('Become method'), {
+      target: { value: 'notamethod!!' },
+    });
+    fireEvent.change(within(section).getByLabelText('Password'), { target: { value: 'p' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
+    expect(await within(section).findByText(/A become method is a name/)).toBeTruthy();
+    expect(within(section).getByLabelText('Become method').getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+    expect(sent('POST /workspaces/network/credentials')).toEqual([]);
+
+    // What the server refuses about a field is said at that field, not at the bottom.
+    fireEvent.change(within(section).getByLabelText('Kind'), { target: { value: 'ssh_key' } });
+    fireEvent.change(within(section).getByLabelText('Private key'), {
+      target: {
+        value: ['-----BEGIN PRIVATE KEY-----', 'x', '-----END PRIVATE KEY-----'].join(' '),
+      },
+    });
+    fireEvent.click(within(section).getByRole('button', { name: 'Add credential' }));
+    const key = within(section).getByLabelText('Private key');
+    await waitFor(() => expect(key.getAttribute('aria-invalid')).toBe('true'));
+    expect(within(section).getByText('This is not a private key.')).toBeTruthy();
+    expect(within(section).queryByRole('alert')).toBeNull();
   });
 
   it('someone who is not an administrator sees the list and nothing to change', async () => {

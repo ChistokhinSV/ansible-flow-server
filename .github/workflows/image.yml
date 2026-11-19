@@ -5,12 +5,20 @@
 #   - variable AFD_PACKAGES_ON_NPM = "true", as for CI: the designer's packages come from npm;
 #   - variable DOCKERHUB_NAMESPACE (the Docker Hub user or organisation), and secrets
 #     DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (an access token with write access).
+#
+# The Docker Hub page (its description and README, deploy/dockerhub/README.md) is set from a release
+# tag, not from a release candidate; a manual run with `description_only` sets just the page.
 name: Image
 
 on:
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      description_only:
+        description: Set the Docker Hub page only; build and push nothing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +29,7 @@ concurrency:
 
 jobs:
   publish:
-    if: vars.AFD_PACKAGES_ON_NPM == 'true'
+    if: vars.AFD_PACKAGES_ON_NPM == 'true' && !inputs.description_only
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -72,3 +80,26 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  dockerhub-page:
+    needs: publish
+    # After a release's images (not a candidate's), or alone by hand.
+    if: >-
+      always() &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped') &&
+      (inputs.description_only || (github.ref_type == 'tag' && !contains(github.ref_name, '-')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Needs DOCKERHUB_TOKEN with the read/write/delete scope.
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_NAMESPACE }}/ansible-flow-server
+          short-description: Runs Ansible Flow Designer flows for a team, with approvals, access levels and an API
+          readme-filepath: ./deploy/dockerhub/README.md

@@ -217,7 +217,7 @@ for _ in $(seq 1 60); do
       say "Installed $VERSION; the server answers on port ${PORT:-8443}."
       # The full path: sudo's secure_path leaves /usr/local/bin out on RHEL-family systems.
       say "Make the first administrator: sudo $WRAPPER user add <login> --admin"
-      say "  (or open the address and use the setup code: journalctl -u ansible-flow-server | grep setup)"
+      say "  (or open the setup address from the log: journalctl -u ansible-flow-server | grep setup)"
     fi
     exit 0
   fi

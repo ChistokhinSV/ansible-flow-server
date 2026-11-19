@@ -2,7 +2,13 @@
 // do is shown only to them (the server decides either way).
 
 import { useEffect, useState } from 'react';
-import { useProjectAccess, WorkspaceAccess } from './access';
+import {
+  launchesInProject,
+  ProjectYourAccess,
+  useProjectAccess,
+  WorkspaceAccess,
+  YourAccess,
+} from './access';
 import {
   api,
   type Branch,
@@ -14,7 +20,9 @@ import {
 } from './api';
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
-import { NewFlowForm } from './flowFiles';
+import { followKey, NewFlowForm } from './flowFiles';
+import { guide } from './guide';
+import { Missing, MissingProject } from './help';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunList, RunWords } from './runs';
@@ -23,12 +31,16 @@ import {
   Copyable,
   Field,
   Form,
+  Labelled,
   Loading,
   messageOf,
   PageHead,
+  refuse,
+  Scroll,
   Tabs,
   Time,
   useLoad,
+  WorkspaceName,
 } from './ui';
 
 // --- workspaces
@@ -39,7 +51,11 @@ export function Workspaces({ me }: { me: User }) {
   const [input, setInput] = useState({ key: '', name: '' });
   return (
     <>
-      <PageHead title="Workspaces" lead="A workspace is a team's space: its projects live in it.">
+      <PageHead
+        help="workspaces-and-projects.md"
+        title="Workspaces"
+        lead="A workspace is a team's space: its projects live in it."
+      >
         {me.admin && !adding && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
             Add workspace
@@ -49,6 +65,7 @@ export function Workspaces({ me }: { me: User }) {
       {adding && (
         <section className="panel sheet" aria-label="Add workspace">
           <Form
+            open
             submit="Add"
             onCancel={() => setAdding(false)}
             onSubmit={async () => {
@@ -59,17 +76,24 @@ export function Workspaces({ me }: { me: User }) {
             <Field
               label="Name"
               value={input.name}
-              onChange={(e) => setInput({ ...input, name: e.target.value })}
+              onChange={(e) =>
+                setInput({
+                  name: e.target.value,
+                  key: followKey(e.target.value, input.name, input.key),
+                })
+              }
               required
-              autoFocus
             />
             <Field
               label="Key"
+              name="key"
+              maxLength={63}
               value={input.key}
               onChange={(e) => setInput({ ...input, key: e.target.value })}
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
-              hint="Used in addresses: lower-case letters, digits and dashes."
+              title="Lower-case letters, digits and dashes, not starting or ending with a dash"
+              hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
             />
           </Form>
         </section>
@@ -77,8 +101,9 @@ export function Workspaces({ me }: { me: User }) {
       <Loading state={list} />
       {list.data?.length === 0 && (
         <p className="empty">
-          No workspace yet.{' '}
-          {me.admin ? 'Add the first one.' : 'An administrator makes the first one.'}
+          {me.admin
+            ? 'No workspace yet. Add the first one.'
+            : 'You have no access to a workspace yet: ask an administrator for it.'}
         </p>
       )}
       <ul className="cards">
@@ -115,7 +140,18 @@ function SyncBadge({ project }: { project: Project }) {
  * AFS-84: the project's state in one line; what it is set up with is on Settings. It is on every
  * tab of the project, Files too (AFS-94), so the tabs stay where they are.
  */
-export function ProjectStatus({ project, me, base }: { project: Project; me: User; base: string }) {
+export function ProjectStatus({
+  project,
+  me,
+  base,
+  quiet,
+}: {
+  project: Project;
+  me: User;
+  base: string;
+  /** AFS-150: the source's error is said elsewhere on the page (Settings, under Source). */
+  quiet?: boolean;
+}) {
   return (
     <p className="statusline">
       <SyncBadge project={project} />
@@ -137,12 +173,12 @@ export function ProjectStatus({ project, me, base }: { project: Project; me: Use
         </span>
       )}
       {project.library && <span className="badge">library</span>}
-      {project.sync.error && (
+      {project.sync.error && (!quiet || needsSignIn(project.sync.error)) && (
         <span className="bad-text">
-          {project.sync.error}
+          {quiet ? '' : project.sync.error}
           {needsSignIn(project.sync.error) && (
             <>
-              {' '}
+              {quiet ? '' : ' '}
               The repository asks for a sign-in
               {me.admin ? (
                 <>
@@ -161,6 +197,8 @@ export function ProjectStatus({ project, me, base }: { project: Project; me: Use
 
 /** AFS-58: why the archive a project was made with was refused, for its page to say. */
 let startRefusal: string | undefined;
+/** AFS-140: why a new project's source could not be read, for its Settings to say. */
+let sourceRefusal: string | undefined;
 
 /** AFS-58: what an empty hosted project starts with: a sample, or an archive of files. */
 function StartChoice({
@@ -240,6 +278,7 @@ function StartChoice({
           <label htmlFor="start-archive">Archive</label>
           <input
             id="start-archive"
+            name="archive"
             type="file"
             accept=".zip,.tar.gz,.tgz,application/zip,application/gzip"
             onChange={(e) => onChange({ ...value, archive: e.target.files?.[0] })}
@@ -256,6 +295,14 @@ function StartChoice({
 /** AFS-84: a workspace's tabs, by the end of their address. */
 export type WorkspaceTab = '' | '-/environments' | '-/credentials' | '-/access';
 
+/** AFS-143: the guide page about each tab of a workspace. */
+const WORKSPACE_HELP: Record<WorkspaceTab, string> = {
+  '': 'workspaces-and-projects.md',
+  '-/environments': 'environments.md',
+  '-/credentials': 'credentials.md',
+  '-/access': 'people-and-sign-in.md#access-levels',
+};
+
 export function Workspace({
   me,
   workspace,
@@ -266,7 +313,11 @@ export function Workspace({
   tab?: WorkspaceTab;
 }) {
   const space = useLoad(() => api.workspace(workspace), [workspace]);
-  const projects = useLoad(() => api.projects(workspace), [workspace]);
+  // AFS-152: read once the workspace is there: a workspace not there (or not shared) is asked for once.
+  const projects = useLoad(
+    async () => (space.data ? api.projects(workspace) : undefined),
+    [workspace, !!space.data],
+  );
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState({
     key: '',
@@ -280,12 +331,43 @@ export function Workspace({
     sample: string;
     archive?: File;
   }>({ from: 'empty', sample: '' });
+  const crumbs = (
+    <Breadcrumb>
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <span aria-current="page">{space.data?.name ?? workspace}</span>
+    </Breadcrumb>
+  );
+  // AFS-143: a workspace not there (or not shared) is named, with the way back.
+  if (space.error && !space.loading)
+    return (
+      <>
+        {crumbs}
+        <Missing
+          what={
+            <>
+              The workspace <code>{workspace}</code>
+            </>
+          }
+          back={{ to: '/workspaces', label: 'Back to Workspaces' }}
+          error={/^No such/.test(space.error) ? undefined : space.error}
+        />
+      </>
+    );
   return (
     <>
-      <Breadcrumb>
-        <Link to="/workspaces">Workspaces</Link> / <span aria-current="page">{workspace}</span>
-      </Breadcrumb>
-      <PageHead title={space.data?.name ?? workspace} lead={space.data?.description}>
+      {crumbs}
+      <PageHead
+        help={WORKSPACE_HELP[tab]}
+        title={space.data?.name ?? workspace}
+        lead={
+          space.data && (
+            <>
+              {space.data.description && <>{space.data.description} · </>}
+              <YourAccess level={me.admin ? 'admin' : space.data.level} />
+            </>
+          )
+        }
+      >
         {/* AFS-94: the head's action is the tab's own: the other tabs have theirs. */}
         {me.admin && space.data && !adding && tab === '' && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
@@ -297,12 +379,13 @@ export function Workspace({
       {adding && tab === '' && (
         <section className="panel sheet" aria-label="Add project">
           <Form
+            open
             submit="Add"
             onCancel={() => setAdding(false)}
             onSubmit={async () => {
               const archive = input.hosted && start.from === 'archive' ? start.archive : undefined;
               if (input.hosted && start.from === 'archive' && !archive)
-                throw new Error('Choose the archive to start with');
+                refuse('archive', 'Choose the archive to start with.');
               const made = await api.addProject(workspace, {
                 key: input.key,
                 name: input.name,
@@ -319,23 +402,37 @@ export function Workspace({
                 await api.startProject(made.id, archive).catch((e: Error) => {
                   startRefusal = e.message;
                 });
-              navigate(`/w/${workspace}/${made.key}`);
+              // AFS-140: a source that does not answer is said at once, where it can be fixed.
+              if (made.sync.state === 'error') sourceRefusal = made.sync.error;
+              navigate(
+                `/w/${workspace}/${made.key}${made.sync.state === 'error' ? '/settings' : ''}`,
+              );
             }}
           >
             <Field
               label="Name"
+              name="name"
+              maxLength={200}
               value={input.name}
-              onChange={(e) => setInput({ ...input, name: e.target.value })}
+              onChange={(e) =>
+                setInput({
+                  ...input,
+                  name: e.target.value,
+                  key: followKey(e.target.value, input.name, input.key),
+                })
+              }
               required
-              autoFocus
             />
             <Field
               label="Key"
+              name="key"
+              maxLength={63}
               value={input.key}
               onChange={(e) => setInput({ ...input, key: e.target.value })}
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
-              hint="Used in addresses: lower-case letters, digits and dashes."
+              title="Lower-case letters, digits and dashes, not starting or ending with a dash"
+              hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
             />
             <fieldset>
               <legend>Repository</legend>
@@ -362,6 +459,7 @@ export function Workspace({
             {!input.hosted && (
               <Field
                 label="Repository address"
+                name="gitUrl"
                 value={input.gitUrl}
                 onChange={(e) => setInput({ ...input, gitUrl: e.target.value })}
                 required
@@ -423,6 +521,7 @@ export function Workspace({
         <WorkspaceEnvironments
           workspace={space.data.key}
           mayManage={space.data.level === 'admin' || space.data.level === 'rw'}
+          admin={me.admin}
         />
       )}
       {space.data && tab === '-/credentials' && (
@@ -665,14 +764,245 @@ function FlowNews({ news, onDismiss }: { news: FlowChanges; onDismiss: () => voi
   );
 }
 
+/**
+ * AFS-143: how to clone a project, with what git needs to trust a self-signed certificate (git
+ * refuses it, on Windows with SEC_E_UNTRUSTED_ROOT).
+ */
+export function CloneHelp({ project }: { project: Project }) {
+  const address = `${window.location.origin}${project.gitPath}`;
+  return (
+    <>
+      <p>
+        <Copyable text={`git clone ${address}`} label="the clone command" />
+      </p>
+      <p className="muted">
+        The password is an <Link to="/account/tokens">access token</Link>; any user name will do.
+      </p>
+      {window.location.protocol === 'https:' && (
+        <details className="clone-trust">
+          <summary>git says the certificate is not trusted?</summary>
+          <p className="muted">
+            While the server uses a self-signed certificate, git does not trust it. Save{' '}
+            <a href="/api/v1/certificate.pem" download>
+              the server's certificate
+            </a>{' '}
+            and clone with it; git keeps the setting for the clone. On Windows, add{' '}
+            <code>-c http.sslBackend=openssl</code> after <code>clone</code>.
+          </p>
+          <p>
+            <Copyable
+              text={`git clone -c http.sslCAInfo=<path to server-certificate.pem> ${address}`}
+              label="the clone command that trusts the certificate"
+            />
+          </p>
+          <p className="muted">
+            <a href={guide('certificates.md')} target="_blank" rel="noreferrer">
+              More about the certificate
+            </a>
+          </p>
+        </details>
+      )}
+    </>
+  );
+}
+
+/** AFS-140: what a project's first commit holds, for the page to say once it switches. */
+let startedNote: string | undefined;
+
+/** AFS-140: the files of a first commit in words, and what to do with its playbooks. */
+async function startedWords(project: Project): Promise<string> {
+  const files = project.commit
+    ? (await api.files(project.id, project.gitRef).catch(() => undefined))?.files.map((f) => f.path)
+    : undefined;
+  if (!files) return 'The project has started.';
+  const flows = files.filter((f) => f.endsWith('.flow.yaml')).length;
+  const playbooks = files.filter(
+    (f) => /\.ya?ml$/.test(f) && !f.endsWith('.flow.yaml') && /(^|\/)playbooks?\/|^[^/]+$/.test(f),
+  ).length;
+  const counted = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  return [
+    `The project has started: ${counted(files.length, 'file')}, ${counted(flows, 'flow')}.`,
+    playbooks && !flows
+      ? `${counted(playbooks, 'YAML file')} may be playbooks: make a New flow and start it from one.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** AFS-140: the note of a project that has just started, said once on its page. */
+function StartedNote() {
+  const [note] = useState(() => {
+    const said = startedNote;
+    startedNote = undefined;
+    return said;
+  });
+  return note ? (
+    <p className="notice" role="status">
+      {note}
+    </p>
+  ) : null;
+}
+
+/** AFS-140: why a project's source could not be read when it was added, said once. */
+function SourceRefusal() {
+  const [said] = useState(() => {
+    const why = sourceRefusal;
+    sourceRefusal = undefined;
+    return why;
+  });
+  return said ? (
+    // AFS-150: why is said once, under Last look.
+    <p className="notice error" role="alert">
+      The project was added, but its source cannot be read. Check the address and what it signs in
+      with below.
+    </p>
+  ) : null;
+}
+
+/** AFS-140: the address of an external project's source, changed by administrators. */
+function SourceAddress({ project, onSaved }: { project: Project; onSaved(): void }) {
+  const [url, setUrl] = useState(project.gitUrl ?? '');
+  return (
+    <Form
+      quiet
+      submit="Change the address and look"
+      onSubmit={async () => {
+        if (url.trim() === project.gitUrl) refuse('gitUrl', 'This is the address already.');
+        await api.changeProject(project.id, { gitUrl: url.trim() });
+        onSaved();
+      }}
+    >
+      <Field
+        label="Repository address"
+        name="gitUrl"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        required
+        spellCheck={false}
+        hint="https://, ssh:// or git@host:path. The project's commit is read again from it."
+      />
+    </Form>
+  );
+}
+
+/**
+ * AFS-150: a project's name, description and branch, changed by administrators. A new branch is
+ * what its flows and runs are of from then on.
+ */
+export function ProjectDetails({
+  project,
+  branches,
+  onSaved,
+}: {
+  project: Project;
+  branches: string[];
+  onSaved(): void;
+}) {
+  const [name, setName] = useState(project.name);
+  const [description, setDescription] = useState(project.description ?? '');
+  const [branch, setBranch] = useState(project.gitRef);
+  const [saved, setSaved] = useState(false);
+  return (
+    <Form
+      quiet
+      submit="Save"
+      onSubmit={async () => {
+        setSaved(false);
+        if (!name.trim()) refuse('name', 'A name is needed.');
+        const change = {
+          ...(name.trim() !== project.name ? { name: name.trim() } : {}),
+          ...(description.trim() !== (project.description ?? '')
+            ? { description: description.trim() || null }
+            : {}),
+          ...(branch !== project.gitRef ? { gitRef: branch } : {}),
+        };
+        if (Object.keys(change).length === 0) refuse('name', 'Nothing is changed.');
+        if (
+          change.gitRef &&
+          !window.confirm(
+            `Run ${change.gitRef} instead of ${project.gitRef}? Flows, launches and schedules that name no branch take ${change.gitRef} from now on.`,
+          )
+        )
+          return;
+        await api.changeProject(project.id, change);
+        setSaved(true);
+        onSaved();
+      }}
+    >
+      <Field
+        label="Name"
+        name="name"
+        value={name}
+        onChange={(e) => {
+          setSaved(false);
+          setName(e.target.value);
+        }}
+        maxLength={200}
+      />
+      <Field
+        label="Description"
+        name="description"
+        value={description}
+        onChange={(e) => {
+          setSaved(false);
+          setDescription(e.target.value);
+        }}
+        maxLength={1000}
+        hint="What the project is for, in a line."
+      />
+      <Labelled
+        label="Branch"
+        name="gitRef"
+        hint="The branch whose commits run: flows, launch configurations and schedules that name no other."
+      >
+        {(props) => (
+          <select
+            {...props}
+            name="gitRef"
+            value={branch}
+            onChange={(e) => {
+              setSaved(false);
+              setBranch(e.target.value);
+            }}
+          >
+            {!branches.includes(project.gitRef) && (
+              <option value={project.gitRef}>{project.gitRef}</option>
+            )}
+            {branches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        )}
+      </Labelled>
+      {saved && (
+        <p className="notice ok" role="status">
+          Saved.
+        </p>
+      )}
+    </Form>
+  );
+}
+
 /** AFS-58: an empty hosted project gets its first commit from a sample or an archive. */
-function StartPanel({ project, onStarted }: { project: Project; onStarted(): void }) {
+function StartPanel({
+  project,
+  files,
+  onStarted,
+}: {
+  project: Project;
+  /** AFS-159: the project's Files tab, where playbooks are added before the first flow. */
+  files: string;
+  onStarted(): void;
+}) {
   const [start, setStart] = useState<{
     from: 'empty' | 'sample' | 'archive';
     sample: string;
     archive?: File;
   }>({ from: 'sample', sample: 'hello' });
-  const [refused] = useState(() => {
+  const [refused, setRefused] = useState(() => {
     const said = startRefusal;
     startRefusal = undefined;
     return said;
@@ -682,7 +1012,12 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
       <h2 id="start">Start this project</h2>
       <p className="muted">
         The repository is empty. Give it a first commit from a sample or an archive of your files,
-        or push one with git.
+        or push one to {project.gitRef} with git:
+      </p>
+      <CloneHelp project={project} />
+      <p className="muted" data-own-playbooks>
+        Your own playbooks? Add them in <Link to={files}>Files</Link> (upload them, or a zip of the
+        folder), then make a New flow and start it from one.
       </p>
       {refused && (
         <p className="notice error" role="alert">
@@ -692,16 +1027,26 @@ function StartPanel({ project, onStarted }: { project: Project; onStarted(): voi
       <Form
         submit="Start"
         onSubmit={async () => {
+          let started: Project;
           if (start.from === 'archive') {
-            if (!start.archive) throw new Error('Choose the archive to start with');
-            await api.startProject(project.id, start.archive);
+            if (!start.archive) return refuse('archive', 'Choose the archive to start with.');
+            started = await api.startProject(project.id, start.archive);
           } else if (start.from === 'sample')
-            await api.startProject(project.id, { sample: start.sample });
+            started = await api.startProject(project.id, { sample: start.sample });
           else return;
+          startedNote = await startedWords(started);
           onStarted();
         }}
       >
-        <StartChoice value={start} onChange={setStart} empty={false} />
+        <StartChoice
+          value={start}
+          onChange={(v) => {
+            // AFS-140: the refusal of the archive before goes once another is chosen.
+            setRefused(undefined);
+            setStart(v);
+          }}
+          empty={false}
+        />
       </Form>
     </section>
   );
@@ -774,7 +1119,7 @@ function BranchesPanel({
       )}
       {branches.length === 0 && <p className="muted">None yet.</p>}
       {branches.length > 0 && (
-        <div className="scroll">
+        <Scroll>
           <table>
             <thead>
               <tr>
@@ -782,7 +1127,7 @@ function BranchesPanel({
                 <th scope="col">Newest commit</th>
                 <th scope="col">Not on {project.gitRef}</th>
                 {(mayChange || admin) && (
-                  <th scope="col">
+                  <th scope="col" className="act">
                     <span className="sr-only">Actions</span>
                   </th>
                 )}
@@ -811,29 +1156,32 @@ function BranchesPanel({
                   </td>
                   <td>{b.project ? '' : b.ahead ? `${b.ahead}` : 'none'}</td>
                   {(mayChange || admin) && (
-                    <td className="actions">
-                      {admin && !b.project && (
-                        <button type="button" onClick={() => void makeRun(b)}>
-                          Make it the project's branch
-                        </button>
-                      )}
-                      {mayChange && !b.project && !b.configurations && (
-                        <button
-                          type="button"
-                          className="danger"
-                          aria-label={`Delete ${b.name}`}
-                          onClick={() => void remove(b)}
-                        >
-                          Delete
-                        </button>
-                      )}
+                    <td className="act">
+                      {/* AFS-144: the buttons in a box of their own: the cell stays a cell. */}
+                      <div className="actions">
+                        {admin && !b.project && (
+                          <button type="button" onClick={() => void makeRun(b)}>
+                            Make it the project's branch
+                          </button>
+                        )}
+                        {mayChange && !b.project && !b.configurations && (
+                          <button
+                            type="button"
+                            className="danger"
+                            aria-label={`Delete ${b.name}`}
+                            onClick={() => void remove(b)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       )}
       {adding && (
         <Form
@@ -986,6 +1334,14 @@ export type ProjectTab = '' | 'runs' | 'branches' | 'settings';
 
 /** How many runs a project's page asks for: its Runs tab lists them, Overview the newest few. */
 const RUNS_SHOWN = 100;
+/** AFS-149: how a push came, in the Pushes list. */
+const PUSH_KIND: Record<string, string> = {
+  push: 'git push',
+  save: 'draft saved',
+  files: 'files changed',
+  branch: 'branch',
+  start: 'project started',
+};
 
 export function ProjectPage({
   me,
@@ -1007,8 +1363,13 @@ export function ProjectPage({
   const project = found.data;
   const id = project?.id;
   const access = useProjectAccess(id).data;
-  const branchList = useLoad(async () => (id ? await api.branches(id) : undefined), [id]);
-  const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id]);
+  // AFS-139: read again when the project's commit moves (a start from a sample or an archive, a
+  // push, a branch made elsewhere): the Branches tab and its count follow without a reload.
+  const branchList = useLoad(
+    async () => (id ? await api.branches(id) : undefined),
+    [id, project?.commit],
+  );
+  const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id, project?.commit]);
   const runs = useLoad(async () => (id ? api.runs({ project: id, limit: RUNS_SHOWN }) : []), [id]);
   const flows = useLoad(
     async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),
@@ -1032,28 +1393,51 @@ export function ProjectPage({
     return () => events.close();
   }, [id, found.reload]);
   const [looking, setLooking] = useState(false);
+  // AFS-140: what the look found, said beside the button (not only a new time).
+  const [looked, setLooked] = useState<{ ok: boolean; text: string }>();
   const look = async () => {
     if (!id) return;
     setLooking(true);
-    await api.syncProject(id).catch(() => undefined);
+    setLooked(undefined);
+    const after = await api.syncProject(id).catch((e) => messageOf(e));
+    setLooked(
+      typeof after === 'string'
+        ? { ok: false, text: after }
+        : after.sync.state === 'error'
+          ? { ok: false, text: `The source cannot be read: ${after.sync.error ?? 'no answer'}` }
+          : {
+              ok: true,
+              text: after.commit
+                ? `The source answered: ${after.gitRef} is at ${after.commit.slice(0, 12)}.`
+                : 'The source answered.',
+            },
+    );
     setLooking(false);
     found.reload();
     branchList.reload();
   };
   const crumbs = (
     <Breadcrumb>
-      <Link to="/workspaces">Workspaces</Link> / <Link to={`/w/${workspace}`}>{workspace}</Link> /{' '}
-      <span aria-current="page">{key}</span>
+      <Link to="/workspaces">Workspaces</Link> /{' '}
+      <Link to={`/w/${workspace}`}>
+        <WorkspaceName workspace={workspace} />
+      </Link>{' '}
+      / {/* AFS-152: the page reads its project already; the crumb does not ask again. */}
+      <span aria-current="page" className="crumb-name" title={project?.name ?? key}>
+        {project?.name ?? key}
+      </span>
     </Breadcrumb>
   );
   if (!project)
-    return (
+    return found.loading ? (
       <>
         {crumbs}
         <PageHead title={key} />
         <Loading state={found} />
-        {!found.loading && !found.error && <p className="empty">There is no such project.</p>}
       </>
+    ) : (
+      // AFS-143, AFS-152: what was looked for, with a way back to a page the person can open.
+      <MissingProject workspace={workspace} project={key} error={found.error} />
     );
   const address = `${window.location.origin}${project.gitPath}`;
   const mayPush = me.admin || access?.workspace === 'rw';
@@ -1062,8 +1446,20 @@ export function ProjectPage({
     <>
       {crumbs}
       <PageHead
+        help="workspaces-and-projects.md"
         title={project.name}
-        lead={project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+        lead={
+          <>
+            {project.description && <>{project.description} · </>}
+            {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+            {access && (
+              <>
+                {' · '}
+                <ProjectYourAccess access={access} flows={flows.data?.flows} />
+              </>
+            )}
+          </>
+        }
       >
         {mayPush && !project.hosted && (
           <button type="button" onClick={look} disabled={looking}>
@@ -1071,7 +1467,20 @@ export function ProjectPage({
           </button>
         )}
       </PageHead>
-      <ProjectStatus project={project} me={me} base={base} />
+      <ProjectStatus
+        project={project}
+        me={me}
+        base={base}
+        quiet={tab === 'settings' && !project.hosted}
+      />
+      {looked && (
+        <p className={looked.ok ? 'notice' : 'notice error'} role="status">
+          {/* AFS-150: on Settings the reason is under Last look: said there only. */}
+          {!looked.ok && tab === 'settings'
+            ? 'Looked again: the source still cannot be read (see Last look under Source).'
+            : looked.text}
+        </p>
+      )}
       <Tabs
         label="Project"
         base={base}
@@ -1080,7 +1489,10 @@ export function ProjectPage({
           { key: '', label: 'Overview' },
           { key: 'runs', label: 'Runs' },
           // Everything else in the repository (AFS-78) is a page of its own.
-          ...(project.commit ? [{ key: 'files', label: 'Files' }] : []),
+          // AFS-159: an empty project the server hosts takes files before its first flow too.
+          ...(project.commit || (project.hosted && mayPush)
+            ? [{ key: 'files', label: 'Files' }]
+            : []),
           {
             key: 'branches',
             label: 'Branches',
@@ -1093,8 +1505,9 @@ export function ProjectPage({
       {tab === '' && (
         <>
           {project.hosted && !project.commit && mayPush && (
-            <StartPanel project={project} onStarted={found.reload} />
+            <StartPanel project={project} files={`${base}/files`} onStarted={found.reload} />
           )}
+          {project.commit && <StartedNote />}
 
           <LaunchConfigsSection me={me} workspace={workspace} project={project} />
 
@@ -1121,9 +1534,11 @@ export function ProjectPage({
             {flows.data?.flows.length === 0 && (
               <p className="muted">
                 {project.commit
-                  ? 'No flow in this project: a flow is a file named *.flow.yaml.'
+                  ? mayPush
+                    ? 'No flow yet: make a New flow and start it from a playbook of the project, a sample or an AWX template.'
+                    : 'No flow in this project: a flow is a file named *.flow.yaml.'
                   : project.hosted && mayPush
-                    ? 'Nothing yet: the project has no commit. Start it from a sample or an archive, or make a New flow.'
+                    ? 'Nothing yet: the project has no commit. Add your playbooks in Files, then make a New flow and start it from one; or start the project from a sample or an archive.'
                     : 'Nothing yet: the project has no commit.'}
               </p>
             )}
@@ -1153,7 +1568,12 @@ export function ProjectPage({
         <section aria-label="Runs of the project">
           <Loading state={runs} />
           {runs.data?.length === 0 && (
-            <p className="empty">No run yet. Runs start from a launch configuration.</p>
+            <p className="empty">
+              {/* AFS-152: where runs start, only to who may start one. */}
+              {launchesInProject(access)
+                ? 'No run yet. Runs start from a launch configuration.'
+                : 'No run yet.'}
+            </p>
           )}
           {!!runs.data?.length && <RunList runs={runs.data} me={me} />}
           {runs.data?.length === RUNS_SHOWN && (
@@ -1186,12 +1606,13 @@ export function ProjectPage({
             <Loading state={pushes} />
             {pushes.data?.length === 0 && <p className="muted">None yet.</p>}
             {!!pushes.data?.length && (
-              <div className="scroll">
+              <Scroll>
                 <table>
                   <thead>
                     <tr>
                       <th scope="col">When</th>
                       <th scope="col">Who</th>
+                      <th scope="col">How</th>
                       <th scope="col">Branch</th>
                       <th scope="col">Change</th>
                     </tr>
@@ -1202,19 +1623,22 @@ export function ProjectPage({
                         <td>
                           <Time at={p.at} />
                         </td>
-                        <td>{p.login}</td>
+                        {/* AFS-149: names, as the commits have them; the login says who exactly. */}
+                        <td title={p.login}>{p.name ?? p.login}</td>
+                        <td>{PUSH_KIND[p.kind ?? ''] ?? 'push'}</td>
                         <td>
                           <code>{p.ref}</code>
                         </td>
                         <td>
                           <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
                           <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
+                          {p.message ? <span className="muted"> {p.message}</span> : null}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </Scroll>
             )}
           </section>
         </>
@@ -1222,26 +1646,36 @@ export function ProjectPage({
 
       {tab === 'settings' && (
         <>
+          {me.admin && (
+            <section className="panel" aria-labelledby="details">
+              <h2 id="details">Name and branch</h2>
+              <ProjectDetails
+                project={project}
+                branches={(branchList.data?.details ?? []).map((b) => b.name)}
+                onSaved={() => {
+                  found.reload();
+                  branchList.reload();
+                }}
+              />
+            </section>
+          )}
           {/* The repository holds every flow: it is for who has a level on the workspace. */}
           {(me.admin || access?.workspace) && (
             <section className="panel" aria-labelledby="git">
               <h2 id="git">Work on it with git</h2>
-              <p>
-                <Copyable text={`git clone ${address}`} label="the clone command" />
-              </p>
-              <p className="muted">
-                The password is an <Link to="/account/tokens">access token</Link>; any user name
-                will do.
-                {project.hosted &&
-                  !project.commit &&
-                  ` The repository is empty: push a first commit to ${project.gitRef}.`}
-              </p>
+              <CloneHelp project={project} />
+              {project.hosted && !project.commit && (
+                <p className="muted">
+                  The repository is empty: push a first commit to {project.gitRef}.
+                </p>
+              )}
             </section>
           )}
 
           {!project.hosted && (
             <section className="panel" aria-labelledby="source">
               <h2 id="source">Source</h2>
+              <SourceRefusal />
               <dl className="facts">
                 <dt>Repository</dt>
                 <dd>
@@ -1250,8 +1684,10 @@ export function ProjectPage({
                 <dt>Last look</dt>
                 <dd>
                   <SyncBadge project={project} /> {project.sync.at && <Time at={project.sync.at} />}
+                  {project.sync.error && <div className="bad-text">{project.sync.error}</div>}
                 </dd>
               </dl>
+              {me.admin && <SourceAddress project={project} onSaved={found.reload} />}
               {sshUrl(project.gitUrl) && (
                 <HostKey project={project} admin={me.admin} onChanged={found.reload} />
               )}
@@ -1343,7 +1779,15 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
             {flow.warnings} {flow.warnings === 1 ? 'warning' : 'warnings'}
           </span>
         )}
-        {flow.errors === 0 && flow.warnings === 0 && <span className="badge ok">no findings</span>}
+        {/* AFS-153: a flow with no step is not healthy, it is not started. */}
+        {flow.errors === 0 && flow.warnings === 0 && flow.steps === 0 && (
+          <span className="badge" title="Open it and choose Edit to add steps">
+            no steps yet
+          </span>
+        )}
+        {flow.errors === 0 && flow.warnings === 0 && flow.steps !== 0 && (
+          <span className="badge ok">no findings</span>
+        )}
       </span>
     </div>
   );
@@ -1373,11 +1817,13 @@ export function AdminOnly() {
 }
 
 export function NotFound() {
+  // AFS-143: says the address looked for, the way home and where help is.
   return (
     <>
       <PageHead title="Nothing here" />
       <p className="empty">
-        There is no page at this address. <Link to="/">Go home.</Link>
+        There is no page at <code>{window.location.pathname}</code>. <Link to="/">Go home</Link> or
+        see <Link to="/help">Help</Link>.
       </p>
     </>
   );

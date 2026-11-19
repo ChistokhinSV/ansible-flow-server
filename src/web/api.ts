@@ -1,7 +1,14 @@
 // The server's API as the pages use it. One place knows about fetch, JSON and what a refusal
 // looks like; a page asks for a thing and gets it or an ApiError with words fit to show.
 import type { RunView } from '@ansible-flow/core/protocol';
-import type { Grant, GrantLevel, GroupGrant, Level, UserReach } from '../server/access/types';
+import type {
+  Grant,
+  GrantLevel,
+  GroupGrant,
+  Level,
+  MyAccess,
+  UserReach,
+} from '../server/access/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditRef } from '../server/audit/refs';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
@@ -14,6 +21,7 @@ import type {
 } from '../server/auth/oidc/types';
 import type { TokenInfo } from '../server/auth/tokens';
 import type { Group, User } from '../server/auth/users';
+import type { ServerDefault } from '../server/environments/serverDefault';
 import type {
   Environment,
   EnvironmentBuild,
@@ -21,6 +29,7 @@ import type {
   EnvironmentSpec,
   FlowCheck,
 } from '../server/environments/types';
+import type { FlowError } from '../server/flowErrors';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { FactsReply } from '../server/launch/facts';
 import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
@@ -74,6 +83,7 @@ export type {
   LaunchRequest,
   Level,
   LibrarySubflow,
+  MyAccess,
   NotifySettings,
   PreparedLaunch,
   Problem,
@@ -84,6 +94,7 @@ export type {
   Schedule,
   ScheduleInput,
   SearchHit,
+  ServerDefault,
   SmtpSecurity,
   SmtpSettings,
   TokenInfo,
@@ -104,9 +115,11 @@ export class ApiError extends Error {
       problems?: Problem[];
       form?: LaunchForm;
       /** AFS-76: a Save the branch's changes stand in the way of. */
-      conflicts?: { id: string; label: string }[];
+      conflicts?: { id: string; label: string; draft?: string | null; branch?: string | null }[];
       /** AFS-78: the files the branch changed since a change set began. */
       files?: string[];
+      /** AFS-164: the errors of a flow that cannot run, with the step each is on. */
+      errors?: FlowError[];
     } = {},
   ) {
     super(message);
@@ -120,7 +133,12 @@ export const setSignedOutHandler = (handler: () => void) => {
   onSignedOut = handler;
 };
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function call<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  extra?: Record<string, string>,
+): Promise<T> {
   let reply: Response;
   try {
     reply = await fetch(`/api/v1${path}`, {
@@ -129,8 +147,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       // AFS-58: a file (an archive) goes as it is, typed by its name.
       headers:
         body === undefined
-          ? {}
+          ? { ...extra }
           : {
+              ...extra,
               'content-type':
                 body instanceof Blob
                   ? /\.zip$/i.test((body as File).name ?? '')
@@ -158,6 +177,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       ...(data?.form ? { form: data.form } : {}),
       ...(Array.isArray(data?.conflicts) ? { conflicts: data.conflicts } : {}),
       ...(Array.isArray(data?.files) ? { files: data.files } : {}),
+      ...(Array.isArray(data?.errors) ? { errors: data.errors } : {}),
     },
   );
 }
@@ -210,7 +230,7 @@ export interface WhoCan {
   service: boolean;
   workspace: Level | null;
   approve: boolean;
-  flows: { project: string; file: string; level: Level | null }[];
+  flows: { project: string; projectId: string; file: string; level: Level | null }[];
   through: string[];
 }
 
@@ -223,6 +243,8 @@ export interface RunsFilter {
   config?: string;
   /** A login: the runs that person asked for. */
   by?: string;
+  /** AFS-147: words in the flow's or configuration's name, a login, or a run's number. */
+  q?: string;
   limit?: number;
   /** The next page: `runCursor` of the last run shown (a time, a run's `createdAt`, works too). */
   before?: string;
@@ -233,7 +255,11 @@ export const api = {
   setupNeeded: () => call<{ needed: boolean }>('GET', '/setup'),
   setup: (input: { code: string; login: string; name: string; password: string }) =>
     call<User>('POST', '/setup', input),
-  me: () => call<User>('GET', '/session'),
+  /**
+   * Who is signed in; undefined: nobody. AFS-144: asked as optional, so the server answers 204
+   * rather than 401 and a signed-out visit logs no error in the browser's console.
+   */
+  me: () => call<User | undefined>('GET', '/session', undefined, { 'x-afs-session': 'optional' }),
   signIn: (login: string, password: string) => call<User>('POST', '/session', { login, password }),
   signOut: () => call<void>('DELETE', '/session'),
   /** AFS-104: your own password; your other sessions end. */
@@ -270,8 +296,16 @@ export const api = {
   startProject: (id: string, from: { sample: string } | File) =>
     call<Project>('POST', `/projects/${id}/start`, from),
   /** `gitCredential: null`: the source is read without signing in. */
-  changeProject: (id: string, input: { gitCredential?: string | null; gitRef?: string }) =>
-    call<Project>('PATCH', `/projects/${id}`, input),
+  changeProject: (
+    id: string,
+    input: {
+      gitCredential?: string | null;
+      gitRef?: string;
+      gitUrl?: string;
+      name?: string;
+      description?: string | null;
+    },
+  ) => call<Project>('PATCH', `/projects/${id}`, input),
   syncProject: (id: string) => call<Project>('POST', `/projects/${id}/sync`),
   /** A push hook for the git host: its token (the secret GitHub signs with) is shown once. */
   makeHook: (id: string) =>
@@ -334,8 +368,31 @@ export const api = {
   /** AFS-76: the flow's draft, started from the project's commit when there is none. */
   openDraft: (id: string, path: string) =>
     call<Draft>('POST', `/projects/${id}/drafts?path=${encodeURIComponent(path)}`),
-  saveDraft: (id: string, input: { message?: string; force?: boolean }) =>
-    call<{ commit: string; unchanged?: boolean }>('POST', `/drafts/${id}/save`, input),
+  /**
+   * AFS-149: `choices` keeps a side per clashing place; `answerConflicts` has clashes answered
+   * (`conflicts`, nothing saved) rather than refused.
+   */
+  saveDraft: (
+    id: string,
+    input: {
+      message?: string;
+      force?: boolean;
+      choices?: Record<string, 'draft' | 'branch'>;
+      tab?: string;
+      answerConflicts?: boolean;
+    },
+  ) =>
+    call<
+      | { commit: string; unchanged?: boolean; coAuthors?: string[]; conflicts?: undefined }
+      | {
+          saved: false;
+          message: string;
+          conflicts: { id: string; label: string; draft: string | null; branch: string | null }[];
+          commit?: undefined;
+          unchanged?: undefined;
+          coAuthors?: undefined;
+        }
+    >('POST', `/drafts/${id}/save`, input),
   discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
   /** AFS-79: the draft and its flow as the designer shows it. */
   draft: (id: string) =>
@@ -343,6 +400,31 @@ export const api = {
   /** AFS-79: one of the designer's commands, applied to the draft. */
   draftCommand: (id: string, command: Record<string, unknown>) =>
     call<{ created?: string }>('POST', `/drafts/${id}/commands`, { command }),
+  /** AFS-126: what an empty flow's draft can start from. */
+  draftStartFrom: (id: string) =>
+    call<{
+      samples: { key: string; name: string; description: string }[];
+      playbooks: string[];
+      awx: { id: string; name: string; url: string }[];
+    }>('GET', `/drafts/${id}/start-from`),
+  /** AFS-126: the workflow and job templates of an AWX credential's AWX. */
+  draftAwxTemplates: (id: string, credential: string) =>
+    call<{
+      templates: { kind: 'workflow' | 'job'; id: number; name: string; description?: string }[];
+    }>('GET', `/drafts/${id}/start-from/awx?credential=${encodeURIComponent(credential)}`),
+  /** AFS-126: the draft's (empty) flow made from a sample, a playbook or an AWX template. */
+  draftStart: (
+    id: string,
+    body:
+      | { sample: string }
+      | { playbook: string }
+      | { awx: { credential: string; kind: 'workflow' | 'job'; id: number } },
+  ) =>
+    call<{ revision: number; steps: number; notes: string[] }>(
+      'POST',
+      `/drafts/${id}/start-from`,
+      body,
+    ),
   /** AFS-79: a flow at the project's commit, as the designer shows it. */
   flowView: (id: string, path: string) =>
     call<{ commit: string; snapshot: { doc?: FlowDocLike } }>(
@@ -464,6 +546,10 @@ export const api = {
   search: (q: string) => call<SearchHit[]>('GET', `/search?${queryOf({ q })}`),
 
   // What a flow needs from its environment (AFS-33).
+  /** AFS-163: the server's default image, and the environment picked for it. */
+  defaultEnvironment: () => call<ServerDefault>('GET', '/default-environment'),
+  setDefaultEnvironment: (environment: string | null) =>
+    call<ServerDefault>('PUT', '/default-environment', { environment }),
   galaxySearch: (q: string) =>
     call<{ name: string; version: string; description?: string; requiresAnsible?: string }[]>(
       'GET',
@@ -500,11 +586,16 @@ export const api = {
       `/launch-configs/${encodeURIComponent(config)}/schedules/${encodeURIComponent(id)}`,
     ),
   scheduleTimes: (cron: string, timezone: string) =>
-    call<{ times: string[] }>('GET', `/schedule-times?${queryOf({ cron, timezone })}`),
+    call<{ times: string[]; problems?: { field?: string; message: string }[] }>(
+      'GET',
+      `/schedule-times?${queryOf({ cron, timezone, check: '1' })}`,
+    ),
   launch: (id: string, request: LaunchRequest) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 
   approvals: () => call<WaitingApproval[]>('GET', '/approvals'),
+  /** AFS-133: the newest decided approvals this person may see. */
+  decidedApprovals: () => call<WaitingApproval[]>('GET', '/approvals?decided=1'),
   runApprovals: (run: string) =>
     call<(Gate & { mayDecide: boolean; why?: string })[]>(
       'GET',
@@ -527,6 +618,8 @@ export const api = {
   removeGrant: (id: string) => call<void>('DELETE', `/grants/${encodeURIComponent(id)}`),
   whoCan: (workspace: string) =>
     call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
+  /** AFS-152: one's own access, workspace by workspace, and who gives access. */
+  myAccess: () => call<MyAccess>('GET', '/session/access'),
   /** What one person reaches, workspace by workspace (administrators). */
   userAccess: (id: string) => call<UserReach>('GET', `/users/${encodeURIComponent(id)}/access`),
   /** The grants that name a group, in every workspace (administrators). */
