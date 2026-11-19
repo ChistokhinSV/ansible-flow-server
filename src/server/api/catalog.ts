@@ -191,6 +191,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     W,
   )('Add a project: one the server keeps, or a mirror of a repository'),
+  'POST /api/v1/workspaces/:id/projects/check': S(
+    'Projects',
+    'administrators',
+    W,
+  )("Read a repository's address before a project mirrors it: whether it answers, its branches"),
   'GET /api/v1/projects/:id': S('Projects', 'signed in', P)('One project, with its sync state'),
   'PATCH /api/v1/projects/:id': S('Projects', 'administrators', P)('Change a project'),
   'DELETE /api/v1/projects/:id': S(

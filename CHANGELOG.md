@@ -2,6 +2,21 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- Adding an existing repository as a project reads its address first. When it cannot be read (or has no branch `main`), the form says why at the address and offers **Add anyway** (`POST /api/v1/workspaces/:id/projects/check`).
+- While someone has **Save** open on a flow's draft, everyone else in it sees that a save is coming and ends their editing, before it is made.
+
+### Changed
+
+- Questions such as "Delete …?" are asked on the page itself, in its own look, instead of the browser's dialog: Escape or **Cancel** says no, and a question that loses something has a red button with **Cancel** focused.
+- Saving a flow's draft that changes the flow raises its version by one from the branch's, as a save in VS Code does.
+- A project's state badge explains itself on hover, and **cannot be read** says beside git's reason what it means and what to do.
+- A mirrored project with no commit says why it has no Files tab or **New flow**, and how to give it its first commit.
+- An error the server answers without words (a bare 422, 404, 500…) says what it means and what to do.
+
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 
 Carries Ansible Flow Designer 1.0.1.

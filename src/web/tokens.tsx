@@ -3,6 +3,7 @@
 // may do. The list comes first: making a token is behind a button (AFS-88).
 import { type ReactNode, useId, useState } from 'react';
 import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
+import { ask } from './confirm';
 import { Copyable, Field, Form, Loading, Scroll, Time, useLoad, useRefresh } from './ui';
 
 export function TokensPanel({
@@ -105,7 +106,11 @@ export function TokensPanel({
                       className="danger"
                       aria-label={`Revoke ${t.name}`}
                       onClick={async () => {
-                        if (!window.confirm(`Revoke the token "${t.name}"? It stops working.`))
+                        if (
+                          !(await ask(`Revoke the token "${t.name}"? It stops working.`, {
+                            danger: true,
+                          }))
+                        )
                           return;
                         await revoke(t.id).catch(() => undefined);
                         list.reload();

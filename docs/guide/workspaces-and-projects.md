@@ -36,6 +36,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | `/workspaces`, `/workspaces/:id`      | List, add, change, delete (by id or key)                                                                                                    | read: what you see; change: administrators |
 | `/workspaces/:id/projects`            | A workspace's projects; add one (its source is looked at at once)                                                                           | as above                                   |
+| `POST /workspaces/:id/projects/check` | `{"gitUrl","gitCredential"}`: read a repository's address before adding it; `ok`, its `branches`, or why not (`message`). Nothing is kept   | administrators                             |
 | `/projects/:id`                       | A project; change its name, description, source, branch, timer; delete                                                                      | as above                                   |
 | `POST /projects/:id/sync`             | Look at the source now                                                                                                                      | `rw` on the workspace                      |
 | `GET /samples`                        | The sample projects a hosted project can start from                                                                                         | signed in                                  |
@@ -52,6 +53,18 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
 - **The source** is `https://…`, `ssh://…` or `git@host:path`. An address with a password in it
   is refused. A folder of this machine is allowed only with `AFS_GIT_LOCAL=on`.
 - **The branch** (`gitRef`, `main` unless set) is the one whose commits may run.
+- **Adding an existing repository** in the pages reads its address first (with the credential
+  chosen). One that cannot be read, or has no branch `main`, is said at the address with git's
+  reason; **Add anyway** adds it all the same, to fix on its **Settings**.
+- **A project's state** (the badge beside its name; hover it for these words): **up to date**
+  (the server has the newest commit of the branch), **not read yet** (the server has not fetched
+  it yet), **empty** (a project the server hosts, with no commit yet), **cannot be read** (the
+  server could not fetch the repository: git's reason follows it; runs use the last commit it
+  had; check the address and its sign-in on **Settings**, then **Look at the source now**).
+- **A mirror with no commit** (an empty repository, or one never read) has no **Files** tab and
+  no **New flow**: its files are added in the repository it mirrors, not here. Its Overview says
+  so: push a first commit to the branch with git; the server looks again by itself, or use
+  **Look at the source now**.
 - **Kept up to date** when added, on request, by the push hook, and every `pollSeconds` (300
   unless set; 0 for never). A source that cannot be reached shows as the project's `sync` state
   with the reason; the commit it had stays.

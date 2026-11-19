@@ -46,6 +46,11 @@ export interface Person {
   at: number;
   /** AFS-149: in how many pages (tabs) they have the draft open. */
   tabs?: number;
+  /**
+   * AFS-171: they opened Save (are writing the commit's message): the others are told before the
+   * save ends the draft for everyone.
+   */
+  saving?: boolean;
 }
 
 /** AFS-149: one page's "I am here": a person may have the draft open in several tabs. */
@@ -112,13 +117,14 @@ export function registerDrafts(
       const seen = byPerson.get(p.login);
       const { tab: _tab, ...person } = p;
       if (!seen) byPerson.set(p.login, { ...person, tabs: 1 });
-      else
-        byPerson.set(
-          p.login,
-          p.at >= seen.at
-            ? { ...person, tabs: (seen.tabs ?? 1) + 1 }
-            : { ...seen, tabs: (seen.tabs ?? 1) + 1 },
-        );
+      else {
+        const saving = seen.saving || person.saving;
+        byPerson.set(p.login, {
+          ...(p.at >= seen.at ? person : seen),
+          tabs: (seen.tabs ?? 1) + 1,
+          ...(saving ? { saving } : {}),
+        });
+      }
     }
     return [...byPerson.values()];
   };
@@ -361,7 +367,10 @@ export function registerDrafts(
     editing((id, me, body: { level?: string } | undefined) => drafts.tidy(id, me, body?.level)),
   );
 
-  app.post<{ Params: { id: string }; Body: { node?: string | null; tab?: string } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { node?: string | null; tab?: string; saving?: boolean };
+  }>(
     '/api/v1/drafts/:id/here',
     {
       schema: {
@@ -369,7 +378,11 @@ export function registerDrafts(
         body: {
           type: 'object',
           additionalProperties: false,
-          properties: { node: { type: ['string', 'null'], maxLength: 64 }, tab: TAB },
+          properties: {
+            node: { type: ['string', 'null'], maxLength: 64 },
+            tab: TAB,
+            saving: { type: 'boolean' },
+          },
         },
       },
     },
@@ -379,13 +392,18 @@ export function registerDrafts(
       if (!(await drafts.text(request.params.id)))
         return reply.code(404).send({ error: 'not_found', message: 'No such draft' });
       const room = here.get(request.params.id) ?? new Map<string, Here>();
-      const node = request.body?.node ?? undefined;
       const tab = request.body?.tab;
-      room.set(`${me.login} ${tab ?? ''}`, {
+      const key = `${me.login} ${tab ?? ''}`;
+      const was = room.get(key);
+      // AFS-171: the frame's "I am here" says nothing of Save (the page says it): what was said stays.
+      const node = request.body?.node ?? undefined;
+      const saving = request.body?.saving ?? was?.saving;
+      room.set(key, {
         login: me.login,
         name: me.name,
         ...(node ? { node } : {}),
         ...(tab ? { tab } : {}),
+        ...(saving ? { saving } : {}),
         at: Date.now(),
       });
       here.set(request.params.id, room);

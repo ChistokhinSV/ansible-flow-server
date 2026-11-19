@@ -1,7 +1,7 @@
 // The pages. Each reads what it shows from the API when it opens; what only administrators may
 // do is shown only to them (the server decides either way).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   launchesInProject,
   ProjectYourAccess,
@@ -18,6 +18,7 @@ import {
   type Project,
   type User,
 } from './api';
+import { ask } from './confirm';
 import { GitCredentialChoice, needsSignIn, WorkspaceCredentials } from './credentials';
 import { WorkspaceEnvironments } from './environments';
 import { followKey, NewFlowForm } from './flowFiles';
@@ -124,16 +125,37 @@ export function Workspaces({ me }: { me: User }) {
 }
 
 /** What a project's last look at its source found, in a word and a colour. */
+/** AFS-171: what each state of a project means, for its badge and the guide's words. */
+const SYNC_MEANS = {
+  ok: 'up to date: the server has the newest commit of the branch',
+  error:
+    'cannot be read: the server could not fetch the repository; runs use the last commit it had',
+  never: 'not read yet: the server has not fetched the repository yet',
+  empty: 'empty: the project has no commit yet',
+} as const;
+
 function SyncBadge({ project }: { project: Project }) {
   const { state, error } = project.sync;
-  if (state === 'ok') return <span className="badge ok">up to date</span>;
+  if (state === 'ok')
+    return (
+      <span className="badge ok" title={SYNC_MEANS.ok}>
+        up to date
+      </span>
+    );
   if (state === 'error')
     return (
-      <span className="badge bad" title={error}>
+      <span
+        className="badge bad"
+        title={error ? `${SYNC_MEANS.error}. ${error}` : SYNC_MEANS.error}
+      >
         cannot be read
       </span>
     );
-  return <span className="badge">{project.hosted ? 'empty' : 'not read yet'}</span>;
+  return (
+    <span className="badge" title={project.hosted ? SYNC_MEANS.empty : SYNC_MEANS.never}>
+      {project.hosted ? 'empty' : 'not read yet'}
+    </span>
+  );
 }
 
 /**
@@ -176,6 +198,23 @@ export function ProjectStatus({
       {project.sync.error && (!quiet || needsSignIn(project.sync.error)) && (
         <span className="bad-text">
           {quiet ? '' : project.sync.error}
+          {/* AFS-171: what "cannot be read" means and what to do, beside git's reason. */}
+          {!quiet && !needsSignIn(project.sync.error) && (
+            <>
+              {/[.!?]$/.test(project.sync.error) ? ' ' : '. '}
+              The server cannot fetch the repository
+              {project.commit ? '; runs use the last commit it had' : ''}. Check the address
+              {me.admin ? (
+                <>
+                  {' '}
+                  on <Link to={`${base}/settings`}>Settings</Link>
+                </>
+              ) : (
+                ''
+              )}
+              , then look at the source again.
+            </>
+          )}
           {needsSignIn(project.sync.error) && (
             <>
               {quiet ? '' : ' '}
@@ -331,6 +370,15 @@ export function Workspace({
     sample: string;
     archive?: File;
   }>({ from: 'empty', sample: '' });
+  // AFS-171: the address (with its credential) read and found unreadable: Add anyway adds it.
+  const [unread, setUnread] = useState<string>();
+  const anyway = useRef(false);
+  /** The address and credential as the check reads them. */
+  const source = {
+    gitUrl: input.gitUrl,
+    ...(signsIn(input.gitUrl) && input.gitCredential ? { gitCredential: input.gitCredential } : {}),
+  };
+  const asked = `${source.gitUrl} ${source.gitCredential ?? ''}`;
   const crumbs = (
     <Breadcrumb>
       <Link to="/workspaces">Workspaces</Link> /{' '}
@@ -381,8 +429,32 @@ export function Workspace({
           <Form
             open
             submit="Add"
-            onCancel={() => setAdding(false)}
+            onCancel={() => {
+              setAdding(false);
+              setUnread(undefined);
+            }}
+            more={
+              !input.hosted && unread === asked ? (
+                <button type="submit" onClick={() => (anyway.current = true)}>
+                  Add anyway
+                </button>
+              ) : null
+            }
             onSubmit={async () => {
+              const skip = anyway.current;
+              anyway.current = false;
+              // AFS-171: an existing repository is read first; one that cannot be read is said at
+              // its address, with Add anyway (it is added and looked at again later).
+              if (!input.hosted && !(skip && unread === asked)) {
+                const read = await api.checkSource(workspace, source);
+                if (!read.ok) {
+                  setUnread(asked);
+                  refuse(
+                    'gitUrl',
+                    `The repository cannot be read: ${(read.message ?? 'no answer').replace(/[.\s]+$/, '')}. Check the address${signsIn(input.gitUrl) ? ' and the credential' : ''}, or Add anyway and fix it on the project's Settings.`,
+                  );
+                }
+              }
               const archive = input.hosted && start.from === 'archive' ? start.archive : undefined;
               if (input.hosted && start.from === 'archive' && !archive)
                 refuse('archive', 'Choose the archive to start with.');
@@ -678,9 +750,9 @@ function HostKey({
           disabled={busy}
           onClick={async () => {
             if (
-              !window.confirm(
+              !(await ask(
                 `Forget the trusted key of ${key.data?.host} and trust the key it shows now?`,
-              )
+              ))
             )
               return;
             setBusy(true);
@@ -920,9 +992,9 @@ export function ProjectDetails({
         if (Object.keys(change).length === 0) refuse('name', 'Nothing is changed.');
         if (
           change.gitRef &&
-          !window.confirm(
+          !(await ask(
             `Run ${change.gitRef} instead of ${project.gitRef}? Flows, launches and schedules that name no branch take ${change.gitRef} from now on.`,
-          )
+          ))
         )
           return;
         await api.changeProject(project.id, change);
@@ -1078,7 +1150,7 @@ function BranchesPanel({
       b.ahead > 0
         ? ` It has ${b.ahead} commit${b.ahead === 1 ? '' : 's'} not on ${project.gitRef}${project.hosted ? ', which will be gone' : ''}.`
         : '';
-    if (!window.confirm(`Delete the branch ${b.name}?${lost}`)) return;
+    if (!(await ask(`Delete the branch ${b.name}?${lost}`, { danger: true }))) return;
     try {
       await api.deleteBranch(project.id, b.name, b.ahead > 0);
       onChanged();
@@ -1089,9 +1161,9 @@ function BranchesPanel({
   const makeRun = async (b: Branch) => {
     setError(undefined);
     if (
-      !window.confirm(
+      !(await ask(
         `Make ${b.name} the project's branch? Launch configurations and schedules that follow the project's branch run its commits from now on.`,
-      )
+      ))
     )
       return;
     try {
@@ -1299,7 +1371,9 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
             void act(async () => {
               if (
                 project.hook &&
-                !window.confirm('Make a new hook token? The git host must be given the new one.')
+                !(await ask('Make a new hook token? The git host must be given the new one.', {
+                  danger: true,
+                }))
               )
                 return;
               setMade(await api.makeHook(project.id));
@@ -1314,7 +1388,11 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
             className="danger"
             onClick={() =>
               void act(async () => {
-                if (!window.confirm('Remove the push hook? Calls with its token are refused.'))
+                if (
+                  !(await ask('Remove the push hook? Calls with its token are refused.', {
+                    danger: true,
+                  }))
+                )
                   return;
                 await api.removeHook(project.id);
                 setMade(undefined);
@@ -1506,6 +1584,25 @@ export function ProjectPage({
         <>
           {project.hosted && !project.commit && mayPush && (
             <StartPanel project={project} files={`${base}/files`} onStarted={found.reload} />
+          )}
+          {/* AFS-171: a mirror with no commit has no Files tab and no New flow: why, and what to do. */}
+          {!project.hosted && !project.commit && (
+            <p className="notice" role="status">
+              <strong>No files or flows yet.</strong> This project mirrors{' '}
+              <code>{project.gitUrl}</code>: its files come from there and are added there, not
+              here.{' '}
+              {project.sync.state === 'error'
+                ? 'The server cannot read it yet (the reason is above).'
+                : 'The server has no commit of it yet.'}{' '}
+              If the repository is empty, push a first commit to <code>{project.gitRef}</code> with
+              git; the server looks again by itself
+              {mayPush ? (
+                <>
+                  , or use <strong>Look at the source now</strong>
+                </>
+              ) : null}
+              . The Files tab and New flow come with the first commit.
+            </p>
           )}
           {project.commit && <StartedNote />}
 

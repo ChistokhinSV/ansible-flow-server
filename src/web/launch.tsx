@@ -22,6 +22,7 @@ import {
   type Project,
   type User,
 } from './api';
+import { ask } from './confirm';
 import { EnvironmentCheck, environmentAddress } from './environments';
 import { Missing, MissingProject } from './help';
 import { Link, navigate, useUnsaved } from './router';
@@ -744,7 +745,12 @@ function DeleteConfig({ config, to }: { config: LaunchConfig; to: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const remove = async () => {
-    if (!window.confirm(`Delete the launch configuration "${config.name}"? Its runs stay.`)) return;
+    if (
+      !(await ask(`Delete the launch configuration "${config.name}"? Its runs stay.`, {
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     setError(undefined);
     try {
@@ -1011,12 +1017,14 @@ export function LaunchConfigPage({
     if (real) {
       const where = limitText.trim() ? ` limited to ${limitText.trim()}` : '';
       if (
-        !window.confirm(
+        !(await ask(
           `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.${skipped}`,
-        )
+          { yes: 'Run for real' },
+        ))
       )
         return;
-    } else if (skipped && !window.confirm(`Launch the check run?${skipped}`)) return;
+    } else if (skipped && !(await ask(`Launch the check run?${skipped}`, { yes: 'Launch' })))
+      return;
     start('launch');
     try {
       const run = await api.launch(c.id, request());

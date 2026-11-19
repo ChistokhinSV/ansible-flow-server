@@ -3423,3 +3423,32 @@ label.inline {
   vertical-align: -0.05em;
 }
 /* === end AFS-154 ============================================================================= */
+
+/* AFS-171: a question asked on the page (confirm.ts), in place of the browser's confirm(). */
+dialog.confirm {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.1rem 1.2rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+dialog.confirm[open]:not(:modal) {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  z-index: 50;
+}
+dialog.confirm::backdrop {
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.confirm-question {
+  margin: 0 0 1rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.confirm-actions {
+  margin: 0;
+}

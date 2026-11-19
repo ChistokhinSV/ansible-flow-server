@@ -14,6 +14,7 @@
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
+import { answerWords } from './answer';
 import { isSaveKey, SAVE_KEY } from './saveKey';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
@@ -153,7 +154,7 @@ async function start(): Promise<void> {
         ? 'Sign in to see this flow.'
         : flow.status === 404
           ? `The flow ${path} is not here, or is not shared with you.`
-          : (flow.data?.message ?? `The server answered ${flow.status}`),
+          : (flow.data?.message ?? answerWords(flow.status)),
     );
 
   const access = await accessAsked;

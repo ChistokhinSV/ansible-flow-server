@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { flowLevel, useProjectAccess } from './access';
 import { ApiError, api, type Draft, type LaunchConfig, type Run } from './api';
+import { ask } from './confirm';
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { MissingProject } from './help';
 import { InsertFromLibrary, LibraryCopies } from './library';
@@ -105,7 +106,9 @@ export function FlowPage({
   );
   // AFS-110: Copy or Delete, picked in the head's More menu.
   const [fileAction, setFileAction] = useState<'copy' | 'delete'>();
-  const [people, setPeople] = useState<{ login: string; name: string; tabs?: number }[]>([]);
+  const [people, setPeople] = useState<
+    { login: string; name: string; tabs?: number; saving?: boolean }[]
+  >([]);
   const [edits, setEdits] = useState<Activity[]>([]);
   const [said, setSaid] = useState<ReactNode>();
   const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
@@ -182,7 +185,7 @@ export function FlowPage({
         type?: string;
         commit?: string;
         by?: string;
-        people?: { login: string; name: string; tabs?: number }[];
+        people?: { login: string; name: string; tabs?: number; saving?: boolean }[];
         steps?: string[];
         level?: string;
         at?: { x: number; y: number };
@@ -355,7 +358,13 @@ export function FlowPage({
               type="button"
               className="danger"
               onClick={async () => {
-                if (!window.confirm(discardQuestion(waiting.editors, me.login))) return;
+                if (
+                  !(await ask(discardQuestion(waiting.editors, me.login), {
+                    yes: 'Discard',
+                    danger: true,
+                  }))
+                )
+                  return;
                 try {
                   await api.discardDraft(waiting.id);
                   setSaid('The draft is discarded.');
@@ -675,7 +684,7 @@ function DraftBar({
   tools: HTMLElement | null;
   tab: string;
   frame(): HTMLIFrameElement | null;
-  people: { login: string; name: string }[];
+  people: { login: string; name: string; saving?: boolean }[];
   /** How many tabs this person has the draft open in (this one too). */
   myTabs: number;
   edits: Activity[];
@@ -699,6 +708,22 @@ function DraftBar({
   const [earlier, setEarlier] = useState(false);
   const messageId = useId();
   const others = people.map((p) => p.name).join(', ');
+  // AFS-171: while this page asks for the commit's message, the others are told a save is coming
+  // (it ends the draft for everyone), before it is made.
+  const told = useRef(false);
+  useEffect(() => {
+    if (asking === told.current) return;
+    told.current = asking;
+    void api.draftSaving(draft.id, tab, asking).catch(() => undefined);
+  }, [asking, draft.id, tab]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on leaving the draft only
+  useEffect(
+    () => () => {
+      if (told.current) void api.draftSaving(draft.id, tab, false).catch(() => undefined);
+    },
+    [draft.id],
+  );
+  const savers = people.filter((p) => p.saving).map((p) => p.name);
   const save = async (picked?: Record<string, 'draft' | 'branch'>) => {
     if (busy) return;
     // AFS-136: saving ends the draft for everyone in it: whoever else is here is named first.
@@ -712,9 +737,10 @@ function DraftBar({
     if (
       also.length &&
       !picked &&
-      !window.confirm(
+      !(await ask(
         `${also.join('; ').replace(/^./, (c) => c.toUpperCase())}. Saving makes the commit and ends the draft for everyone (what is being typed is sent first). Save now?`,
-      )
+        { yes: 'Save' },
+      ))
     )
       return;
     setBusy(true);
@@ -767,7 +793,7 @@ function DraftBar({
       (d) => d.id === draft.id,
     );
     const editors = [...(now?.editors ?? draft.editors), ...people];
-    if (!window.confirm(discardQuestion(editors, me))) return;
+    if (!(await ask(discardQuestion(editors, me), { yes: 'Discard', danger: true }))) return;
     try {
       await api.discardDraft(draft.id);
       onDone('The draft is discarded.');
@@ -789,8 +815,19 @@ function DraftBar({
   const newest = edits[0];
   const moved = outside && hidden !== outside.to && !conflicts;
   const notes =
-    moved || conflicts || asking ? (
+    moved || conflicts || asking || savers.length ? (
       <div className="draft-float">
+        {savers.length ? (
+          <div className="notice warn" role="status">
+            <p>
+              <strong>
+                {savers.join(', ')} {savers.length === 1 ? 'is' : 'are'} about to save.
+              </strong>{' '}
+              Saving ends the draft for everyone: your editing stops then. What you are typing is
+              sent first and is in the commit.
+            </p>
+          </div>
+        ) : null}
         {asking ? (
           // AFS-165: the commit's message, asked when saving (not a field above the canvas).
           <form

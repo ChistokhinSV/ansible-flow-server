@@ -112,7 +112,11 @@ Code. Everyone who edits the same flow edits one shared draft:
   another save; your own push says "You"), so nobody's work is saved over unknowingly. When
   others are in the draft, or you have it open in another tab, **Save** says so first, and every
   other page in the draft (your other tabs too) sends what is still being typed before the commit
-  is made. Full screen has its own **Save**. Saves are listed among the project's pushes
+  is made. While someone has **Save** open (is writing the commit message), the others see "Mia
+  Ortega is about to save" over their canvas: saving ends the draft for everyone, so their
+  editing stops once the commit is made. A save that changes the flow raises its `flow.version`
+  by one from the branch's, as a save in VS Code does; a change of notes or layout only keeps
+  it. Full screen has its own **Save**. Saves are listed among the project's pushes
   (Branches): who (by name), how (git push, draft saved, files changed, branch, project
   started), the commits and the new commit's message.
 - **New flow** (a project's Flows) makes the file in one commit and opens it for editing. The file

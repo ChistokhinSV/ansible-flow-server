@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { ask } from './confirm';
 
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
@@ -27,17 +28,21 @@ const unsaved = new Map<object, string | undefined>();
 const LEAVE = 'Leave this page? What you typed is not saved.';
 let shownPath = typeof window === 'undefined' ? '/' : window.location.pathname;
 
+/** The unsaved forms that are in the way of going to `to`. */
+const inTheWay = (to?: string) =>
+  [...unsaved].filter(
+    ([, within]) => !(to && within && (to === within || to.startsWith(`${within}/`))),
+  );
+
 /**
  * True when nothing unsaved is in the way of going to `to`, or the person chose to leave it.
  * AFS-150: typing held `within` a path is not in the way of the paths under it (the tabs of a page
- * that keeps it).
+ * that keeps it). AFS-171: asked on the page, so the answer comes later.
  */
-export function mayLeave(to?: string): boolean {
-  const lost = [...unsaved].filter(
-    ([, within]) => !(to && within && (to === within || to.startsWith(`${within}/`))),
-  );
+export async function mayLeave(to?: string): Promise<boolean> {
+  const lost = inTheWay(to);
   if (lost.length === 0) return true;
-  if (!window.confirm(LEAVE)) return false;
+  if (!(await ask(LEAVE, { yes: 'Leave', no: 'Stay', danger: true }))) return false;
   for (const [form] of lost) unsaved.delete(form);
   return true;
 }
@@ -69,12 +74,17 @@ if (typeof window !== 'undefined') {
   // Registered before any page listens, so a Back the person takes back stops here.
   window.addEventListener('popstate', (event) => {
     if (window.location.pathname === shownPath) return;
-    if (mayLeave(window.location.pathname)) {
+    const to = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (inTheWay(window.location.pathname).length === 0) {
       shownPath = window.location.pathname;
       return;
     }
+    // AFS-171: the page stays where it was while the person is asked; leaving goes on after.
     event.stopImmediatePropagation();
     window.history.pushState(null, '', shownPath);
+    void mayLeave(to.split(/[?#]/)[0]).then((leave) => {
+      if (leave) navigate(to);
+    });
   });
   window.addEventListener('beforeunload', (event) => {
     if (unsaved.size === 0) return;
@@ -89,7 +99,18 @@ if (typeof window !== 'undefined') {
  */
 export function navigate(path: string, options: { replace?: boolean; note?: string } = {}): void {
   if (path === window.location.pathname) return;
-  if (!mayLeave(path.split(/[?#]/)[0] ?? path)) return;
+  const to = path.split(/[?#]/)[0] ?? path;
+  // AFS-171: asked on the page when typing would be lost; the move is made once it is answered.
+  if (inTheWay(to).length) {
+    void mayLeave(to).then((leave) => {
+      if (leave) go(path, options);
+    });
+    return;
+  }
+  go(path, options);
+}
+
+function go(path: string, options: { replace?: boolean; note?: string }): void {
   shownPath = path.split(/[?#]/)[0] ?? path;
   const state = options.note ? { note: options.note } : null;
   if (options.replace) window.history.replaceState(state, '', path);

@@ -10,6 +10,7 @@ import {
   type MyAccess,
   type ProjectAccess,
 } from './api';
+import { ask } from './confirm';
 import { Loading, messageOf, Scroll, useLoad, useReveal } from './ui';
 
 const RANK: Record<Level, number> = { ro: 1, operator: 2, rw: 3 };
@@ -362,9 +363,10 @@ export function WorkspaceAccess({
                         aria-label={`Take back ${LEVEL_NAME[g.level]} from ${who}`}
                         onClick={async () => {
                           if (
-                            !window.confirm(
+                            !(await ask(
                               `Take back ${LEVEL_NAME[g.level]} on ${where} from ${who}? It ends at once.`,
-                            )
+                              { danger: true },
+                            ))
                           )
                             return;
                           await api.removeGrant(g.id).catch((e) => setError(messageOf(e)));

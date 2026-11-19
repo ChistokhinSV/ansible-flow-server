@@ -457,6 +457,43 @@ describe('signed in', () => {
     expect(count() - 1).toBe(1);
   });
 
+  it('AFS-171: a mirror with no commit says why it has no files and what to do; its state explains itself', async () => {
+    const why = 'The repository has no branch main';
+    const empty = { ...edge, commit: undefined, sync: { state: 'error', error: why } };
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces/network/projects': () => ({ body: [empty, lab] }),
+    };
+    window.history.replaceState(null, '', '/w/network/edge');
+    render(<App />);
+    const note = await screen.findByText('No files or flows yet.');
+    expect(note.closest('p')?.textContent).toContain(
+      'If the repository is empty, push a first commit to main with git; the server looks again by itself, or use Look at the source now. The Files tab and New flow come with the first commit.',
+    );
+    // No Files tab (nothing to show or add to), and the badge and the line say what it means.
+    expect(screen.queryByRole('link', { name: 'Files' })).toBeNull();
+    expect(screen.getByText('cannot be read').getAttribute('title')).toMatch(
+      /^cannot be read: the server could not fetch the repository/,
+    );
+    expect(document.querySelector('.statusline .bad-text')?.textContent).toBe(
+      `${why}. The server cannot fetch the repository. Check the address on Settings, then look at the source again.`,
+    );
+  });
+
+  it('AFS-171: an answer with no words of its own says what it means and what to do', async () => {
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces/network': () => ({ status: 422 }),
+    };
+    window.history.replaceState(null, '', '/w/network');
+    render(<App />);
+    expect(
+      await screen.findByText(
+        'The server cannot do this now (422): what it is about is not in a state that allows it. Reload the page to see why.',
+      ),
+    ).toBeTruthy();
+  });
+
   it('My account changes the password; the two new ones must agree (AFS-104)', async () => {
     routes = {
       ...signedInAs(omar),
@@ -891,10 +928,15 @@ describe('signed in', () => {
 
   it('AFS-140: Add project makes a readable key, says a refusal at its field, and keeps typing', async () => {
     const sent: unknown[] = [];
+    const checked: unknown[] = [];
     routes = {
       ...signedInAs(dana),
       'GET /workspaces/network/projects': () => ({ body: [edge, lab] }),
       'GET /samples': () => ({ body: [] }),
+      'POST /workspaces/network/projects/check': (body) => {
+        checked.push(body);
+        return { body: { ok: false, message: 'Could not resolve host: git.invalid.example' } };
+      },
       'POST /workspaces/network/projects': (body) => {
         sent.push(body);
         return sent.length === 1
@@ -947,11 +989,24 @@ describe('signed in', () => {
     expect(window.location.pathname).toBe('/w/network');
     expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('mirror');
 
-    // A source that cannot be read is said at once, on Settings, where its address can change.
+    // AFS-171: an existing repository is read first; one that cannot be read is said at its
+    // address, and nothing is added until Add anyway.
     fireEvent.click(screen.getByLabelText('An existing repository'));
     type('Repository address', 'https://git.invalid.example/a10/x.git');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    const address = screen.getByLabelText('Repository address');
+    await waitFor(() => expect(address.getAttribute('aria-invalid')).toBe('true'));
+    expect(
+      screen.getByText(
+        "The repository cannot be read: Could not resolve host: git.invalid.example. Check the address and the credential, or Add anyway and fix it on the project's Settings.",
+      ),
+    ).toBeTruthy();
+    expect(checked).toEqual([{ gitUrl: 'https://git.invalid.example/a10/x.git' }]);
+    expect(sent).toHaveLength(1);
+    // Added anyway: it is said at once, on Settings, where its address can change.
+    fireEvent.click(screen.getByRole('button', { name: 'Add anyway' }));
     await waitFor(() => expect(window.location.pathname).toBe('/w/network/mirror/settings'));
+    expect(checked).toHaveLength(1);
   });
 
   it('makes an access token for one workspace, shows it once, and lists what it has', async () => {

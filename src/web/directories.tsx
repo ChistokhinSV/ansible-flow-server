@@ -10,6 +10,7 @@ import {
 } from '../server/auth/ldap/types';
 import type { Group } from '../server/auth/users';
 import { api } from './api';
+import { ask } from './confirm';
 import { followKey } from './flowFiles';
 import { MappingRows } from './signin';
 import { Field, Form, Labelled, Loading, messageOf, Time, useLoad } from './ui';
@@ -409,9 +410,10 @@ export function DirectoriesSection({ groups }: { groups: Group[] }) {
               className="danger"
               onClick={async () => {
                 if (
-                  !window.confirm(
+                  !(await ask(
                     `Remove ${d.name}? Its people stay; the groups, rights and disabling it gave go.`,
-                  )
+                    { danger: true },
+                  ))
                 )
                   return;
                 try {

@@ -3,6 +3,7 @@
 // api/catalog.ts, and the lists here are narrowed to what the person may see).
 //   /api/v1/workspaces, /workspaces/:id            :id is the workspace's id or its key
 //   /api/v1/workspaces/:id/projects
+//   /api/v1/workspaces/:id/projects/check            a source's address read before adding (AFS-171)
 //   /api/v1/projects/:id, /sync, /branches, /pushes, /hook
 //   /api/v1/projects/:id/branches                  list with commits, make, delete (AFS-59)
 //   /api/v1/projects/:id/flows, /flows/view?path=   the flows at the project's commit
@@ -21,7 +22,7 @@ import { lastRuns } from '../runs/queue';
 import type { MasterKey } from '../secrets/masterKey';
 import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
 import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
-import { type Git, GitError, sshHost } from './git';
+import { type Git, GitError, gitUrlProblem, refProblem, sshHost } from './git';
 import type { Library } from './library';
 import {
   addSampleLaunchConfigs,
@@ -36,6 +37,7 @@ import {
 import {
   createProject,
   createWorkspace,
+  credentialProblem,
   deleteProject,
   deleteWorkspace,
   getProject,
@@ -273,6 +275,61 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       );
       // The first look at the source: the answer already says whether the address works.
       return reply.code(201).send((await deps.sync.sync(project.id)) ?? project);
+    }),
+  );
+
+  /**
+   * AFS-171: the address of a repository read before a project mirrors it: whether it answers
+   * (signed in with the credential chosen) and has the branch. Nothing is kept. Not being able to
+   * read it is an answer (`ok: false` and why), not a refusal: the page offers "Add anyway".
+   */
+  app.post<WithId & { Body: { gitUrl: string; gitCredential?: string; gitRef?: string } }>(
+    '/api/v1/workspaces/:id/projects/check',
+    {
+      schema: {
+        ...ID,
+        ...body(['gitUrl'], {
+          gitUrl: text(2000, 1),
+          gitCredential: text(64, 1),
+          gitRef: text(200, 1),
+        }),
+      },
+    },
+    answering(async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      const workspace = await getWorkspace(db, request.params.id);
+      if (!workspace) return reply.code(404).send(NO_WORKSPACE);
+      const gitUrl = request.body.gitUrl.trim();
+      const gitRef = request.body.gitRef?.trim() || 'main';
+      const urlProblem = gitUrlProblem(gitUrl, deps.allowLocal);
+      if (urlProblem) throw new ProjectError('invalid', urlProblem, 'gitUrl');
+      const branchProblem = refProblem(gitRef);
+      if (branchProblem) throw new ProjectError('invalid', branchProblem, 'gitRef');
+      const { gitCredential } = request.body;
+      if (gitCredential) {
+        const why = await credentialProblem(db, gitCredential, workspace.id, gitUrl);
+        if (why) throw new ProjectError('invalid', why, 'gitCredential');
+      }
+      let branches: string[];
+      try {
+        const auth = gitCredential
+          ? await deps.sync.auth({ gitCredential } as Parameters<ProjectSync['auth']>[0])
+          : undefined;
+        branches = await deps.git.remoteBranches(gitUrl, auth);
+      } catch (e) {
+        if (!(e instanceof GitError)) throw e;
+        return { ok: false, message: e.message };
+      }
+      if (branches.length === 0)
+        return { ok: true, branches, message: 'The repository answers; it has no commit yet' };
+      if (!branches.includes(gitRef))
+        return {
+          ok: false,
+          branches,
+          message: `The repository has no branch ${gitRef} (it has ${branches.slice(0, 8).join(', ')})`,
+        };
+      return { ok: true, branches };
     }),
   );
 

@@ -11,6 +11,7 @@ import {
   type EnvironmentSpec,
   type ServerDefault,
 } from './api';
+import { ask } from './confirm';
 import { Link, navigate } from './router';
 import {
   Breadcrumb,
@@ -934,7 +935,9 @@ export function EnvironmentPage({
             disabled={!!env.usedBy}
             onClick={async () => {
               if (
-                !window.confirm(`Delete the environment ${env.name}, its builds and their images?`)
+                !(await ask(`Delete the environment ${env.name}, its builds and their images?`, {
+                  danger: true,
+                }))
               )
                 return;
               setDeleteError(undefined);

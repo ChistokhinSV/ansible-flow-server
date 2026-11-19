@@ -4,6 +4,7 @@
 // around the frame (the flow page) is told who is there and what each changed.
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
+import { answerWords } from './answer';
 import { guide } from './guide';
 import { isSaveKey } from './saveKey';
 
@@ -340,7 +341,7 @@ export function editDraft(options: {
                         ...(r.data?.created ? { created: r.data.created as string } : {}),
                         ...(r.data?.pasted ? { pasted: r.data.pasted as string[] } : {}),
                       }
-                    : { error: String(r.data?.message ?? `The server answered ${r.status}`) }),
+                    : { error: String(r.data?.message ?? answerWords(r.status)) }),
                 } as HostMessage),
               () => send({ type: 'ack', reqId, ok: false, error: 'The server does not answer' }),
             );

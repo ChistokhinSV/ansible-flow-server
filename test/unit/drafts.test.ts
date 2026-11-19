@@ -92,6 +92,7 @@ const call = async (who: string, method: string, path: string, body?: unknown) =
 };
 const titleIn = (text: string, id: string) =>
   (parse(text).nodes as { id: string; title: string }[]).find((n) => n.id === id)?.title;
+const versionIn = (text: string) => Number(parse(text).flow.version);
 const retitle = (id: string, title: string) => ({
   command: { kind: 'updateNode', id, patch: { title } },
 });
@@ -229,6 +230,8 @@ describe('editing a flow together', () => {
     const text = git('show', `${commit}:${FILE}`);
     expect(titleIn(text, PING)).toBe('Ping it');
     expect(titleIn(text, HELLO)).toBe('Greet');
+    // AFS-171: the flow changed: its version moves on once from the branch's.
+    expect(versionIn(text)).toBe(versionIn(git('show', `${commit}~1:${FILE}`)) + 1);
     expect((await call('mia', 'GET', `/drafts/${draft}`)).status).toBe(404);
     expect((await call('mia', 'GET', `/projects/${project.id}`)).json.commit).toBe(commit);
   });
@@ -336,6 +339,15 @@ describe('saving a draft open in several tabs (AFS-149)', () => {
     await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-a' });
     const here = await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-b' });
     expect(here.json.people).toEqual([expect.objectContaining({ login: 'mia', tabs: 2 })]);
+    // AFS-171: a page that opens Save says so (the others are told); the frame's next "I am here"
+    // keeps it; closing Save takes it back.
+    await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-a', saving: true });
+    const still = await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-a' });
+    expect(still.json.people).toEqual([
+      expect.objectContaining({ login: 'mia', tabs: 2, saving: true }),
+    ]);
+    const off = await call('mia', 'POST', `/drafts/${draft}/here`, { tab: 'tab-a', saving: false });
+    expect(off.json.people[0].saving).toBeUndefined();
     const a = follow('mia', draft, 'tab-a');
     const b = follow('mia', draft, 'tab-b');
     await a.until(() => a.events.some((e) => e.event === 'draft'));

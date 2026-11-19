@@ -8,6 +8,7 @@ import { Fragment, useEffect, useId, useState } from 'react';
 import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
 import { flowTitle, LEVEL_NAME, throughWords, useFlowTitles } from './access';
 import { api, type Group, type User } from './api';
+import { ask } from './confirm';
 import { Link, navigate, noteHere } from './router';
 import { TokensPanel } from './tokens';
 import {
@@ -493,13 +494,13 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
         <div className="actions">
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               // AFS-134: disabling signs them out and stops their tokens: asked first.
               if (
                 !user.disabled &&
-                !window.confirm(
+                !(await ask(
                   `Disable ${user.name || user.login}? They are signed out at once, cannot sign in, and their tokens stop working. Their grants are kept.`,
-                )
+                ))
               )
                 return;
               act(async () =>
@@ -515,9 +516,10 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
             onClick={() =>
               act(async () => {
                 if (
-                  !window.confirm(
+                  !(await ask(
                     `Delete ${user.login}? Their tokens and grants go with them; the audit log keeps what they did.`,
-                  )
+                    { danger: true },
+                  ))
                 )
                   return;
                 await api.deleteUser(user.id);
@@ -871,9 +873,10 @@ export function GroupPage({ id }: { id: string }) {
               className="danger"
               onClick={async () => {
                 if (
-                  !window.confirm(
+                  !(await ask(
                     `Delete the group ${group.name}? Its grants go with it; its members stay.`,
-                  )
+                    { danger: true },
+                  ))
                 )
                   return;
                 try {

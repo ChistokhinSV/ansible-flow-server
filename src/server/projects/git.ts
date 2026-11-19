@@ -576,6 +576,25 @@ export class Git {
     return this.resolve(projectId, ref);
   }
 
+  /**
+   * AFS-171: the branches a source has, read without keeping anything (a project's address checked
+   * before the project is made). Rejects with a GitError that says why it cannot be read.
+   */
+  async remoteBranches(url: string, auth?: GitAuth): Promise<string[]> {
+    const problem = gitUrlProblem(url, this.options.allowLocal);
+    if (problem) throw new GitError(problem);
+    const out = await this.withSource(url, auth, (env) =>
+      this.run(['ls-remote', '--heads', '--', url], { timeoutMs: READ_TIMEOUT_MS, env }),
+    );
+    return out
+      .toString('utf8')
+      .split(/\r?\n/)
+      .map((line) => line.split(/\s+/)[1])
+      .filter((ref): ref is string => !!ref?.startsWith('refs/heads/'))
+      .map((ref) => ref.slice('refs/heads/'.length))
+      .sort();
+  }
+
   /** The branches the mirror has. */
   async branches(projectId: string): Promise<string[]> {
     return [...(await this.refs(projectId)).keys()].sort();
