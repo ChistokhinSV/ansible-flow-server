@@ -51,7 +51,8 @@ The server tells people what concerns them, by email and by webhook:
   5 and 15 minutes, 1 and 3 hours, then it is given up on. A refusal (other 4xx, SMTP 5xx) is
   not tried again. Messages wait in the database: a restart loses none.
 - **The delivery log** on the Notifications page lists each message, where it went (a webhook by
-  its host only: its path can be its secret), how many tries and why one failed, with **Try
+  its host only: its path can be its secret), how many tries and why one failed (for a webhook:
+  connection refused, timed out, the host name not found, or its certificate), with **Try
   again**. Messages sent or given up on are kept `AFS_NOTIFICATIONS_KEEP_DAYS` (30).
 
 A launch configuration says whom its runs tell (`notify`, see

@@ -4,6 +4,7 @@
 // new master key keeps what is sealed (the relay's password, runs' inputs).
 import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { createServer as createTcpServer } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGrant, deleteGrant } from '../../src/server/access/grants';
@@ -17,7 +18,12 @@ import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import type { PreparedLaunch } from '../../src/server/launch/prepare';
 import { createLogger } from '../../src/server/log';
-import { emailChannel, type Message, webhookChannel } from '../../src/server/notify/channels';
+import {
+  emailChannel,
+  type Message,
+  unreachable,
+  webhookChannel,
+} from '../../src/server/notify/channels';
 import { Notifier } from '../../src/server/notify/notifier';
 import {
   contactsOfNames,
@@ -145,15 +151,55 @@ describe('the channels', () => {
     expect(receiver.got.length).toBe(before + 1);
   });
 
-  it('a receiver that is not there is tried again, and the error never names the address', async () => {
+  it('a receiver that is not there is tried again, says why, and never names the address', async () => {
+    // A port nothing listens on: a free one, closed again.
+    const free = createTcpServer();
+    await new Promise<void>((done) => free.listen(0, '127.0.0.1', done));
+    const port = (free.address() as { port: number }).port;
+    await new Promise((done) => free.close(done));
     const channel = webhookChannel(async () => undefined, 'test', 2000);
     const sent = await channel.send(
-      'http://127.0.0.1:9/hooks/T000/B000/secret-part',
+      `http://127.0.0.1:${port}/hooks/T000/B000/secret-part`,
       MESSAGE,
       delivery,
     );
-    expect(sent).toMatchObject({ ok: false, retry: true });
+    expect(sent).toEqual({ ok: false, retry: true, error: 'Not reachable: connection refused' });
     expect(JSON.stringify(sent)).not.toContain('secret-part');
+    // AFS-169: a port web requests may not use is said, and not tried again.
+    expect(await channel.send('http://127.0.0.1:9/hook', MESSAGE, delivery)).toEqual({
+      ok: false,
+      retry: false,
+      error: 'Not reachable: web requests may not use that port',
+    });
+  });
+
+  it('AFS-169: why a webhook was not reached is named: time, DNS, certificate', () => {
+    const failed = (cause: object) => Object.assign(new TypeError('fetch failed'), { cause });
+    expect(unreachable(new DOMException('aborted', 'TimeoutError'), 10_000)).toEqual({
+      ok: false,
+      retry: true,
+      error: 'Timed out: no answer in 10 s',
+    });
+    expect(
+      unreachable(
+        failed({ code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND hooks.example.net' }),
+        1,
+      ),
+    ).toEqual({ ok: false, retry: true, error: 'Not reachable: the host name is not found (DNS)' });
+    expect(unreachable(failed({ code: 'CERT_HAS_EXPIRED' }), 1)).toEqual({
+      ok: false,
+      retry: false,
+      error: 'Not reachable: its certificate has expired',
+    });
+    expect(unreachable(failed({ code: 'DEPTH_ZERO_SELF_SIGNED_CERT' }), 1)).toMatchObject({
+      retry: false,
+      error: 'Not reachable: its certificate is not trusted (DEPTH_ZERO_SELF_SIGNED_CERT)',
+    });
+    // localhost: one error for each of its addresses.
+    expect(
+      unreachable(failed({ errors: [{ code: 'ECONNREFUSED' }, { code: 'ECONNREFUSED' }] }), 1),
+    ).toMatchObject({ error: 'Not reachable: connection refused' });
+    expect(unreachable(failed({}), 1)).toMatchObject({ retry: true, error: 'Not reachable' });
   });
 
   it('email goes through the relay; a refused mailbox is not tried again; no relay: not set up', async () => {

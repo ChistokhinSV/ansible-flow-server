@@ -150,6 +150,9 @@ describe('schedules of a launch configuration', () => {
     expect(within(one).getByText('skipped')).toBeTruthy();
 
     fireEvent.click(within(box).getByRole('button', { name: 'Add schedule' }));
+    // AFS-169: no cron is chosen for you: the box is empty, with an example in it.
+    expect((within(box).getByLabelText('Cron') as HTMLInputElement).value).toBe('');
+    expect(within(box).getByLabelText('Cron').getAttribute('placeholder')).toBe('like 0 3 * * 1-5');
     fireEvent.change(within(box).getByLabelText('Name'), { target: { value: 'Mornings' } });
     fireEvent.change(within(box).getByLabelText('Cron'), { target: { value: '30 6 * * *' } });
     fireEvent.change(within(box).getByLabelText('Time zone'), { target: { value: 'UTC' } });

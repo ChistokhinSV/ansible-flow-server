@@ -40,6 +40,21 @@ export const SPEC: Record<
   awx: { fields: ['url'], secret: ['token'], required: ['url', 'token'] },
 };
 
+/**
+ * AFS-169: each kind's name, written one way on every page and in the server's messages: in
+ * lower case, as it reads inside a sentence, but for the names SSH and AWX.
+ */
+export const KIND_NAME: Record<CredentialKind, string> = {
+  ssh_key: 'SSH key',
+  login: 'login and password',
+  become: 'become password',
+  vault: 'vault password',
+  git_token: 'git token',
+  registry: 'container registry',
+  env: 'environment variables',
+  awx: 'AWX token',
+};
+
 /** The kinds a project's git source can sign in with over HTTPS. */
 export const GIT_KINDS: CredentialKind[] = ['git_token', 'login'];
 

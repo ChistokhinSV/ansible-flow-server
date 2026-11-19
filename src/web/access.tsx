@@ -328,7 +328,9 @@ export function WorkspaceAccess({
                 <th scope="col">Who</th>
                 <th scope="col">Level</th>
                 <th scope="col">On</th>
-                <th scope="col">
+                {/* AFS-169: the button column at the row's end, as wide as its button: a longer
+                    grant added does not move it. */}
+                <th scope="col" className="act">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
@@ -355,7 +357,7 @@ export function WorkspaceAccess({
                         'the whole workspace'
                       )}
                     </td>
-                    <td>
+                    <td className="act">
                       <button
                         type="button"
                         className="danger"

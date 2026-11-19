@@ -184,7 +184,8 @@ function ScheduleForm({
   const [input, setInput] = useState({
     name: editing?.name ?? '',
     kind: editing?.kind ?? ('cron' as 'cron' | 'once'),
-    cron: editing?.cron ?? '0 3 * * 1-5',
+    // AFS-169: a new schedule starts with no cron: an example in the box would look like a choice.
+    cron: editing?.cron ?? '',
     timezone: editing?.timezone ?? browserZone(),
     onceAt: zonedInput(editing?.onceAt, editing?.timezone ?? browserZone()),
     mode: editing?.mode ?? '',
@@ -263,6 +264,7 @@ function ScheduleForm({
             onChange={set('cron')}
             required
             spellCheck={false}
+            placeholder="like 0 3 * * 1-5"
             problem={live('cron')}
             hint={`minute hour day month weekday, in ${zoneWords}: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute.`}
           />

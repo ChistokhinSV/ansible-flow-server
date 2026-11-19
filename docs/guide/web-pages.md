@@ -170,7 +170,7 @@ editor with highlighting; flows are read here and edited in the flow editor.
 With `rw` on the workspace you change files: edit text, **New file**, **Upload files** and
 **Upload a folder (zip)** (a zip or tar.gz unpacked into the folder you are in), **Rename or
 move** and **Delete** (files and folders). A path is checked as you type it: it stays inside the
-project and does not land on a file or folder that is there. The changes are listed until
+project and does not land on a file or folder that is there. The changes are listed under the files, at the window's foot, until
 **Save**, which makes one commit of them on the branch, with your message (left empty, the words
 the Message field shows), by you; this browser keeps them meanwhile, **Take back** drops one, and **Discard all** drops
 them all once you say so. An archive does not replace files that are there without asking: Save

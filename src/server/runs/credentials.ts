@@ -7,6 +7,7 @@ import type { Mount } from '@ansible-flow/core/run/environment';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { type Revealed, reveal } from '../secrets/credentials';
+import { KIND_NAME } from '../secrets/kinds';
 import type { MasterKey } from '../secrets/masterKey';
 import type { RegistrySignIn } from './registry';
 
@@ -226,7 +227,7 @@ export async function runCredentials(
         // Used before the run, to pull the image (registrySignIn, runs/registry.ts).
         break;
       default:
-        throw new CredentialProblem(`${c.name}: a ${c.kind} credential is not for a run`);
+        throw new CredentialProblem(`${c.name} (${KIND_NAME[c.kind]}) is not for a run`);
     }
   }
   // Short values would hide ordinary words in the output; the store's rules make them rare.

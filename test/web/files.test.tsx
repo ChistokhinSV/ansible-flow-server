@@ -104,6 +104,13 @@ describe('the files page', () => {
       await screen.findByText('Move templates/web.conf.j2 to roles/web/templates/web.conf.j2'),
     ).toBeTruthy();
     expect(screen.getByText('moved')).toBeTruthy();
+    // AFS-169: the changes come after the files, so they do not push the editor down.
+    const changes = screen.getByRole('heading', { name: /Changes not saved/ }).closest('section');
+    expect(changes?.classList.contains('files-changes')).toBe(true);
+    expect(
+      (document.querySelector('.files') as Element).compareDocumentPosition(changes as Element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     routes['POST /projects/p1/files'] = () => ({
       status: 409,

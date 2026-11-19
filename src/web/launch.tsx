@@ -8,6 +8,7 @@ import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { errorsLead, type FlowError } from '../server/flowErrors';
 import type { FactsReply } from '../server/launch/facts';
+import { type CredentialKind, KIND_NAME as KIND_LABEL } from '../server/secrets/kinds';
 import { atLeast, flowLevel, useProjectAccess } from './access';
 import {
   ApiError,
@@ -51,14 +52,6 @@ import {
 type LaunchField = LaunchForm['fields'][number];
 /** The kinds of credential a run can be given (a git token is for a repository). */
 const RUN_KINDS = ['ssh_key', 'login', 'become', 'vault', 'registry', 'env'];
-const KIND_LABEL: Record<string, string> = {
-  ssh_key: 'SSH key',
-  login: 'login',
-  become: 'become',
-  vault: 'vault password',
-  registry: 'registry',
-  env: 'environment',
-};
 
 const base = (workspace: string, project: string) =>
   `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project)}`;
@@ -658,6 +651,10 @@ function EnvironmentWords({ config: c, workspace }: { config: LaunchConfig; work
   );
 }
 
+/** Whom a configuration's runs tell, and when. */
+const notifyWords = (notify: NonNullable<LaunchConfig['notify']>) =>
+  `${notify.to.join(', ')}, ${notify.when === 'failed' ? 'when a run fails' : 'whenever a run ends'}`;
+
 /** A configuration's settings, read: for who may not change them. */
 function SettingsFacts({
   config: c,
@@ -704,11 +701,7 @@ function SettingsFacts({
       <dt>Credentials</dt>
       <dd>{(c.credentialNames ?? c.credentials).join(', ') || 'none'}</dd>
       <dt>Tells</dt>
-      <dd>
-        {c.notify
-          ? `${c.notify.to.join(', ')}, ${c.notify.when === 'failed' ? 'when a run fails' : 'whenever a run ends'}`
-          : 'nobody'}
-      </dd>
+      <dd>{c.notify ? notifyWords(c.notify) : 'nobody'}</dd>
       <dt>Changed</dt>
       <dd>
         <Time at={c.updatedAt} />
@@ -1110,6 +1103,8 @@ export function LaunchConfigPage({
               ? `${c.credentials.length === 1 ? 'credential' : 'credentials'} ${c.credentialNames.join(', ')}`
               : `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`}
         </span>
+        {/* AFS-169: whom its runs tell, as the Settings tab says it. */}
+        {c.notify && <span>tells {notifyWords(c.notify)}</span>}
       </p>
       {c.flowGone && (
         <p className="notice warn" role="status">
@@ -1789,12 +1784,13 @@ function ConfigForm({
             />
             {/* AFS-154: the name and its kind wrap as one text beside the box. */}
             <span>
-              {k.name} <span className="muted">· {KIND_LABEL[k.kind] ?? k.kind}</span>
+              {k.name}{' '}
+              <span className="muted">· {KIND_LABEL[k.kind as CredentialKind] ?? k.kind}</span>
             </span>
           </label>
         ))}
         <small id="credentials-hint" className="muted">
-          At most one SSH key, one login and one become credential.
+          At most one SSH key, one login and password, and one become password.
         </small>
         {at('credentials') && <small className="bad-text">{at('credentials')}</small>}
       </fieldset>

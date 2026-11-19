@@ -110,7 +110,7 @@ shows its settings and the launch form:
   list, the inventory's groups are buttons that add or take out a group, each with its number of
   hosts.
 - **The header** names the inventory, the environment (with its image, or why it has none), the
-  limit and the credentials.
+  limit, the credentials, and whom its runs tell.
 
 **The hosts, as the inventory has them** (`facts`): the server reads the inventory in the
 launch's image, at the launch's commit, with the configuration's environment-variable

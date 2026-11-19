@@ -2,6 +2,20 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Changed
+
+- Credential kinds have one name each on every page and in messages (SSH key, login and password, become password, vault password, git token, container registry, environment variables, AWX token).
+- A new schedule's **Cron** starts empty, with an example in it, instead of a cron that looked chosen.
+- A launch configuration's header names whom its runs tell, as its Settings tab does.
+- On the **Files** tab, **Changes not saved** sits under the files and stays at the window's foot: the first change no longer pushes the editor down.
+
+### Fixed
+
+- The delivery log says why a webhook was not reached: connection refused, timed out, the host name not found (DNS), or its certificate (expired, for another name, not trusted). A certificate problem, or a port web requests may not use, is not tried again.
+- The **Take back** buttons on the **Access** tab no longer move sideways when a longer grant is added.
+
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 
 Carries Ansible Flow Designer 1.0.1.

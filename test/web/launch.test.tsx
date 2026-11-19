@@ -37,6 +37,7 @@ const config = {
   inventory: 'inventory/hosts.yaml',
   inputs: { devices: ['fw-edge-01'] },
   credentials: ['k1'],
+  notify: { to: ['ops'], when: 'failed' },
   createdAt: '2026-11-13T10:00:00.000Z',
   updatedAt: '2026-11-13T10:00:00.000Z',
 };
@@ -227,6 +228,8 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     expect(line.textContent).toContain('inventory inventory/hosts.yaml');
     expect(line.textContent).toContain("the server's default image");
     expect(line.textContent).toContain('1 credential');
+    // AFS-169: whom its runs tell too.
+    expect(line.textContent).toContain('tells ops, when a run fails');
     // The tabs are addresses; Change is one of them now.
     const tabs = screen.getByRole('navigation', { name: 'Launch configuration' });
     expect(
@@ -413,6 +416,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     page('settings', omar);
     expect(await screen.findByText(/Changing them needs rw/)).toBeTruthy();
     expect(screen.getByText('Tells')).toBeTruthy();
+    expect(screen.getByText('ops, when a run fails')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Delete/ })).toBeNull();
   });

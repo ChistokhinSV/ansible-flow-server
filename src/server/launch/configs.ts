@@ -14,6 +14,7 @@ import { type Git, refProblem } from '../projects/git';
 import { getProject, type Project } from '../projects/store';
 import type { LastRun } from '../runs/cursor';
 import type { CredentialKind } from '../secrets/credentials';
+import { KIND_NAME } from '../secrets/kinds';
 
 export type RunMode = 'check' | 'real';
 
@@ -317,9 +318,9 @@ export class LaunchConfigs {
           throw invalid('The workspace has no such credential', 'credentials');
         const kind = row.kind as CredentialKind;
         if (!RUN_KINDS.includes(kind))
-          throw invalid(`${row.name} is a ${kind}: that is not for a run`, 'credentials');
+          throw invalid(`${row.name} (${KIND_NAME[kind]}) is not for a run`, 'credentials');
         if (ONE_EACH.includes(kind) && seen.has(kind))
-          throw invalid(`A run takes one ${kind} credential`, 'credentials');
+          throw invalid(`A run takes one ${KIND_NAME[kind]}`, 'credentials');
         seen.add(kind);
       }
     }
