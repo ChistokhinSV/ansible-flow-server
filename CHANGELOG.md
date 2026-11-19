@@ -2,6 +2,12 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- Redo while editing a flow in the pages: Ctrl+Y (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a new edit; it says what came back, and is refused when someone changed the same place since (`POST /api/v1/drafts/<id>/redo`).
+
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 
 Carries Ansible Flow Designer 1.0.1.

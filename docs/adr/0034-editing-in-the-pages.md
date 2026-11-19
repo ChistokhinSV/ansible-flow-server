@@ -21,7 +21,8 @@
 - **Undo is the flow merge run backwards:** a person's last edit not yet undone is taken back by
   merging the version before it into the draft as it is now (base: the version after it). What
   others changed elsewhere stays; when they changed the same place, the merge has a conflict and
-  the undo is refused with it.
+  the undo is refused with it. Redo (AFS-172) is the same merge the other way: a person's last
+  undo is reapplied while they made no new edit since.
 - **Live** is server-sent events per draft (`draft`, `edit` with the flow after, `people`, `saved`,
   `discarded`); the page posts its edits. A stream reads the draft's revision every 1.5 seconds,
   so an edit made through another server is seen too. Presence ("I am here", every 20 seconds,
@@ -34,7 +35,7 @@
   the draft's side of each.
 - **The page is the designer's host:** the viewer page in edit mode answers the designer's
   messages as VS Code does (commands, tidy, catalog), takes the flow to show from the stream, and
-  catches Ctrl+Z for undo.
+  catches Ctrl+Z for undo, Ctrl+Y and Ctrl+Shift+Z for redo.
 - **The module catalog** is the designer's own index, built per image: the designer's probe reads
   the plugin docs in the image, the index is built in a worker thread and kept in the data folder.
   The flow's image is its launch configuration's (environment, else image), else the server's

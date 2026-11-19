@@ -231,6 +231,11 @@ describe('an empty flow starts from something', () => {
     expect(done.status).toBe(200);
     const undo = await call('mia', 'POST', `/drafts/${id}/undo`);
     expect(undo.json.started).toEqual({ what: 'the import of site.yml', steps: done.json.steps });
+    // AFS-172: its redo brings the import back, as one thing again (Ctrl+Z takes it back again).
+    const redo = await call('mia', 'POST', `/drafts/${id}/redo`);
+    expect(redo.json.started).toEqual({ what: 'the import of site.yml', steps: done.json.steps });
+    const again = await call('mia', 'POST', `/drafts/${id}/undo`);
+    expect(again.json.started).toEqual({ what: 'the import of site.yml', steps: done.json.steps });
   });
 
   it('a step bound to a role the repository lacks gets a role-missing warning (AFS-151)', async () => {

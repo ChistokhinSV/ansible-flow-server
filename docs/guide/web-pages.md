@@ -101,6 +101,8 @@ Code. Everyone who edits the same flow edits one shared draft:
   lie over the top of the canvas.
 - **Ctrl+Z takes back your own last edit**, says which step it was, and leaves the others' alone.
   When someone changed the same place after you, it is refused with what they changed.
+  **Ctrl+Y** (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a
+  new edit; it is refused the same way when someone changed that place since.
 - **Save** (or Ctrl+S, on the page or in the canvas) asks for the commit message, then makes one
   commit on the project's branch, with your message, by you, and
   `Co-authored-by` for everyone else who edited; it then says the commit (a link to the flow at
@@ -148,8 +150,9 @@ Code. Everyone who edits the same flow edits one shared draft:
   what it changed, `people`, `saving`, `saved`, `discarded`); a page told `saving` sends what is
   being typed and then answers `POST /api/v1/drafts/<id>/flushed` with the event's `flush` and
   `stream`; `POST /api/v1/drafts/<id>/commands` (the designer's commands), `/undo` (`nothing`
-  when there is nothing to take back), `/tidy`, `/here`, `/catalog`, `/save` (`choices` keeps
-  `draft` or `branch` per clash id, `answerConflicts` answers clashes instead of a 409);
+  when there is nothing to take back), `/redo` (`nothing` when there is nothing to bring back),
+  `/tidy`, `/here`, `/catalog`, `/save` (`choices` keeps `draft` or `branch` per clash id,
+  `answerConflicts` answers clashes instead of a 409);
   `DELETE /api/v1/drafts/<id>` discards;
   `GET /api/v1/drafts/<id>/start-from` (samples, playbooks, AWX credentials),
   `GET /api/v1/drafts/<id>/start-from/awx?credential=` (templates) and

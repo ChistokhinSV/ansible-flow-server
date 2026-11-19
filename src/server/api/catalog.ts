@@ -347,6 +347,13 @@ export const ROUTES: Record<string, RouteDoc> = {
   )(
     "Take back the caller's own last edit (`nothing` when there is none); refused when someone changed the same place since",
   ),
+  'POST /api/v1/drafts/:id/redo': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "Bring back what the caller's own last undo took, while they made no edit since (`nothing` when there is none); refused when someone changed the same place since",
+  ),
   'POST /api/v1/drafts/:id/tidy': S('Editing', 'signed in', D)('Lay out a level (`level`) again'),
   'POST /api/v1/drafts/:id/here': S(
     'Editing',
@@ -898,6 +905,7 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/drafts/:id/events': 'ro',
   'POST /api/v1/drafts/:id/commands': 'rw',
   'POST /api/v1/drafts/:id/undo': 'rw',
+  'POST /api/v1/drafts/:id/redo': 'rw',
   'POST /api/v1/drafts/:id/tidy': 'rw',
   'POST /api/v1/drafts/:id/here': 'ro',
   'POST /api/v1/drafts/:id/flushed': 'ro',
