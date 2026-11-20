@@ -98,7 +98,8 @@ if (typeof window !== 'undefined') {
  * was just done, such as "Deleted a1-nora."): kept with that history entry, read by noteHere.
  */
 export function navigate(path: string, options: { replace?: boolean; note?: string } = {}): void {
-  if (path === window.location.pathname) return;
+  // AFS-123: the same page with another query (a commit, a filter) is another place.
+  if (path === `${window.location.pathname}${window.location.search}`) return;
   const to = path.split(/[?#]/)[0] ?? path;
   // AFS-171: asked on the page when typing would be lost; the move is made once it is answered.
   if (inTheWay(to).length) {
@@ -127,6 +128,9 @@ export const noteHere = (): string | undefined => {
 
 /** The path the address bar shows. */
 export const usePath = () => useSyncExternalStore(subscribe, () => window.location.pathname);
+
+/** AFS-123: the query the address bar shows (`?commit=…`), for a page that follows it. */
+export const useSearch = () => useSyncExternalStore(subscribe, () => window.location.search);
 
 /**
  * Matches a path against a pattern like `/w/:workspace/:project`. Gives the named parts, or

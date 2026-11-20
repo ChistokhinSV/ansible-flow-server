@@ -3507,3 +3507,81 @@ dialog.confirm::backdrop {
 .confirm-actions {
   margin: 0;
 }
+
+/* AFS-123: a project's History tab and a flow's history. A commit is a row that opens to its
+   files; the subject takes the room, who, when and the hash under it. */
+.commit-row {
+  border-bottom: 1px solid var(--line);
+}
+button.commit-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.65rem 0.25rem;
+  background: none;
+  border-radius: 6px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.commit-toggle:hover:not(:disabled) {
+  background: var(--raised);
+}
+button.commit-toggle[aria-expanded="true"] .commit-subject {
+  font-weight: 600;
+}
+.commit-subject {
+  color: var(--fg);
+}
+.commit-meta {
+  font-size: 13px;
+}
+.commit-files {
+  padding: 0 0.25rem 0.75rem 1rem;
+}
+.commit-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0 0 0.5rem;
+  color: var(--fg2);
+  font-size: 13px;
+}
+.commit-file-list li {
+  margin: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+.panel.flow-history {
+  margin: 0.5rem 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.panel.flow-history .panel-head {
+  margin-bottom: 0.25rem;
+}
+.flow-history-list li {
+  border-bottom: 1px solid var(--line);
+}
+a.flow-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.25rem;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+a.flow-history-item:hover .commit-subject,
+.flow-history-list li[aria-current="true"] .commit-subject {
+  color: var(--link);
+}
+.flow-history-list li[aria-current="true"] .commit-subject {
+  font-weight: 600;
+}
+.notice.past-note {
+  margin: 0.25rem 0 0.5rem;
+}
+.notice.past-note p {
+  margin: 0.15rem 0;
+  overflow-wrap: anywhere;
+}

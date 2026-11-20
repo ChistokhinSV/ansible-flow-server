@@ -367,7 +367,14 @@ export function FlowFileActions({
  * AFS-110: More (⋯) in a flow page's head: Copy… and Delete…, so they take no row of their own.
  * Closes on a pick, a click elsewhere or Escape.
  */
-export function FlowFileMenu({ onPick }: { onPick(what: 'copy' | 'delete'): void }) {
+export function FlowFileMenu({
+  onPick,
+  mayChange = true,
+}: {
+  onPick(what: 'copy' | 'delete' | 'history'): void;
+  /** AFS-123: Copy and Delete are for who may change the project's files; History for anyone. */
+  mayChange?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -385,7 +392,7 @@ export function FlowFileMenu({ onPick }: { onPick(what: 'copy' | 'delete'): void
       document.removeEventListener('keydown', key);
     };
   }, [open]);
-  const pick = (what: 'copy' | 'delete') => {
+  const pick = (what: 'copy' | 'delete' | 'history') => {
     setOpen(false);
     onPick(what);
   };
@@ -395,7 +402,9 @@ export function FlowFileMenu({ onPick }: { onPick(what: 'copy' | 'delete'): void
         type="button"
         className="icon-button"
         aria-label="More"
-        title="More: copy or delete the flow"
+        title={
+          mayChange ? 'More: history, copy or delete the flow' : 'More: the history of the flow'
+        }
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -404,12 +413,24 @@ export function FlowFileMenu({ onPick }: { onPick(what: 'copy' | 'delete'): void
       </button>
       {open && (
         <div className="more-menu-list" role="menu">
-          <button type="button" role="menuitem" onClick={() => pick('copy')}>
-            Copy the flow…
+          <button type="button" role="menuitem" onClick={() => pick('history')}>
+            History
           </button>
-          <button type="button" role="menuitem" className="danger" onClick={() => pick('delete')}>
-            Delete the flow…
-          </button>
+          {mayChange ? (
+            <>
+              <button type="button" role="menuitem" onClick={() => pick('copy')}>
+                Copy the flow…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="danger"
+                onClick={() => pick('delete')}
+              >
+                Delete the flow…
+              </button>
+            </>
+          ) : null}
         </div>
       )}
     </div>

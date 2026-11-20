@@ -620,6 +620,10 @@ export function FilesPage({
           { key: '', label: 'Overview' },
           { key: 'runs', label: 'Runs' },
           { key: 'files', label: 'Files' },
+          // AFS-123: as on the project's other tabs.
+          ...(project.commit && (me.admin || atLeast(access?.workspace ?? null, 'ro'))
+            ? [{ key: 'history', label: 'History' }]
+            : []),
           {
             key: 'branches',
             label: 'Branches',

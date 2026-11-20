@@ -353,6 +353,35 @@ export const api = {
       'GET',
       `/projects/${id}/files/history?commit=${commit}&path=${encodeURIComponent(path)}&limit=5`,
     ),
+  /**
+   * AFS-123: a page of the project's commits (of `branch`, or up to `commit`), newest first; `q`
+   * keeps those with its words; `path` a flow's commits. `next`: the `skip` of the next page.
+   */
+  commits: (
+    id: string,
+    query: {
+      branch?: string;
+      commit?: string;
+      path?: string;
+      q?: string;
+      skip?: number;
+      limit?: number;
+    },
+  ) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(query))
+      if (v !== undefined && v !== '') q.set(k, String(v));
+    return call<CommitPage>('GET', `/projects/${id}/commits${q.size ? `?${q}` : ''}`);
+  },
+  /** AFS-123: one commit with the files it changed. */
+  commit: (id: string, commit: string) =>
+    call<CommitDetails>('GET', `/projects/${id}/commits/${commit}`),
+  /** AFS-123: what a commit did to a flow, for the flow at that commit. */
+  flowAtCommit: (id: string, path: string, commit: string) =>
+    call<FlowAtCommit>(
+      'GET',
+      `/projects/${id}/flows/commit?path=${encodeURIComponent(path)}&commit=${commit}`,
+    ),
   /** AFS-78: one commit with the change set. */
   saveFiles: (
     id: string,
@@ -817,4 +846,43 @@ export interface Draft {
   createdAt: string;
   updatedAt: string;
   editors: { id: string; login: string; name: string }[];
+}
+
+/** AFS-123: a commit as the History lists show it. */
+export interface CommitSummary {
+  commit: string;
+  parents: string[];
+  author: string;
+  at: string;
+  subject: string;
+  /** In a flow's history: which of its files the commit changed. */
+  files?: { file: string; change: 'added' | 'changed' | 'removed' }[];
+}
+export interface CommitPage {
+  branch: string;
+  /** The commit the walk started from (the branch's, when the page was read). */
+  commit?: string;
+  commits: CommitSummary[];
+  /** The `skip` of the next page, when there is one. */
+  next?: number;
+}
+export interface CommitDetails extends CommitSummary {
+  body: string;
+  files: {
+    file: string;
+    change: 'added' | 'changed' | 'removed';
+    flow?: boolean;
+    title?: string;
+  }[];
+  /** How many more files it changed than are listed. */
+  more?: number;
+}
+export interface FlowAtCommit extends CommitSummary {
+  body: string;
+  path: string;
+  change: 'added' | 'changed' | 'removed' | 'unchanged';
+  /** The commit to compare with (the parent), when it had the flow. */
+  before?: string;
+  /** A removal: the last commit that changed the flow. */
+  last?: string;
 }

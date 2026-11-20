@@ -16,6 +16,12 @@ import {
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import {
+  type Commit,
+  commitMatches,
+  LOG_FORMAT,
+  parseLog,
+} from '@ansible-flow/node/history/gitLog';
 
 /** How long a fetch may take. */
 export const FETCH_TIMEOUT_MS = 120_000;
@@ -914,6 +920,80 @@ export class Git {
         const [hash = '', author = '', at = '', subject = ''] = line.trim().split('\x1f');
         return { commit: hash, author, at, subject };
       });
+  }
+
+  /**
+   * AFS-123: a page of the history up to `tip`, newest first, read as the designer reads it (AFD-320:
+   * its log format, parser and filter). `skip` commits of the walk are passed over first; `paths`
+   * keeps the commits that changed one of them. With a `filter` (words in the message, author,
+   * hash or a changed file's path) the walk goes on in batches until `limit` commits match, the
+   * history ends, or `budget` commits were read; `next` is where the walk goes on from, when there
+   * is more to read.
+   */
+  async log(
+    projectId: string,
+    tip: string,
+    options: {
+      skip?: number;
+      limit?: number;
+      paths?: string[];
+      filter?: string;
+      budget?: number;
+    } = {},
+  ): Promise<{ commits: Commit[]; next?: number }> {
+    if (!COMMIT.test(tip)) throw new GitError('Not a commit');
+    for (const path of options.paths ?? [])
+      if (!path || path.startsWith('/') || path.includes('\0') || path.split('/').includes('..'))
+        throw new GitError('Not a path inside the repository');
+    const limit = options.limit ?? 50;
+    const filter = options.filter?.trim() ?? '';
+    const read = async (skip: number, count: number) =>
+      parseLog(
+        (
+          await this.run(
+            [
+              '-c',
+              'core.quotePath=false',
+              'log',
+              '-z',
+              '--name-status',
+              `--format=${LOG_FORMAT}`,
+              `--max-count=${count}`,
+              ...(skip ? [`--skip=${skip}`] : []),
+              tip,
+              '--',
+              ...(options.paths ?? []),
+            ],
+            { cwd: this.mirror(projectId), timeoutMs: READ_TIMEOUT_MS, maxBytes: 64 * 1024 * 1024 },
+          )
+        ).toString('utf8'),
+      );
+    let at = options.skip ?? 0;
+    if (!filter) {
+      const page = await read(at, limit + 1);
+      return {
+        commits: page.slice(0, limit),
+        ...(page.length > limit ? { next: at + limit } : {}),
+      };
+    }
+    // Filtered: read in batches and keep what matches; a long history is read a budget at a time.
+    const budget = options.budget ?? 5000;
+    const found: Commit[] = [];
+    let readSoFar = 0;
+    while (readSoFar < budget) {
+      const want = Math.min(500, budget - readSoFar);
+      const batch = await read(at, want);
+      for (const [i, commit] of batch.entries()) {
+        if (!commitMatches(commit, filter)) continue;
+        if (found.length === limit) return { commits: found, next: at + i };
+        found.push(commit);
+      }
+      at += batch.length;
+      readSoFar += batch.length;
+      if (batch.length < want) return { commits: found };
+    }
+    // The budget is spent: the walk goes on from here, if the history does.
+    return (await read(at, 1)).length ? { commits: found, next: at } : { commits: found };
   }
 
   /**
