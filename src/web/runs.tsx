@@ -2,7 +2,7 @@
 // it the approval that waits, its hosts, what went wrong and what ran; its output below (AFS-64).
 
 import type { RunView } from '@ansible-flow/core/protocol';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { atLeast, flowLevel, launchesAny, useMyAccess, useProjectAccess } from './access';
 import { AnsiText } from './ansi';
 import {
@@ -19,6 +19,7 @@ import { RunApprovals } from './approvals';
 import { ask } from './confirm';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
+import { quietEndOrigins } from './outputText';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import {
@@ -858,6 +859,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const [view, setView] = useState<RunView>();
   const access = useProjectAccess(run?.project).data;
   const [output, setOutput] = useState('');
+  // AFS-181: no generated-code excerpt under a failed end's error (the output file keeps it).
+  const shown = useMemo(() => quietEndOrigins(output), [output]);
   const [error, setError] = useState<string>();
   /** AFS-152: the run is not there, or not shared with this person. */
   const [missing, setMissing] = useState(false);
@@ -1330,7 +1333,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               follow.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
             }}
           >
-            <AnsiText text={output} />
+            <AnsiText text={shown} />
           </pre>
         ) : (
           <p className="muted">{going ? 'Nothing yet.' : 'No output.'}</p>

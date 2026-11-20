@@ -33,6 +33,7 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- A run's **Terminal output** shows a host that a rejection, a timeout or any route sent to a failed end with its error alone, without the excerpt of generated code Ansible prints under it (the downloadable output keeps it).
 - The delivery log says why a webhook was not reached: connection refused, timed out, the host name not found (DNS), or its certificate (expired, for another name, not trusted). A certificate problem, or a port web requests may not use, is not tried again.
 - The **Take back** buttons on the **Access** tab no longer move sideways when a longer grant is added.
 - **What ran** marks an image as the server's default by how the run started, not by how its launch configuration reads now; dev runs are marked too.
