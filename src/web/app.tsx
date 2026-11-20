@@ -140,7 +140,10 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   if (
     inProject?.workspace &&
     inProject.project &&
-    (inProject.tab === 'runs' || inProject.tab === 'branches' || inProject.tab === 'settings')
+    (inProject.tab === 'runs' ||
+      inProject.tab === 'history' ||
+      inProject.tab === 'branches' ||
+      inProject.tab === 'settings')
   )
     return (
       <ProjectPage

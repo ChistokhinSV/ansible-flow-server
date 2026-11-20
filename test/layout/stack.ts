@@ -180,8 +180,41 @@ async function seed(base: string, code: string, password: string): Promise<Recor
   );
   const configs = await call('GET', `/projects/${hello.id}/launch-configs`);
   const config = (Array.isArray(configs) ? configs : configs.configs)[0];
-  const run = await call('POST', `/launch-configs/${config.id}/launch`, {});
   const flow = config.flowFile ?? config.flow;
+  // AFS-123: a few commits after the first, for the History tab and a flow at a commit.
+  const fileAt = async (commit: string, path: string) =>
+    (
+      await fetch(
+        `${base}/api/v1/projects/${hello.id}/files/content?commit=${commit}&path=${encodeURIComponent(path)}`,
+        { headers: { cookie } },
+      )
+    ).text();
+  let tip: string = hello.commit;
+  const save = async (message: string, changes: unknown[]) => {
+    tip = (await call('POST', `/projects/${hello.id}/files`, { base: tip, message, changes }))
+      .commit;
+    return tip;
+  };
+  await save('Add a readme for the team', [
+    { op: 'write', path: 'README.md', text: '# Hello\n\nThe smallest useful flow.\n' },
+  ]);
+  const text = await fileAt(tip, flow);
+  const changed = await save(
+    `Greet the team by name in ${flow.split('/').at(-1)}, and say where the facts come from`,
+    [
+      {
+        op: 'write',
+        path: flow,
+        text: text
+          .replace('title: Say hello\n', 'title: Say hello to the team\n')
+          .replace('title: Read a few facts\n', 'title: Read the minimal facts\n'),
+      },
+    ],
+  );
+  await save('Tune the inventory', [
+    { op: 'write', path: 'inventory.ini', text: '[all]\nlocalhost ansible_connection=local\n' },
+  ]);
+  const run = await call('POST', `/launch-configs/${config.id}/launch`, {});
   return {
     home: '/',
     workspace: '/w/network',
@@ -189,6 +222,9 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     files: '/w/network/hello/files',
     flow: `/w/network/hello/flow/${flow}`,
     flowEdit: `/w/network/hello/flow/${flow}?edit=1`,
+    // AFS-123: the project's history, and the flow as one commit left it.
+    history: '/w/network/hello/history',
+    flowAtCommit: `/w/network/hello/flow/${flow}?commit=${changed}`,
     longProject: '/w/network/long',
     launch: `/w/network/hello/launch/${config.id}`,
     run: `/runs/${run.id ?? run.run?.id}`,

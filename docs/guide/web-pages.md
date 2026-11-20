@@ -34,9 +34,11 @@ never opens the browser's Save dialog.
 | `/w/<workspace>/<project>`                        | A project in tabs, with its state in one line under the title (source, branch, commit). **Overview**: launch configurations with their last run and Launch, flows with their findings and how their last run went, the newest runs                                 |
 | `/w/<workspace>/<project>/runs`                   | **Runs** of the project                                                                                                                                                                                                                                            |
 | `/w/<workspace>/<project>/files`                  | **Files** of the project                                                                                                                                                                                                                                           |
+| `/w/<workspace>/<project>/history`                | **History**: the commits of a branch, a filter, a commit opens to the files it changed                                                                                                                                                                             |
 | `/w/<workspace>/<project>/branches`               | **Branches** and who pushed through the server                                                                                                                                                                                                                     |
 | `/w/<workspace>/<project>/settings`               | **Settings**: the `git clone` command, what an external source signs in with, its SSH host key, the push hook, library                                                                                                                                             |
 | `/w/<workspace>/<project>/flow/<file>`            | One flow on the designer's canvas; its launch configurations (Launch) and newest runs above it; "Open on its own page"                                                                                                                                             |
+| `.../flow/<file>?commit=<hash>`                   | The flow as that commit left it, read only, in the Changes lens against the version before                                                                                                                                                                         |
 | `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form with Launch on top, what would run, keep start values                                                                                                                                                         |
 | `.../launch/<id>/runs`, `/schedules`, `/settings` | Its **Runs** (older ones a page at a time), its **Schedules**, and its **Settings** (change, delete; `rw` on its flow)                                                                                                                                             |
 | `/w/<workspace>/<project>/launch/new`             | Add a launch configuration (`rw` on its flow)                                                                                                                                                                                                                      |
@@ -224,6 +226,41 @@ changed the same files is `409` with `files`. An `unpack` that would replace fil
 `"replace": true`.
 
 Not there yet: a diff before Save, and a link from a step's template in the designer to its file.
+
+## History of a project
+
+The **History** tab of a project lists the commits of the branch that runs, the newest first:
+each one's message, author, day and time (in your time zone) and short hash. Pick another branch
+above the list. **Find** keeps the commits whose message, author, hash or changed files have all
+the words you type. The newest 50 come first; **More commits** reads the next ones (with a
+filter, **Look further back** goes on through a long history). The tab is for who may read the
+project's files (`ro` on the workspace); the address keeps the branch, the filter and the open
+commit, so it can be shared.
+
+A commit opens to the files it changed, each **added**, **changed** or **removed** (a rename is
+a removal and an addition; a merge shows what it brought to its first parent). Flows are named by
+their title and open the flow as that commit left it.
+
+A flow's own history is in its page's **More** menu (**History**): the commits that changed its
+flow file or its scenarios file (`<key>.scenarios.yaml`), each saying which. Anyone who may see the
+flow has it.
+
+### A flow at a commit
+
+`/w/<workspace>/<project>/flow/<file>?commit=<hash>` shows the flow as that commit left it, read
+only, in the designer's **Changes** lens against the version just before that commit: the steps,
+wires and settings it changed are marked, and the lens lists them. Above the canvas: the commit's
+hash, author, day and message, what it did to the flow, and **Back to the current flow**. A flow
+the commit added compares with nothing, every step new; a commit that removed the flow says so and
+links to its last version. Nothing runs or is edited from here.
+
+Over the API (read only; `ro` on the project, or on the flow for a flow's own):
+`GET /api/v1/projects/<id>/commits?branch=&q=&limit=` gives a page of commits and, when there are
+more, `next`: pass it as `skip`, with the page's `commit`, for the next page;
+`&path=<flow file>` keeps a flow's commits. `GET /api/v1/projects/<id>/commits/<hash>` gives one
+commit with its files; `GET /api/v1/projects/<id>/flows/commit?path=&commit=` says what a commit
+did to a flow (`added`, `changed`, `removed` or `unchanged`) and which commit to compare with
+(`before`).
 
 ## Flow library
 
