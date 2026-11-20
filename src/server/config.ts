@@ -29,6 +29,11 @@ export interface Config {
   /** AFS-116: runs check the server's certificate (AFS_RUN_VERIFY_TLS); unset: unless self-signed. */
   runVerifyTls?: boolean;
   /**
+   * AFS-182: runs record the value each step's inputs had per host (AFS_RUN_RECORD_INPUTS, default
+   * true; redacted and size-limited by the designer's callback). false: no input values at all.
+   */
+  runRecordInputs?: boolean;
+  /**
    * Without HTTPS: the proxies whose word is taken for who asked and over what (addresses or
    * networks). Empty: nobody's.
    */
@@ -262,6 +267,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const verifyText = text('AFS_RUN_VERIFY_TLS')?.toLowerCase();
   if (verifyText && !['true', 'false'].includes(verifyText))
     problems.push(`AFS_RUN_VERIFY_TLS is "${verifyText}": use true or false`);
+  const recordText = (text('AFS_RUN_RECORD_INPUTS') ?? 'true').toLowerCase();
+  if (!['true', 'false'].includes(recordText))
+    problems.push(`AFS_RUN_RECORD_INPUTS is "${recordText}": use true or false`);
   const format = (text('AFS_LOG_FORMAT') ?? 'text').toLowerCase();
   if (format !== 'text' && format !== 'json')
     problems.push(`AFS_LOG_FORMAT is "${format}": use text or json`);
@@ -275,6 +283,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ...(publicUrl ? { publicUrl } : {}),
     ...(runUrl ? { runUrl } : {}),
     ...(verifyText ? { runVerifyTls: verifyText === 'true' } : {}),
+    ...(recordText === 'false' ? { runRecordInputs: false } : {}),
     trustedProxies,
     ...(caFile ? { caFile: resolve(caFile) } : {}),
     ...(masterKey ? { masterKey } : {}),

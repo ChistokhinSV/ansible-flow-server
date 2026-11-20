@@ -14,6 +14,15 @@ describe('loadConfig', () => {
     expect(config.log).toEqual({ level: 'info', format: 'text' });
   });
 
+  it('AFS-182: runs record input values unless AFS_RUN_RECORD_INPUTS is false', () => {
+    expect(loadConfig({}).runRecordInputs).toBeUndefined();
+    expect(loadConfig({ AFS_RUN_RECORD_INPUTS: 'TRUE' }).runRecordInputs).toBeUndefined();
+    expect(loadConfig({ AFS_RUN_RECORD_INPUTS: 'false' }).runRecordInputs).toBe(false);
+    expect(() => loadConfig({ AFS_RUN_RECORD_INPUTS: 'no' })).toThrow(
+      'AFS_RUN_RECORD_INPUTS is "no": use true or false',
+    );
+  });
+
   it('reads the address, the data folder, the database and the log settings', () => {
     const config = loadConfig({
       AFS_HOST: '0.0.0.0',

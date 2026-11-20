@@ -6,6 +6,7 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- A run records the value each step's inputs had for each host. On the run's page, a step's **Details › Data** shows **In this run** under each input, with the hosts that had each value or one host's value, and says when it differs from what the flow states; a variable's tooltip and the step's **Run** tab show them too. Secrets are never recorded, long values are cut, and a run keeps 256 KB of values at most. The new setting `AFS_RUN_RECORD_INPUTS` (default `true`) turns it off.
 - A project's **History** tab: the commits of a branch, newest first, with author, time and short hash; a filter by words in the message, author, hash or changed files; more on request. A commit opens to the files it changed, flows by their title (`GET /api/v1/projects/<id>/commits`, `GET /api/v1/projects/<id>/commits/<hash>`).
 - A flow's history, from **History** in its page's **More** menu: the commits that changed the flow or its scenarios.
 - A flow at a commit (`?commit=<hash>` on its page): the flow as that commit left it, read only, in the Changes lens against the version before, with the commit's author, time and message and a way back to the current flow (`GET /api/v1/projects/<id>/flows/commit`).
