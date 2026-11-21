@@ -21,6 +21,7 @@ export interface HistoryRouteDeps {
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
 const COMMIT = { type: 'string', pattern: '^[0-9a-f]{40}$' };
+const SOME_COMMIT = { type: 'string', minLength: 1, maxLength: 200 };
 const NO_PROJECT = { error: 'not_found', message: 'No such project' };
 /** git's tree with nothing in it: what the first commit is compared with. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -181,7 +182,8 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
       // Against the first parent (a merge: what it brought to the branch); the first commit
       // against nothing.
       const parent = one.parents[0];
-      const changed = await git.changedFiles(project.id, parent ?? EMPTY_TREE, commit);
+      // AFS-190: a file moved is one entry, with the path it had.
+      const changed = await git.commitFiles(project.id, parent ?? EMPTY_TREE, commit);
       let titled = 0;
       const files = [];
       for (const f of changed.slice(0, MAX_FILES)) {
@@ -218,7 +220,8 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
           type: 'object',
           additionalProperties: false,
           required: ['path', 'commit'],
-          properties: { path: text(1000, 1), commit: COMMIT },
+          // AFS-190: a full commit id, or its start as the pages show it (7 characters or more).
+          properties: { path: text(1000, 1), commit: SOME_COMMIT },
         },
       },
     },
@@ -226,13 +229,21 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
       if (!signedIn(request, reply)) return reply;
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
-      const { path, commit } = request.query;
+      const { path } = request.query;
       if (!FLOW_FILE.test(path))
         return reply.code(404).send({ error: 'not_found', message: 'Not a flow file' });
-      if (!(await git.hasCommit(project.id, commit)))
-        return reply
-          .code(404)
-          .send({ error: 'not_found', message: 'The project has no such commit' });
+      const found = await git.findCommit(project.id, request.query.commit);
+      if ('ambiguous' in found)
+        return reply.code(404).send({
+          error: 'not_found',
+          message: `More than one commit of the project starts with ${request.query.commit}: give more of its id.`,
+        });
+      if ('none' in found)
+        return reply.code(404).send({
+          error: 'not_found',
+          message: `The project has no commit ${request.query.commit}.`,
+        });
+      const { commit } = found;
       try {
         const [one] = (await git.log(project.id, commit, { limit: 1 })).commits;
         if (!one)
@@ -243,9 +254,10 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
         const here = await git.exists(project.id, commit, path);
         const before = parent ? await git.exists(project.id, parent, path) : false;
         if (!here && !before)
-          return reply
-            .code(404)
-            .send({ error: 'not_found', message: 'The project has no such flow at this commit' });
+          return reply.code(404).send({
+            error: 'not_found',
+            message: `The flow was not in the project at commit ${commit.slice(0, 12)}.`,
+          });
         let change: 'added' | 'changed' | 'removed' | 'unchanged';
         if (!before) change = 'added';
         else if (!here) change = 'removed';
@@ -259,6 +271,9 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
           change === 'removed'
             ? (await git.fileHistory(project.id, parent as string, path, { limit: 1 }))[0]?.commit
             : undefined;
+        // AFS-190: whether the project's branch has the commit; if not, the branches that do.
+        const branches = await git.branchesWith(project.id, commit).catch(() => [] as string[]);
+        const onBranch = branches.includes(project.gitRef);
         return {
           ...summaryOf(one),
           body: one.body,
@@ -266,6 +281,8 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
           change,
           ...(before && parent ? { before: parent } : {}),
           ...(last ? { last } : {}),
+          onBranch,
+          ...(onBranch ? {} : { branches: branches.slice(0, 5) }),
         };
       } catch (e) {
         if (e instanceof GitError)

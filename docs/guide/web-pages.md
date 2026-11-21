@@ -273,9 +273,10 @@ filter, **Look further back** goes on through a long history). The tab is for wh
 project's files (`ro` on the workspace); the address keeps the branch, the filter and the open
 commit, so it can be shared.
 
-A commit opens to the files it changed, each **added**, **changed** or **removed** (a rename is
-a removal and an addition; a merge shows what it brought to its first parent). Flows are named by
-their title and open the flow as that commit left it.
+A commit opens to the files it changed, each **added**, **changed**, **removed** or **renamed**
+(with the path it had; a merge shows what it brought to its first parent). Flows are named by
+their title and open the flow as that commit left it; every other file opens on a page of its own
+as the commit left it (a removed one as it was before). Hashes show 12 characters everywhere.
 
 A flow's own history is in its page's **More** menu (**History**): the commits that changed its
 flow file or its scenarios file (`<key>.scenarios.yaml`), each saying which. Anyone who may see the
@@ -285,18 +286,23 @@ flow has it.
 
 `/w/<workspace>/<project>/flow/<file>?commit=<hash>` shows the flow as that commit left it, read
 only, in the designer's **Changes** lens against the version just before that commit: the steps,
-wires and settings it changed are marked, and the lens lists them. Above the canvas: the commit's
-hash, author, day and message, what it did to the flow, and **Back to the current flow**. A flow
-the commit added compares with nothing, every step new; a commit that removed the flow says so and
-links to its last version. Nothing runs or is edited from here.
+wires, notes and settings it changed are marked, and the lens lists them. Above the canvas, once:
+the commit's hash, author, time and message, what it did to the flow, **Back to the current flow**
+and **History of this flow**. A flow the commit added compares with nothing, every step new; a
+commit that removed the flow says so and links to its last version (when the flow is gone from the
+branch, the way back leads to the project). A commit the project's branch does not have names the
+branches that do. The hash may be the full one or its start (7 characters or more, as History
+shows it); one that names no commit, or more than one, or a commit without the flow, is said there
+with the same ways on, and no flow shows. Nothing runs or is edited from here.
 
 Over the API (read only; `ro` on the project, or on the flow for a flow's own):
 `GET /api/v1/projects/<id>/commits?branch=&q=&limit=` gives a page of commits and, when there are
 more, `next`: pass it as `skip`, with the page's `commit`, for the next page;
 `&path=<flow file>` keeps a flow's commits. `GET /api/v1/projects/<id>/commits/<hash>` gives one
 commit with its files; `GET /api/v1/projects/<id>/flows/commit?path=&commit=` says what a commit
-did to a flow (`added`, `changed`, `removed` or `unchanged`) and which commit to compare with
-(`before`).
+did to a flow (`added`, `changed`, `removed` or `unchanged`), which commit to compare with
+(`before`), and whether the project's branch has it (`onBranch`; if not, `branches`); `commit` may
+be the start of a hash, and the answer has the full one.
 
 ## Flow library
 

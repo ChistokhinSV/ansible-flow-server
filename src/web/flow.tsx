@@ -17,7 +17,7 @@ import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { MissingProject } from './help';
 import { FlowHistory, flowAt } from './history';
 import { InsertFromLibrary, LibraryCopies } from './library';
-import { Link, useSearch } from './router';
+import { Link, navigate, useSearch } from './router';
 import { ACTIVE, RunWords } from './runs';
 import { useSaveKey } from './saveKey';
 import { StartFrom, type StartWhat } from './startFrom';
@@ -64,12 +64,23 @@ export function FlowPage({
   const flow = flows.data?.flows.find((f) => f.file === file);
   // AFS-123: `?commit=<hash>`: the flow as that commit left it, in the Changes lens.
   const search = useSearch();
-  const asked40 = new URLSearchParams(search).get('commit') ?? '';
-  const at = /^[0-9a-f]{40}$/.test(asked40) ? asked40 : undefined;
+  // AFS-190: any commit asked for is the flow at a commit, never the current one to edit: the
+  // start of an id (as the pages show it) is looked up, and what names no commit is refused.
+  const at = new URLSearchParams(search).get('commit')?.trim() || undefined;
+  const wellFormed = !!at && /^[0-9a-f]{7,40}$/i.test(at);
   const past = useLoad(
-    async () => (project && at ? api.flowAtCommit(project.id, file, at) : undefined),
+    async () =>
+      project && at && wellFormed
+        ? api.flowAtCommit(project.id, file, at.toLowerCase())
+        : undefined,
     [project?.id, file, at],
   );
+  // The commit found, by its full id: what the frame shows and the address keeps.
+  const full = past.data?.commit;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once the commit is found
+  useEffect(() => {
+    if (full && at !== full) navigate(flowAt(workspace, key, file, full), { replace: true });
+  }, [full]);
   // AFS-123: the flow's history, opened from the More menu.
   const [historyOpen, setHistoryOpen] = useState(false);
   const title = flow?.name ?? file.split('/').at(-1) ?? file;
@@ -136,12 +147,10 @@ export function FlowPage({
   }, [editing?.id]);
   const [edits, setEdits] = useState<Activity[]>([]);
   const [said, setSaid] = useState<ReactNode>();
-  // AFS-188: a note about the flow's draft ("Saved as …", "The draft is discarded.") is not about
-  // another commit of it: opening one (History) or coming back clears it.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: on a change of the commit shown
-  useEffect(() => {
-    setSaid(undefined);
-  }, [at]);
+  // AFS-190: what was said ("Saved as …", "The draft is discarded.") is about the flow shown
+  // then: another commit, or the current flow again, starts without it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on another commit only
+  useEffect(() => setSaid(undefined), [at]);
   const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
   const [starting, setStarting] = useState<StartWhat>();
   // AFS-79: the draft changed (an insert here, an edit by anyone): the library copies are read again.
@@ -324,12 +333,12 @@ export function FlowPage({
     project &&
     `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}${
       editing && !at ? `&draft=${encodeURIComponent(editing.id)}` : ''
-    }${at ? `&commit=${at}&history=1` : ''}${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
+    }${at && full ? `&commit=${full}&history=1` : ''}${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
   // AFS-123: at a commit, the canvas shows unless the commit removed the flow; else unless the
   // flow is gone from the branch.
   // AFS-152: gone, and nothing of it left (no run, no configuration): it may never have been here.
   const missing = gone && !at && !configs.data?.length && !runs.data?.length;
-  const noCanvas = at ? !past.data || past.data.change === 'removed' : gone;
+  const noCanvas = at ? !full || past.data?.change === 'removed' : gone;
   const edit = async () => {
     if (!project) return;
     setSaid(undefined);
@@ -488,7 +497,11 @@ export function FlowPage({
           {project && !editing && project.commit && !missing && (
             <FlowFileMenu
               mayChange={mayChangeFiles && !gone && !at}
-              onPick={(what) => (what === 'history' ? setHistoryOpen(true) : setFileAction(what))}
+              onPick={(what) => {
+                if (what !== 'history') return setFileAction(what);
+                setHistoryOpen(true);
+                setSaid(undefined);
+              }}
             />
           )}
         </PageHead>
@@ -509,18 +522,19 @@ export function FlowPage({
         {at && project ? (
           <PastNote
             at={at}
+            wellFormed={wellFormed}
             past={past}
-            back={flowAt(workspace, key, file)}
+            branch={project.gitRef}
+            // AFS-190: back to the flow as it is now, or to the project when it is gone.
+            back={
+              gone ? (
+                <Link to={here}>Back to {project.name}</Link>
+              ) : (
+                <Link to={flowAt(workspace, key, file)}>Back to the current flow</Link>
+              )
+            }
+            history={() => setHistoryOpen(true)}
             last={(c) => flowAt(workspace, key, file, c)}
-          />
-        ) : null}
-        {historyOpen && project ? (
-          <FlowHistory
-            workspace={workspace}
-            project={project}
-            file={file}
-            {...(at ? { current: at } : {})}
-            onClose={() => setHistoryOpen(false)}
           />
         ) : null}
         {project && !editing && !at && !(gone && !configs.data?.length && !runs.data?.length) ? (
@@ -577,6 +591,16 @@ export function FlowPage({
               </span>
             )}
           </p>
+        ) : null}
+        {/* AFS-190: the flow's History under the line of its facts, not between it and the title. */}
+        {historyOpen && project ? (
+          <FlowHistory
+            workspace={workspace}
+            project={project}
+            file={file}
+            {...(full ? { current: full } : {})}
+            onClose={() => setHistoryOpen(false)}
+          />
         ) : null}
         {gone && project && !at ? (
           // AFS-152: with nothing of it left to see (no run, no configuration), it may never have
@@ -677,13 +701,13 @@ export function FlowPage({
           </div>
           <iframe
             // A new commit, theme or draft is a new page for the designer.
-            key={`${project.commit}:${theme}:${editing?.id ?? ''}:${at ?? ''}`}
+            key={`${project.commit}:${theme}:${editing?.id ?? ''}:${full ?? ''}`}
             className="flow-frame"
             // AFS-149: the frame of a draft is this page's tab (its typing is sent for a save).
             src={editing && !at ? `${viewer}&tab=${encodeURIComponent(tab)}` : viewer}
             title={
-              at
-                ? `The flow ${title} as commit ${at.slice(0, 8)} left it, on the designer's canvas`
+              full
+                ? `The flow ${title} as commit ${full.slice(0, 12)} left it, on the designer's canvas`
                 : `The flow ${title} on the designer's canvas`
             }
           />
@@ -720,44 +744,89 @@ export function FlowPage({
 }
 /**
  * AFS-123: over the flow at a commit: whose commit, when, its message, what it did to the flow,
- * and the way back to the flow as it is now.
+ * and the way back to the flow as it is now. AFS-190: the one place the commit is said (the
+ * canvas does not repeat it), in two short lines; an id that names no commit, or a commit
+ * without the flow, is said here with the ways on, and nothing else shows.
  */
 function PastNote({
   at,
+  wellFormed,
   past,
+  branch,
   back,
+  history,
   last,
 }: {
+  /** The commit asked for, as the address has it. */
   at: string;
+  /** It reads as a commit id (or the start of one). */
+  wellFormed: boolean;
   past: { data?: FlowAtCommit; loading: boolean; error?: string };
-  back: string;
+  /** The project's branch. */
+  branch: string;
+  back: ReactNode;
+  /** Opens the flow's History. */
+  history(): void;
   last(commit: string): string;
 }) {
   const d = past.data;
+  const ways = (
+    <>
+      {back} ·{' '}
+      <button type="button" className="link" onClick={history}>
+        History of this flow
+      </button>
+    </>
+  );
+  if (!wellFormed || (!d && past.error))
+    return (
+      <div className="notice error past-note" role="alert" data-past="refused">
+        <p>
+          {wellFormed ? (
+            past.error
+          ) : (
+            <>
+              <code>{at.length > 60 ? `${at.slice(0, 59)}…` : at}</code> is not a commit id. A
+              commit id is a hash such as the ones History shows.
+            </>
+          )}
+        </p>
+        <p>{ways}</p>
+      </div>
+    );
   if (!d) return <Loading state={past} />;
   let words: ReactNode;
   if (d.change === 'removed')
     words = (
       <>
-        This commit removed the flow.{' '}
-        {d.last ? <Link to={last(d.last)}>Its last version</Link> : null}
+        It removed the flow.
+        {d.last ? (
+          <>
+            {' '}
+            <Link to={last(d.last)}>Its last version</Link> ·
+          </>
+        ) : null}
       </>
     );
-  else if (d.change === 'added')
-    words = 'This commit added the flow: read only, every step shows as new in the Changes lens.';
-  else if (d.change === 'unchanged')
-    words = 'This commit did not change the flow: it shows read only, as it was then.';
-  else
-    words =
-      'The flow as this commit left it, read only; the Changes lens shows what it changed against the version before.';
+  else if (d.change === 'added') words = 'It added the flow: every step shows as new.';
+  else if (d.change === 'unchanged') words = 'It did not change the flow: it shows as it was then.';
+  else words = 'The Changes lens shows what it changed.';
+  // AFS-190: a commit the project's branch does not have says where it is.
+  const elsewhere =
+    d.onBranch === false
+      ? d.branches?.length
+        ? ` It is not on ${branch}: it is on ${d.branches.join(', ')}.`
+        : ` It is not on ${branch}, nor on another branch.`
+      : '';
   return (
     <div className="notice past-note" role="status" data-past={d.change}>
       <p>
-        Commit <code>{at.slice(0, 8)}</code> by <strong>{d.author}</strong>, <Time at={d.at} />:{' '}
-        <q>{d.subject || '(no message)'}</q>
+        Commit <code>{d.commit.slice(0, 12)}</code> by <strong>{d.author}</strong>,{' '}
+        <Time at={d.at} />: <q>{d.subject || '(no message)'}</q>
       </p>
       <p>
-        {words} <Link to={back}>Back to the current flow</Link>
+        Read only. {words}
+        {elsewhere} {ways}
       </p>
     </div>
   );
