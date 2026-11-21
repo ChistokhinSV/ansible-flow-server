@@ -2269,6 +2269,12 @@ section + .columns,
   padding: 0.25rem 0.6rem;
   font-size: 13px;
 }
+/* AFS-190: the base input rule (width 100%) outweighed .run-find alone, so the box took its
+   content's width and cut the placeholder ("message, author, has"). */
+.run-filters .run-find {
+  width: 18rem;
+  max-width: 100%;
+}
 .run-more {
   margin: 1rem 0 0;
 }
@@ -3594,10 +3600,13 @@ a.flow-history-item:hover .commit-subject,
 .flow-history-list li[aria-current="true"] .commit-subject {
   font-weight: 600;
 }
+/* AFS-190: the one place the commit is said: two short lines, little room taken from the canvas. */
 .notice.past-note {
   margin: 0.25rem 0 0.5rem;
+  padding-block: 0.4rem;
+  font-size: 13px;
 }
 .notice.past-note p {
-  margin: 0.15rem 0;
+  margin: 0.1rem 0;
   overflow-wrap: anywhere;
 }

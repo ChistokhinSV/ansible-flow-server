@@ -296,14 +296,14 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )(
-    'One commit: author, time, message, and the files it changed (added, changed or removed; flows with their title)',
+    'One commit: author, time, message, and the files it changed (added, changed, removed or renamed from another path; flows with their title)',
   ),
   'GET /api/v1/projects/:id/flows/commit': S(
     'Projects',
     'signed in',
     P,
   )(
-    'What a commit did to a flow (added, changed, removed or nothing), with its author, time and message, and the commit to compare with',
+    "What a commit did to a flow (added, changed, removed or nothing), with its author, time and message, the commit to compare with, and whether the project's branch has it (else the branches that do); ?commit= is a full commit id or its start (7 characters or more)",
   ),
   'GET /api/v1/library/subflows': S(
     'Library',

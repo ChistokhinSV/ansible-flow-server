@@ -10,9 +10,9 @@ All notable changes to Ansible Flow Server.
 - The launch form says under each input which steps read it, its default and what it wins over (a step input of the same name, and the repository's definitions of the name).
 - The **Files** tab opens a file at a line with `?path=<file>&line=<n>`.
 - A run records the value each step's inputs had for each host. On the run's page, a step's **Details › Data** shows **In this run** under each input, with the hosts that had each value or one host's value, and says when it differs from what the flow states; a variable's tooltip and the step's **Run** tab show them too. Secrets are never recorded, long values are cut, and a run keeps 256 KB of values at most. The new setting `AFS_RUN_RECORD_INPUTS` (default `true`) turns it off.
-- A project's **History** tab: the commits of a branch, newest first, with author, time and short hash; a filter by words in the message, author, hash or changed files; more on request. A commit opens to the files it changed, flows by their title (`GET /api/v1/projects/<id>/commits`, `GET /api/v1/projects/<id>/commits/<hash>`).
+- A project's **History** tab: the commits of a branch, newest first, with author, time and short hash; a filter by words in the message, author, hash or changed files; more on request. A commit opens to the files it changed: flows by their title, to the flow at that commit; every other file to its text at that commit; a file moved is one line, **renamed**, with the path it had (`GET /api/v1/projects/<id>/commits`, `GET /api/v1/projects/<id>/commits/<hash>`).
 - A flow's history, from **History** in its page's **More** menu: the commits that changed the flow or its scenarios.
-- A flow at a commit (`?commit=<hash>` on its page): the flow as that commit left it, read only, in the Changes lens against the version before, with the commit's author, time and message and a way back to the current flow (`GET /api/v1/projects/<id>/flows/commit`).
+- A flow at a commit (`?commit=<hash>` on its page): the flow as that commit left it, read only, in the Changes lens against the version before, with the commit's author, time and message said once above the canvas, a way back to the current flow (to the project when the flow is gone) and to the flow's history. The hash may be its start, as History shows it; one that names no commit, or a commit without the flow, is said with the same ways on, never the current flow to edit. A commit the project's branch does not have names the branches that do (`GET /api/v1/projects/<id>/flows/commit`).
 - Redo while editing a flow in the pages: Ctrl+Y (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a new edit; it says what came back, and is refused when someone changed the same place since (`POST /api/v1/drafts/<id>/redo`).
 - Adding an existing repository as a project reads its address first. When it cannot be read (or has no branch `main`), the form says why at the address and offers **Add anyway** (`POST /api/v1/workspaces/:id/projects/check`).
 - While someone has **Save** open on a flow's draft, everyone else in it sees that a save is coming and ends their editing, before it is made.
@@ -48,6 +48,8 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- The **Find** boxes of **Runs** and **History** are wide enough to show their hint whole.
+- A flow's page no longer keeps an old note ("Saved as …", "The draft is discarded.") when you open a commit of the flow or its **History**; the **History** list opens under the flow's line, not between it and the title.
 - In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
 - A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
 - A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).

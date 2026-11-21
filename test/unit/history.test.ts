@@ -245,6 +245,73 @@ describe("a project's history", () => {
     });
   });
 
+  it('finds a commit by the start of its id, refuses one it has not, names the branch of another (AFS-190)', async () => {
+    const at = (commit: string) =>
+      call(
+        nina,
+        'GET',
+        `/api/v1/projects/${project.id}/flows/commit?path=${encodeURIComponent(flow)}&commit=${commit}`,
+      );
+    const renamed = made[2] as string;
+    // The 12 characters the pages show, and the 7 git shows, find the commit.
+    for (const short of [renamed.slice(0, 12), renamed.slice(0, 7)])
+      expect((await at(short)).json()).toMatchObject({
+        commit: renamed,
+        change: 'changed',
+        onBranch: true,
+      });
+    const none = await at('0'.repeat(12));
+    expect(none.statusCode).toBe(404);
+    expect(none.json().message).toBe('The project has no commit 000000000000.');
+    expect((await at('nonsense')).statusCode).toBe(404);
+    // A commit only another branch has says which.
+    expect(
+      (
+        await call(dana, 'POST', `/api/v1/projects/${project.id}/branches`, {
+          name: 'try',
+          from: renamed,
+        })
+      ).statusCode,
+    ).toBeLessThan(300);
+    const elsewhere = await call(omar, 'POST', `/api/v1/projects/${project.id}/files`, {
+      branch: 'try',
+      base: renamed,
+      message: 'Try a readme',
+      changes: [{ op: 'write', path: 'README.md', text: '# Try\n' }],
+    });
+    expect(elsewhere.statusCode).toBe(201);
+    expect((await at(elsewhere.json().commit)).json()).toMatchObject({
+      change: 'unchanged',
+      onBranch: false,
+      branches: ['try'],
+    });
+    // A commit without the flow says so, with the commit.
+    const without = await call(
+      dana,
+      'GET',
+      `/api/v1/projects/${project.id}/flows/commit?path=flows%2Fnone.flow.yaml&commit=${renamed}`,
+    );
+    expect(without.statusCode).toBe(404);
+    expect(without.json().message).toBe(
+      `The flow was not in the project at commit ${renamed.slice(0, 12)}.`,
+    );
+  });
+
+  it('lists a file moved as renamed, with the path it had (AFS-190)', async () => {
+    const moved = await call(omar, 'POST', `/api/v1/projects/${project.id}/files`, {
+      base: tip,
+      message: 'Move the inventory',
+      changes: [{ op: 'move', from: 'hosts/lab.ini', to: 'inventory/lab.ini' }],
+    });
+    expect(moved.statusCode).toBe(201);
+    tip = moved.json().commit;
+    made.push(tip);
+    const one = (await call(lina, 'GET', `/api/v1/projects/${project.id}/commits/${tip}`)).json();
+    expect(one.files).toEqual([
+      { file: 'inventory/lab.ini', change: 'renamed', from: 'hosts/lab.ini' },
+    ]);
+  });
+
   it('is read by who may read the project; a flow-only grant reads only that flow', async () => {
     expect((await commits(nina)).statusCode).toBe(403);
     expect(

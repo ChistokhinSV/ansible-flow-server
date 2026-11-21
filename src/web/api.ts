@@ -380,7 +380,7 @@ export const api = {
   flowAtCommit: (id: string, path: string, commit: string) =>
     call<FlowAtCommit>(
       'GET',
-      `/projects/${id}/flows/commit?path=${encodeURIComponent(path)}&commit=${commit}`,
+      `/projects/${id}/flows/commit?path=${encodeURIComponent(path)}&commit=${encodeURIComponent(commit)}`,
     ),
   /** AFS-78: one commit with the change set. */
   saveFiles: (
@@ -898,11 +898,13 @@ export interface CommitPage {
   /** The `skip` of the next page, when there is one. */
   next?: number;
 }
-export interface CommitDetails extends CommitSummary {
+export interface CommitDetails extends Omit<CommitSummary, 'files'> {
   body: string;
   files: {
     file: string;
-    change: 'added' | 'changed' | 'removed';
+    /** AFS-190: `renamed`: moved from `from` (perhaps changed a little too). */
+    change: 'added' | 'changed' | 'removed' | 'renamed';
+    from?: string;
     flow?: boolean;
     title?: string;
   }[];
@@ -917,4 +919,7 @@ export interface FlowAtCommit extends CommitSummary {
   before?: string;
   /** A removal: the last commit that changed the flow. */
   last?: string;
+  /** AFS-190: whether the project's branch has the commit; if not, the branches that do. */
+  onBranch?: boolean;
+  branches?: string[];
 }
