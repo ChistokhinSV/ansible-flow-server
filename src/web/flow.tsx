@@ -136,6 +136,12 @@ export function FlowPage({
   }, [editing?.id]);
   const [edits, setEdits] = useState<Activity[]>([]);
   const [said, setSaid] = useState<ReactNode>();
+  // AFS-188: a note about the flow's draft ("Saved as …", "The draft is discarded.") is not about
+  // another commit of it: opening one (History) or coming back clears it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on a change of the commit shown
+  useEffect(() => {
+    setSaid(undefined);
+  }, [at]);
   const [inserting, setInserting] = useState<{ level?: string; at?: { x: number; y: number } }>();
   const [starting, setStarting] = useState<StartWhat>();
   // AFS-79: the draft changed (an insert here, an edit by anyone): the library copies are read again.

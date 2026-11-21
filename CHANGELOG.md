@@ -54,6 +54,7 @@ All notable changes to Ansible Flow Server.
 - A refused change of a launch configuration or schedule lists in the audit log only the fields it asked to change, not every field the form sent.
 - Home no longer offers **Launch again** for a configuration whose flow is gone.
 - A configuration's **Launch** tab says once that its flow is gone or has errors; **What the flow needs** is not shown while the flow cannot be read.
+- Opening a commit of a flow from its **History** no longer keeps the note of the last save or discard ("Saved as …", "The draft is discarded.") above it.
 - In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
 - A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
 - A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).
