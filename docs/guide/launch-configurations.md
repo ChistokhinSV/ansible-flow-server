@@ -104,11 +104,12 @@ shows its settings and the launch form:
   wins over. A flow input reaches the run as an extra var, so it beats a step input of the same
   name and every place in the repository that sets the name (the configuration's inventory,
   `group_vars/`, `host_vars/`, ...), each named with its file and line. The repository's part is
-  shown to who may read the project's files.
+  shown to who may read the project's files. Every step that reads it is named; a required input
+  that no step reads says that a run must give it all the same.
 
   ```text
   ntp_server · string
-  Read by Set NTP (as server), Check time; default 192.0.2.1; wins over group_vars of edge
+  Read by Set NTP (as server) and Check time; default 192.0.2.1; wins over group_vars of edge
   (inventory/group_vars/edge.yml:1), group_vars of all (inventory/group_vars/all.yml:1).
   ```
 - **What would run** shows the commit, the inputs as the flow gets them (secrets as `***`), the

@@ -12,6 +12,8 @@ export interface RunRecord {
   commit?: string;
   config?: { id: string; name: string };
   flow: { version: number };
+  /** AFS-189: the inputs it was given, as anyone may see them (a secret one as ***). */
+  inputs?: Record<string, unknown>;
   /** AFS-105: how many hosts it ran on and how many failed, once it went. */
   hosts?: { total: number; failed: number };
 }
@@ -40,7 +42,7 @@ const ENDED: Record<string, string> = { cancelled: 'stopped', lost: 'lost', fail
 
 /**
  * AFS-139: where a run of the server ran, for the designer's Run panel (a run on Ansible Flow
- * Server with its number), not a local run of the designer's own.
+ * Server with its number), not a local run of the designer's own; and the inputs it was given.
  */
 export const runnerOf = (run: RunRecord) => ({
   source: 'runner' as const,
@@ -52,6 +54,9 @@ export const runnerOf = (run: RunRecord) => ({
     commit: run.commit ?? '',
     config: run.config?.name ?? '',
   },
+  // AFS-189: "In this run" on a flow input a step reads directly (a designer after 1.0.2-rc.3
+  // reads it; an older one ignores it).
+  ...(run.inputs ? { flowInputs: run.inputs } : {}),
 });
 
 /**

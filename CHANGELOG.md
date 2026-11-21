@@ -48,6 +48,10 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- A read-only token may read the repository's variables (`POST /api/v1/projects/<id>/vars`), as it reads the project's files; it was refused as a write.
+- The repository's variables include those written on a host range line of the inventory (`sw-edge-0[1:4] ansible_connection=local`) for each host of the range.
+- On a run's page, **For host** lists only the run's hosts, and a variable's tooltip shows **In this run** without a host picked; a flow input a step reads directly shows the value the run was given.
+- The launch form names every step that reads an input, not three "and 1 more", and a required input that no step reads says that a run must give it.
 - In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
 - A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
 - A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).

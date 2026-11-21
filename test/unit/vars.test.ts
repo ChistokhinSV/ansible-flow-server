@@ -9,6 +9,7 @@ import { samplesDir } from '@ansible-flow/assets';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
+import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
@@ -168,6 +169,20 @@ describe('the repository’s variables for the canvas', () => {
       (await call(lina, 'POST', `/api/v1/projects/${project.id}/vars`, { commit: 'f'.repeat(40) }))
         .statusCode,
     ).toBe(404);
+  });
+
+  it('a read-only token may ask: it is a read (AFS-189)', async () => {
+    const user = await createUser(database.db, { login: 'rory', name: 'rory', password: PASSWORD });
+    await grant(database.db, 'net', 'rory', 'ro');
+    const { token } = await createToken(database.db, user.id, { name: 'ro', readOnly: true });
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${project.id}/vars`,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ commit }),
+    });
+    expect(reply.statusCode, reply.body).toBe(200);
+    expect(reply.json().index.hosts).toEqual(['sw-01', 'sw-02']);
   });
 
   it('keeps an index per commit and request, a bounded number of them', async () => {

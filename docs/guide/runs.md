@@ -132,9 +132,10 @@ output.
 
 **The value each host had:** a run records the values each step's inputs had for each host. In
 the run's flow, a step's **Details › Data** shows **In this run** under each input (the values
-with their hosts, or one host's after **For host**), and says when it differs from the value the
-flow states; a variable's tooltip adds the value for the host picked, and the step's **Run** tab
-lists a host's input values from its row. Secrets are never recorded (`no_log` steps, vaulted
+with their hosts, or one host's after **For host**, which lists the run's hosts), and says when it
+differs from the value the flow states; a variable's tooltip adds the values too (every host's, or
+the host picked; for a flow input a step reads directly, the value the run was given), and the
+step's **Run** tab lists a host's input values from its row. Secrets are never recorded (`no_log` steps, vaulted
 values, secret-looking names and keys, the run's secret inputs): they read "secret: not recorded".
 A value is cut past 2000 characters and a run keeps 256 KB of values at most. An administrator
 turns recording off with `AFS_RUN_RECORD_INPUTS=false`: runs then record no input values at all.
