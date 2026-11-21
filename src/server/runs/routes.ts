@@ -63,6 +63,8 @@ export function registerRuns(
   hub?: RunHub,
   /** The database, to read who may see which runs. */
   db?: Kysely<Schema>,
+  /** AFS-185: an approval closed because its run was stopped (its approvers are told). */
+  gateClosed?: (run: string, gate: string) => void,
 ): void {
   /** The streams open now: a server that closes ends them, or it would wait for them. */
   const streams = new Set<ServerResponse>();
@@ -446,7 +448,8 @@ export function registerRuns(
       const run = await queue.cancel(request.params.id, me.login);
       if (!run) return reply.code(404).send(NONE);
       // AFS-28: a run stopped while it waits for approval asks nobody any more.
-      if (run.state === 'cancelled' && db) await closeGates(db, run.id, me.login);
+      if (run.state === 'cancelled' && db)
+        for (const gate of await closeGates(db, run.id, me.login)) gateClosed?.(run.id, gate);
       // AFS-147: a run that ended here and now has its view in its record, not a live one.
       if (run.state === 'cancelled') hub?.ended(run.id);
       else hub?.publish(run.id, { kind: 'state' });

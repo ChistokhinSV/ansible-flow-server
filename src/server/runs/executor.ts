@@ -480,6 +480,11 @@ export class Executor {
     const { run: r, token } = job;
     const say = log.child({ run: r.id, number: r.number });
     let why: Stop | undefined;
+    /**
+     * AFS-185: the step the run was last seen in. The view Ansible ends with names no running
+     * step, so a run stopped mid-step lost where it was (that step read "not reached").
+     */
+    let lastRunning: string | undefined;
     const controller = new AbortController();
     const handled = Date.now();
     void stopped.then((s) => {
@@ -542,7 +547,10 @@ export class Executor {
       }
       const ended = new Date();
       // AFS-147: the step a stopped run was in (the canvas marks it), and the targets it skipped.
-      const at = outcome === 'cancelled' ? this.deps.hub?.live(r.id)?.summary?.running : undefined;
+      const at =
+        outcome === 'cancelled'
+          ? (this.deps.hub?.live(r.id)?.summary?.running ?? lastRunning)
+          : undefined;
       const kept =
         view && (at || skipped.size)
           ? {
@@ -554,7 +562,9 @@ export class Executor {
       // AFS-147: a stopped run's output ends saying who stopped it and where, as its page does.
       if (outcome === 'cancelled') {
         const step = titleOf(steps, at);
-        const by = (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
+        const login = (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
+        // AFS-185: by name, as the page says it, not by login.
+        const by = login ? await queue.personName(login).catch(() => login) : undefined;
         line(`Stopped${by ? ` by ${by}` : ' on request'}${step ? ` during ${step}` : ''}`);
       }
       const done = await queue.finish(r.id, token, outcome, error, ended, kept);
@@ -567,7 +577,7 @@ export class Executor {
     };
     const stoppedWhy = (): [Outcome, string] => {
       if (why === 'cancel') {
-        const step = titleOf(steps, this.deps.hub?.live(r.id)?.summary?.running);
+        const step = titleOf(steps, this.deps.hub?.live(r.id)?.summary?.running ?? lastRunning);
         return ['cancelled', `Stopped on request${step ? ` during ${step}` : ''}`];
       }
       if (why === 'timeout')
@@ -752,7 +762,10 @@ export class Executor {
             signal: controller.signal,
           },
           {
-            report: (v) => this.deps.hub?.publish(r.id, { kind: 'view', view: shown(v) }),
+            report: (v) => {
+              if (v.summary?.running) lastRunning = v.summary.running;
+              this.deps.hub?.publish(r.id, { kind: 'view', view: shown(v) });
+            },
             log: line,
             // The engine gets the container's variables in its own environment, not as arguments.
             execute: async (spec, processEnv) => {
@@ -775,6 +788,12 @@ export class Executor {
         );
       /** How a run that has ended is recorded, from the view of how it went. */
       const ended = async (view: RunView, whole = false, decided?: string) => {
+        // AFS-185: Ansible ended by itself, with every host where the flow sent it, before the
+        // stop reached it: the run is recorded as it ended, not as stopped.
+        if (why === 'cancel' && view.state === 'done' && view.rc === 0 && !view.error) {
+          line('Asked to stop after its steps had ended: the run is recorded as it ended');
+          why = undefined;
+        }
         if (why) return await finish(...stoppedWhy(), view);
         // AFS-133: hosts that failed after a rejection (or a timeout) failed because of it: the
         // run says who decided and what they said, not Ansible's exit code.

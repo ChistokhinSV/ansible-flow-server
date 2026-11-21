@@ -53,3 +53,36 @@ export const runnerOf = (run: RunRecord) => ({
     config: run.config?.name ?? '',
   },
 });
+
+/**
+ * AFS-185: the question Stop asks for a real run (a check run changes nothing, and stops at
+ * once): which run, and what stopping it does where it is now.
+ */
+export function stopQuestion(run: {
+  number?: number;
+  flowName?: string;
+  state: string;
+  step?: string;
+}): string {
+  const which = `real run${run.number ? ` #${run.number}` : ''}${run.flowName ? ` of ${run.flowName}` : ''}`;
+  if (run.state === 'waiting')
+    return `Stop ${which}? It waits for approval: nobody decides it after this, and its hosts go no further.`;
+  if (run.state === 'queued') return `Stop ${which}? It has not started: it will not run.`;
+  const at = run.step ? `${run.step} is cut off` : 'The step in progress is cut off';
+  return `Stop ${which}? ${at}, and its hosts go no further.`;
+}
+
+/** AFS-185: a step's title by its id, at any level of the flow. */
+export function stepTitle(doc: unknown, id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  type Node = { id: string; title?: string; subflow?: { nodes?: Node[] } };
+  const find = (nodes: Node[] | undefined): string | undefined => {
+    for (const n of nodes ?? []) {
+      if (n.id === id) return n.title;
+      const inner = find(n.subflow?.nodes);
+      if (inner) return inner;
+    }
+    return undefined;
+  };
+  return find((doc as { nodes?: Node[] } | undefined)?.nodes);
+}

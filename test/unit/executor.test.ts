@@ -548,6 +548,69 @@ describe('a run', () => {
     });
   });
 
+  it('a stopped run names the step it was in; one whose steps had ended is not stopped (AFS-185)', async () => {
+    const step = '01M6GPM99KC9TX091MCH61REQV';
+    const summary = {
+      nodes: {},
+      outcome: {},
+      failures: [],
+      unreachable: [],
+      hosts: ['fw-edge-01'],
+      stoppedEarly: false,
+    };
+    // In a step when stopped: the view Ansible ends with names no running step.
+    const midStep = executor(
+      (request, hooks) =>
+        new Promise((resolve) => {
+          hooks.report({
+            id: request.id,
+            mode: 'real',
+            state: 'running',
+            startedAt: request.startedAt,
+            summary: { ...summary, running: step },
+          } as RunView);
+          request.signal?.addEventListener('abort', () =>
+            resolve({ state: 'error', error: 'Stopped by the user', rc: undefined, summary }),
+          );
+        }),
+    );
+    const cut = await launch();
+    await midStep.ex.start();
+    await until(async () => !!(await queue.get(cut.id))?.startedAt);
+    await queue.cancel(cut.id, 'omar');
+    await ended(cut.id);
+    await midStep.ex.stop();
+    // The output names who by name (a login the server does not know is said as it is).
+    expect(readFileSync(midStep.ex.outputFile(cut.id), 'utf8')).toContain(
+      'Stopped by omar during Read a few facts',
+    );
+    expect(await queue.get(cut.id)).toMatchObject({
+      state: 'cancelled',
+      error: 'Stopped by omar during Read a few facts',
+    });
+    expect(await queue.view(cut.id)).toMatchObject({ stoppedAt: step });
+
+    // Ansible ended by itself, every host done, as the stop came: recorded as it ended.
+    const late = executor(
+      (request) =>
+        new Promise((resolve) => {
+          request.signal?.addEventListener('abort', () =>
+            resolve({ state: 'done', rc: 0, summary }),
+          );
+        }),
+    );
+    const ran = await launch();
+    await late.ex.start();
+    await until(async () => !!(await queue.get(ran.id))?.startedAt);
+    await queue.cancel(ran.id, 'omar');
+    await ended(ran.id);
+    await late.ex.stop();
+    expect((await queue.get(ran.id))?.state).toBe('succeeded');
+    expect(readFileSync(late.ex.outputFile(ran.id), 'utf8')).toContain(
+      'Asked to stop after its steps had ended',
+    );
+  });
+
   it("a flow that has errors at the run's commit is not run", async () => {
     const broken = source.commit(
       { 'flows/hello.flow.yaml': HELLO.replace('type: host_list', 'type: hostlist') },

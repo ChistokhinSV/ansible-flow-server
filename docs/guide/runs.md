@@ -103,8 +103,11 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   found, 5 options Ansible does not accept, 99 interrupted, 250 an unexpected error;
   `cancelled` when stopped on request, saying who stopped it and during which step ("Stopped by
   Dana Whitfield during Upgrade", "Stopped by Dana Whitfield while it waited for approval at
-  Change approval"). On the canvas that step reads **stopped** and the steps after it **not
-  reached**. A run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+  Change approval"); its page adds when. On the canvas that step reads **stopped** and the steps
+  after it **not reached**. **Stop** on a real run asks first; a check run stops at once. Stopping a
+  run that waits for approval tells those its approval asked that it no longer waits. A run whose
+  steps had all ended when the stop reached it is recorded as it ended, and its output says so. A
+  run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
 - **Targets not in the inventory:** Ansible skips them. The run names them
   (`skippedTargets` on `GET /runs/:id`, and on its page), also when it went well.
 

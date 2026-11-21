@@ -382,3 +382,47 @@ export function askName(suggested: string): Promise<string | undefined> {
     input.select();
   });
 }
+
+/**
+ * AFS-185: a yes-or-no question in a dialog styled as the designer's own (Stop of a real run);
+ * resolves true on `yes`, false on Cancel or Escape.
+ */
+export function askYes(question: string, yes: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'afd-modal-backdrop afs-ask';
+    const box = document.createElement('div');
+    box.className = 'afd-modal';
+    box.setAttribute('role', 'alertdialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-labelledby', 'afs-yes-question');
+    const text = document.createElement('p');
+    text.id = 'afs-yes-question';
+    text.textContent = question;
+    const actions = document.createElement('div');
+    actions.className = 'afd-modal-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'secondary';
+    cancel.textContent = 'Cancel';
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.textContent = yes;
+    actions.append(cancel, ok);
+    const done = (said: boolean) => {
+      backdrop.remove();
+      resolve(said);
+    };
+    cancel.addEventListener('click', () => done(false));
+    ok.addEventListener('click', () => done(true));
+    box.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') done(false);
+    });
+    box.append(text, actions);
+    backdrop.append(box);
+    document.body.append(backdrop);
+    // Stopping loses work: Cancel has the focus.
+    cancel.focus();
+  });
+}
