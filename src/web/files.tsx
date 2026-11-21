@@ -236,6 +236,7 @@ function TextView({
   editable,
   dark,
   focus,
+  line,
   onChange,
 }: {
   path: string;
@@ -244,6 +245,8 @@ function TextView({
   dark: boolean;
   /** AFS-140: the cursor goes into the text once it shows (a file just made). */
   focus?: boolean;
+  /** AFS-183: the line to show (where a value is defined: `?line=`). */
+  line?: number;
   onChange(text: string): void;
 }) {
   const box = useRef<HTMLElement>(null);
@@ -265,6 +268,7 @@ function TextView({
           dark,
           label: `Text of ${path}`,
           onChange: (t) => change.current(t),
+          ...(line ? { line } : {}),
         });
         if (focus) editor.focus();
       },
@@ -421,9 +425,13 @@ export function FilesPage({
     return (top.find((f) => /^readme(\.|$)/i.test(f.path)) ?? top[0])?.path;
   }, [shown]);
   const selected = params.get('path') ?? first;
+  // AFS-183: `?line=` (where a value is defined, from the canvas): that line of the file named.
+  const lineAsked = Number(params.get('line')) || undefined;
   const select = (path: string) => {
     const q = new URLSearchParams(window.location.search);
     q.set('path', path);
+    // AFS-183: a line asked for is of the file the address named first.
+    q.delete('line');
     navigate(`${window.location.pathname}?${q.toString()}`, { replace: true });
     // The folders it is in open, so it shows in the tree.
     const parts = path.split('/');
@@ -620,6 +628,10 @@ export function FilesPage({
           { key: '', label: 'Overview' },
           { key: 'runs', label: 'Runs' },
           { key: 'files', label: 'Files' },
+          // AFS-123: as on the project's other tabs.
+          ...(project.commit && (me.admin || atLeast(access?.workspace ?? null, 'ro'))
+            ? [{ key: 'history', label: 'History' }]
+            : []),
           {
             key: 'branches',
             label: 'Branches',
@@ -898,6 +910,7 @@ export function FilesPage({
                 editable={editable}
                 dark={dark}
                 focus={made === file.path}
+                {...(lineAsked ? { line: lineAsked } : {})}
                 onChange={(t) => change({ op: 'write', path: file.path, text: t }, file.path)}
               />
             </>

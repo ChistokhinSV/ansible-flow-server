@@ -73,6 +73,11 @@ export interface LaunchForm {
   inventory?: string;
   eeImage?: string;
   limit?: string;
+  /**
+   * AFS-183: per input, where it goes in one line (the steps that read it, its default, what it
+   * wins over). Only on the form route's answer.
+   */
+  origins?: Record<string, string>;
 }
 
 export type Prepared =

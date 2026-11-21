@@ -8,6 +8,7 @@ import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
 import { guide } from './guide';
 import { isSaveKey } from './saveKey';
+import { flowInventory, openCodeIn, projectKeys, type RepoVars, repoVars } from './viewerVars';
 
 /** AFS-149: what one edit did (the server's words: a step or the flow, and its fields). */
 export interface EditChange {
@@ -173,20 +174,50 @@ export function editDraft(options: {
     send({ type: 'reveal', node: revealing } as HostMessage);
     revealing = undefined;
   };
+  /**
+   * AFS-183: the repository's variables at the draft's base commit, for where a value comes from;
+   * read again when the draft binds other roles or playbooks.
+   */
+  let vars: RepoVars | undefined;
+  let keys: Awaited<ReturnType<typeof projectKeys>>;
+  const withVars = (snapshot: NonNullable<Edit['snapshot']>) =>
+    (vars ? vars.snapshot(snapshot as never) : snapshot) as unknown;
   const show = (snapshot: Edit['snapshot']) => {
     if (!snapshot) return;
     latest = snapshot;
     titles = new Map((snapshot.doc?.nodes ?? []).map((n) => [n.id, n.title]));
     if (ready) {
-      send({ type: 'snapshot', snapshot } as unknown as HostMessage);
+      send({ type: 'snapshot', snapshot: withVars(snapshot) } as unknown as HostMessage);
       revealOnce();
     }
   };
 
   const events = new EventSource(`${base}/events?tab=${encodeURIComponent(tab)}`);
-  events.addEventListener('draft', (e) =>
-    show((JSON.parse((e as MessageEvent).data) as { snapshot: Edit['snapshot'] }).snapshot),
-  );
+  events.addEventListener('draft', (e) => {
+    const first = JSON.parse((e as MessageEvent).data) as {
+      draft?: { project: string; file: string; baseCommit: string };
+      snapshot: Edit['snapshot'];
+    };
+    const d = first.draft;
+    if (d && !vars) {
+      vars = repoVars({
+        project: d.project,
+        commit: d.baseCommit,
+        inventory: async () => {
+          const r = await json(
+            'GET',
+            `/api/v1/projects/${encodeURIComponent(d.project)}/launch-configs`,
+          );
+          return r.ok && Array.isArray(r.data) ? flowInventory(r.data, d.file) : '';
+        },
+        send,
+      });
+      void projectKeys(d.project).then((k) => {
+        keys = k;
+      });
+    }
+    show(first.snapshot);
+  });
   events.addEventListener('edit', (e) => {
     const edit = JSON.parse((e as MessageEvent).data) as Edit;
     const before = titles;
@@ -334,7 +365,7 @@ export function editDraft(options: {
               embed: { mayRun: false, words: 'server' },
             } as HostMessage);
             if (latest) {
-              send({ type: 'snapshot', snapshot: latest } as unknown as HostMessage);
+              send({ type: 'snapshot', snapshot: withVars(latest) } as unknown as HostMessage);
               revealOnce();
             }
             void catalogStatus();
@@ -394,6 +425,15 @@ export function editDraft(options: {
           case 'openLink':
             // AFS-119: a web link of the flow (a note's link) in a new tab, never in this frame.
             openWebLink(message.url);
+            return;
+          case 'openCode':
+            // AFS-183: where a value is defined: the Files tab at that line, in a new tab.
+            openCodeIn(keys, message.path, message.line, (file, line) =>
+              notify(
+                `Open ${file}${line ? ` at line ${line}` : ''} on the project's Files tab.`,
+                'info',
+              ),
+            );
             return;
           case 'startFrom':
             if (message.what === 'tour')

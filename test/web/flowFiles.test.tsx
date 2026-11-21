@@ -40,7 +40,7 @@ function Page() {
   const [doing, setDoing] = useState<'copy' | 'delete'>();
   return (
     <>
-      <FlowFileMenu onPick={setDoing} />
+      <FlowFileMenu onPick={(what) => what !== 'history' && setDoing(what)} />
       {doing && (
         <FlowFileActions
           workspace="net"

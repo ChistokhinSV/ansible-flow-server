@@ -28,9 +28,12 @@ import { type ReadinessDeps, readiness } from './ops/health';
 import type { Metrics } from './ops/metrics';
 import { registerFiles } from './projects/filesRoutes';
 import { registerGit } from './projects/gitHttp';
+import { registerHistory } from './projects/historyRoutes';
 import { Library } from './projects/library';
 import { registerLibrary } from './projects/libraryRoutes';
 import { type ProjectDeps, registerProjects } from './projects/routes';
+import { VarIndexes } from './projects/vars';
+import { registerVars } from './projects/varsRoutes';
 import { ProjectWatch } from './projects/watch';
 import type { CatalogState } from './runs/catalogs';
 import type { RunHub } from './runs/hub';
@@ -176,6 +179,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
     // AFS-78: the project's files in the pages.
     registerFiles(app, { db: deps.database.db, ...deps.projects });
+    // AFS-183: the repository's variables for the canvas (where a value comes from), kept per
+    // commit; the launch form's origins of the inputs read them too.
+    const vars = new VarIndexes(deps.projects.git);
+    registerVars(app, { db: deps.database.db, git: deps.projects.git, vars });
+    // AFS-123: the project's history: its commits, one commit's files, a flow at a commit.
+    registerHistory(app, { db: deps.database.db, git: deps.projects.git });
     // AFS-79: the flow library: library projects' subflows, offered to every project.
     registerLibrary(app, { db: deps.database.db, git: deps.projects.git, library });
     // AFS-76: flows edited in the pages, together.
@@ -205,6 +214,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ...(deps.runs ? { queue: deps.runs } : {}),
       ...(deps.dev ? { dev: deps.dev } : {}),
       ...(deps.inventory ? { inventory: deps.inventory } : {}),
+      vars,
     });
   }
 

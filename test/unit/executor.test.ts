@@ -149,6 +149,7 @@ function executor(
     timeoutMs?: number;
     repoConfig?: ExecutorOptions['repoConfig'];
     defaultImage?: ExecutorOptions['defaultImage'];
+    recordInputs?: boolean;
   } = {},
 ) {
   const seen: Seen[] = [];
@@ -166,6 +167,7 @@ function executor(
       pollMs: 20,
       ...(options.repoConfig ? { repoConfig: options.repoConfig } : {}),
       ...(options.defaultImage ? { defaultImage: options.defaultImage } : {}),
+      ...(options.recordInputs !== undefined ? { recordInputs: options.recordInputs } : {}),
       runner: async (request, hooks) => {
         const s: Seen = { request, hooks };
         const keyMount = request.env.kind === 'container' ? request.env.mounts[0] : undefined;
@@ -231,6 +233,25 @@ describe("the repository's Ansible config (AFS-80)", () => {
     await ex.stop();
     expect((await queue.get(run.id))?.state).toBe('succeeded');
     expect(seen[0]?.request.callbacks).toBeUndefined();
+  });
+});
+
+describe('input values (AFS-182)', () => {
+  it('a run records them unless AFS_RUN_RECORD_INPUTS turns them off', async () => {
+    for (const recordInputs of [undefined, true, false]) {
+      dataDir = join(root, `data-${++n}`);
+      const { ex, seen } = executor(async () => ({ rc: 0 }), {
+        ...(recordInputs === undefined ? {} : { recordInputs }),
+      });
+      const run = await launch();
+      await ex.start();
+      await ended(run.id);
+      await ex.stop();
+      // The designer's runFlow records them unless told false (AFD_RECORD_INPUTS=0).
+      expect(seen[0]?.request.recordInputs, String(recordInputs)).toBe(
+        recordInputs === false ? false : undefined,
+      );
+    }
   });
 });
 

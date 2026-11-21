@@ -3,12 +3,13 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { flowLevel, useProjectAccess } from './access';
-import { ApiError, api, type Draft, type LaunchConfig, type Run } from './api';
+import { ApiError, api, type Draft, type FlowAtCommit, type LaunchConfig, type Run } from './api';
 import { ask } from './confirm';
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { MissingProject } from './help';
+import { FlowHistory, flowAt } from './history';
 import { InsertFromLibrary, LibraryCopies } from './library';
-import { Link } from './router';
+import { Link, useSearch } from './router';
 import { ACTIVE, RunWords } from './runs';
 import { useSaveKey } from './saveKey';
 import { StartFrom, type StartWhat } from './startFrom';
@@ -53,6 +54,16 @@ export function FlowPage({
     [project?.id, project?.commit],
   );
   const flow = flows.data?.flows.find((f) => f.file === file);
+  // AFS-123: `?commit=<hash>`: the flow as that commit left it, in the Changes lens.
+  const search = useSearch();
+  const asked40 = new URLSearchParams(search).get('commit') ?? '';
+  const at = /^[0-9a-f]{40}$/.test(asked40) ? asked40 : undefined;
+  const past = useLoad(
+    async () => (project && at ? api.flowAtCommit(project.id, file, at) : undefined),
+    [project?.id, file, at],
+  );
+  // AFS-123: the flow's history, opened from the More menu.
+  const [historyOpen, setHistoryOpen] = useState(false);
   const title = flow?.name ?? file.split('/').at(-1) ?? file;
   // AFS-76: editing the flow's draft (rw on the flow), and the drafts there are.
   const access = useProjectAccess(project?.id).data;
@@ -243,8 +254,13 @@ export function FlowPage({
   const viewer =
     project &&
     `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}${
-      editing ? `&draft=${encodeURIComponent(editing.id)}` : ''
-    }${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
+      editing && !at ? `&draft=${encodeURIComponent(editing.id)}` : ''
+    }${at ? `&commit=${at}&history=1` : ''}${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
+  // AFS-123: at a commit, the canvas shows unless the commit removed the flow; else unless the
+  // flow is gone from the branch.
+  // AFS-152: gone, and nothing of it left (no run, no configuration): it may never have been here.
+  const missing = gone && !at && !configs.data?.length && !runs.data?.length;
+  const noCanvas = at ? !past.data || past.data.change === 'removed' : gone;
   const edit = async () => {
     if (!project) return;
     setSaid(undefined);
@@ -342,7 +358,7 @@ export function FlowPage({
               link={(c) => commitLink.current(c)}
             />
           ) : null}
-          {mayEdit && !editing && project?.commit ? (
+          {mayEdit && !editing && !at && project?.commit ? (
             <button
               type="button"
               // AFS-160: a flow with no step yet is there to be edited: Edit comes first.
@@ -353,7 +369,7 @@ export function FlowPage({
             </button>
           ) : null}
           {/* AFS-136: a draft can be dropped from here too, without opening it. */}
-          {mayEdit && !editing && waiting?.editors.length ? (
+          {mayEdit && !editing && !at && waiting?.editors.length ? (
             <button
               type="button"
               className="danger"
@@ -379,7 +395,7 @@ export function FlowPage({
           ) : null}
           {/* AFS-107: the canvas the whole screen (viewing or editing), or on a page of its own
               (with the draft while editing); icons, so the head takes little room. */}
-          {viewer && !gone && (
+          {viewer && !noCanvas && (
             <button
               type="button"
               className="icon-button"
@@ -390,7 +406,7 @@ export function FlowPage({
               <Icon name="fullscreen" />
             </button>
           )}
-          {viewer && !gone && (
+          {viewer && !noCanvas && (
             <a
               href={viewer}
               target="_blank"
@@ -403,11 +419,16 @@ export function FlowPage({
             </a>
           )}
           {/* AFS-152: a flow that is not there has no file to copy or delete. */}
-          {project && !editing && mayChangeFiles && project.commit && !gone && (
-            <FlowFileMenu onPick={setFileAction} />
+          {/* AFS-123: and the flow's History, for anyone who sees the flow (a deleted one too, to
+              find its last version; not one that may never have been there). */}
+          {project && !editing && project.commit && !missing && (
+            <FlowFileMenu
+              mayChange={mayChangeFiles && !gone && !at}
+              onPick={(what) => (what === 'history' ? setHistoryOpen(true) : setFileAction(what))}
+            />
           )}
         </PageHead>
-        {project && !editing && mayChangeFiles && commit && fileAction && (
+        {project && !editing && !at && mayChangeFiles && commit && fileAction && (
           <FlowFileActions
             workspace={workspace}
             project={project}
@@ -421,7 +442,24 @@ export function FlowPage({
           />
         )}
         {/* AFS-152: a flow not there, with nothing of it left, has no facts to show. */}
-        {project && !editing && !(gone && !configs.data?.length && !runs.data?.length) ? (
+        {at && project ? (
+          <PastNote
+            at={at}
+            past={past}
+            back={flowAt(workspace, key, file)}
+            last={(c) => flowAt(workspace, key, file, c)}
+          />
+        ) : null}
+        {historyOpen && project ? (
+          <FlowHistory
+            workspace={workspace}
+            project={project}
+            file={file}
+            {...(at ? { current: at } : {})}
+            onClose={() => setHistoryOpen(false)}
+          />
+        ) : null}
+        {project && !editing && !at && !(gone && !configs.data?.length && !runs.data?.length) ? (
           <p className="statusline flow-line">
             {commit && (
               <span>
@@ -476,7 +514,7 @@ export function FlowPage({
             )}
           </p>
         ) : null}
-        {gone && project ? (
+        {gone && project && !at ? (
           // AFS-152: with nothing of it left to see (no run, no configuration), it may never have
           // been there, or not be shared: said as on every page of something not there.
           configs.data?.length || runs.data?.length ? (
@@ -504,7 +542,7 @@ export function FlowPage({
           </p>
         ) : null}
         {/* AFS-136: a draft nobody changed is not "unsaved edits" (opening it joins it). */}
-        {!editing && waiting && waiting.editors.length > 0 ? (
+        {!editing && !at && waiting && waiting.editors.length > 0 ? (
           <p className="notice" role="status">
             Unsaved edits in the pages by{' '}
             {waiting.editors.map((e) => (e.login === me.login ? 'you' : e.name)).join(', ')} (a
@@ -541,7 +579,7 @@ export function FlowPage({
               : {})}
           />
         ) : null}
-        {project?.commit ? (
+        {project?.commit && !at ? (
           <LibraryCopies
             project={project}
             file={file}
@@ -552,7 +590,7 @@ export function FlowPage({
         <Loading state={found} />
       </div>
       {/* AFS-152: no canvas for a flow that is not there (it would say so in a frame of its own). */}
-      {viewer && project?.commit && !gone && (
+      {viewer && project?.commit && !noCanvas && (
         <div
           className="flow-stage"
           ref={(el) => {
@@ -578,11 +616,15 @@ export function FlowPage({
           </div>
           <iframe
             // A new commit, theme or draft is a new page for the designer.
-            key={`${project.commit}:${theme}:${editing?.id ?? ''}`}
+            key={`${project.commit}:${theme}:${editing?.id ?? ''}:${at ?? ''}`}
             className="flow-frame"
             // AFS-149: the frame of a draft is this page's tab (its typing is sent for a save).
-            src={editing ? `${viewer}&tab=${encodeURIComponent(tab)}` : viewer}
-            title={`The flow ${title} on the designer's canvas`}
+            src={editing && !at ? `${viewer}&tab=${encodeURIComponent(tab)}` : viewer}
+            title={
+              at
+                ? `The flow ${title} as commit ${at.slice(0, 8)} left it, on the designer's canvas`
+                : `The flow ${title} on the designer's canvas`
+            }
           />
           {editing && starting ? (
             <StartFrom
@@ -615,6 +657,51 @@ export function FlowPage({
     </div>
   );
 }
+/**
+ * AFS-123: over the flow at a commit: whose commit, when, its message, what it did to the flow,
+ * and the way back to the flow as it is now.
+ */
+function PastNote({
+  at,
+  past,
+  back,
+  last,
+}: {
+  at: string;
+  past: { data?: FlowAtCommit; loading: boolean; error?: string };
+  back: string;
+  last(commit: string): string;
+}) {
+  const d = past.data;
+  if (!d) return <Loading state={past} />;
+  let words: ReactNode;
+  if (d.change === 'removed')
+    words = (
+      <>
+        This commit removed the flow.{' '}
+        {d.last ? <Link to={last(d.last)}>Its last version</Link> : null}
+      </>
+    );
+  else if (d.change === 'added')
+    words = 'This commit added the flow: read only, every step shows as new in the Changes lens.';
+  else if (d.change === 'unchanged')
+    words = 'This commit did not change the flow: it shows read only, as it was then.';
+  else
+    words =
+      'The flow as this commit left it, read only; the Changes lens shows what it changed against the version before.';
+  return (
+    <div className="notice past-note" role="status" data-past={d.change}>
+      <p>
+        Commit <code>{at.slice(0, 8)}</code> by <strong>{d.author}</strong>, <Time at={d.at} />:{' '}
+        <q>{d.subject || '(no message)'}</q>
+      </p>
+      <p>
+        {words} <Link to={back}>Back to the current flow</Link>
+      </p>
+    </div>
+  );
+}
+
 /** AFS-149: one line of the activity: who did what, when. */
 export interface Activity {
   by: string;

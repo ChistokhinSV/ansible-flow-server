@@ -4,6 +4,8 @@
 //   /viewer.html?project=<id>&path=<file in the repository>&theme=light|dark|auto
 //                [&commit=<40 hex>]   the flow at that commit (a run's), not the project's
 //                [&run=<run id>]      that run on the canvas, live while it goes
+//                [&history=1]         AFS-123: with commit, the flow as that commit left it, in
+//                                     the Changes lens against the version before (viewerPast.ts)
 //                [&draft=<draft id>]  AFS-76: the flow's draft, edited (viewerDraft.ts)
 //                [&tab=<id>]          AFS-149: the page (tab) around it, for a draft's Save
 //                [&node=<step id>]    AFS-164: that step selected and in view (a flow's error)
@@ -16,10 +18,13 @@ import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
 import { isSaveKey, SAVE_KEY } from './saveKey';
+import { answerCatalog } from './viewerCatalog';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
 import { askName, chooseConfig, launcher } from './viewerLaunch';
+import { type PastFacts, showPast } from './viewerPast';
 import { going, pastRunOf, type RunRecord, runnerOf } from './viewerRuns';
+import { filesAddress, flowInventory, openCodeIn, projectKeys, repoVars } from './viewerVars';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? '';
@@ -96,21 +101,25 @@ function go(to: string): void {
   (window.top ?? window).location.assign(to);
 }
 
+/** AFS-183: the project's keys for its pages' addresses, read once. */
+let keysAsked: ReturnType<typeof projectKeys> | undefined;
+let keys: Awaited<ReturnType<typeof projectKeys>>;
+const projectKeysOnce = () => {
+  keysAsked ??= projectKeys(project).then((k) => {
+    keys = k;
+    return k;
+  });
+  return keysAsked;
+};
+
 /**
  * AFS-132: Open in Text Editor in the pages: the file on its project's Files tab. Resolves with
- * false when the project or its workspace cannot be read.
+ * false when the project or its workspace cannot be read. AFS-183: at a line, when given.
  */
-async function openInFiles(file: string): Promise<boolean> {
-  const read = async (url: string) => {
-    const reply = await fetch(url, { credentials: 'same-origin' });
-    return reply.ok ? ((await reply.json()) as { key?: string; workspace?: string }) : undefined;
-  };
-  const p = await read(`/api/v1/projects/${encodeURIComponent(project)}`).catch(() => undefined);
-  const w =
-    p?.workspace &&
-    (await read(`/api/v1/workspaces/${encodeURIComponent(p.workspace)}`).catch(() => undefined));
-  if (!p?.key || !w || !w.key) return false;
-  go(`/w/${w.key}/${p.key}/files?path=${encodeURIComponent(file)}`);
+async function openInFiles(file: string, line?: number): Promise<boolean> {
+  const k = await projectKeysOnce().catch(() => undefined);
+  if (!k) return false;
+  go(filesAddress(k, file, line));
   return true;
 }
 
@@ -134,6 +143,8 @@ async function start(): Promise<void> {
   // AFS-143: the viewer opened by itself, without a flow: where flows are opened instead.
   if (!project || !path)
     return say('This address names no flow. Open a flow from its project page in Workspaces.');
+  // AFS-123: the flow as a commit left it, in the Changes lens against the version before.
+  if (params.get('history') === '1' && /^[0-9a-f]{40}$/.test(commit)) return startPast();
   // AFS-105: what the person may do here, asked beside the flow: the canvas offers only that.
   const accessAsked = get(`/api/v1/projects/${encodeURIComponent(project)}/access`).catch(
     () => undefined,
@@ -172,10 +183,33 @@ async function start(): Promise<void> {
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
-  const send = (message: HostMessage) =>
+  const tell = (message: HostMessage) =>
     setTimeout(() => {
       for (const listener of listeners) listener(message);
     }, 0);
+  // AFS-183: the repository's variables at the commit shown, for where a value comes from. A
+  // run's page uses the run's inventory; elsewhere the flow's launch configurations'.
+  const vars = repoVars({
+    project,
+    commit: flow.data.commit,
+    inventory: async () => {
+      if (runId) {
+        const run = await get(`/api/v1/runs/${encodeURIComponent(runId)}`);
+        return run.ok ? String(run.data?.inventory ?? '') : '';
+      }
+      const configs = await get(`/api/v1/projects/${encodeURIComponent(project)}/launch-configs`);
+      return configs.ok ? flowInventory(configs.data ?? [], path) : '';
+    },
+    send: tell,
+  });
+  void projectKeysOnce();
+  /** What goes to the designer; each snapshot with the repository's findings once they are in. */
+  const send = (message: HostMessage) =>
+    tell(
+      message.type === 'snapshot'
+        ? { ...message, snapshot: vars.snapshot(message.snapshot) }
+        : message,
+    );
   // AFS-152: the canvas here only shows the flow; Delete on it is not ignored without a word.
   let toldReadOnly = 0;
   window.addEventListener('keydown', (e) => {
@@ -332,6 +366,7 @@ async function start(): Promise<void> {
     send,
     bar,
     live: !commit,
+    onCommit: (c) => vars.at(c),
   });
 
   const stateKey = `afs.viewer.${project}.${path}`;
@@ -412,46 +447,23 @@ async function start(): Promise<void> {
                 });
             });
             return;
-          case 'catalog': {
-            // AFS-118: a step's module docs, from the catalog of the flow's image.
-            const reqId = message.reqId;
-            void fetch(
-              `/api/v1/projects/${encodeURIComponent(project)}/flows/catalog?path=${encodeURIComponent(path)}`,
-              {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ request: message.request }),
-              },
-            ).then(
-              async (reply) => {
-                const data = await reply.json().catch(() => undefined);
-                if (reply.status === 202 || !reply.ok)
+          case 'openCode':
+            // AFS-183: where a value is defined: the Files tab at that line.
+            openCodeIn(keys, message.path, message.line, (file, line) => {
+              void openInFiles(file, line).then((opened) => {
+                if (!opened)
                   send({
-                    type: 'catalogReply',
-                    reqId,
-                    ok: false,
-                    error:
-                      data?.status?.message ?? String(data?.message ?? 'The catalog is not ready'),
-                  } as HostMessage);
-                else
-                  send({
-                    type: 'catalogReply',
-                    reqId,
-                    ok: true,
-                    result: (data?.result ?? data?.status) as never,
-                  } as HostMessage);
-              },
-              () =>
-                send({
-                  type: 'catalogReply',
-                  reqId,
-                  ok: false,
-                  error: 'The server does not answer',
-                } as HostMessage),
-            );
+                    type: 'notify',
+                    level: 'error',
+                    text: `${file} could not be opened: open it on the project's Files tab.`,
+                  });
+              });
+            });
             return;
-          }
+          case 'catalog':
+            // AFS-118: a step's module docs, from the catalog of the flow's image.
+            answerCatalog(project, path, message, send);
+            return;
           case 'showRunOutput': {
             if (!shown) return;
             // AFS-96: on the run's own page, that page scrolls to its output; loading it again
@@ -549,6 +561,48 @@ async function start(): Promise<void> {
         }
       },
     },
+  });
+}
+
+/** AFS-123: the flow at `commit`, a past version on the canvas (viewerPast.ts). */
+async function startPast(): Promise<void> {
+  const p = encodeURIComponent(project);
+  const f = encodeURIComponent(path);
+  let facts: Awaited<ReturnType<typeof get>>;
+  try {
+    facts = await get(`/api/v1/projects/${p}/flows/commit?path=${f}&commit=${commit}`);
+  } catch {
+    return say('The server does not answer.');
+  }
+  if (!facts.ok)
+    return say(
+      facts.status === 401
+        ? 'Sign in to see this flow.'
+        : facts.status === 404
+          ? `The flow ${path} is not at this commit, or is not shared with you.`
+          : (facts.data?.message ?? answerWords(facts.status)),
+    );
+  const told = facts.data as PastFacts;
+  if (told.change === 'removed')
+    return say(`Commit ${commit.slice(0, 12)} removed the flow ${path}: it has no version here.`);
+  const [shown, before] = await Promise.all([
+    get(`/api/v1/projects/${p}/flows/view?path=${f}&commit=${commit}`).catch(() => undefined),
+    told.before
+      ? get(`/api/v1/projects/${p}/flows/view?path=${f}&commit=${told.before}`).catch(
+          () => undefined,
+        )
+      : undefined,
+  ]);
+  if (!shown?.ok)
+    return say(shown?.data?.message ?? `The flow ${path} cannot be read at this commit.`);
+  showPast({
+    root,
+    project,
+    path,
+    theme,
+    facts: told,
+    snapshot: shown.data.snapshot,
+    ...(before?.ok && before.data?.snapshot?.doc ? { before: before.data.snapshot.doc } : {}),
   });
 }
 

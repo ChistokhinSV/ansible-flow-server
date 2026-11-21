@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  atLeast,
   launchesInProject,
   ProjectYourAccess,
   useProjectAccess,
@@ -24,6 +25,7 @@ import { WorkspaceEnvironments } from './environments';
 import { followKey, NewFlowForm } from './flowFiles';
 import { guide } from './guide';
 import { Missing, MissingProject } from './help';
+import { ProjectHistory } from './history';
 import { LaunchConfigsSection } from './launch';
 import { Link, navigate } from './router';
 import { RunList, RunWords } from './runs';
@@ -1408,7 +1410,7 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
 }
 
 /** AFS-84: a project's tabs, by the end of their address (Files is a page of its own). */
-export type ProjectTab = '' | 'runs' | 'branches' | 'settings';
+export type ProjectTab = '' | 'runs' | 'history' | 'branches' | 'settings';
 
 /** How many runs a project's page asks for: its Runs tab lists them, Overview the newest few. */
 const RUNS_SHOWN = 100;
@@ -1519,6 +1521,7 @@ export function ProjectPage({
     );
   const address = `${window.location.origin}${project.gitPath}`;
   const mayPush = me.admin || access?.workspace === 'rw';
+  const mayReadFiles = me.admin || atLeast(access?.workspace ?? null, 'ro');
   const base = `/w/${workspace}/${key}`;
   return (
     <>
@@ -1571,6 +1574,8 @@ export function ProjectPage({
           ...(project.commit || (project.hosted && mayPush)
             ? [{ key: 'files', label: 'Files' }]
             : []),
+          // AFS-123: the commits of the project, for who may read its files.
+          ...(project.commit && mayReadFiles ? [{ key: 'history', label: 'History' }] : []),
           {
             key: 'branches',
             label: 'Branches',
@@ -1680,6 +1685,17 @@ export function ProjectPage({
           )}
         </section>
       )}
+
+      {tab === 'history' &&
+        (project.commit && mayReadFiles ? (
+          <ProjectHistory workspace={workspace} project={project} />
+        ) : access ? (
+          <p className="empty">
+            {project.commit
+              ? 'The history is for who may read the project’s files.'
+              : 'No commits yet.'}
+          </p>
+        ) : null)}
 
       {tab === 'branches' && (
         <>

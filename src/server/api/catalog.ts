@@ -284,6 +284,27 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The commits that changed a flow, newest first'),
+  'GET /api/v1/projects/:id/commits': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    "The commits of the project's branch (or ?branch=, or up to ?commit=), newest first: ?q= keeps those whose message, author, hash or changed files have its words; ?path= a flow's commits (its flow and scenarios files); `next` is the ?skip= of the next page",
+  ),
+  'GET /api/v1/projects/:id/commits/:commit': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    'One commit: author, time, message, and the files it changed (added, changed or removed; flows with their title)',
+  ),
+  'GET /api/v1/projects/:id/flows/commit': S(
+    'Projects',
+    'signed in',
+    P,
+  )(
+    'What a commit did to a flow (added, changed, removed or nothing), with its author, time and message, and the commit to compare with',
+  ),
   'GET /api/v1/library/subflows': S(
     'Library',
     'signed in',
@@ -311,6 +332,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The commits that changed a file or folder up to a commit, newest first'),
+  'POST /api/v1/projects/:id/vars': S(
+    'Files',
+    'signed in',
+    P,
+  )(
+    "Where a value comes from: the variables the repository defines at a commit (the inventory a run uses, or ansible.cfg's; group_vars and host_vars; the `roles` and the playbooks and task files (`files`) a flow runs), with file, line and precedence; never a secret value",
+  ),
   'POST /api/v1/projects/:id/files': S(
     'Files',
     'signed in',
@@ -927,9 +955,13 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/start-from': 'rw',
   'GET /api/v1/projects/:id/changes': 'can see',
   'GET /api/v1/projects/:id/flows/history': 'ro',
+  'GET /api/v1/projects/:id/commits': 'ro',
+  'GET /api/v1/projects/:id/commits/:commit': 'ro',
+  'GET /api/v1/projects/:id/flows/commit': 'ro',
   'GET /api/v1/projects/:id/files': 'ro',
   'GET /api/v1/projects/:id/files/content': 'ro',
   'GET /api/v1/projects/:id/files/history': 'ro',
+  'POST /api/v1/projects/:id/vars': 'ro',
   'POST /api/v1/projects/:id/files': 'rw on the workspace',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
   'GET /api/v1/projects/:id/host-key': 'can see',
@@ -1006,6 +1038,8 @@ const FLOW_QUERY: Record<string, string> = {
   'POST /api/v1/projects/:id/flows/catalog': 'path',
   'POST /api/v1/projects/:id/drafts': 'path',
   'GET /api/v1/projects/:id/flows/history': 'path',
+  'GET /api/v1/projects/:id/commits': 'path',
+  'GET /api/v1/projects/:id/flows/commit': 'path',
 };
 
 /** What a route reaches: the workspace, and the project and flow when it reaches one. */
