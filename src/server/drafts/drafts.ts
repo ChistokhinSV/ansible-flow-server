@@ -52,6 +52,8 @@ export class DraftError extends Error {
     message: string,
     /** For a conflict on Save: the places both the draft and the branch changed. */
     readonly conflicts?: SaveConflict[],
+    /** AFS-186: the draft's revision those conflicts were read at (a choice is for that one). */
+    readonly revision?: number,
   ) {
     super(message);
     this.name = 'DraftError';
@@ -71,8 +73,10 @@ export interface SaveConflict {
 
 /** AFS-149: what one edit did, in words for the others' pages. */
 export interface EditChange {
-  /** A step, or the flow itself (its name, goal, inputs) when absent. */
+  /** A step, or the flow itself (its name, goal, inputs) when absent (and no note). */
   step?: string;
+  /** AFS-186: a note, section or text on the canvas, by its first line. */
+  note?: string;
   kind: 'added' | 'removed' | 'changed';
   /** The fields changed, dotted (`settings.timeout`); none for a step added, removed or moved. */
   fields: string[];
@@ -92,6 +96,8 @@ export type DraftNews =
   | { kind: 'discarded'; by: Editor };
 
 type Db = Kysely<Schema>;
+/** AFS-186: how long a discarded draft can be brought back. */
+const KEEP_DISCARDED_MS = 15 * 60_000;
 const now = () => new Date().toISOString();
 
 /** The steps an edit added, removed or changed: what the others' pages mark. */
@@ -126,8 +132,26 @@ function changesOf(before: string, after: string): { changes: EditChange[]; wire
     kind: n.kind,
     fields: n.kind === 'changed' ? n.fields.map((f) => f.field) : [],
   }));
+  // AFS-186: a note's text is a change too (an undo of it is not "a move on the canvas").
+  for (const a of diff.annotations)
+    changes.push({
+      note: a.label || a.annotation,
+      kind: a.kind,
+      fields: a.kind === 'changed' ? a.fields.map((f) => f.field) : [],
+    });
   if (diff.flow.length) changes.push({ kind: 'changed', fields: diff.flow.map((f) => f.field) });
   return { changes, wires: diff.wires.length };
+}
+
+/**
+ * AFS-186: what a draft changes against the commit it began at, step by step, with who changed
+ * each (the people whose edits, not taken back, touched it), for the Save dialog.
+ */
+export interface DraftSummary {
+  /** Something to save: the flow differs from its commit, or files come with it. */
+  changed: boolean;
+  changes: (EditChange & { by: string[] })[];
+  wires: number;
 }
 
 /** AFS-149: one side's value of a clashing place, in short. */
@@ -148,6 +172,20 @@ export class Drafts {
 
   /** AFS-151: what git said is at a path of a commit (`probe`). */
   private readonly seen = new Map<string, Promise<boolean>>();
+  /** AFS-186: the flow at a commit, for whether a draft changes anything (`changed`). */
+  private readonly bases = new Map<string, Promise<string | undefined>>();
+  /** AFS-186: drafts discarded a moment ago, by their id, to bring back (`restore`). */
+  private readonly discarded = new Map<
+    string,
+    {
+      project: string;
+      file: string;
+      baseCommit: string;
+      text: string;
+      files: DraftFile[];
+      at: number;
+    }
+  >();
 
   constructor(private readonly deps: { db: Db; git: Git; sync: ProjectSync; log: Logger }) {}
 
@@ -434,6 +472,8 @@ export class Drafts {
     message?: string;
     /** AFS-151: a start from a sample or an import was taken back: what it was, and its steps. */
     started?: { what: string; steps: number };
+    changes?: EditChange[];
+    wires?: number;
   }> {
     return this.one(id, async () => {
       const current = await this.text(id);
@@ -474,7 +514,12 @@ export class Drafts {
       if (last.kind === 'start')
         return { revision, steps: [], started: startedFrom(last.after_text) };
       // AFS-136: what was taken back, by the steps' titles as they are again (none: a move).
-      return { revision, steps: stepTitles(last.before_text, last.after_text) };
+      // AFS-186: and what it was (a note's text, the flow's goal), in the activity's words.
+      return {
+        revision,
+        steps: stepTitles(last.before_text, last.after_text),
+        ...changesOf(last.after_text, last.before_text),
+      };
     });
   }
 
@@ -492,6 +537,8 @@ export class Drafts {
     nothing?: true;
     message?: string;
     started?: { what: string; steps: number };
+    changes?: EditChange[];
+    wires?: number;
   }> {
     return this.one(id, async () => {
       const current = await this.text(id);
@@ -538,7 +585,11 @@ export class Drafts {
         .where('id', '=', last.id)
         .execute();
       if (started) return { revision, steps: [], started: startedFrom(text) };
-      return { revision, steps: stepTitles(last.before_text, last.after_text) };
+      return {
+        revision,
+        steps: stepTitles(last.before_text, last.after_text),
+        ...changesOf(last.after_text, last.before_text),
+      };
     });
   }
 
@@ -555,6 +606,11 @@ export class Drafts {
       force?: boolean;
       /** AFS-149: per clashing place (by its id), whose side to keep; the draft's when not given. */
       choices?: Record<string, 'draft' | 'branch'>;
+      /**
+       * AFS-186: the draft's revision the choices were made at. Changed since (someone edited a
+       * place shown), the save is refused with the places as they are now, to choose again.
+       */
+      seen?: number;
     } = {},
   ): Promise<{ commit: string; unchanged?: boolean; coAuthors?: string[]; added?: string[] }> {
     const row = await this.row(id);
@@ -592,16 +648,31 @@ export class Drafts {
             );
           // AFS-149: a place with a side chosen is settled; any other refuses unless forced.
           const open = merged.merge.conflicts.filter((c) => !options.choices?.[c.id]);
+          const clashes = merged.merge.conflicts.map((c) => ({
+            id: c.id,
+            label: c.label,
+            draft: shortValue(c.ours),
+            branch: shortValue(c.theirs),
+          }));
           if (open.length && !options.force)
             throw new DraftError(
               'conflict',
               'The branch changed the same places since the draft began',
-              merged.merge.conflicts.map((c) => ({
-                id: c.id,
-                label: c.label,
-                draft: shortValue(c.ours),
-                branch: shortValue(c.theirs),
-              })),
+              clashes,
+              draft.revision,
+            );
+          // AFS-186: the choices were made on values someone has changed since: chosen again.
+          if (
+            options.choices &&
+            options.seen !== undefined &&
+            options.seen !== draft.revision &&
+            clashes.length
+          )
+            throw new DraftError(
+              'conflict',
+              'The draft changed while you chose: check the values again',
+              clashes,
+              draft.revision,
             );
           text = merged.text;
         }
@@ -694,9 +765,169 @@ export class Drafts {
   }
 
   async discard(id: string, by: Editor): Promise<void> {
-    if (!(await this.row(id))) throw new DraftError('not_found', 'No such draft');
-    await this.drop(id);
+    await this.one(id, async () => {
+      const row = await this.row(id);
+      if (!row) throw new DraftError('not_found', 'No such draft');
+      // AFS-186: what was discarded can be brought back for a while.
+      const files = await this.files(id);
+      const at = Date.now();
+      for (const [key, d] of this.discarded)
+        if (at - d.at > KEEP_DISCARDED_MS) this.discarded.delete(key);
+      this.discarded.set(id, {
+        project: row.project_id,
+        file: row.file,
+        baseCommit: row.base_commit,
+        text: row.text,
+        files,
+        at,
+      });
+      await this.drop(id);
+    });
     this.tell(id, { kind: 'discarded', by });
+  }
+
+  /**
+   * AFS-186: a draft discarded a moment ago, back as a new draft of the same flow at the same
+   * commit, with the text it had (one edit by the person bringing it back). Refused once the
+   * flow has a draft again, or after KEEP_DISCARDED_MS.
+   */
+  async restore(id: string, by: Editor, of: { project: string; file: string }): Promise<Draft> {
+    const kept = this.discarded.get(id);
+    if (
+      !kept ||
+      kept.project !== of.project ||
+      kept.file !== of.file ||
+      Date.now() - kept.at > KEEP_DISCARDED_MS
+    )
+      throw new DraftError('not_found', 'The discarded draft is no longer kept');
+    const there = await this.deps.db
+      .selectFrom('flow_draft')
+      .select('id')
+      .where('project_id', '=', kept.project)
+      .where('file', '=', kept.file)
+      .executeTakeFirst();
+    if (there) throw new DraftError('refused', 'The flow has a new draft already: open that one');
+    const base = await this.baseText({
+      project_id: kept.project,
+      base_commit: kept.baseCommit,
+      file: kept.file,
+    });
+    if (base === undefined)
+      throw new DraftError('refused', 'The commit the draft began at is gone');
+    const at = now();
+    const fresh = randomUUID();
+    await this.deps.db
+      .insertInto('flow_draft')
+      .values({
+        id: fresh,
+        project_id: kept.project,
+        file: kept.file,
+        base_commit: kept.baseCommit,
+        text: base,
+        revision: 0,
+        created_by: by.id,
+        created_at: at,
+        updated_at: at,
+      })
+      .execute();
+    this.discarded.delete(id);
+    if (kept.text !== base || kept.files.length)
+      await this.one(fresh, () =>
+        this.write(
+          fresh,
+          by,
+          kept.files.length ? 'start' : 'command',
+          { text: base, revision: 0 },
+          kept.text,
+          kept.files,
+        ),
+      );
+    return this.view((await this.row(fresh)) as NonNullable<Awaited<ReturnType<Drafts['row']>>>);
+  }
+
+  /** AFS-186: the flow at the draft's base commit, read once per commit and file. */
+  private baseText(row: {
+    project_id: string;
+    base_commit: string;
+    file: string;
+  }): Promise<string | undefined> {
+    const key = `${row.project_id}:${row.base_commit}:${row.file}`;
+    let found = this.bases.get(key);
+    if (!found) {
+      found = this.deps.git
+        .read(row.project_id, row.base_commit, row.file)
+        .then((b) => b?.toString('utf8'));
+      if (this.bases.size > 500) this.bases.clear();
+      this.bases.set(key, found);
+    }
+    return found;
+  }
+
+  /**
+   * AFS-186: whether the draft changes anything against the commit it began at (an edit and its
+   * undo change nothing): Save has nothing to make then, and leaving it drops it.
+   */
+  async changed(id: string): Promise<boolean> {
+    const row = await this.row(id);
+    if (!row || row.revision === 0) return false;
+    if ((await this.files(id)).length) return true;
+    return row.text !== (await this.baseText(row));
+  }
+
+  /** AFS-186: what the draft changes, and who changed each place (see DraftSummary). */
+  async summary(id: string): Promise<DraftSummary | undefined> {
+    const row = await this.row(id);
+    if (!row) return undefined;
+    const base = await this.baseText(row);
+    const files = (await this.files(id)).length > 0;
+    const a = base === undefined ? undefined : parseFlow(base).doc;
+    const b = parseFlow(row.text).doc;
+    if (!a || !b || row.text === base) return { changed: files, changes: [], wires: 0 };
+    const diff = diffFlows(a, b);
+    // Who touched each step or note: the edits not taken back (an undo is not a change of its own).
+    const edits = await this.deps.db
+      .selectFrom('flow_draft_edit')
+      .innerJoin('user_account', 'user_account.id', 'flow_draft_edit.user_id')
+      .select(['user_account.name', 'flow_draft_edit.before_text', 'flow_draft_edit.after_text'])
+      .where('flow_draft_edit.draft_id', '=', id)
+      .where('flow_draft_edit.undone', '=', 0)
+      .where('flow_draft_edit.kind', 'not in', ['undo', 'undo-start'])
+      .orderBy('flow_draft_edit.revision')
+      .execute();
+    const who = new Map<string, Set<string>>();
+    const flowBy = new Set<string>();
+    for (const e of edits) {
+      const x = parseFlow(e.before_text).doc;
+      const y = parseFlow(e.after_text).doc;
+      if (!x || !y) continue;
+      const d = diffFlows(x, y);
+      for (const c of [...d.nodes, ...d.annotations]) {
+        const set = who.get(c.id) ?? new Set<string>();
+        set.add(e.name);
+        who.set(c.id, set);
+      }
+      if (d.flow.length || d.wires.length) flowBy.add(e.name);
+    }
+    const anyone = [...new Set(edits.map((e) => e.name))];
+    const by = (place?: string) => {
+      const found = [...(place ? (who.get(place) ?? []) : flowBy)];
+      return found.length ? found : anyone;
+    };
+    const fields = (c: { kind: string; fields: { field: string }[] }) =>
+      c.kind === 'changed' ? c.fields.map((f) => f.field) : [];
+    const changes: DraftSummary['changes'] = [
+      ...diff.nodes.map((n) => ({ step: n.title, kind: n.kind, fields: fields(n), by: by(n.id) })),
+      ...diff.annotations.map((n) => ({
+        note: n.label || n.annotation,
+        kind: n.kind,
+        fields: fields(n),
+        by: by(n.id),
+      })),
+      ...(diff.flow.length
+        ? [{ kind: 'changed' as const, fields: diff.flow.map((f) => f.field), by: by() }]
+        : []),
+    ];
+    return { changed: true, changes, wires: diff.wires.length };
   }
 
   private async drop(id: string): Promise<void> {

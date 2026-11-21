@@ -11,7 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../src/web/api';
 import { FlowPage } from '../../src/web/flow';
-import { ProjectHistory } from '../../src/web/history';
+import { bodyWords, ProjectHistory } from '../../src/web/history';
 import { compareOf, nothingOf } from '../../src/web/viewerPast';
 
 const TIP = 'c'.repeat(40);
@@ -296,5 +296,14 @@ describe('the Changes lens of a flow at a commit', () => {
       label: 'nothing: 2222222 added the flow',
       base: nothing,
     });
+  });
+});
+
+describe("a commit's message (AFS-186)", () => {
+  it('names a co-author without their e-mail address', () => {
+    expect(
+      bodyWords('Co-authored-by: Mia Ortega <mia@example.net>\nCo-authored-by: Omar <o@x.y>'),
+    ).toBe('Co-author: Mia Ortega\nCo-author: Omar');
+    expect(bodyWords('Says <this> stays')).toBe('Says <this> stays');
   });
 });

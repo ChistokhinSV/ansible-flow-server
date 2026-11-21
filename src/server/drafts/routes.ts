@@ -10,6 +10,10 @@
 //   POST /api/v1/drafts/:id/here                         "I am here" (and the step I have selected)
 //   POST /api/v1/drafts/:id/flushed                      AFS-149: "what I was typing is sent"
 //   POST /api/v1/drafts/:id/save, DELETE /drafts/:id     save as one commit, discard
+//   POST /api/v1/projects/:id/drafts/restore?path=       AFS-186: a draft just discarded, back
+//   GET  /api/v1/drafts/:id/summary                      AFS-186: what it changes, and by whom
+//   POST /api/v1/drafts/:id/leave                        AFS-186: Stop editing (drops a draft
+//                                                        that changes nothing, nobody else in it)
 //   POST /api/v1/drafts/:id/catalog                      the module catalog of the flow's image
 //   POST /api/v1/projects/:id/flows/catalog?path=        the same for a flow shown (AFS-118)
 import { randomUUID } from 'node:crypto';
@@ -51,6 +55,8 @@ export interface Person {
    * save ends the draft for everyone.
    */
   saving?: boolean;
+  /** AFS-186: they asked to discard the draft (the question is open): the others are told. */
+  discarding?: boolean;
 }
 
 /** AFS-149: one page's "I am here": a person may have the draft open in several tabs. */
@@ -62,7 +68,13 @@ interface Listener {
   stream: string;
   login: string;
   tab?: string;
-  hear(news: { by: { login: string; name: string }; flush: string; stream: string }): void;
+  hear(news: {
+    by: { login: string; name: string };
+    flush: string;
+    stream: string;
+    /** AFS-186: a save (the default) or a discard is coming. */
+    what?: 'discard';
+  }): void;
 }
 
 const TAB = { type: 'string', minLength: 1, maxLength: 64 };
@@ -119,10 +131,12 @@ export function registerDrafts(
       if (!seen) byPerson.set(p.login, { ...person, tabs: 1 });
       else {
         const saving = seen.saving || person.saving;
+        const discarding = seen.discarding || person.discarding;
         byPerson.set(p.login, {
           ...(p.at >= seen.at ? person : seen),
           tabs: (seen.tabs ?? 1) + 1,
           ...(saving ? { saving } : {}),
+          ...(discarding ? { discarding } : {}),
         });
       }
     }
@@ -158,7 +172,41 @@ export function registerDrafts(
     return {
       draft,
       snapshot: await snapshotOf(text.text, text.file, text.revision + 1, await drafts.probe(id)),
+      // AFS-186: whether it changes anything (Save is off while it does not).
+      changed: await drafts.changed(id),
     };
+  };
+
+  /**
+   * AFS-136, AFS-149: before a save (AFS-186: or a discard), the other pages in the draft send
+   * what they are typing: every page but the asker's own (the asker's other tabs too). It goes on
+   * once each has answered, or after FLUSH_MS (a page that cannot: a frozen tab).
+   */
+  const flushPages = async (
+    id: string,
+    me: { login: string; name: string },
+    tab: string | undefined,
+    what?: 'discard',
+  ) => {
+    const pages = [...(savingListeners.get(id) ?? [])].filter(
+      (l) => !(tab && l.tab === tab && l.login === me.login),
+    );
+    if (!pages.length) return;
+    const flush = randomUUID();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await new Promise<void>((resolve) => {
+      flushes.set(flush, { left: new Map(pages.map((l) => [l.stream, l.login])), done: resolve });
+      timer = setTimeout(resolve, deps.flushMs ?? FLUSH_MS);
+      for (const l of pages)
+        l.hear({
+          by: { login: me.login, name: me.name },
+          flush,
+          stream: l.stream,
+          ...(what ? { what } : {}),
+        });
+    });
+    clearTimeout(timer);
+    flushes.delete(flush);
   };
 
   app.get<{ Params: { id: string } }>(
@@ -261,8 +309,10 @@ export function registerDrafts(
             text.revision + 1,
             await drafts.probe(id),
           ).catch(() => undefined);
+          const changed = await drafts.changed(id).catch(() => true);
           send('edit', {
             revision: text.revision,
+            changed,
             ...(news && news.revision === text.revision
               ? { by: news.by, nodes: news.nodes, changes: news.changes, wires: news.wires }
               : {}),
@@ -374,7 +424,7 @@ export function registerDrafts(
 
   app.post<{
     Params: { id: string };
-    Body: { node?: string | null; tab?: string; saving?: boolean };
+    Body: { node?: string | null; tab?: string; saving?: boolean; discarding?: boolean };
   }>(
     '/api/v1/drafts/:id/here',
     {
@@ -387,6 +437,7 @@ export function registerDrafts(
             node: { type: ['string', 'null'], maxLength: 64 },
             tab: TAB,
             saving: { type: 'boolean' },
+            discarding: { type: 'boolean' },
           },
         },
       },
@@ -403,12 +454,14 @@ export function registerDrafts(
       // AFS-171: the frame's "I am here" says nothing of Save (the page says it): what was said stays.
       const node = request.body?.node ?? undefined;
       const saving = request.body?.saving ?? was?.saving;
+      const discarding = request.body?.discarding ?? was?.discarding;
       room.set(key, {
         login: me.login,
         name: me.name,
         ...(node ? { node } : {}),
         ...(tab ? { tab } : {}),
         ...(saving ? { saving } : {}),
+        ...(discarding ? { discarding } : {}),
         at: Date.now(),
       });
       here.set(request.params.id, room);
@@ -449,6 +502,7 @@ export function registerDrafts(
       message?: string;
       force?: boolean;
       choices?: Record<string, 'draft' | 'branch'>;
+      seen?: number;
       tab?: string;
       answerConflicts?: boolean;
     };
@@ -469,6 +523,8 @@ export function registerDrafts(
               maxProperties: 500,
               additionalProperties: { type: 'string', enum: ['draft', 'branch'] },
             },
+            // AFS-186: the draft's revision the choices were made at.
+            seen: { type: 'integer', minimum: 0 },
             tab: TAB,
             answerConflicts: { type: 'boolean' },
           },
@@ -486,34 +542,20 @@ export function registerDrafts(
           .executeTakeFirst()
       )?.email;
       // AFS-136: the other pages in the draft send what they are typing first, then it is saved.
-      // AFS-149: every page but the saver's own, the saver's other tabs too; the save goes on once
-      // each has answered (or after FLUSH_MS, for a page that cannot: a frozen tab).
       const body = request.body ?? {};
-      const pages = [...(savingListeners.get(request.params.id) ?? [])].filter(
-        (l) => !(body.tab && l.tab === body.tab && l.login === me.login),
-      );
-      if (pages.length) {
-        const flush = randomUUID();
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        await new Promise<void>((resolve) => {
-          flushes.set(flush, {
-            left: new Map(pages.map((l) => [l.stream, l.login])),
-            done: resolve,
-          });
-          timer = setTimeout(resolve, deps.flushMs ?? FLUSH_MS);
-          for (const l of pages)
-            l.hear({ by: { login: me.login, name: me.name }, flush, stream: l.stream });
-        });
-        clearTimeout(timer);
-        flushes.delete(flush);
-      }
+      await flushPages(request.params.id, me, body.tab);
       const { tab: _tab, answerConflicts, ...options } = body;
       try {
         return await drafts.save(request.params.id, { ...editorOf(me), email }, options);
       } catch (e) {
         // AFS-149: the pages ask for clashes as an answer, not a refusal (a 409 is a console error).
         if (answerConflicts && e instanceof DraftError && e.code === 'conflict')
-          return { saved: false, message: e.message, conflicts: e.conflicts ?? [] };
+          return {
+            saved: false,
+            message: e.message,
+            conflicts: e.conflicts ?? [],
+            ...(e.revision !== undefined ? { revision: e.revision } : {}),
+          };
         return failed(reply, e);
       }
     },
@@ -654,18 +696,103 @@ export function registerDrafts(
     }
   }
 
-  app.delete<{ Params: { id: string } }>(
+  app.delete<{ Params: { id: string }; Querystring: { tab?: string } }>(
     '/api/v1/drafts/:id',
-    { schema: ID },
+    { schema: { ...ID, querystring: { type: 'object', properties: { tab: TAB } } } },
     async (request, reply) => {
       const me = signedIn(request, reply);
       if (!me) return reply;
       try {
+        // AFS-186: what the others are typing goes in first, so Bring back has it too.
+        if (await drafts.text(request.params.id))
+          await flushPages(request.params.id, me, request.query.tab, 'discard');
         await drafts.discard(request.params.id, editorOf(me));
         return reply.code(204).send();
       } catch (e) {
         return failed(reply, e);
       }
+    },
+  );
+
+  /**
+   * AFS-186: a draft of the flow (`path`) discarded a moment ago (`draft`, its old id), back as the
+   * flow's draft (the new one answered). On the project, as the draft is gone: rw on the flow.
+   */
+  app.post<{ Params: { id: string }; Querystring: { path: string }; Body: { draft: string } }>(
+    '/api/v1/projects/:id/drafts/restore',
+    {
+      schema: {
+        ...ID,
+        querystring: {
+          type: 'object',
+          required: ['path'],
+          properties: { path: { type: 'string', minLength: 1, maxLength: 1000 } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['draft'],
+          properties: { draft: { type: 'string', maxLength: 64 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      try {
+        return await drafts.restore(request.body.draft, editorOf(me), {
+          project: request.params.id,
+          file: request.query.path,
+        });
+      } catch (e) {
+        return failed(reply, e);
+      }
+    },
+  );
+
+  /** AFS-186: what the draft changes against its commit, place by place, and who changed each. */
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/drafts/:id/summary',
+    { schema: ID },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const found = await drafts.summary(request.params.id);
+      return found ?? reply.code(404).send({ error: 'not_found', message: 'No such draft' });
+    },
+  );
+
+  /**
+   * AFS-186: Stop editing. The page is no longer in the draft; a draft that changes nothing (its
+   * edits taken back) and has nobody else in it is dropped, as if it never began.
+   */
+  app.post<{ Params: { id: string }; Body: { tab?: string } }>(
+    '/api/v1/drafts/:id/leave',
+    {
+      schema: {
+        ...ID,
+        body: { type: 'object', additionalProperties: false, properties: { tab: TAB } },
+      },
+    },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const id = request.params.id;
+      if (!(await drafts.text(id))) return { dropped: false };
+      here.get(id)?.delete(`${me.login} ${request.body?.tab ?? ''}`);
+      const others = people(id).length > 0;
+      const watching = [...(savingListeners.get(id) ?? [])].some(
+        (l) => !(request.body?.tab && l.tab === request.body.tab && l.login === me.login),
+      );
+      if (others || watching || (await drafts.changed(id))) {
+        tellPeople(id);
+        return { dropped: false };
+      }
+      try {
+        await drafts.discard(id, editorOf(me));
+      } catch (e) {
+        return failed(reply, e);
+      }
+      return { dropped: true };
     },
   );
 }

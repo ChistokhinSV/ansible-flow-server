@@ -51,7 +51,7 @@ function show(question: string, options: AskOptions): Promise<boolean> {
       done = true;
       if (dialog.open && typeof dialog.close === 'function') dialog.close();
       dialog.remove();
-      if (before?.isConnected) before.focus();
+      if (before?.isConnected) before.focus({ preventScroll: true });
       resolve(said);
     };
     yes.addEventListener('click', () => finish(true));
@@ -81,6 +81,7 @@ function show(question: string, options: AskOptions): Promise<boolean> {
         dialog.setAttribute('open', '');
       }
     } else dialog.setAttribute('open', '');
-    (options.danger ? no : yes).focus();
+    // AFS-186: the page behind stays where it was (on a phone it scrolled to the dialog).
+    (options.danger ? no : yes).focus({ preventScroll: true });
   });
 }
