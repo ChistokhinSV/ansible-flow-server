@@ -14,7 +14,7 @@ import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { LaunchConfigs, LaunchError } from '../../src/server/launch/configs';
-import { markTargets, prepareLaunch } from '../../src/server/launch/prepare';
+import { hostListTexts, markTargets, prepareLaunch } from '../../src/server/launch/prepare';
 import type { InventoryReader } from '../../src/server/launch/routes';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
@@ -359,6 +359,25 @@ for (const [name, config] of databases) {
         limit: 'fw-edge-01',
         targets: ['fw-edge-09'],
       });
+
+      // AFS-191: a limit emptied at launch runs without one, not with the configuration's.
+      const unlimited = await prepareLaunch(deps(), config as never, { limit: '  ' });
+      expect(unlimited.ok && unlimited.launch.limit).toBeUndefined();
+      expect(unlimited.ok && unlimited.form.limit).toBeUndefined();
+      // A host list typed as a JSON list is its names; a broken one is refused at its field.
+      const json = await prepareLaunch(deps(), config as never, {
+        inputs: { devices: '["fw-edge-01", "fw-edge-02"]' },
+      });
+      expect(json.ok && json.launch.targets).toEqual(['fw-edge-01', 'fw-edge-02']);
+      const broken = await prepareLaunch(deps(), config as never, {
+        inputs: { devices: '["fw-edge-01",' },
+      });
+      expect(broken.ok ? [] : broken.problems).toEqual([
+        {
+          field: 'devices',
+          message: expect.stringMatching(/^devices is not a JSON list of names/),
+        },
+      ]);
     });
 
     it('lists everything that stands in the way of a launch', async () => {
@@ -603,6 +622,14 @@ for (const [name, config] of databases) {
       const empty = await post({ inputs: { devices: '' } }, { cookie: admin });
       expect(empty.json()).toMatchObject({ factsError: 'devices is required', field: 'devices' });
       expect(empty.json().facts).toBeUndefined();
+      // AFS-191: a broken JSON list is said at its field, not read as a host name.
+      asked.length = 0;
+      const broken = await post({ inputs: { devices: '["fw-edge-01",' } }, { cookie: admin });
+      expect(broken.json()).toMatchObject({
+        factsError: expect.stringMatching(/^devices is not a JSON list of names/),
+        field: 'devices',
+      });
+      expect(asked[0]?.inputs).toEqual({});
       await configs.delete(made.id);
     });
 
@@ -616,6 +643,23 @@ for (const [name, config] of databases) {
     });
   });
 }
+
+describe('a host list typed as JSON (AFS-191)', () => {
+  const fields: LaunchField[] = [
+    { name: 'devices', required: true, secret: false, text: '', type: 'host_list' },
+    { name: 'note', required: false, secret: false, text: '', type: 'string' },
+  ];
+  it('reads as its names; commas and other inputs are left as typed', () => {
+    expect(hostListTexts(fields, { devices: ' ["a", "b", 7] ', note: '[x' })).toEqual({
+      texts: { devices: 'a, b, 7', note: '[x' },
+    });
+    expect(hostListTexts(fields, { devices: 'a, b' })).toEqual({ texts: { devices: 'a, b' } });
+  });
+  it('broken, not a list, or a name that is not one: refused at its field', () => {
+    for (const text of ['["sw-edge-01",', '[["a"]]', '["a b"]', '[""]'])
+      expect(hostListTexts(fields, { devices: text })).toMatchObject({ field: 'devices' });
+  });
+});
 
 describe('the targets field (AFS-170)', () => {
   const doc = (inputs: Record<string, unknown>) => ({ flow: { inputs } }) as never;

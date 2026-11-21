@@ -2,8 +2,9 @@
 // stream (record, output, end), with Stop and Run again.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Run } from '../../src/web/api';
 import { App } from '../../src/web/app';
-import { stoppedWhen } from '../../src/web/runs';
+import { againWords, stoppedWhen } from '../../src/web/runs';
 import { formatTime } from '../../src/web/ui';
 import { stepTitle, stopQuestion } from '../../src/web/viewerRuns';
 
@@ -372,6 +373,24 @@ describe('a run', () => {
     await screen.findByRole('heading', { name: 'Hello, Ansible #8' });
     expect(window.location.pathname).toBe('/runs/r2');
     expect(screen.getByText('The canvas shows the run once it started.')).toBeTruthy();
+  });
+
+  it('Run again asks first, naming its action, when the run reached no host (AFS-191)', () => {
+    const base = {
+      flow: { name: 'Hello' },
+      inputs: { devices: ['ghost-01'] },
+      error: 'No host ran: none of the targets (ghost-01) is in the inventory',
+    } as unknown as Run;
+    expect(againWords({ ...base, mode: 'check' } as Run)).toMatchObject({
+      confirm:
+        'Run Hello again as a check run? No host ran: none of the targets (ghost-01) is in the inventory. It would likely end the same way.',
+      yes: 'Run again anyway',
+    });
+    expect(againWords({ ...base, mode: 'real' } as Run)).toMatchObject({
+      confirm: expect.stringMatching(/^Run Hello for real again\? .* It would likely end/),
+      yes: 'Run for real',
+    });
+    expect(againWords({ ...base, mode: 'check', error: undefined } as Run).confirm).toBeUndefined();
   });
 
   it('What ran names the inputs, limit, credentials, environment and skipped targets (AFS-147)', async () => {

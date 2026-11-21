@@ -7,6 +7,7 @@
 import type { HostMessage } from '@ansible-flow/core/protocol';
 import { inputText, type LaunchField, type LaunchPlan } from '@ansible-flow/core/run/launch';
 import type { FactsReply } from '../server/launch/facts';
+import { noHostWhy } from './noHost';
 
 export interface ConfigChoice {
   id: string;
@@ -20,6 +21,8 @@ interface Form {
   fields: LaunchField[];
   inventory?: string;
   eeImage?: string;
+  /** AFS-183: per input, where it goes in one line. */
+  origins?: Record<string, string>;
 }
 
 export interface LauncherDeps {
@@ -35,6 +38,8 @@ export interface LauncherDeps {
   askName(suggested: string): Promise<string | undefined>;
   /** Goes to a page of the server (the whole window, not the canvas's frame). */
   go(to: string): void;
+  /** AFS-191: asks a yes-or-no question (tests answer it); default the designer-styled dialog. */
+  askYes?: (question: string, yes: string) => Promise<boolean>;
   /** AFS-135: the person may add launch configurations (rw on the flow); default true. */
   mayAddConfig?: boolean;
 }
@@ -67,7 +72,7 @@ const why = (reply: Reply, fallback: string): string =>
 
 export function launcher(deps: LauncherDeps) {
   /** The dialogs open now, by token: their configuration and plan. */
-  const open = new Map<string, { config: string; plan: LaunchPlan }>();
+  const open = new Map<string, { config: string; plan: LaunchPlan; facts?: FactsReply }>();
   let next = 0;
   const notify = (level: 'info' | 'error', text: string) =>
     deps.send({ type: 'notify', level, text });
@@ -92,7 +97,7 @@ export function launcher(deps: LauncherDeps) {
     );
     if (!form?.ok)
       return notify('error', form ? why(form, 'The launch form could not be read') : 'No answer');
-    const { flow, fields, inventory, eeImage } = form.data as Form;
+    const { flow, fields, inventory, eeImage, origins } = form.data as Form;
     // AFS-149: said only when the read takes a while: a toast said every time stayed over the
     // dialog after the hosts were listed.
     const slow = setTimeout(() => notify('info', 'Reading the hosts from the inventory…'), 1500);
@@ -105,7 +110,8 @@ export function launcher(deps: LauncherDeps) {
       return notify('error', read ? why(read, 'The inventory could not be read') : 'No answer');
     const answer = read.data as FactsReply;
     const token = `afs-${Date.now().toString(36)}-${next++}`;
-    const plan: LaunchPlan = {
+    // AFS-191: `origins` is shown by a designer from AFD-355 on; an older one leaves it out.
+    const plan: LaunchPlan & { origins?: Record<string, string> } = {
       token,
       mode,
       flow: `${flow.name} · ${config.name}`,
@@ -120,8 +126,9 @@ export function launcher(deps: LauncherDeps) {
       ...((answer.inventory ?? inventory) ? { inventory: answer.inventory ?? inventory } : {}),
       // AFS-97: Save as Launch Configuration (a designer without it leaves it out).
       canSave: deps.mayAddConfig !== false,
+      ...(origins ? { origins } : {}),
     };
-    open.set(token, { config: config.id, plan });
+    open.set(token, { config: config.id, plan, facts: answer });
     deps.send({ type: 'launch', plan });
   }
 
@@ -134,6 +141,7 @@ export function launcher(deps: LauncherDeps) {
       inputs: texts(inputs),
     }).catch(() => undefined);
     const answer = read?.ok ? (read.data as FactsReply) : undefined;
+    dialog.facts = answer;
     deps.send({
       type: 'launchFacts',
       token,
@@ -151,6 +159,28 @@ export function launcher(deps: LauncherDeps) {
     const dialog = open.get(token);
     if (!dialog) return;
     const typed = texts(inputs);
+    // The dialog again, with what was typed (secrets typed again), and why when it did not start.
+    const again = (notice?: string) => {
+      const plan: LaunchPlan = {
+        ...dialog.plan,
+        fields: dialog.plan.fields.map((f) =>
+          f.secret || typed[f.name] === undefined ? f : { ...f, text: typed[f.name] ?? '' },
+        ),
+      };
+      dialog.plan = plan;
+      deps.send({ type: 'launch', plan, ...(notice ? { notice } : {}) });
+    };
+    // AFS-191: a launch whose limit (the configuration's) leaves no host is asked about first, as
+    // on the launch page; targets not in the inventory at all already keep Run off.
+    const none = noHostWhy(dialog.facts);
+    if (
+      none &&
+      !(await (deps.askYes ?? askYes)(
+        `Launch anyway? No host would run: ${none}.`,
+        'Launch anyway',
+      ))
+    )
+      return again();
     const reply = await call(`/api/v1/launch-configs/${encodeURIComponent(dialog.config)}/launch`, {
       mode: dialog.plan.mode,
       inputs: typed,
@@ -161,19 +191,7 @@ export function launcher(deps: LauncherDeps) {
       deps.launched((reply.data as { id: string }).id);
       return;
     }
-    // The dialog again, with what was typed (secrets typed again) and why it did not start.
-    const plan: LaunchPlan = {
-      ...dialog.plan,
-      fields: dialog.plan.fields.map((f) =>
-        f.secret || typed[f.name] === undefined ? f : { ...f, text: typed[f.name] ?? '' },
-      ),
-    };
-    dialog.plan = plan;
-    deps.send({
-      type: 'launch',
-      plan,
-      notice: reply ? why(reply, 'The run did not start') : 'The server does not answer',
-    });
+    again(reply ? why(reply, 'The run did not start') : 'The server does not answer');
   }
 
   /** The page that adds a configuration of this flow, in its workspace and project. */

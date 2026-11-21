@@ -3601,3 +3601,8 @@ a.flow-history-item:hover .commit-subject,
   margin: 0.15rem 0;
   overflow-wrap: anywhere;
 }
+
+/* AFS-191: "Groups in the inventory:" on the line of its group buttons, not above it. */
+fieldset.name-chips {
+  align-items: center;
+}

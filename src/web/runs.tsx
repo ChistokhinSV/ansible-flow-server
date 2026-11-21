@@ -852,19 +852,32 @@ async function belongs(project: string, file: string, config?: string): Promise<
 const inputText = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value));
 
 /**
- * AFS-147: what Run again does, in words: the button's title (mode and the inputs it reuses) and,
- * for a real run, the question asked first (Launch's, with the inputs).
+ * AFS-147: what Run again does, in words: the button's title (mode and the inputs it reuses) and
+ * the question asked first: for a real run (Launch's, with the inputs), and for one that reached
+ * no host (AFS-191).
  */
-export function againWords(run: Run): { title: string; confirm: string } {
+export function againWords(run: Run): { title: string; confirm?: string; yes: string } {
   const inputs = Object.entries(run.inputs).map(([name, v]) => `${name} = ${inputText(v)}`);
   const reuses = inputs.length
     ? `It reuses the inputs ${inputs.join(', ')}.`
     : 'It takes no inputs.';
   const where = run.limit ? ` limited to ${run.limit}` : '';
   const mode = run.mode === 'real' ? 'A real run' : 'A check run';
+  // AFS-191: a run that reached no host would again (same commit, inputs and limit): asked first.
+  const none = run.error?.startsWith('No host ran')
+    ? ` ${run.error}. It would likely end the same way.`
+    : '';
+  const real = run.mode === 'real';
   return {
     title: `${mode} again, at the same commit${where}. ${reuses}`,
-    confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}`,
+    ...(real
+      ? {
+          confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}${none}`,
+        }
+      : none
+        ? { confirm: `Run ${run.flow.name} again as a check run?${none}` }
+        : {}),
+    yes: real ? 'Run for real' : 'Run again anyway',
   };
 }
 
@@ -1032,7 +1045,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const act = async (what: 'cancel' | 'relaunch') => {
     // AFS-147: a real run again changes the hosts again: asked first, as Launch asks, with the
     // inputs it reuses.
-    if (what === 'relaunch' && run.mode === 'real' && !(await ask(again.confirm))) return;
+    if (what === 'relaunch' && again.confirm && !(await ask(again.confirm, { yes: again.yes })))
+      return;
     // AFS-185: so does Stop of a real run: it cuts off what is in progress.
     if (
       what === 'cancel' &&

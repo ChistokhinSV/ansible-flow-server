@@ -45,9 +45,15 @@ All notable changes to Ansible Flow Server.
 - Ctrl+Z and Ctrl+Y say what they took back or brought back (a note's text, a step's fields), not "your last move on the canvas".
 - A save with one co-author says "as co-author"; a commit's details on the **History** tab name co-authors without their e-mail addresses.
 - The flow's page says "A draft of this flow has unsaved edits by …" for a draft waiting to be saved.
+- A launch on which no host would run (no target in the inventory, or a limit that leaves none) asks first, on the launch page and in the canvas's Run dialog. **Run again** of a run that reached no host asks first too, and its question's button names the action (**Run for real**, **Run again anyway**).
+- Enter in a field of the launch form launches (asking first where **Launch** asks), instead of **What would run**.
+- The launch form says once that another branch or commit needs read and write access, and a host list with its own description is not described twice.
 
 ### Fixed
 
+- A host list typed as a JSON list (`["sw-edge-01", "sw-edge-02"]`) runs on those hosts; one that is not valid JSON is refused at its field instead of being launched as a host name.
+- Emptying the **Limit** at launch runs without a limit; it kept the configuration's limit.
+- The notifications guide no longer says a run's inputs are never in a message: an approval's request email carries them (secrets as `***`).
 - In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
 - A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
 - A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).

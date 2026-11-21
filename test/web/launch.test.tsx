@@ -636,6 +636,72 @@ describe('the launch form', () => {
     ).toBeTruthy();
   });
 
+  it('a limit emptied runs without one; a launch where no host would run asks; Enter launches (AFS-191)', async () => {
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1/form?': () => ({ body: { ...form, limit: 'nosuchhost' } }),
+      'POST /launch-configs/c1/facts': (body) => {
+        const typed = (body as { limit?: string }) ?? {};
+        const limit = typed.limit ?? 'nosuchhost';
+        return {
+          body: {
+            groups: [],
+            facts: {
+              sources: ['inventory/hosts.yaml'],
+              count: 1,
+              hosts: ['fw-edge-01'],
+              unknown: [],
+              uses: [],
+              prod: [],
+              vault: false,
+              environment: 'ee:1 (docker)',
+            },
+            ...(limit ? { limited: { pattern: limit, hosts: [], count: 0 } } : {}),
+            environment: 'ee:1 (docker)',
+            commit: COMMIT,
+          },
+        };
+      },
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    const questions: string[] = [];
+    let yes = false;
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return yes;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const limit = (await screen.findByDisplayValue('nosuchhost')) as HTMLInputElement;
+    expect(screen.getByText(/Empty: no limit/)).toBeTruthy();
+    await screen.findByText(/leaves none of the targets' hosts/, undefined, { timeout: 3000 });
+    // Enter in a field is Launch: asked first, and No keeps the page.
+    fireEvent.submit(limit.closest('form') as HTMLFormElement);
+    await waitFor(() => expect(questions).toHaveLength(1));
+    expect(questions[0]).toMatch(
+      /^Launch the check run\? No host would run: the limit nosuchhost leaves none/,
+    );
+    expect(asked.some((a) => a.key === 'POST /launch-configs/c1/launch')).toBe(false);
+    // Emptied: no limit, said at the field, and the run is asked for without one.
+    fireEvent.change(limit, { target: { value: '' } });
+    await waitFor(
+      () => expect(screen.queryByText(/leaves none of the targets' hosts/)).toBeNull(),
+      {
+        timeout: 3000,
+      },
+    );
+    yes = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    expect(questions).toHaveLength(1);
+    const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
+    expect(launched?.body).toMatchObject({ limit: '' });
+  });
+
   it('the groups keep one place while they are read, so the buttons do not move (AFS-138)', async () => {
     let answer: (v: unknown) => void = () => undefined;
     routes = {
@@ -733,6 +799,8 @@ describe('what a level shows', () => {
     expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
     expect((screen.getByLabelText(/^Branch/) as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText(/another branch or commit needs read/)).toBeTruthy();
+    // AFS-191: said once, not again at each field.
+    expect(screen.getAllByText(/needs read and write/)).toHaveLength(1);
   });
 });
 
