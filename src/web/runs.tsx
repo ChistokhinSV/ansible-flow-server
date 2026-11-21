@@ -25,6 +25,7 @@ import type { ThemeChoice } from './theme';
 import {
   ago,
   Breadcrumb,
+  formatTime,
   HelpLink,
   Loading,
   PageHead,
@@ -33,6 +34,7 @@ import {
   useLoad,
   WorkspaceName,
 } from './ui';
+import { stopQuestion } from './viewerRuns';
 
 export const ACTIVE = ['queued', 'running', 'waiting'];
 /** AFS-143: a person as the pages show people: by name (the login on hover). */
@@ -530,6 +532,18 @@ function standing(run: Run): string {
   }
 }
 
+/**
+ * AFS-185: a stopped run says when, after who stopped it: "Stopped by Dana Whitfield at
+ * 21.11.2026, 08:47:56 CET during Push baseline".
+ */
+export function stoppedWhen(text: string, endedAt?: string, locale?: string): string {
+  if (!endedAt || !text.startsWith('Stopped')) return text;
+  const at = ` at ${formatTime(endedAt, locale)}`;
+  const by = /^Stopped by .+?(?= during | while | before |; |$)/.exec(text);
+  if (by) return `${by[0]}${at}${text.slice(by[0].length)}`;
+  return text.replace(/^Stopped( on request)?/, (m) => `${m}${at}`);
+}
+
 /** AFS-143: a port of a step as people say it. */
 const PORT_WORDS: Record<string, string> = {
   failed_hosts: 'failed hosts',
@@ -1019,6 +1033,16 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     // AFS-147: a real run again changes the hosts again: asked first, as Launch asks, with the
     // inputs it reuses.
     if (what === 'relaunch' && run.mode === 'real' && !(await ask(again.confirm))) return;
+    // AFS-185: so does Stop of a real run: it cuts off what is in progress.
+    if (
+      what === 'cancel' &&
+      run.mode === 'real' &&
+      !(await ask(stopQuestion({ number: run.number, flowName: run.flow.name, state: run.state }), {
+        yes: 'Stop the run',
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     try {
       if (what === 'cancel') setRun(await api.cancelRun(run.id));
@@ -1162,7 +1186,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         <div className="run-below run-notes">
           {run.error && (
             <p className={`notice ${run.state === 'cancelled' ? '' : 'error'}`} role="status">
-              {plainWhy(run.error)}
+              {run.state === 'cancelled'
+                ? stoppedWhen(plainWhy(run.error), run.endedAt)
+                : plainWhy(run.error)}
             </p>
           )}
           {/* AFS-147: targets Ansible dropped are said, also on a run that went well. */}

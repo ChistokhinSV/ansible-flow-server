@@ -223,8 +223,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.projects) registerMcp(app, { db: deps.database.db, git: deps.projects.git });
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
   if (deps.runs) {
-    registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);
     const notifier = deps.notifier;
+    registerRuns(
+      app,
+      deps.runs,
+      deps.runOutput,
+      deps.hub,
+      deps.database.db,
+      notifier ? (run, gate) => notifier.approvalCancelled(run, gate) : undefined,
+    );
     registerApprovals(app, {
       db: deps.database.db,
       queue: deps.runs,

@@ -3,6 +3,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
+import { stoppedWhen } from '../../src/web/runs';
+import { formatTime } from '../../src/web/ui';
+import { stepTitle, stopQuestion } from '../../src/web/viewerRuns';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -326,8 +329,23 @@ describe('a run', () => {
     };
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
+    // AFS-185: Stop of a real run asks first, naming the run; no is no.
+    const stopAsked: string[] = [];
+    let stop = false;
+    const stopConfirm = vi.spyOn(window, 'confirm').mockImplementation((text) => {
+      stopAsked.push(String(text));
+      return stop;
+    });
     fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(stopAsked).toHaveLength(1));
+    expect(stopAsked[0]).toMatch(
+      /^Stop real run #\d+ of Hello, Ansible\? The step in progress is cut off/,
+    );
+    expect(screen.queryByText(/asked to stop/)).toBeNull();
+    stop = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     await screen.findByText(/asked to stop/);
+    stopConfirm.mockRestore();
     expect((screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled).toBe(true);
 
     cleanup();
@@ -647,5 +665,44 @@ describe('a run', () => {
       'The run nothing is not here, or is not shared with you.',
     );
     expect(screen.getByRole('link', { name: 'Back to Runs' })).toBeTruthy();
+  });
+});
+
+// AFS-185: what Stop asks of a real run, and when a stopped run says it stopped.
+describe('stop words', () => {
+  it('names the run and what stopping it does where it is', () => {
+    expect(stopQuestion({ number: 4, flowName: 'Firewalls', state: 'waiting' })).toBe(
+      'Stop real run #4 of Firewalls? It waits for approval: nobody decides it after this, and its hosts go no further.',
+    );
+    expect(stopQuestion({ number: 4, state: 'running', step: 'Push baseline' })).toBe(
+      'Stop real run #4? Push baseline is cut off, and its hosts go no further.',
+    );
+  });
+
+  it('a stopped run says when, after who stopped it', () => {
+    const at = '2026-11-21T08:47:56Z';
+    const when = formatTime(at, 'en-GB');
+    expect(stoppedWhen('Stopped by Dana Whitfield during Push baseline', at, 'en-GB')).toBe(
+      `Stopped by Dana Whitfield at ${when} during Push baseline`,
+    );
+    expect(stoppedWhen('Stopped by Dana Whitfield', at, 'en-GB')).toBe(
+      `Stopped by Dana Whitfield at ${when}`,
+    );
+    expect(stoppedWhen('Stopped on request', at, 'en-GB')).toBe(`Stopped on request at ${when}`);
+    expect(stoppedWhen('Failed', at)).toBe('Failed');
+  });
+
+  it("a step's title at any level of the flow", () => {
+    const doc = {
+      nodes: [
+        {
+          id: 'a',
+          title: 'Pre-checks',
+          subflow: { nodes: [{ id: 'b', title: 'Check the path' }] },
+        },
+      ],
+    };
+    expect(stepTitle(doc, 'b')).toBe('Check the path');
+    expect(stepTitle(doc, 'c')).toBeUndefined();
   });
 });

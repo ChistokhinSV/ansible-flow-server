@@ -21,9 +21,9 @@ import { isSaveKey, SAVE_KEY } from './saveKey';
 import { answerCatalog } from './viewerCatalog';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
-import { askName, chooseConfig, launcher } from './viewerLaunch';
+import { askName, askYes, chooseConfig, launcher } from './viewerLaunch';
 import { type PastFacts, showPast } from './viewerPast';
-import { going, pastRunOf, type RunRecord, runnerOf } from './viewerRuns';
+import { going, pastRunOf, type RunRecord, runnerOf, stepTitle, stopQuestion } from './viewerRuns';
 import { filesAddress, flowInventory, openCodeIn, projectKeys, repoVars } from './viewerVars';
 
 const params = new URLSearchParams(window.location.search);
@@ -229,6 +229,8 @@ async function start(): Promise<void> {
   });
   /** The run on the canvas now, for a step's host output and Stop. */
   let shown = runId;
+  /** AFS-185: the step it was last seen in, for Stop's question. */
+  let lastRunning: string | undefined;
   let stream: EventSource | undefined;
   /** AFS-139: the flow's runs as last read, newest first. */
   let known: RunRecord[] = [];
@@ -252,6 +254,7 @@ async function start(): Promise<void> {
     });
     events.addEventListener('view', (event) => {
       const view = JSON.parse((event as MessageEvent).data);
+      lastRunning = view?.summary?.running;
       void decidable(id, view).then((approvals) =>
         // Named by the server's run id, as the run list names it, so the canvas knows it there.
         send({
@@ -476,16 +479,33 @@ async function start(): Promise<void> {
             else go(`${page}#output`);
             return;
           }
-          case 'stopRun':
-            if (shown)
-              void fetch(`/api/v1/runs/${encodeURIComponent(shown)}/cancel`, {
+          case 'stopRun': {
+            const id = shown;
+            if (!id) return;
+            void (async () => {
+              // AFS-185: a real run asks first, as Launch and Run again do.
+              const record =
+                known.find((r) => r.id === id) ??
+                ((await get(`/api/v1/runs/${encodeURIComponent(id)}`).catch(() => undefined))
+                  ?.data as RunRecord | undefined);
+              if (record?.mode === 'real') {
+                const step = stepTitle(flow.data.snapshot?.doc, lastRunning);
+                const question = stopQuestion({
+                  number: record.number,
+                  state: record.state,
+                  ...(step ? { step } : {}),
+                });
+                if (!(await askYes(question, 'Stop the run'))) return;
+              }
+              const reply = await fetch(`/api/v1/runs/${encodeURIComponent(id)}/cancel`, {
                 method: 'POST',
                 credentials: 'same-origin',
-              }).then((reply) => {
-                if (!reply.ok)
-                  send({ type: 'notify', level: 'error', text: 'You may not stop this run' });
               });
+              if (!reply.ok)
+                send({ type: 'notify', level: 'error', text: 'You may not stop this run' });
+            })();
             return;
+          }
           case 'approve': {
             if (!shown) return;
             const { node, decision, comment } = message;

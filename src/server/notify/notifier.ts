@@ -271,6 +271,91 @@ export class Notifier {
     return `${run.flowName} #${run.number} (${run.workspace.name} / ${run.project.name})`;
   }
 
+  /** Who a waiting approval asks (its approvers), and who it tells (its notify list). */
+  private async asked(run: RunFacts, approval: { approvers?: string[]; notify?: string[] }) {
+    const self = await this.db
+      .selectFrom('workspace')
+      .select('self_approve')
+      .where('id', '=', run.workspace.id)
+      .executeTakeFirst();
+    // Who launched the run is not asked when they may not decide it (no self-approval).
+    const approvers = approval.approvers?.length
+      ? (
+          await contactsOfNames(this.db, approval.approvers, {
+            workspace: run.workspace.id,
+            project: run.project.id,
+            flowFile: run.flowFile,
+          })
+        ).filter((c) => self?.self_approve === 1 || c.label !== run.requestedLogin)
+      : await approverContacts(
+          this.db,
+          { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
+          self?.self_approve === 1 ? undefined : run.requestedBy,
+        );
+    // AFS-145: a flow's approval lists, like a configuration's, reach only who may see the flow.
+    const told = await contactsOfNames(this.db, approval.notify ?? [], {
+      workspace: run.workspace.id,
+      project: run.project.id,
+      flowFile: run.flowFile,
+    });
+    return { approvers, told };
+  }
+
+  /**
+   * AFS-185: the run stopped while its approval waited: who was asked is told it no longer
+   * waits, so nobody goes to decide a run that has ended.
+   */
+  approvalCancelled(runId: string, gateId: string): void {
+    this.track('approval.decided', async () => {
+      const run = await this.runFacts(runId);
+      const gate = await this.db
+        .selectFrom('run_gate')
+        .selectAll()
+        .where('id', '=', gateId)
+        .executeTakeFirst();
+      if (!run || !gate || gate.status !== 'cancelled') return;
+      const approval = (gate.approval_json ? JSON.parse(gate.approval_json) : {}) as {
+        approvers?: string[];
+        notify?: string[];
+      };
+      const { approvers, told } = await this.asked(run, approval);
+      const by = gate.decided_by
+        ? ((
+            await this.db
+              .selectFrom('user_account')
+              .select('name')
+              .where('login', '=', gate.decided_by)
+              .executeTakeFirst()
+          )?.name ?? gate.decided_by)
+        : undefined;
+      const link = this.link(`/runs/${run.id}`);
+      const lines = [
+        `"${gate.title}" of ${this.where(run)} no longer waits for a decision: the run was stopped${by ? ` by ${by}` : ''}.`,
+        'Nothing is left to decide.',
+        ...(link ? [link] : []),
+      ];
+      const message: Message = {
+        subject: `Approval no longer waits: ${gate.title} - ${run.flowName} #${run.number}`,
+        text: lines.join('\n'),
+        payload: this.envelope('approval.decided', {
+          run: this.runPayload(run),
+          approval: {
+            node: { id: gate.node_id, key: gate.node_key, title: gate.title },
+            status: gate.status,
+            ...(gate.decided_by ? { decidedBy: gate.decided_by } : {}),
+            ...(gate.decided_at ? { decidedAt: gate.decided_at } : {}),
+          },
+          ...(link ? { link } : {}),
+        }),
+      };
+      await enqueue(
+        this.db,
+        { kind: 'approval.decided', message, run: run.id },
+        placesOf([...approvers, ...told]),
+      );
+    });
+  }
+
   /** A run waits at an approval: its approvers are asked. */
   approvalWaiting(runId: string, gateId: string): void {
     this.track('approval.waiting', async () => {
@@ -286,31 +371,7 @@ export class Notifier {
         notify?: string[];
         message?: string;
       };
-      const self = await this.db
-        .selectFrom('workspace')
-        .select('self_approve')
-        .where('id', '=', run.workspace.id)
-        .executeTakeFirst();
-      // Who launched the run is not asked when they may not decide it (no self-approval).
-      const approvers = approval.approvers?.length
-        ? (
-            await contactsOfNames(this.db, approval.approvers, {
-              workspace: run.workspace.id,
-              project: run.project.id,
-              flowFile: run.flowFile,
-            })
-          ).filter((c) => self?.self_approve === 1 || c.label !== run.requestedLogin)
-        : await approverContacts(
-            this.db,
-            { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
-            self?.self_approve === 1 ? undefined : run.requestedBy,
-          );
-      // AFS-145: a flow's approval lists, like a configuration's, reach only who may see the flow.
-      const told = await contactsOfNames(this.db, approval.notify ?? [], {
-        workspace: run.workspace.id,
-        project: run.project.id,
-        flowFile: run.flowFile,
-      });
+      const { approvers, told } = await this.asked(run, approval);
       const link = this.link(`/runs/${run.id}`);
       // AFS-146: what the approver needs to decide: the run's inputs (secrets as ***), and
       // whether it changes anything.

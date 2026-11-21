@@ -289,8 +289,18 @@ export function whyNot(
   return undefined;
 }
 
-/** A run that stops while it waits takes its waiting gate with it: nobody is asked any more. */
-export async function closeGates(db: Db, run: string, by?: string): Promise<void> {
+/**
+ * A run that stops while it waits takes its waiting gate with it: nobody is asked any more.
+ * Resolves with the gates it closed (AFS-185: their approvers are told).
+ */
+export async function closeGates(db: Db, run: string, by?: string): Promise<string[]> {
+  const open = await db
+    .selectFrom('run_gate')
+    .select('id')
+    .where('run_id', '=', run)
+    .where('status', '=', 'waiting')
+    .execute();
+  if (!open.length) return [];
   await db
     .updateTable('run_gate')
     // AFS-110: who stopped the run is who cancelled its gate (the page said "by nobody").
@@ -301,6 +311,7 @@ export async function closeGates(db: Db, run: string, by?: string): Promise<void
     .where('run_id', '=', run)
     .where('status', '=', 'waiting')
     .execute();
+  return open.map((g) => g.id);
 }
 
 /**

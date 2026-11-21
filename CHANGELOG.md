@@ -21,6 +21,10 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
+- **Stop** on a real run asks first, naming the run and what stopping does (the step in progress is cut off; a run that waits for approval is not decided any more), as **Launch** and **Run again** do. A check run stops at once.
+- A stopped run says when it was stopped, after who stopped it ("Stopped by Dana Whitfield at … during Push baseline"); its output names that person by name, not by login.
+- When a run's approval waited and the run is stopped, those its approval asked are told that it no longer waits, and the approval reads "run stopped" (was "cancelled").
+- A run whose steps had all ended when **Stop** reached it is recorded as it ended (went well, or failed), not as stopped; its output says the stop came after its steps had ended.
 - Credential kinds have one name each on every page and in messages (SSH key, login and password, become password, vault password, git token, container registry, environment variables, AWX token).
 - A new schedule's **Cron** starts empty, with an example in it, instead of a cron that looked chosen.
 - A launch configuration's header names whom its runs tell, as its Settings tab does.
@@ -37,6 +41,11 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- On a run's canvas, the last step inside a subflow (Check the upgrade path, Wait for the target version) read "not reached" though its hosts ran it.
+- The flow page's Run panel and badge said "went well" for a run that failed without running anything (no host to run on); they say failed, with the reason.
+- While a run waits for approval, the flow page's Run panel says "waiting for approval", not "running", and the steps after the approval read "not reached yet", not "waiting".
+- A stopped run marks the step it was stopped in as stopped; it read "not reached".
+- The flow page's Run panel calls its run list **Run shown** (it lists the newest run too, not only earlier ones) and names the run's hosts, not only how many.
 - A run's **Terminal output** shows a host that a rejection, a timeout or any route sent to a failed end with its error alone, without the excerpt of generated code Ansible prints under it (the downloadable output keeps it).
 - The delivery log says why a webhook was not reached: connection refused, timed out, the host name not found (DNS), or its certificate (expired, for another name, not trusted). A certificate problem, or a port web requests may not use, is not tried again.
 - The **Take back** buttons on the **Access** tab no longer move sideways when a longer grant is added.

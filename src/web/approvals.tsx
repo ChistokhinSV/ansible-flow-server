@@ -160,6 +160,12 @@ const STATUS_TONE: Record<string, string> = {
   cancelled: '',
 };
 
+/**
+ * AFS-185: a gate's status in the pages' words: a gate closed because its run was stopped says
+ * so, as the run does ("cancelled" beside a run that reads "stopped" read as two things).
+ */
+const gateWord = (status: string): string => (status === 'cancelled' ? 'run stopped' : status);
+
 /** One gate: what it asks, who decided and why, or the form to decide. */
 function GateCard({
   gate,
@@ -177,7 +183,7 @@ function GateCard({
       <p>
         <strong>{gate.node.title}</strong>{' '}
         <span className={`badge ${STATUS_TONE[gate.status] ?? ''}`}>
-          {gate.status === 'waiting' ? 'waiting for a decision' : gate.status}
+          {gate.status === 'waiting' ? 'waiting for a decision' : gateWord(gate.status)}
         </span>
       </p>
       {gate.message && <p>{gate.message}</p>}
@@ -209,7 +215,7 @@ function GateCard({
       )}
       {gate.status !== 'waiting' && (
         <p>
-          {gate.status} by{' '}
+          {gateWord(gate.status)} by{' '}
           <span title={gate.decidedBy}>{gate.decidedByName ?? gate.decidedBy ?? 'nobody'}</span>
           {gate.decidedAt && (
             <>
@@ -353,7 +359,7 @@ export function ApprovalsPage() {
                   </Link>{' '}
                   <span className="muted">· {a.gate.node.title}</span>{' '}
                   <span className={`badge ${STATUS_TONE[a.gate.status] ?? ''}`}>
-                    {a.gate.status}
+                    {gateWord(a.gate.status)}
                   </span>{' '}
                   <span className="muted">
                     {a.gate.decidedBy ? `by ${a.gate.decidedByName ?? a.gate.decidedBy}` : ''}
