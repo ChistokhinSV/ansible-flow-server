@@ -66,6 +66,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/projects/:id/files': { action: 'project.files-save', id: at() },
   'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
   'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },
+  'POST /api/v1/projects/:id/drafts/restore': { action: 'draft.restore', id: 'reply' },
   'POST /api/v1/drafts/:id/start-from': { action: 'draft.start', id: at() },
   'POST /api/v1/projects/:id/branches': { action: 'project.branch-create', id: at() },
   'DELETE /api/v1/projects/:id/branches': { action: 'project.branch-delete', id: at() },
@@ -171,6 +172,8 @@ export const READS = new Set([
   'POST /api/v1/drafts/:id/tidy',
   'POST /api/v1/drafts/:id/here',
   'POST /api/v1/drafts/:id/flushed',
+  // AFS-186: leaving drops only a draft that changes nothing (no edit is lost).
+  'POST /api/v1/drafts/:id/leave',
   'POST /api/v1/drafts/:id/catalog',
   'POST /api/v1/projects/:id/flows/catalog',
   // AFS-183: the repository's variables, read for the canvas: nothing is kept but a cache.

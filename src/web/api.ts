@@ -417,6 +417,8 @@ export const api = {
       message?: string;
       force?: boolean;
       choices?: Record<string, 'draft' | 'branch'>;
+      /** AFS-186: the draft's revision the choices were made at. */
+      seen?: number;
       tab?: string;
       answerConflicts?: boolean;
     },
@@ -434,16 +436,33 @@ export const api = {
           saved: false;
           message: string;
           conflicts: { id: string; label: string; draft: string | null; branch: string | null }[];
+          /** AFS-186: the draft's revision the places were read at. */
+          revision?: number;
           commit?: undefined;
           unchanged?: undefined;
           coAuthors?: undefined;
           added?: undefined;
         }
     >('POST', `/drafts/${id}/save`, input),
-  discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
+  /** AFS-186: `tab`: this page, whose typing is not waited for. */
+  discardDraft: (id: string, tab?: string) =>
+    call<void>('DELETE', `/drafts/${id}${tab ? `?tab=${encodeURIComponent(tab)}` : ''}`),
+  /** AFS-186: a draft discarded a moment ago, back (the flow's draft again, a new id). */
+  restoreDraft: (project: string, path: string, draft: string) =>
+    call<Draft>('POST', `/projects/${project}/drafts/restore?path=${encodeURIComponent(path)}`, {
+      draft,
+    }),
+  /** AFS-186: what the draft changes against its commit, and who changed each place. */
+  draftSummary: (id: string) => call<DraftSummary>('GET', `/drafts/${id}/summary`),
+  /** AFS-186: Stop editing: a draft that changes nothing, with nobody else in it, is dropped. */
+  leaveDraft: (id: string, tab: string) =>
+    call<{ dropped: boolean }>('POST', `/drafts/${id}/leave`, { tab }),
   /** AFS-171: this page opened (or closed) Save: the others in the draft are told. */
   draftSaving: (id: string, tab: string, saving: boolean) =>
     call<unknown>('POST', `/drafts/${id}/here`, { tab, saving }),
+  /** AFS-186: this page asks whether to discard the draft (or no longer): the others are told. */
+  draftDiscarding: (id: string, tab: string, discarding: boolean) =>
+    call<unknown>('POST', `/drafts/${id}/here`, { tab, discarding }),
   /** AFS-79: the draft and its flow as the designer shows it. */
   draft: (id: string) =>
     call<{ draft: Draft; snapshot: { doc?: FlowDocLike } }>('GET', `/drafts/${id}`),
@@ -837,6 +856,19 @@ export interface FlowChanges {
 }
 
 /** AFS-76: a flow being edited in the pages: who has edited it, and from which commit. */
+/** AFS-186: what a draft changes against its commit (a step, a note, or the flow's fields). */
+export interface DraftSummary {
+  changed: boolean;
+  changes: {
+    step?: string;
+    note?: string;
+    kind: 'added' | 'removed' | 'changed';
+    fields: string[];
+    by: string[];
+  }[];
+  wires: number;
+}
+
 export interface Draft {
   id: string;
   project: string;

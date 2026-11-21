@@ -157,4 +157,36 @@ describe("the draft's frame", () => {
       'POST /api/v1/drafts/d9/undo',
     ]);
   });
+
+  it('names a note or a field taken back, not "a move on the canvas" (AFS-186)', () => {
+    expect(
+      redoWords(
+        { steps: [], changes: [{ note: 'Why this order', kind: 'changed', fields: ['text'] }] },
+        true,
+      ),
+    ).toBe('Took back your change: changed the note “Why this order”');
+    expect(redoWords({ steps: [], changes: [{ kind: 'changed', fields: ['goal'] }] })).toBe(
+      "Redid your change: changed the flow's goal",
+    );
+    expect(redoWords({ steps: [] }, true)).toBe('Took back your last move on the canvas');
+  });
+
+  it('stops saying "I am here" once the draft is saved or gone (AFS-186)', async () => {
+    vi.useFakeTimers();
+    try {
+      const root = document.createElement('div');
+      document.body.append(root);
+      editDraft({ root, draft: 'd5', me: 'dana', theme: 'dark', stateKey: 'k', tab: 't' });
+      const source = FakeSource.last as FakeSource;
+      const beats = () => calls.filter((c) => c.key === 'POST /api/v1/drafts/d5/here').length;
+      expect(beats()).toBe(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(beats()).toBe(2);
+      source.emit('saved', { commit: 'c1', by: { login: 'mia', name: 'Mia Ortega' } });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(beats()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

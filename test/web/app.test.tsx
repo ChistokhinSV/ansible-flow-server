@@ -798,7 +798,7 @@ describe('signed in', () => {
     );
     // AFS-165: with someone else in the draft, the line about the others shows.
     const bar = await screen.findByRole('region', { name: 'Editing together' });
-    await waitFor(() => expect(bar.textContent).toContain('here now: you, Mia Ortega.'));
+    await waitFor(() => expect(bar.textContent).toContain('Here now: you, Mia Ortega'));
     expect(bar.textContent).toContain('Mia Ortega changed Pre-checks');
     // AFS-165: Save asks for the commit's message.
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

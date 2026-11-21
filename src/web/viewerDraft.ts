@@ -13,12 +13,16 @@ import { flowInventory, openCodeIn, projectKeys, type RepoVars, repoVars } from 
 /** AFS-149: what one edit did (the server's words: a step or the flow, and its fields). */
 export interface EditChange {
   step?: string;
+  /** AFS-186: a note on the canvas, by its first line. */
+  note?: string;
   kind: 'added' | 'removed' | 'changed';
   fields: string[];
 }
 
 interface Edit {
   revision: number;
+  /** AFS-186: the draft changes something against its commit. */
+  changed?: boolean;
   by?: { login: string; name: string };
   nodes?: string[];
   changes?: EditChange[];
@@ -40,9 +44,18 @@ export type DraftNotice =
       /** AFS-149: a field here still had the focus: what was typed in it may not be saved. */
       unsent?: boolean;
     }
-  | { type: 'afs-draft-saving'; by: string; sent: boolean; mine?: boolean }
+  | {
+      type: 'afs-draft-saving';
+      by: string;
+      sent: boolean;
+      mine?: boolean;
+      /** AFS-186: a discard is coming, not a save. */
+      what?: 'discard';
+    }
+  /** AFS-186: whether the draft changes anything (Save is off while it does not). */
+  | { type: 'afs-draft-changed'; changed: boolean }
   | { type: 'afs-draft-undone' }
-  | { type: 'afs-draft-gone'; by?: string }
+  | { type: 'afs-draft-gone'; by?: string; mine?: boolean }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
   | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } }
   /** AFS-126: the empty canvas's Import / Open Sample: the page picks what to start from. */
@@ -65,6 +78,11 @@ const fieldWord = (field: string) =>
 export function editWords(edit: { changes?: EditChange[]; wires?: number; steps?: string[] }) {
   const parts = (edit.changes ?? []).map((c) => {
     const fields = [...new Set(c.fields.map(fieldWord))].slice(0, 3);
+    // AFS-186: a note, by its first words.
+    if (c.note !== undefined) {
+      const words = c.note.length > 40 ? `${c.note.slice(0, 39)}…` : c.note;
+      return `${c.kind} the note “${words}”`;
+    }
     if (!c.step) return `changed the flow's ${fields.join(', ') || 'settings'}`;
     if (c.kind !== 'changed') return `${c.kind} ${c.step}`;
     return fields.length ? `changed ${c.step} (${fields.join(', ')})` : `moved ${c.step}`;
@@ -90,15 +108,24 @@ export function redoOrUndo(e: {
   return undefined;
 }
 
-/** AFS-172: what a redo brought back, in a few words. */
-export function redoWords(reply: { steps?: unknown; started?: unknown }): string {
+/**
+ * AFS-172: what a redo brought back (AFS-186: or an undo took back), in a few words: what the
+ * change was, as the activity line says it ("changed the note “Why”", "moved Ping").
+ */
+export function redoWords(
+  reply: { steps?: unknown; started?: unknown; changes?: unknown; wires?: unknown },
+  undo = false,
+): string {
   const started = reply.started as { what: string; steps: number } | undefined;
+  const verb = undo ? 'Took back' : 'Brought back';
   if (started)
-    return `Brought back ${started.what} (${started.steps} step${started.steps === 1 ? '' : 's'})`;
+    return `${verb} ${started.what} (${started.steps} step${started.steps === 1 ? '' : 's'})`;
+  const changes = reply.changes as EditChange[] | undefined;
+  if (changes?.length || reply.wires)
+    return `${undo ? 'Took back' : 'Redid'} your change: ${editWords({ changes, wires: Number(reply.wires ?? 0) })}`;
   const steps = (reply.steps as string[] | undefined) ?? [];
-  return steps.length
-    ? `Redid your change to ${steps.join(', ')}`
-    : 'Redid your last move on the canvas';
+  if (steps.length) return `${undo ? 'Took back' : 'Redid'} your change to ${steps.join(', ')}`;
+  return undo ? 'Took back your last move on the canvas' : 'Redid your last move on the canvas';
 }
 
 /** A field being typed in, or none. */
@@ -217,11 +244,13 @@ export function editDraft(options: {
       });
     }
     show(first.snapshot);
+    tellPage({ type: 'afs-draft-changed', changed: !!(first as { changed?: boolean }).changed });
   });
   events.addEventListener('edit', (e) => {
     const edit = JSON.parse((e as MessageEvent).data) as Edit;
     const before = titles;
     show(edit.snapshot);
+    if (edit.changed !== undefined) tellPage({ type: 'afs-draft-changed', changed: edit.changed });
     if (edit.by && edit.by.login !== me) {
       const steps = (edit.nodes ?? []).map(
         (id) => titles.get(id) ?? before.get(id) ?? 'a removed step',
@@ -245,6 +274,7 @@ export function editDraft(options: {
       by?: { login: string; name: string };
       flush?: string;
       stream?: string;
+      what?: 'discard';
     };
     if (!news.by) return;
     const typing = typingIn();
@@ -254,6 +284,7 @@ export function editDraft(options: {
       by: news.by.name,
       sent: !!typing,
       mine: news.by.login === me,
+      ...(news.what ? { what: news.what } : {}),
     });
     void (async () => {
       await nextTask();
@@ -270,7 +301,7 @@ export function editDraft(options: {
       by?: { login: string; name: string };
       coAuthors?: string[];
     };
-    events.close();
+    ended();
     tellPage({
       type: 'afs-draft-saved',
       commit: news.commit,
@@ -281,9 +312,9 @@ export function editDraft(options: {
     });
   });
   events.addEventListener('discarded', (e) => {
-    const news = JSON.parse((e as MessageEvent).data) as { by?: { name: string } };
-    events.close();
-    tellPage({ type: 'afs-draft-gone', by: news.by?.name });
+    const news = JSON.parse((e as MessageEvent).data) as { by?: { login: string; name: string } };
+    ended();
+    tellPage({ type: 'afs-draft-gone', by: news.by?.name, mine: news.by?.login === me });
   });
 
   /** The catalog's state, again every 10 seconds while the image's docs are first read. */
@@ -299,14 +330,25 @@ export function editDraft(options: {
     if (status.state === 'loading') watching = setTimeout(() => void catalogStatus(), 10_000);
   };
 
-  // "I am here", now and every 20 seconds while the page is open.
-  const here = () => void json('POST', `${base}/here`, { tab }).catch(() => undefined);
+  // "I am here", now and every 20 seconds while the page is open. AFS-186: not once the draft
+  // ended (saved, discarded, gone: a 404), which would only fail.
+  let over = false;
+  const here = () => {
+    if (over) return;
+    void json('POST', `${base}/here`, { tab })
+      .then((r) => {
+        if (r.status === 404) ended();
+      })
+      .catch(() => undefined);
+  };
   here();
   const beat = setInterval(here, 20_000);
-  window.addEventListener('pagehide', () => {
+  function ended() {
+    over = true;
     clearInterval(beat);
     events.close();
-  });
+  }
+  window.addEventListener('pagehide', ended);
 
   // AFS-166: on a page of its own the draft has no Save: Ctrl+S says where it is (viewer.ts keeps
   // the browser's dialog away; in a frame, the flow's page saves).
@@ -335,18 +377,9 @@ export function editDraft(options: {
       if (!r.ok || r.data?.nothing)
         return notify(String(r.data?.message ?? 'Nothing to undo'), 'info');
       tellPage({ type: 'afs-draft-undone' });
-      // AFS-136: what was taken back, said each time.
-      const steps = (r.data?.steps as string[] | undefined) ?? [];
-      // AFS-151: a start from a sample or an import is one thing taken back, not its every step.
-      const started = r.data?.started as { what: string; steps: number } | undefined;
-      notify(
-        started
-          ? `Took back ${started.what} (${started.steps} step${started.steps === 1 ? '' : 's'})`
-          : steps.length
-            ? `Took back your change to ${steps.join(', ')}`
-            : 'Took back your last move on the canvas',
-        'info',
-      );
+      // AFS-136: what was taken back, said each time; AFS-151: a start from a sample or an import
+      // is one thing taken back; AFS-186: a note's text is named, not called a move.
+      notify(redoWords(r.data ?? {}, true), 'info');
     });
   });
 

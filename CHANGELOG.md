@@ -18,6 +18,8 @@ All notable changes to Ansible Flow Server.
 - While someone has **Save** open on a flow's draft, everyone else in it sees that a save is coming and ends their editing, before it is made.
 - On a run's page, a host's row in **Hosts** opens what that host did, step by step (`GET /api/v1/runs/:id/hosts/:host`).
 - A schedule whose fire found errors in its flow lists them under **Last**, each a link to its step.
+- While editing a flow in the pages, **Save** opens a dialog that lists what the draft changes, place by place, with who changed each, and fills the commit message from it.
+- **Bring back** restores a discarded draft, with everyone's edits, for 15 minutes after it was discarded (for whoever discarded it and the others who were in it). While someone asks whether to discard a draft, the others in it see that a discard is coming, and what they are typing goes into the draft first.
 
 ### Changed
 
@@ -34,9 +36,18 @@ All notable changes to Ansible Flow Server.
 - "N of M hosts failed at a step" also says Ansible's exit code and what it means.
 - The audit log says whether a launch or a run again was real or a check, and names the new run of a run again by its number.
 - A launch configuration cannot be given an environment that has no image and no build going: the form says why at the field.
+- While editing a flow in the pages, who is here and what happened last is one line beside **Save** in the flow's head: someone joining, saving or discarding no longer moves the canvas down, and notes no longer lie over the canvas's toolbar or side panel. The same change made again and again (a burst of typing) is one entry with a count. What a save's clashes, the branch's move and the commit message say is in **Save**'s dialog.
+- **Save** is off while a draft changes nothing (no edit yet, or every edit taken back), and Ctrl+S says there is nothing to save. Discard of such a draft asks nothing, and **Stop editing** drops it when nobody else is in it.
+- Ctrl+Z and Ctrl+Y say what they took back or brought back (a note's text, a step's fields), not "your last move on the canvas".
+- A save with one co-author says "as co-author"; a commit's details on the **History** tab name co-authors without their e-mail addresses.
+- The flow's page says "A draft of this flow has unsaved edits by …" for a draft waiting to be saved.
 
 ### Fixed
 
+- In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
+- A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
+- A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).
+- Asking a question on a phone no longer scrolls the page behind it.
 - A run's **Terminal output** shows a host that a rejection, a timeout or any route sent to a failed end with its error alone, without the excerpt of generated code Ansible prints under it (the downloadable output keeps it).
 - The delivery log says why a webhook was not reached: connection refused, timed out, the host name not found (DNS), or its certificate (expired, for another name, not trusted). A certificate problem, or a port web requests may not use, is not tried again.
 - The **Take back** buttons on the **Access** tab no longer move sideways when a longer grant is added.

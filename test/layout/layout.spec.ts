@@ -181,18 +181,22 @@ for (const [width, height] of SIZES)
             `the canvas is ${Math.round(tall)}px tall in a ${Math.round(frame.height)}px frame`,
           );
       }
-      // AFS-165: editing, the canvas is right under the head: no lines of text between, but the
-      // line about the others when someone else is in the draft (the other pages of this check
-      // open the same draft at once, so it may show here).
+      // AFS-165: editing, the canvas is right under the head: no lines of text between. AFS-186:
+      // who is here is a line in the head, so someone coming or going never moves the canvas.
       if (name === 'flowEdit') {
         const head = await page.locator('main .page-head').first().boundingBox();
-        const together = page.getByRole('region', { name: 'Editing together' });
-        const others = (await together.count()) ? await together.boundingBox() : null;
-        const above = others ?? head;
+        const together = await page.getByRole('region', { name: 'Editing together' }).boundingBox();
         const frame = await page.locator('iframe.flow-frame').boundingBox();
-        const gap = above && frame ? frame.y - (above.y + above.height) : 0;
+        const gap = head && frame ? frame.y - (head.y + head.height) : 0;
         if (gap > 32)
           found.push(`editing, the canvas starts ${Math.round(gap)}px under what is over it`);
+        if (
+          !together ||
+          !head ||
+          together.y < head.y - 1 ||
+          together.y + together.height > head.y + head.height + 1
+        )
+          found.push('editing, the line of who is here is not in the head');
       }
       // AFS-169 (AFS-161): an environment's Save and Build stay in sight while its spec is on the
       // screen, however long the spec.

@@ -74,6 +74,14 @@ function useCommitPages(
 }
 
 /** One commit's line: its subject, then who, when and its short hash. */
+/**
+ * AFS-186: a commit's message body as the page shows it: a co-author trailer names the person,
+ * not their e-mail address (git keeps it; the page does not spread it).
+ */
+export function bodyWords(body: string): string {
+  return body.replace(/^Co-authored-by:[ \t]*(.*?)[ \t]*<[^>]*>[ \t]*$/gim, 'Co-author: $1');
+}
+
 function CommitLine({ commit, children }: { commit: CommitSummary; children?: ReactNode }) {
   return (
     <>
@@ -104,7 +112,7 @@ function CommitFiles({
   return (
     <div className="commit-files">
       <Loading state={details} />
-      {d?.body ? <p className="commit-body">{d.body}</p> : null}
+      {d?.body ? <p className="commit-body">{bodyWords(d.body)}</p> : null}
       {d && d.parents.length > 1 ? (
         <p className="muted small">A merge: the files it brought to its first parent.</p>
       ) : null}
