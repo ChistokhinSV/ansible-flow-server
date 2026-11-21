@@ -108,6 +108,9 @@ export async function sampleBindings(
   const files: DraftFile[] = [];
   const added: string[] = [];
   const notes: string[] = [];
+  // AFS-192: what the project keeps of its own is said once, all names in one sentence.
+  const keptRoles: string[] = [];
+  const keptFiles: string[] = [];
   const exists = async (path: string) => (io.exists ? io.exists(path) : false);
   const bound = new Map<string, 'role' | 'playbook'>();
   for (const { node } of buildModel(doc).nodes.values())
@@ -126,9 +129,7 @@ export async function sampleBindings(
         continue;
       }
       if ((await exists(folder)) || (dir && (await exists(`${dir}/${folder}`)))) {
-        notes.push(
-          `The project has a role ${ref} already: it keeps its own, the sample's is not added.`,
-        );
+        keptRoles.push(ref);
         continue;
       }
       for (const [path, f] of own) files.push({ path, bytes: f.bytes });
@@ -139,11 +140,23 @@ export async function sampleBindings(
     const f = shipped.get(path);
     if (!f) continue;
     if (await exists(path)) {
-      notes.push(`The project has ${path} already: it keeps its own, the sample's is not added.`);
+      keptFiles.push(path);
       continue;
     }
     files.push({ path, bytes: f.bytes });
     added.push(path);
+  }
+  const kept = [
+    ...(keptRoles.length
+      ? [`${keptRoles.length === 1 ? 'the role' : 'the roles'} ${andList(keptRoles)}`]
+      : []),
+    ...(keptFiles.length ? [andList(keptFiles)] : []),
+  ];
+  if (kept.length) {
+    const one = keptRoles.length + keptFiles.length === 1;
+    notes.push(
+      `The project has ${kept.join(' and ')} already: it keeps its own, the sample's ${one ? 'is' : 'are'} not added.`,
+    );
   }
   if (added.length)
     notes.unshift(
@@ -151,6 +164,10 @@ export async function sampleBindings(
     );
   return { files, notes };
 }
+
+/** a, b and c. */
+const andList = (items: string[]): string =>
+  items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 
 /** The project's files at a commit, as the designer's importers read them. */
 export function repositoryIO(git: Git, projectId: string, commit: string): SourceIO {

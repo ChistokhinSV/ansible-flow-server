@@ -5,6 +5,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api, type SearchHit, type User } from './api';
 import { navigate, usePath } from './router';
+import { typingInField } from './typing';
 import { formatTime } from './ui';
 
 /** The pages that are always there, found by their words. */
@@ -100,9 +101,7 @@ export function SearchBox({ me }: { me: User }) {
   // `/` or Ctrl+K anywhere but in a field puts the cursor here.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing =
-        /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement)?.tagName ?? '') ||
-        (e.target as HTMLElement)?.isContentEditable;
+      const typing = typingInField(e);
       if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) {
         e.preventDefault();
         input.current?.focus();

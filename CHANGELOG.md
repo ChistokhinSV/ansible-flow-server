@@ -38,6 +38,12 @@ All notable changes to Ansible Flow Server.
 - A mirrored project with no commit says why it has no Files tab or **New flow**, and how to give it its first commit.
 - An error the server answers without words (a bare 422, 404, 500…) says what it means and what to do.
 - "N of M hosts failed at a step" also says Ansible's exit code and what it means.
+- On the **Files** tab, an upload is the file shown next (so **Rename or move** is about it), with its text when it is a text file. An upload moved before **Save** is one change at its new path ("Upload group_vars/all.yml"); an upload deleted before Save is taken back. A file marked for deletion stays in the tree, struck through, with **Keep it**.
+- A project started from a sample names the launch configurations it came with, and lists them at once.
+- An external project whose repository cannot be read shows **Source** first on its Settings tab. While it has no commit, it offers no git clone and no **Add a launch configuration**.
+- A workspace says that administrators add projects, to those who have no **Add project**.
+- **Open Sample Flow…** names the roles the project keeps in one sentence.
+- **New branch** says at the field when a name is not allowed or taken, without asking the server.
 - The audit log says whether a launch or a run again was real or a check, and names the new run of a run again by its number.
 - A launch configuration cannot be given an environment that has no image and no build going: the form says why at the field.
 - While editing a flow in the pages, who is here and what happened last is one line beside **Save** in the flow's head: someone joining, saving or discarding no longer moves the canvas down, and notes no longer lie over the canvas's toolbar or side panel. The same change made again and again (a burst of typing) is one entry with a count. What a save's clashes, the branch's move and the commit message say is in **Save**'s dialog.
@@ -59,6 +65,7 @@ All notable changes to Ansible Flow Server.
 - The repository's variables include those written on a host range line of the inventory (`sw-edge-0[1:4] ansible_connection=local`) for each host of the range.
 - On a run's page, **For host** lists only the run's hosts, and a variable's tooltip shows **In this run** without a host picked; a flow input a step reads directly shows the value the run was given.
 - The launch form names every step that reads an input, not three "and 1 more", and a required input that no step reads says that a run must give it.
+- Typing "/" in a file's text on the **Files** tab typed it; it moved the cursor to **Search**, and the rest of the typing went there.
 - In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
 - A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
 - A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).
