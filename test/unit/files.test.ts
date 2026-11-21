@@ -343,4 +343,86 @@ describe('the files of a project', () => {
       'playbooks/site.yml',
     ]);
   });
+
+  it('AFS-187: deleting a flow turns off the schedules that fire it from that branch', async () => {
+    const listed = (await files()).json();
+    const flow = listed.files.find((f: { path: string }) => f.path.endsWith('.flow.yaml')).path;
+    const now = new Date().toISOString();
+    const config = (id: string, commit: string | null) => ({
+      id,
+      project_id: project.id,
+      name: id,
+      description: null,
+      flow_file: flow,
+      git_ref: null,
+      commit_id: commit,
+      inventory: null,
+      ee_image: null,
+      environment_id: null,
+      mode: 'check',
+      run_limit: null,
+      inputs_json: '{}',
+      notify_json: null,
+      created_at: now,
+      updated_at: now,
+    });
+    await database.db
+      .insertInto('launch_config')
+      .values([config('follows', null), config('pinned', listed.commit)])
+      .execute();
+    const owner = await database.db
+      .selectFrom('user_account')
+      .select(['id', 'login'])
+      .where('login', '=', 'omar')
+      .executeTakeFirstOrThrow();
+    const schedule = (id: string, configId: string) => ({
+      id,
+      config_id: configId,
+      name: id,
+      kind: 'cron',
+      cron: '0 3 * * *',
+      timezone: 'UTC',
+      once_at: null,
+      enabled: 1,
+      mode: null,
+      inputs_json: '{}',
+      commit_id: null,
+      missed: 'once',
+      overlap: 'skip',
+      owner_id: owner.id,
+      owner_login: owner.login,
+      next_at: now,
+      last_at: null,
+      last_result: null,
+      last_detail: null,
+      last_run_id: null,
+      last_errors_json: null,
+      created_by: owner.login,
+      created_at: now,
+      updated_at: now,
+    });
+    await database.db
+      .insertInto('schedule')
+      .values([schedule('nightly', 'follows'), schedule('kept', 'pinned')])
+      .execute();
+    const r = await save(omar, { changes: [{ op: 'delete', path: flow }] });
+    expect(r.statusCode, r.body).toBe(201);
+    const rows = await database.db
+      .selectFrom('schedule')
+      .select(['name', 'enabled', 'next_at'])
+      .orderBy('name')
+      .execute();
+    // The pinned configuration still has the flow at its commit: its schedule stays on.
+    expect(rows).toEqual([
+      { name: 'kept', enabled: 1, next_at: now },
+      { name: 'nightly', enabled: 0, next_at: null },
+    ]);
+    const audit = await listAudit(database.db, { action: 'schedule.change' });
+    expect(audit.entries[0]).toMatchObject({
+      actor: { login: 'omar' },
+      object: { type: 'schedule', name: 'nightly' },
+      result: 'ok',
+      detail: { changed: ['enabled'] },
+    });
+  });
 });

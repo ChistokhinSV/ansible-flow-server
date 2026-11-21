@@ -300,6 +300,36 @@ describe("a launch configuration's tabs (AFS-85)", () => {
       ['and 1 more', '/w/net/core/flow/flows/upgrade.flow.yaml?edit=1'],
     ]);
     expect(note.textContent).toContain('Ping: No module is bound');
+    // AFS-187: said once: What the flow needs reads the flow too, and is not shown.
+    expect(screen.queryByRole('heading', { name: 'What the flow needs' })).toBeNull();
+  });
+
+  it('Launch: a configuration whose flow is gone says so once, in the banner (AFS-187)', async () => {
+    const gone = "There is no flow flows/upgrade.flow.yaml on the project's branch";
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1': () => ({ body: { ...config, flowGone: gone } }),
+      'GET /launch-configs/c1/form?': () => ({
+        status: 422,
+        body: {
+          error: 'not_ready',
+          message: 'There is no flow flows/upgrade.flow.yaml at commit 9f2c1e7ab3d4',
+          problems: [
+            {
+              field: 'flowFile',
+              message: 'There is no flow flows/upgrade.flow.yaml at commit 9f2c1e7ab3d4',
+            },
+          ],
+        },
+      }),
+    };
+    page('launch');
+    await screen.findByText(/it cannot be launched until the flow is back/);
+    await waitFor(() =>
+      expect(asked.some((x) => x.key.startsWith('GET /launch-configs/c1/form'))).toBe(true),
+    );
+    expect(screen.queryAllByText(/There is no flow/)).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'What the flow needs' })).toBeNull();
   });
 
   it('Launch: a configuration with a limit shows it, the fold open', async () => {

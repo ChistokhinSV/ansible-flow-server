@@ -12,9 +12,13 @@ adds, changes, pauses and deletes them, `ro` reads them.
 - It runs the configuration with its own mode and input values if it has them (never a secret:
   those come from credentials), on its own pinned commit if it has one, else on the
   configuration's: its pinned commit, or the newest commit of its branch.
-- A schedule whose flow is gone from the branch is turned off at its next fire, and says why;
-  turn it on again once the flow is back. Deleting a flow on its page names the schedules that
-  fire it and turns them off with it.
+- Deleting a flow (on its page, in **Files**, or by the API) turns off, in the same save, the
+  schedules of configurations that run it from that branch; its page names them first. A
+  schedule whose flow is gone in another way (a push) is turned off at its next fire, and says
+  why; turn it on again once the flow is back.
+- A schedule whose flow has errors, or is gone, can still be paused, changed and deleted. Only
+  what the schedule itself says (its inputs, commit, mode) is checked then. Adding one, or
+  turning one on again, is refused while the flow cannot run.
 - Cron: five fields (`minute hour day month weekday`) or a nickname like `@daily`, at most once a
   minute; the time zone follows summer time. The page shows the next times as you type.
 - The schedule's **Time zone** is the zone its rule is read in: the cron, and the **At** of a

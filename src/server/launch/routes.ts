@@ -303,6 +303,8 @@ export function registerLaunch(
         !(await mayManage(request, reply, before.project, request.body.flowFile))
       )
         return reply;
+      // AFS-187: a refused change names the fields it asked to change, not every field sent.
+      request.auditDetail = { changed: changedKeys(request.body, before, request.body) };
       const changed = await configs.update(request.params.id, request.body);
       request.auditDetail = { changed: changedKeys(request.body, before, changed) };
       request.log.info(

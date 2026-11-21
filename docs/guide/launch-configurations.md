@@ -78,7 +78,9 @@ project's list of flows says the same of each flow.
 - **A flow with errors does not run.** The refusal names the first few (the step and what is
   wrong) and how many more; the answer lists them all (`errors`: each with `step`, the step's
   title, and `node`, its id). On the pages each is a link to the step on the flow's page,
-  selected, and opened for editing when you may edit the flow.
+  selected, and opened for editing when you may edit the flow. The configuration's other
+  settings still save while it stays on that flow, branch and commit; its start values are
+  kept as they are when the flow cannot be read at all (it is gone).
 - **Read by id**, a configuration also says its credentials by name (`credentialNames`) and its
   environment by name with the image a launch gets now, or why there is none
   (`environmentInfo`). In the list and by id, `flowGone` says that its flow is not on the

@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
+import { turnOffGoneFlows } from '../schedules/schedules';
 import {
   type FileChange,
   FilesRefused,
@@ -185,6 +186,14 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
       };
       try {
         const saved = await saveFiles(deps, project, request.body, me, { archiveMaxBytes });
+        if (!saved.unchanged) {
+          const off = await turnOffGoneFlows(db, deps.git, project, saved, me);
+          if (off.length)
+            request.log.info(
+              { by: me.login, project: project.key, schedules: off },
+              'Schedules turned off: their flow was deleted',
+            );
+        }
         if (!saved.unchanged)
           request.log.info(
             {
