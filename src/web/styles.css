@@ -1435,6 +1435,14 @@ ul.plain {
   color: var(--accent);
   border-color: var(--accent);
 }
+/* AFS-192: marked for deletion, listed until the change set is saved. */
+.tag.deleted {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.file-tree .file.deleted {
+  text-decoration: line-through;
+}
 .small {
   font-size: 0.85em;
 }

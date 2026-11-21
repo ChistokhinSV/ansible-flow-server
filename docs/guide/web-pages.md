@@ -213,7 +213,10 @@ With `rw` on the workspace you change files: edit text, **New file**, **Upload f
 **Upload a folder (zip)** (a zip or tar.gz unpacked into the folder you are in), **Rename or
 move** and **Delete** (files and folders). A path is checked as you type it: it stays inside the
 project and does not land on a file or folder that is there. The changes are listed under the files, at the window's foot, until
-**Save**, which makes one commit of them on the branch, with your message (left empty, the words
+**Save**. An upload is the file shown next; a text file shows its text before it is saved. An
+upload moved or deleted before Save changes the upload: one change at its new path, or none. A
+file marked for deletion stays in the tree, struck through, until Save; **Keep it** takes the
+deletion back. **Save** makes one commit of them on the branch, with your message (left empty, the words
 the Message field shows), by you; this browser keeps them meanwhile, **Take back** drops one, and **Discard all** drops
 them all once you say so. An archive does not replace files that are there without asking: Save
 lists the files it would replace, and **Replace them and save** saves. When the branch moved since your first change, Save goes on top of it,

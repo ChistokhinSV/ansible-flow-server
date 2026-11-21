@@ -97,7 +97,8 @@ export function LaunchConfigsSection({
   workspace: string;
   project: Project;
 }) {
-  const list = useLoad(() => api.launchConfigs(project.id), [project.id]);
+  // AFS-192: read again once the project starts (a sample brings its configurations).
+  const list = useLoad(() => api.launchConfigs(project.id), [project.id, project.commit]);
   const access = useProjectAccess(project.id).data;
   const flowNames = useFlowNames(project.id);
   // Who has rw on the workspace, or on one of its flows, may add a configuration for it.
@@ -109,7 +110,8 @@ export function LaunchConfigsSection({
     <section className="panel" aria-labelledby="launch-configs">
       <div className="panel-head">
         <h2 id="launch-configs">Launch configurations</h2>
-        {mayAdd && (
+        {/* AFS-192: a project with no commit has no flow to launch yet. */}
+        {mayAdd && project.commit && (
           <Link to={`${base(workspace, project.key)}/launch/new`} className="button">
             Add a launch configuration
           </Link>

@@ -22,6 +22,7 @@ import {
   LOG_FORMAT,
   parseLog,
 } from '@ansible-flow/node/history/gitLog';
+import { refProblem } from './refName';
 
 /** How long a fetch may take. */
 export const FETCH_TIMEOUT_MS = 120_000;
@@ -137,12 +138,7 @@ export function gitUrlProblem(url: string, allowLocal: boolean): string | undefi
   return 'Use an https:// or ssh:// address, or git@host:path';
 }
 
-/** A branch name as git allows one, and nothing that could read as an option or a range. */
-export function refProblem(ref: string): string | undefined {
-  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(ref) && !/\.\.|\/\/|\.lock$|\/$/.test(ref)
-    ? undefined
-    : 'A branch name is letters, digits, dots, dashes, underscores and slashes';
-}
+export { refProblem };
 
 const COMMIT = /^[0-9a-f]{40}$/;
 

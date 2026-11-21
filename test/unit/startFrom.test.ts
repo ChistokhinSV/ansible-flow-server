@@ -285,7 +285,11 @@ describe('an empty flow starts from something', () => {
       sample: 'edge-baseline',
     });
     expect(done.status).toBe(200);
-    expect(done.json.notes.join(' ')).toMatch(/has a role netops_backup already: it keeps its own/);
+    // AFS-192: one sentence for both roles, not one per role.
+    expect(done.json.notes.join(' ')).toMatch(
+      /The project has the roles netops_backup and push_baseline already: it keeps its own, the sample's are not added\./,
+    );
+    expect(done.json.notes.join(' ').match(/The project has/g)).toHaveLength(1);
     expect(done.json.notes.join(' ')).not.toMatch(/Save adds/);
     // One without them: each role's whole folder, from the sample, nothing else of it.
     const doc = parseFlow(sampleFlowText('edge-baseline')).doc as FlowDocument;
@@ -327,7 +331,9 @@ describe('an empty flow starts from something', () => {
     expect(done.status, JSON.stringify(done.json)).toBe(200);
     const notes = done.json.notes.join(' ');
     expect(notes).toMatch(/Save adds the sample's roles\/netops_backup to the repository/);
-    expect(notes).toMatch(/has a role push_baseline already: it keeps its own/);
+    expect(notes).toMatch(
+      /has the role push_baseline already: it keeps its own, the sample's is not/,
+    );
     // The draft counts the role it brings as there: no role-missing warning for it.
     const shown = await call('mia', 'GET', `/drafts/${id}`);
     const gaps = (shown.json.snapshot.findings as { code: string; subject?: string }[]).filter(

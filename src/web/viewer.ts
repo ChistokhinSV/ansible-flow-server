@@ -18,6 +18,7 @@ import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
 import { isSaveKey, SAVE_KEY } from './saveKey';
+import { typingInField } from './typing';
 import { answerCatalog } from './viewerCatalog';
 import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
@@ -42,8 +43,7 @@ window.addEventListener(
   'keydown',
   (e) => {
     if (window.parent === window) return;
-    const t = e.target as HTMLElement | null;
-    const typing = !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    const typing = typingInField(e);
     if (!((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing))) return;
     e.preventDefault();
     window.parent.postMessage({ type: 'afs-search-key' }, window.location.origin);
@@ -214,8 +214,7 @@ async function start(): Promise<void> {
   let toldReadOnly = 0;
   window.addEventListener('keydown', (e) => {
     if ((e.key !== 'Delete' && e.key !== 'Backspace') || e.ctrlKey || e.metaKey || e.altKey) return;
-    const t = e.target as HTMLElement | null;
-    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (typingInField(e)) return;
     if (e.repeat || Date.now() - toldReadOnly < 4000) return;
     toldReadOnly = Date.now();
     send({

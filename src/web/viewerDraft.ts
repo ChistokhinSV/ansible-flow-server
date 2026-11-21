@@ -8,6 +8,7 @@ import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
 import { guide } from './guide';
 import { isSaveKey } from './saveKey';
+import { typingInField } from './typing';
 import { flowInventory, openCodeIn, projectKeys, type RepoVars, repoVars } from './viewerVars';
 
 /** AFS-149: what one edit did (the server's words: a step or the flow, and its fields). */
@@ -362,8 +363,7 @@ export function editDraft(options: {
   window.addEventListener('keydown', (e) => {
     const key = redoOrUndo(e);
     if (!key) return;
-    const t = e.target as HTMLElement | null;
-    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (typingInField(e)) return;
     e.preventDefault();
     if (key === 'redo') {
       void json('POST', `${base}/redo`).then((r) => {
