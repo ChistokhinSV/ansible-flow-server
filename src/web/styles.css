@@ -1162,11 +1162,16 @@ ul.tight {
   font-size: 0.9rem;
   color: var(--muted);
 }
+/* Who is here gives way first: what happened last is the news. */
 .draft-line-who {
-  flex: none;
+  flex: 0 3 auto;
+  min-width: 4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--fg);
 }
 .draft-line-news {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

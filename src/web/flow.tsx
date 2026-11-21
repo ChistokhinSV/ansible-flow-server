@@ -1157,15 +1157,15 @@ function DraftBar({
     : discarders.length
       ? `${listWords(discarders)} ${discarders.length === 1 ? 'is' : 'are'} about to discard the draft: your editing stops then; Bring back restores it.`
       : undefined;
+  const whoWords = `${people.length ? `Here now: you, ${others}` : 'Only you here'}${myTabs > 1 ? ' (and your other tabs)' : ''}`;
   const line = (
     <section
       className="draft-line"
       aria-label="Editing together"
       data-together={people.length > 0 || myTabs > 1 ? '' : undefined}
     >
-      <span className="draft-line-who">
-        {people.length ? `Here now: you, ${others}` : 'Only you here'}
-        {myTabs > 1 ? ' (and your other tabs)' : ''}
+      <span className="draft-line-who" title={whoWords}>
+        {whoWords}
       </span>
       <span
         className={`draft-line-news${coming || error ? ' warn-text' : ''}`}
