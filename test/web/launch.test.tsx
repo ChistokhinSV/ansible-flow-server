@@ -249,6 +249,21 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     expect(asked.some((a) => a.key.startsWith('GET /runs'))).toBe(false);
   });
 
+  it('Launch: each input says where it goes, under its hint (AFS-183)', async () => {
+    const said =
+      'Read by Upgrade (as target); wins over group_vars of edge (inventory/group_vars/edge.yml:3).';
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1/form?': () => ({ body: { ...form, origins: { retries: said } } }),
+    };
+    page('launch');
+    const retries = await screen.findByLabelText(/^retries/);
+    const hint = document.getElementById(retries.getAttribute('aria-describedby') ?? '');
+    expect(hint?.querySelector('[data-origin="retries"]')?.textContent).toBe(said);
+    // An input without one says nothing more.
+    expect(document.querySelector('[data-origin="devices"]')).toBeNull();
+  });
+
   it('Launch: a flow with errors names them, each a link to its step (AFS-164)', async () => {
     const errors = [
       { node: 'n1', step: 'Ping', message: 'No module is bound' },

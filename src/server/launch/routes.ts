@@ -9,6 +9,9 @@
 //   /api/v1/launch-configs/:id/facts    AFS-67: the hosts it would touch, from the inventory
 //   /api/v1/launch-configs/:id/launch   the same, and the run goes in the queue
 //   /api/v1/projects/:id/dev-bundles    AFS-26: unpushed work as a git bundle, for a dev run
+import { modelOf } from '@ansible-flow/core/flow/model';
+import { flowInputUses } from '@ansible-flow/core/flow/origin';
+import { indexInputs } from '@ansible-flow/core/inventory/varIndex';
 import { checkInputs } from '@ansible-flow/core/run/launch';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { accessOf, atLeast } from '../access/grants';
@@ -16,6 +19,7 @@ import { signedIn } from '../auth/guards';
 import { environmentImage } from '../environments/image';
 import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
+import type { VarIndexes } from '../projects/vars';
 import { lastRuns, type RunQueue } from '../runs/queue';
 import { flowAt, type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
 import type { FactsReply, InventoryAnswer, InventoryQuestion } from './facts';
@@ -27,7 +31,13 @@ export type InventoryReader = (
 
 import { changedKeys } from '../audit/changes';
 import { addDevBundle, getDevBundle } from './dev';
-import { type LaunchRequest, type PrepareDeps, prepareLaunch, withoutSecrets } from './prepare';
+import {
+  type LaunchForm,
+  type LaunchRequest,
+  type PrepareDeps,
+  prepareLaunch,
+  withoutSecrets,
+} from './prepare';
 
 const STATUS: Record<LaunchError['code'], number> = { invalid: 400, not_found: 404, taken: 409 };
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
@@ -84,6 +94,34 @@ const REQUEST = {
   },
 };
 
+/**
+ * AFS-183: per flow input, one line: the steps that read it, its default, what it wins over (the
+ * designer's `flowInputUses`), with the repository's variables at the form's commit when `repo`.
+ * Undefined when the flow cannot be read; never a secret value.
+ */
+export async function inputOrigins(
+  deps: PrepareDeps & { vars?: VarIndexes },
+  config: { project: string; flowFile: string },
+  form: LaunchForm,
+  repo: boolean,
+): Promise<Record<string, string> | undefined> {
+  const flow = await flowAt(deps.git, config.project, form.commit, config.flowFile).catch(
+    () => undefined,
+  );
+  if (!flow || 'problem' in flow) return undefined;
+  const index =
+    repo && deps.vars
+      ? await deps.vars
+          .index(config.project, form.commit, {
+            ...(form.inventory ? { inventory: form.inventory } : {}),
+            ...indexInputs(flow.doc.nodes),
+          })
+          .catch(() => undefined)
+      : undefined;
+  const uses = flowInputUses(modelOf(flow.doc), index ? { index } : {});
+  return Object.fromEntries(Object.entries(uses).map(([name, use]) => [name, use.text]));
+}
+
 export function registerLaunch(
   app: FastifyInstance,
   deps: PrepareDeps & {
@@ -92,6 +130,8 @@ export function registerLaunch(
     dev?: { maxBytes: number; keepHours: number };
     /** AFS-67: reads a launch's inventory (the executor's probes); without it, no facts route. */
     inventory?: InventoryReader;
+    /** AFS-183: the repository's variables, for the form's origins of the inputs. */
+    vars?: VarIndexes;
   },
 ): void {
   const dev = deps.dev ?? { maxBytes: 50 * 1024 * 1024, keepHours: 24 };
@@ -306,7 +346,15 @@ export function registerLaunch(
       if (!config) return reply.code(404).send(NONE);
       const prepared = await prepareLaunch(deps, config, request.query, false);
       // A form with empty required inputs is still a form: only what leaves no form is refused.
-      if (prepared.form) return prepared.form;
+      if (prepared.form) {
+        // AFS-183: where each input goes and what it wins over; the repository's part only for
+        // who may read the project's files.
+        const project = await getProject(deps.db, config.project);
+        const access = await accessOf(deps.db, request);
+        const repo = !!project && atLeast(access?.onWorkspace(project.workspace), 'ro');
+        const origins = await inputOrigins(deps, config, prepared.form, repo);
+        return origins ? { ...prepared.form, origins } : prepared.form;
+      }
       // AFS-132: the first problem as the message (a deleted flow), not a bare status.
       const problems = prepared.ok ? [] : prepared.problems;
       return reply.code(422).send({

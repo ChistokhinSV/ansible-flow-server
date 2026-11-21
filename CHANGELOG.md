@@ -6,6 +6,9 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- Where a value comes from, from the repository: on a flow's page, a run's page, a flow at a commit and while editing a draft, a variable's tooltip and **Details › Data** list every place in the repository that sets the name (the inventory the flow's runs use, `group_vars/` and `host_vars/`, a role's defaults and vars, a playbook's vars files), with its precedence and the one that wins for the host picked in **For host**. A file and line opens the **Files** tab at that line in a new tab. It needs read access to the project's files; secret values are never shown (`POST /api/v1/projects/<id>/vars`).
+- The launch form says under each input which steps read it, its default and what it wins over (a step input of the same name, and the repository's definitions of the name).
+- The **Files** tab opens a file at a line with `?path=<file>&line=<n>`.
 - A run records the value each step's inputs had for each host. On the run's page, a step's **Details › Data** shows **In this run** under each input, with the hosts that had each value or one host's value, and says when it differs from what the flow states; a variable's tooltip and the step's **Run** tab show them too. Secrets are never recorded, long values are cut, and a run keeps 256 KB of values at most. The new setting `AFS_RUN_RECORD_INPUTS` (default `true`) turns it off.
 - A project's **History** tab: the commits of a branch, newest first, with author, time and short hash; a filter by words in the message, author, hash or changed files; more on request. A commit opens to the files it changed, flows by their title (`GET /api/v1/projects/<id>/commits`, `GET /api/v1/projects/<id>/commits/<hash>`).
 - A flow's history, from **History** in its page's **More** menu: the commits that changed the flow or its scenarios.

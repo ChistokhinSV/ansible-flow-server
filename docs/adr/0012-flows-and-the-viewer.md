@@ -63,3 +63,38 @@ it is the same REST API a script uses. The live channel comes with what is live:
 - The designer package joins the build-time dependencies, from `vendor/` until it is on npm.
 - A project page reads every flow file of the commit once to list them; the second look is
   from memory.
+
+## Where a value comes from (AFS-183, 2026-11-21)
+
+The designer explains where a step's value comes from (its ADR-0038); its phase 2 reads the
+repository's variables, which in VS Code the extension does. On the pages the server does it, so
+the canvas (a flow, a run, a flow at a commit, a draft) says the same.
+
+- **On the server, from git.** `POST /api/v1/projects/:id/vars` (`{commit, inventory?, roles?,
+  files?}` → `{commit, index}`) builds the designer's index (`buildVarIndex`) over the commit's tree
+  (`git ls-tree`, then `git cat-file` per file it reads). No checkout, nothing written. The page
+  sends what the flow runs (`indexInputs` of its steps), so a draft that binds another role gets
+  that role's variables without a save.
+- **The inventory the runs use.** A run's page: the run's inventory. Elsewhere: the one the flow's
+  launch configurations name when they all name the same one; otherwise (none, or several) what
+  ansible.cfg names, as a run without one gets. The launch form uses its configuration's.
+- **Kept per commit.** A commit never changes, so an index is kept per (project, commit,
+  inventory, roles, files), 64 at most, the least recently asked for going first; a failure is not
+  kept. Limits: the designer's 400 files and 2 s, and no file over 256 KB or that is a link; a cut
+  index says so, and the designer then names no winner.
+- **Access as the Files tab.** It reads the project's files, so it asks ro on the project (the
+  route catalog), not on one flow. Someone with a grant on one flow gets no index and the canvas
+  answers from the flow alone. Nothing secret: the designer keeps no value of a vaulted or
+  secret-looking variable, and the route returns only the index.
+- **The page posts it.** viewer.ts and viewerDraft.ts (`viewerVars.ts`) post `{type:'varIndex',
+  index, openFiles: true}` and add the repository's findings to each snapshot they show
+  (`withRepoFindings`: a name the repository sets is information, not an unknown read; an input
+  default that hides the inventory). A followed flow reads it again when the branch moves. History
+  (a past version in the Changes lens) gets none, as in VS Code.
+- **A definition's file:line** (`openCode`) opens the Files tab at that line (`?path=…&line=…`) in a
+  new tab, so the canvas stays; the Files page puts the cursor on that line and scrolls it into the
+  middle. The Files tab shows the branch, so at an older commit (a run's) the line may have moved.
+- **The launch form** shows, under each input's hint, one line from the designer's
+  `flowInputUses`: the steps that read it, its default, and what it wins over (a same-name step
+  input, and the repository's definitions when the person may read the files). Computed on the form
+  route (`origins` in its answer); not on check or launch.

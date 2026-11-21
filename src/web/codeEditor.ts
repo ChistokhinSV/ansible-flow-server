@@ -102,6 +102,8 @@ export function createEditor(
     dark: boolean;
     label: string;
     onChange?: (text: string) => void;
+    /** AFS-183: the line (1-based) to put the cursor on and show in the middle. */
+    line?: number;
   },
 ): Editor {
   // In a shadow root: CodeMirror styles it with constructed style sheets there, which the
@@ -144,6 +146,14 @@ export function createEditor(
       ],
     }),
   });
+  if (options.line && options.line > 0) {
+    // AFS-183: where a value is defined: that line, with the cursor on it (its line is marked).
+    const at = view.state.doc.line(Math.min(Math.floor(options.line), view.state.doc.lines));
+    view.dispatch({
+      selection: { anchor: at.from },
+      effects: EditorView.scrollIntoView(at.from, { y: 'center' }),
+    });
+  }
   return {
     text: () => view.state.doc.toString(),
     focus: () => view.focus(),

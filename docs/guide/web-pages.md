@@ -66,6 +66,17 @@ never opens the browser's Save dialog.
   row as a card, each value named by its column, with the row's buttons under it. After a page change the focus is
   on the new page's title; Esc closes the phone menu.
 - A flow is shown as in VS Code (levels, details, generated code) and cannot be changed here.
+- **Where a value comes from** works as in VS Code, with the repository's variables at the commit
+  shown (the flow's, a run's, a draft's start): a variable's tooltip and **Details › Data** list
+  every place that sets the name, with its precedence, and the one that wins for the host picked in
+  **For host** (the inventory's hosts, or the run's). The inventory is the run's on a run's page;
+  elsewhere the one the flow's launch configurations name, when they agree, else what ansible.cfg
+  names. A definition's file and line opens the **Files** tab at that line in a new tab. It needs
+  `ro` on the project (as the Files tab); with access to one flow only, the canvas says where a
+  value comes from in the flow alone. Over the API: `POST /api/v1/projects/<id>/vars` with
+  `{"commit": "<hash>", "inventory": "inventory/hosts.yml", "roles": [], "files": []}` gives the
+  index (`defs` by name, each with `file`, zero-based `line`, `rank` and a value when it is not
+  secret; `hosts`; `groups`).
 - **When someone changes a flow you have open** (a push, through the server or to the source the
   server looks at), a bar on the canvas says who and how much ("Mia Ortega changed this flow: 3
   steps"). **Show changes** opens the new version in the Changes lens, compared with the one you
@@ -224,6 +235,9 @@ A write takes `text` or `base64`, and `executable: true` for a program. A refusa
 changed the same files is `409` with `files`. An `unpack` that would replace files that are there
 (with other content) is refused, `409` with `error: "replaces"` and those `files`, unless it says
 `"replace": true`.
+
+`?line=<n>` with `?path=` opens the file with that line in the middle and the cursor on it (the
+canvas's links to where a value is defined use it).
 
 Not there yet: a diff before Save, and a link from a step's template in the designer to its file.
 
