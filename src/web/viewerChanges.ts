@@ -64,6 +64,8 @@ export function followFlow(options: {
   bar: HTMLElement;
   /** False for a flow pinned at a commit (a run's): it never moves. */
   live: boolean;
+  /** AFS-183: the canvas shows the flow at another commit now (its repository's variables too). */
+  onCommit?: (commit: string) => void;
 }): Following {
   const { project, path, send, bar } = options;
   const p = encodeURIComponent(project);
@@ -159,6 +161,7 @@ export function followFlow(options: {
     version += 1;
     send({ type: 'snapshot', snapshot: { ...waiting.snapshot, docVersion: version } });
     shown = { commit: waiting.commit, doc: waiting.snapshot.doc as FlowDocument };
+    options.onCommit?.(shown.commit);
     // The application around the frame names the commit shown.
     if (window.parent !== window)
       window.parent.postMessage(
@@ -189,6 +192,8 @@ export function followFlow(options: {
     if (!mine) {
       // Other files changed: this flow is the same at the new commit.
       shown = { ...shown, commit: to };
+      // AFS-183: the repository's variables may have changed with them.
+      options.onCommit?.(to);
       return;
     }
     const who = names(mine.authors) || 'Someone';

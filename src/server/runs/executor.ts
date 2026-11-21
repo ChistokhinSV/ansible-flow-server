@@ -117,6 +117,11 @@ export interface ExecutorOptions {
   slots: number;
   /** A run that takes longer is stopped. */
   timeoutMs: number;
+  /**
+   * AFS-182: record the value each step's inputs had per host (default); false: the run records
+   * none (AFS_RUN_RECORD_INPUTS).
+   */
+  recordInputs?: boolean;
   /** Tests: what runs the flow instead of the designer's pipeline. */
   runner?: (request: RunFlowRequest, hooks: RunFlowHooks) => Promise<RunView>;
   /** Tests: how the repository's Ansible config is read (AFS-80); with a runner, by default not. */
@@ -743,6 +748,7 @@ export class Executor {
             keepRuns: 1000,
             inputs: runInputs,
             ...(creds.vaultPassword !== undefined ? { vaultPassword: creds.vaultPassword } : {}),
+            ...(this.options.recordInputs === false ? { recordInputs: false } : {}),
             signal: controller.signal,
           },
           {
@@ -974,7 +980,18 @@ function mergeSummaries(
     failures: [...earlier.failures, ...live.failures],
     outcome: { ...earlier.outcome, ...live.outcome },
     unreachable: [...new Set([...earlier.unreachable, ...live.unreachable])],
+    // AFS-182: the input values the segments before recorded, and this one's so far.
+    ...(earlier.inputs || live.inputs ? { inputs: mergeInputs(earlier.inputs, live.inputs) } : {}),
   };
+}
+
+function mergeInputs(
+  a: NonNullable<RunView['summary']>['inputs'],
+  b: NonNullable<RunView['summary']>['inputs'],
+): NonNullable<RunView['summary']>['inputs'] {
+  const out: NonNullable<NonNullable<RunView['summary']>['inputs']> = { ...(a ?? {}) };
+  for (const [node, byHost] of Object.entries(b ?? {})) out[node] = { ...out[node], ...byHost };
+  return out;
 }
 
 /** True when the flow has an approval anywhere, inner levels included. */

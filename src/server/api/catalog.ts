@@ -332,6 +332,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('The commits that changed a file or folder up to a commit, newest first'),
+  'POST /api/v1/projects/:id/vars': S(
+    'Files',
+    'signed in',
+    P,
+  )(
+    "Where a value comes from: the variables the repository defines at a commit (the inventory a run uses, or ansible.cfg's; group_vars and host_vars; the `roles` and the playbooks and task files (`files`) a flow runs), with file, line and precedence; never a secret value",
+  ),
   'POST /api/v1/projects/:id/files': S(
     'Files',
     'signed in',
@@ -954,6 +961,7 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/files': 'ro',
   'GET /api/v1/projects/:id/files/content': 'ro',
   'GET /api/v1/projects/:id/files/history': 'ro',
+  'POST /api/v1/projects/:id/vars': 'ro',
   'POST /api/v1/projects/:id/files': 'rw on the workspace',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
   'GET /api/v1/projects/:id/host-key': 'can see',

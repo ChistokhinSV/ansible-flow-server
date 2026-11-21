@@ -24,6 +24,7 @@ import { editDraft, openWebLink } from './viewerDraft';
 import { askName, chooseConfig, launcher } from './viewerLaunch';
 import { type PastFacts, showPast } from './viewerPast';
 import { going, pastRunOf, type RunRecord, runnerOf } from './viewerRuns';
+import { filesAddress, flowInventory, openCodeIn, projectKeys, repoVars } from './viewerVars';
 
 const params = new URLSearchParams(window.location.search);
 const project = params.get('project') ?? '';
@@ -100,21 +101,25 @@ function go(to: string): void {
   (window.top ?? window).location.assign(to);
 }
 
+/** AFS-183: the project's keys for its pages' addresses, read once. */
+let keysAsked: ReturnType<typeof projectKeys> | undefined;
+let keys: Awaited<ReturnType<typeof projectKeys>>;
+const projectKeysOnce = () => {
+  keysAsked ??= projectKeys(project).then((k) => {
+    keys = k;
+    return k;
+  });
+  return keysAsked;
+};
+
 /**
  * AFS-132: Open in Text Editor in the pages: the file on its project's Files tab. Resolves with
- * false when the project or its workspace cannot be read.
+ * false when the project or its workspace cannot be read. AFS-183: at a line, when given.
  */
-async function openInFiles(file: string): Promise<boolean> {
-  const read = async (url: string) => {
-    const reply = await fetch(url, { credentials: 'same-origin' });
-    return reply.ok ? ((await reply.json()) as { key?: string; workspace?: string }) : undefined;
-  };
-  const p = await read(`/api/v1/projects/${encodeURIComponent(project)}`).catch(() => undefined);
-  const w =
-    p?.workspace &&
-    (await read(`/api/v1/workspaces/${encodeURIComponent(p.workspace)}`).catch(() => undefined));
-  if (!p?.key || !w || !w.key) return false;
-  go(`/w/${w.key}/${p.key}/files?path=${encodeURIComponent(file)}`);
+async function openInFiles(file: string, line?: number): Promise<boolean> {
+  const k = await projectKeysOnce().catch(() => undefined);
+  if (!k) return false;
+  go(filesAddress(k, file, line));
   return true;
 }
 
@@ -178,10 +183,33 @@ async function start(): Promise<void> {
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
-  const send = (message: HostMessage) =>
+  const tell = (message: HostMessage) =>
     setTimeout(() => {
       for (const listener of listeners) listener(message);
     }, 0);
+  // AFS-183: the repository's variables at the commit shown, for where a value comes from. A
+  // run's page uses the run's inventory; elsewhere the flow's launch configurations'.
+  const vars = repoVars({
+    project,
+    commit: flow.data.commit,
+    inventory: async () => {
+      if (runId) {
+        const run = await get(`/api/v1/runs/${encodeURIComponent(runId)}`);
+        return run.ok ? String(run.data?.inventory ?? '') : '';
+      }
+      const configs = await get(`/api/v1/projects/${encodeURIComponent(project)}/launch-configs`);
+      return configs.ok ? flowInventory(configs.data ?? [], path) : '';
+    },
+    send: tell,
+  });
+  void projectKeysOnce();
+  /** What goes to the designer; each snapshot with the repository's findings once they are in. */
+  const send = (message: HostMessage) =>
+    tell(
+      message.type === 'snapshot'
+        ? { ...message, snapshot: vars.snapshot(message.snapshot) }
+        : message,
+    );
   // AFS-152: the canvas here only shows the flow; Delete on it is not ignored without a word.
   let toldReadOnly = 0;
   window.addEventListener('keydown', (e) => {
@@ -338,6 +366,7 @@ async function start(): Promise<void> {
     send,
     bar,
     live: !commit,
+    onCommit: (c) => vars.at(c),
   });
 
   const stateKey = `afs.viewer.${project}.${path}`;
@@ -416,6 +445,19 @@ async function start(): Promise<void> {
                   level: 'error',
                   text: `${path} could not be opened: open it on the project's Files tab.`,
                 });
+            });
+            return;
+          case 'openCode':
+            // AFS-183: where a value is defined: the Files tab at that line.
+            openCodeIn(keys, message.path, message.line, (file, line) => {
+              void openInFiles(file, line).then((opened) => {
+                if (!opened)
+                  send({
+                    type: 'notify',
+                    level: 'error',
+                    text: `${file} could not be opened: open it on the project's Files tab.`,
+                  });
+              });
             });
             return;
           case 'catalog':

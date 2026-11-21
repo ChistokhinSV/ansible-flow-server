@@ -534,6 +534,11 @@ button.link:hover:not(:disabled) {
      stay on one line. */
   align-content: start;
 }
+/* AFS-183: where a launch input goes, on its own line under the field's hint. */
+.input-origin {
+  display: block;
+  overflow-wrap: anywhere;
+}
 .field label,
 legend {
   font-size: 14px;

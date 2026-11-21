@@ -399,6 +399,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         worker: `server:${await instanceId(database.db)}`,
         slots: config.maxRuns,
         timeoutMs: config.runTimeoutMinutes * 60_000,
+        // AFS-182: the value each step's inputs had per host, unless AFS_RUN_RECORD_INPUTS=false.
+        recordInputs: config.runRecordInputs !== false,
         // AFS-116: where runs reach this server (AFS_RUN_URL, else the public address), and
         // whether they check its certificate (AFS_RUN_VERIFY_TLS, else unless it is self-signed).
         server: () => {

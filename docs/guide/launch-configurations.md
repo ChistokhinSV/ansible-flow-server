@@ -100,6 +100,17 @@ shows its settings and the launch form:
 - Check or real, and another branch or a commit; the form shows the flow's inputs at that
   commit, starting with the configuration's values.
 - Secret-looking inputs are typed hidden and never kept.
+- Under each input, one line says where it goes: the steps that read it, its default, and what it
+  wins over. A flow input reaches the run as an extra var, so it beats a step input of the same
+  name and every place in the repository that sets the name (the configuration's inventory,
+  `group_vars/`, `host_vars/`, ...), each named with its file and line. The repository's part is
+  shown to who may read the project's files.
+
+  ```text
+  ntp_server · string
+  Read by Set NTP (as server), Check time; default 192.0.2.1; wins over group_vars of edge
+  (inventory/group_vars/edge.yml:1), group_vars of all (inventory/group_vars/all.yml:1).
+  ```
 - **What would run** shows the commit, the inputs as the flow gets them (secrets as `***`), the
   hosts it starts on, the inventory, image and credentials; what stands in the way is shown at
   its field.

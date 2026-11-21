@@ -342,6 +342,7 @@ function InputField({
   groups,
   counts,
   warning,
+  origin,
 }: {
   field: LaunchField;
   value: string;
@@ -351,6 +352,8 @@ function InputField({
   counts?: Record<string, { count: number }>;
   /** AFS-147: what the inventory says of the typed targets, before Launch. */
   warning?: ReactNode;
+  /** AFS-183: where the input goes: the steps that read it, its default, what it wins over. */
+  origin?: string;
   /**
    * AFS-97/99: the inventory's groups for a host list, as the canvas's dialog offers them: a button
    * each under the field (adds or takes out the group) and suggestions while typing.
@@ -377,7 +380,22 @@ function InputField({
     .filter(Boolean)
     .join(' ');
   return (
-    <Labelled label={label} hint={hint || undefined} problem={problem}>
+    <Labelled
+      label={label}
+      hint={
+        hint || origin ? (
+          <>
+            {hint}
+            {origin && (
+              <span className="input-origin" data-origin={field.name}>
+                {origin}
+              </span>
+            )}
+          </>
+        ) : undefined
+      }
+      problem={problem}
+    >
       {(props) =>
         field.type === 'boolean' ? (
           <select {...props} value={value} onChange={(e) => onChange(e.target.value)}>
@@ -1209,6 +1227,7 @@ export function LaunchConfigPage({
                     settle(f.name);
                   }}
                   groups={groups}
+                  {...(form.data?.origins?.[f.name] ? { origin: form.data.origins[f.name] } : {})}
                   {...(groupCounts ? { counts: groupCounts } : {})}
                   {...(f.targets && liveNow ? { warning: <TargetsWarning reply={liveNow} /> } : {})}
                 />

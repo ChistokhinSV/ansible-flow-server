@@ -173,6 +173,8 @@ export const READS = new Set([
   'POST /api/v1/drafts/:id/flushed',
   'POST /api/v1/drafts/:id/catalog',
   'POST /api/v1/projects/:id/flows/catalog',
+  // AFS-183: the repository's variables, read for the canvas: nothing is kept but a cache.
+  'POST /api/v1/projects/:id/vars',
 ]);
 
 const CHANGES = ['POST', 'PUT', 'PATCH', 'DELETE'];
