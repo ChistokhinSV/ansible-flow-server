@@ -55,4 +55,11 @@ describe('the runs of a flow on the canvas', () => {
       },
     });
   });
+
+  it('gives the canvas the inputs the run had, as anyone may see them (AFS-189)', () => {
+    expect(runnerOf(run({ inputs: { site: 'lab', api_token: '***' } }))).toMatchObject({
+      flowInputs: { site: 'lab', api_token: '***' },
+    });
+    expect(runnerOf(run({}))).not.toHaveProperty('flowInputs');
+  });
 });
