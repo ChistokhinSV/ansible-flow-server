@@ -195,10 +195,8 @@ describe('flows in the pages', () => {
       ),
     );
     fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
-    await waitFor(() =>
-      expect(asked.filter((a) => a.key.startsWith('PATCH'))).toEqual([
-        { key: 'PATCH /launch-configs/c1/schedules/s1', body: { enabled: false } },
-      ]),
-    );
+    // AFS-187: the server turns them off in the same save; the page asks nothing more.
+    await waitFor(() => expect(asked.some((a) => a.key === 'POST /projects/p1/files')).toBe(true));
+    expect(asked.filter((a) => a.key.startsWith('PATCH'))).toEqual([]);
   });
 });

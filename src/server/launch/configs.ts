@@ -143,7 +143,15 @@ export async function flowAt(
   projectId: string,
   commit: string,
   file: string,
-): Promise<{ doc: FlowDocument } | { problem: string; errors?: FlowError[] }> {
+): Promise<
+  | { doc: FlowDocument }
+  | {
+      problem: string;
+      errors?: FlowError[];
+      /** AFS-187: a flow that reads but has errors: what it says, for checks that need no run. */
+      doc?: FlowDocument;
+    }
+> {
   if (pathProblem(file) || !/\.flow\.ya?ml$/i.test(file))
     return { problem: 'A flow is a file named *.flow.yaml in the repository' };
   const bytes = await git.read(projectId, commit, file).catch(() => undefined);
@@ -151,7 +159,7 @@ export async function flowAt(
   const { summary, doc, errors } = checkFlow(file, bytes.toString('utf8'));
   if (!summary.ok || !doc) return { problem: summary.problem ?? 'Not a flow file' };
   // AFS-164: which errors and on which steps, so the pages link to each.
-  if (summary.errors > 0) return { problem: errorsSentence(summary.errors, errors), errors };
+  if (summary.errors > 0) return { problem: errorsSentence(summary.errors, errors), errors, doc };
   return { doc };
 }
 
@@ -250,7 +258,12 @@ export class LaunchConfigs {
    * refuses it until it has one, and the configuration's page says why (AFS-147). `kept` is the
    * environment it had: kept as it is, it is not asked again (a rename is not refused for it).
    */
-  private async checked(project: Project, input: LaunchConfigInput, kept?: string) {
+  private async checked(
+    project: Project,
+    input: LaunchConfigInput,
+    kept?: string,
+    current?: LaunchConfig,
+  ) {
     const name = input.name.trim();
     if (name.length < 1 || name.length > 100)
       throw invalid('A launch configuration has a name of 1 to 100 characters', 'name');
@@ -259,7 +272,25 @@ export class LaunchConfigs {
     const at = await this.commitFor(project, gitRef, commit);
     const flowFile = input.flowFile.trim();
     const flow = await flowAt(this.git, project.id, at, flowFile);
-    if ('problem' in flow) throw invalid(flow.problem, 'flowFile', flow.errors);
+    // AFS-187: a flow that cannot run (it has errors, or is gone) refuses a launch, not a change
+    // of the configuration's other settings: kept on the same flow, branch and commit, those are
+    // saved. Start values are checked against the flow when it reads; when it does not, they can
+    // only stay as they were.
+    let doc: FlowDocument | undefined;
+    if ('problem' in flow) {
+      const sameFlow =
+        !!current &&
+        current.flowFile === flowFile &&
+        current.gitRef === gitRef &&
+        current.commit === (commit ? at : undefined);
+      if (!sameFlow) throw invalid(flow.problem, 'flowFile', flow.errors);
+      doc = flow.doc;
+      if (!doc && JSON.stringify(input.inputs ?? {}) !== JSON.stringify(current.inputs))
+        throw invalid(
+          `Start values cannot be checked while the flow cannot be read: ${flow.problem}`,
+          'inputs',
+        );
+    } else doc = flow.doc;
 
     const inventory = input.inventory?.trim() || undefined;
     if (inventory) {
@@ -307,8 +338,10 @@ export class LaunchConfigs {
 
     // Start values only for inputs the flow has, of the kind the input is, and never a secret.
     const inputs = input.inputs ?? {};
-    const fields = new Map(launchFields(flow.doc, {}, mode === 'check').map((f) => [f.name, f]));
-    for (const [key, value] of Object.entries(inputs)) {
+    const fields = new Map(
+      (doc ? launchFields(doc, {}, mode === 'check') : []).map((f) => [f.name, f]),
+    );
+    for (const [key, value] of doc ? Object.entries(inputs) : []) {
       const field = fields.get(key);
       if (!field) throw invalid(`The flow has no input ${key.slice(0, 60)}`, key);
       if (field.secret)
@@ -443,7 +476,12 @@ export class LaunchConfigs {
       credentials: change.credentials ?? current.credentials,
       notify: change.notify !== undefined ? change.notify : current.notify,
     };
-    const { credentials, ...columns } = await this.checked(project, merged, current.environment);
+    const { credentials, ...columns } = await this.checked(
+      project,
+      merged,
+      current.environment,
+      current,
+    );
     try {
       await this.db.transaction().execute(async (trx) => {
         await trx

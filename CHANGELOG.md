@@ -48,6 +48,12 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- Deleting a flow turns off the schedules that fire it in the same save (the delete question already said so); before, they stayed on, fired once and failed. A move or delete through the **Files** tab or the API does the same.
+- A schedule whose flow has errors, or is gone, can be paused, changed and deleted; before, only Delete worked and it kept firing. Turning it on again is refused while the flow cannot run, as adding one is.
+- A launch configuration's settings (description, credentials, notifications and the rest) save while its flow has errors or is gone; only launching is refused. Changing it to another flow still needs one that can run.
+- A refused change of a launch configuration or schedule lists in the audit log only the fields it asked to change, not every field the form sent.
+- Home no longer offers **Launch again** for a configuration whose flow is gone.
+- A configuration's **Launch** tab says once that its flow is gone or has errors; **What the flow needs** is not shown while the flow cannot be read.
 - In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
 - A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
 - A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).

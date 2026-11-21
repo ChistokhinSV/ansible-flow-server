@@ -48,7 +48,7 @@ async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[
       ),
     )
   ).flat();
-  const configs = new Map<string, Promise<{ id: string; name: string }[]>>();
+  const configs = new Map<string, Promise<{ id: string; name: string; flowGone?: string }[]>>();
   const configsOf = (project: string) => {
     let asked = configs.get(project);
     if (!asked) {
@@ -62,7 +62,8 @@ async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[
       const project = projects.find((p) => p.id === run.project);
       if (!project || !run.config) return undefined;
       const config = (await configsOf(project.id)).find((c) => c.id === run.config?.id);
-      if (!config) return undefined;
+      // AFS-187: a configuration whose flow is gone cannot be launched again.
+      if (!config || config.flowGone) return undefined;
       return {
         to: launchAddress(project.workspace, project.key, config.id),
         name: config.name,

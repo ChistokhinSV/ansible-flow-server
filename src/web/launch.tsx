@@ -978,6 +978,12 @@ export function LaunchConfigPage({
       ? form.failure.details.problems?.find((p) => p.errors?.length)?.errors
       : undefined;
   const flowErrors = problems.find((p) => p.errors?.length)?.errors;
+  // AFS-187: a flow that cannot be read is said once on the page: the banner above (it is gone)
+  // or the errors below; the rest of the Launch tab, which reads the flow too, does not repeat it.
+  const flowUnread =
+    !!c.flowGone ||
+    (form.failure instanceof ApiError &&
+      !!form.failure.details.problems?.some((p) => p.field === 'flowFile'));
   const refused = (e: unknown) => {
     if (e instanceof ApiError && e.details.problems?.length) {
       setProblems(e.details.problems);
@@ -1209,7 +1215,7 @@ export function LaunchConfigPage({
                   to={flowAddress(workspace, key, c.flowFile)}
                   edit={mayManage}
                 />
-              ) : (
+              ) : c.flowGone ? null : (
                 <Loading state={form} />
               )}
               {fields.length === 0 && form.data && (
@@ -1412,7 +1418,9 @@ export function LaunchConfigPage({
               {...(c.credentialNames ? { names: c.credentialNames } : {})}
             />
           )}
-          <EnvironmentCheck config={c.id} workspace={workspace} mayManage={mayManage} />
+          {!flowUnread && (
+            <EnvironmentCheck config={c.id} workspace={workspace} mayManage={mayManage} />
+          )}
         </>
       )}
     </>

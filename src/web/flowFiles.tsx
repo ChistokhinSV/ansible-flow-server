@@ -335,13 +335,7 @@ export function FlowFileActions({
                     message: `Delete the flow ${name}`,
                     changes: [{ op: 'delete', path: file }],
                   });
-                  // A schedule that cannot be turned off here is turned off by the server when it
-                  // next fires and finds no flow.
-                  await Promise.all(
-                    (schedules ?? []).map((s) =>
-                      api.changeSchedule(s.config, s.id, { enabled: false }).catch(() => undefined),
-                    ),
-                  );
+                  // AFS-187: the server turns the schedules off in the same save.
                   navigate(
                     `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project.key)}`,
                   );
