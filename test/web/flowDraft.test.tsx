@@ -9,6 +9,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { discardQuestion, FlowPage } from '../../src/web/flow';
+import { navigate } from '../../src/web/router';
 import { listenForSaveKey, SAVE_KEY } from '../../src/web/saveKey';
 
 const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
@@ -270,6 +271,16 @@ describe("a flow's draft on its page (AFS-149)", () => {
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(bodies['POST /drafts/d1/save']).toHaveLength(1);
+  });
+
+  it('drops the saved note when another commit of the flow is opened (AFS-188)', async () => {
+    routes = { ...base(), 'POST /drafts/d1/save': () => ({ body: { commit: SAVED } }) };
+    await editing();
+    tell({ type: SAVE_KEY });
+    tell({ type: SAVE_KEY });
+    expect(await screen.findByText(/Saved as/)).toBeTruthy();
+    act(() => navigate(`/?commit=${COMMIT}`));
+    expect(screen.queryByText(/Saved as/)).toBeNull();
   });
 
   it('selects the step a link names on the canvas (AFS-164)', async () => {
