@@ -126,7 +126,8 @@ image (marked "the server's default" when the run got the server's default image
 the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
 same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. **Run again** runs the
 same commit, inputs and credentials as a new run; its title says which inputs it reuses, and on
-a real run it asks first, as Launch does. **Hosts** lists the run's hosts and how each fared; a
+a real run it asks first, as Launch does; so does a run that reached no host, which would likely
+end the same way. **Hosts** lists the run's hosts and how each fared; a
 host's row opens what it did, step by step: each task's result, with Ansible's message and
 output.
 

@@ -26,6 +26,7 @@ import {
 import { ask } from './confirm';
 import { EnvironmentCheck, environmentAddress } from './environments';
 import { Missing, MissingProject } from './help';
+import { noHostWhy } from './noHost';
 import { Link, navigate, useUnsaved } from './router';
 import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
@@ -376,7 +377,12 @@ function InputField({
   const sentence = (text?: string) => (text && !/[.!?]$/.test(text) ? `${text}.` : text);
   const hint = [
     sentence(field.description),
-    field.targets ? 'The hosts or groups the flow starts on: comma-separated, or a JSON list.' : '',
+    // AFS-191: a host list with its own description is not described twice.
+    field.targets
+      ? field.description
+        ? 'Comma-separated, or a JSON list.'
+        : 'The hosts or groups the flow starts on: comma-separated, or a JSON list.'
+      : '',
     field.secret ? 'Secret: typed hidden, never kept.' : '',
   ]
     .filter(Boolean)
@@ -486,8 +492,15 @@ function targetsKey(
  * AFS-147: what the inventory says of the targets typed, at their field: those it does not have,
  * or that they match no host at all.
  */
-function TargetsWarning({ reply }: { reply: FactsReply }) {
+function TargetsWarning({ reply, name }: { reply: FactsReply; name: string }) {
   const facts = reply.facts;
+  // AFS-191: this list does not read (a broken JSON list): said here, before Launch refuses it.
+  if (!facts && reply.factsError && reply.field === name)
+    return (
+      <small className="error-text" data-unknown-hosts role="status">
+        {reply.factsError}
+      </small>
+    );
   if (facts?.unknown.length)
     return (
       <small className="warn-text" data-unknown-hosts role="status">
@@ -1029,10 +1042,21 @@ export function LaunchConfigPage({
   const launch = async () => {
     // AFS-134: a real run changes the hosts: asked first, with what it runs and where.
     const real = (mode ?? form.data?.mode ?? c.mode) === 'real';
-    const unknown = liveNow?.facts?.unknown ?? [];
-    const skipped = unknown.length
-      ? ` Not in the inventory, so nothing runs there: ${unknown.join(', ')}.`
-      : '';
+    // AFS-191: what the inventory says of the targets and the limit as they are now; read here
+    // when Launch comes before the form read them.
+    let facts = liveNow;
+    if (!facts && hasTargets && mayRead) {
+      setBusy('launch');
+      facts = await api.launchFacts(c.id, request()).catch(() => undefined);
+      setBusy(undefined);
+    }
+    const none = noHostWhy(facts);
+    const unknown = facts?.facts?.unknown ?? [];
+    const skipped = none
+      ? ` No host would run: ${none}.`
+      : unknown.length
+        ? ` Not in the inventory, so nothing runs there: ${unknown.join(', ')}.`
+        : '';
     if (real) {
       const where = limitText.trim() ? ` limited to ${limitText.trim()}` : '';
       if (
@@ -1042,7 +1066,10 @@ export function LaunchConfigPage({
         ))
       )
         return;
-    } else if (skipped && !(await ask(`Launch the check run?${skipped}`, { yes: 'Launch' })))
+    } else if (
+      skipped &&
+      !(await ask(`Launch the check run?${skipped}`, { yes: none ? 'Launch anyway' : 'Launch' }))
+    )
       return;
     start('launch');
     try {
@@ -1206,7 +1233,7 @@ export function LaunchConfigPage({
               noValidate
               onSubmit={(e) => {
                 e.preventDefault();
-                void check();
+                void (mayLaunch ? launch() : check());
               }}
               aria-describedby={error ? 'launch-error' : undefined}
             >
@@ -1237,7 +1264,9 @@ export function LaunchConfigPage({
                   groups={groups}
                   {...(form.data?.origins?.[f.name] ? { origin: form.data.origins[f.name] } : {})}
                   {...(groupCounts ? { counts: groupCounts } : {})}
-                  {...(f.targets && liveNow ? { warning: <TargetsWarning reply={liveNow} /> } : {})}
+                  {...(f.targets && liveNow
+                    ? { warning: <TargetsWarning reply={liveNow} name={f.name} /> }
+                    : {})}
                 />
               ))}
               {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
@@ -1254,7 +1283,8 @@ export function LaunchConfigPage({
                     hint={
                       mayManage
                         ? `Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
-                        : `${c.commit ? 'The pinned commit' : (c.gitRef ?? project.data.gitRef)}: another branch needs read and write access to this flow`
+                        : // AFS-191: why it cannot be typed in is said once, under the pair.
+                          `Runs ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
                     }
                     problem={problemOf('ref')}
                   >
@@ -1280,11 +1310,7 @@ export function LaunchConfigPage({
                   </datalist>
                   <Labelled
                     label="Or a commit"
-                    hint={
-                      mayManage
-                        ? 'As shown here (12 digits) or in full'
-                        : 'Another commit needs read and write access to this flow'
-                    }
+                    hint={mayManage ? 'As shown here (12 digits) or in full' : undefined}
                     problem={problemOf('commit')}
                   >
                     {(props) => (
@@ -1312,7 +1338,8 @@ export function LaunchConfigPage({
                 )}
                 <Labelled
                   label="Limit"
-                  hint="Ansible's --limit: fewer hosts than the flow starts on."
+                  // AFS-191: emptied, the run has no limit, not the configuration's.
+                  hint={`Ansible's --limit: fewer hosts than the flow starts on.${formLimit ? ' Empty: no limit.' : ''}`}
                   problem={problemOf('limit')}
                 >
                   {(props) => (
@@ -1370,20 +1397,20 @@ export function LaunchConfigPage({
                   {saved}
                 </p>
               )}
-              {/* AFS-94: Launch is first and the only filled button; Enter in a field still asks
-                  what would run (the form's submit), which changes nothing. */}
+              {/* AFS-94: Launch is first and the only filled button. AFS-191: and the form's submit,
+                  so Enter in a field launches (asking first as the button does); who may not launch
+                  gets What would run. */}
               <div className="actions">
                 {mayLaunch && (
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => void launch()}
-                    disabled={!!busy || !form.data}
-                  >
+                  <button type="submit" className="primary" disabled={!!busy || !form.data}>
                     {busy === 'launch' ? 'Launching…' : 'Launch'}
                   </button>
                 )}
-                <button type="submit" disabled={!!busy || !form.data}>
+                <button
+                  type={mayLaunch ? 'button' : 'submit'}
+                  onClick={mayLaunch ? () => void check() : undefined}
+                  disabled={!!busy || !form.data}
+                >
                   {busy === 'check' ? 'Looking…' : 'What would run'}
                 </button>
                 {mayManage && (

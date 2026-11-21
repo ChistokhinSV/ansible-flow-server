@@ -88,13 +88,17 @@ project's list of flows says the same of each flow.
 - **Which commit runs:** what the launch names (`ref` or `commit`), else what the configuration
   names, else the newest commit of the project's branch, after a look at the source.
 - **At launch** a person may give `mode`, `ref` or `commit`, `limit`, and `inputs` as typed
-  text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
-  not repeated in the answer.
+  text (`"fw-edge-01, fw-edge-02"` is a host list). A host list may also be a JSON list
+  (`["fw-edge-01", "fw-edge-02"]`); one that is not valid JSON is refused at its field rather than
+  taken as a host name. A secret-looking input is given here and is not repeated in the answer.
 - **The limit** is Ansible's `--limit`: the run touches only the targeted hosts it matches. On
   the launch page, a moment after the targets or the limit change, the fields say what the
   inventory makes of them: targets it does not have, targets that match no host, and how many
   hosts the limit leaves (none: the run would stop at once). **What would run** says the same.
-  A real launch asks first; a launch with targets the inventory does not have names them first.
+  A limit given at launch replaces the configuration's; an empty one runs with no limit. A real
+  launch asks first; a launch with targets the inventory does not have names them first, and one
+  on which no host would run (no target in the inventory, or a limit that leaves none) asks
+  first, from the launch page and from the canvas's Run dialog alike. Enter in a field is Launch.
 
 **On the pages:** a project's page lists its launch configurations. A configuration's page
 shows its settings and the launch form:

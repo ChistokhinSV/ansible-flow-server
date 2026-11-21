@@ -46,7 +46,9 @@ The server tells people what concerns them, by email and by webhook:
   Headers: `X-AFS-Event`, `X-AFS-Delivery` (the message's id), `X-AFS-Timestamp`, and, once an
   administrator has made a key (shown once), `X-AFS-Signature: sha256=<hex>`: HMAC-SHA256 of
   `<timestamp>.<body>` with the key. Redirects are not followed.
-- **Never in a message:** a run's inputs, a credential, a secret. Links need `AFS_PUBLIC_URL`.
+- **Never in a message:** a credential or a secret. A run's inputs are only in an approval's
+  request email, which the approvers need to decide (secret-looking values as `***`); never in a
+  webhook's payload. Links need `AFS_PUBLIC_URL`.
 - **Tries again** on a network error, a busy relay or receiver (408, 429, 5xx, SMTP 4xx): after 1,
   5 and 15 minutes, 1 and 3 hours, then it is given up on. A refusal (other 4xx, SMTP 5xx) is
   not tried again. Messages wait in the database: a restart loses none.

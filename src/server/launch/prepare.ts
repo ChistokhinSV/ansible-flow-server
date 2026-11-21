@@ -146,7 +146,8 @@ export async function prepareLaunch(
   if ('problem' in flow) return fail(flow.problem, 'flowFile', flow.errors);
   const mode = request.mode ?? config.mode;
   if (mode !== 'check' && mode !== 'real') return fail('A run is check or real', 'mode');
-  const limit = request.limit?.trim() || config.limit;
+  // AFS-191: a limit given at launch, even an empty one, is the run's: empty runs without one.
+  const limit = request.limit !== undefined ? request.limit.trim() || undefined : config.limit;
   if (limit && (limit.length > 500 || /[\n\r\0]/.test(limit)))
     return fail('A limit is one line of at most 500 characters', 'limit');
 
@@ -175,9 +176,12 @@ export async function prepareLaunch(
   for (const name of Object.keys(request.inputs ?? {}))
     if (!known.has(name))
       problems.push({ field: name, message: `The flow has no input ${name.slice(0, 60)}` });
-  const texts = Object.fromEntries(
+  const typed = Object.fromEntries(
     fields.map((field) => [field.name, request.inputs?.[field.name] ?? field.text]),
   );
+  const lists = hostListTexts(fields, typed);
+  if ('error' in lists) problems.push({ field: lists.field, message: lists.error });
+  const texts = 'texts' in lists ? lists.texts : typed;
   for (const field of fields)
     if (field.required && !texts[field.name]?.trim())
       problems.push({ field: field.name, message: `${field.name} is required` });
@@ -221,6 +225,40 @@ export async function prepareLaunch(
       credentials: config.credentials,
     },
   };
+}
+
+/**
+ * AFS-191: the host lists typed as a JSON list (the text starts with "["), as names separated by
+ * commas, which is how the designer's reading takes a host list. A text that does not read as a
+ * list of names is refused at its field, so it never becomes a host name of its own.
+ */
+export function hostListTexts(
+  fields: readonly LaunchField[],
+  texts: Record<string, string>,
+): { texts: Record<string, string> } | { field: string; error: string } {
+  const out = { ...texts };
+  for (const field of fields) {
+    const text = texts[field.name]?.trim() ?? '';
+    if (field.type !== 'host_list' || !text.startsWith('[')) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      value = undefined;
+    }
+    const names = Array.isArray(value)
+      ? value.map((v) =>
+          typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '',
+        )
+      : [];
+    if (!Array.isArray(value) || names.some((n) => !n || /[\s,]/.test(n)))
+      return {
+        field: field.name,
+        error: `${field.name} is not a JSON list of names: write it as ["web-01", "web-02"], or the names separated by commas`,
+      };
+    out[field.name] = names.join(', ');
+  }
+  return { texts: out };
 }
 
 /** A prepared launch as an answer to a request: a secret-looking input's value is not repeated. */

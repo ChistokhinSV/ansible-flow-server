@@ -49,7 +49,12 @@ const setUp = (
   routes = {
     'GET /projects/p1/launch-configs': () => ({ body: configs }),
     'GET /launch-configs/c1/form?mode=real': () => ({
-      body: { flow: { name: 'Hello' }, fields: FIELDS, inventory: 'inventory/prod/hosts.yaml' },
+      body: {
+        flow: { name: 'Hello' },
+        fields: FIELDS,
+        inventory: 'inventory/prod/hosts.yaml',
+        origins: { devices: 'Read by Ping.' },
+      },
     }),
     'POST /launch-configs/c1/facts': (body) => {
       const devices = (body as { inputs: Record<string, string> }).inputs.devices;
@@ -165,6 +170,8 @@ describe('Run on the canvas', () => {
       vault: false,
       inventory: 'inventory/prod/hosts.yaml',
       environment: 'ee:1 (docker)',
+      // AFS-191: where each input goes, as the launch form says it.
+      origins: { devices: 'Read by Ping.' },
     });
     // The first ask is for groups too, with the start values and no secret.
     expect(asked.find((a) => a.key === 'POST /launch-configs/c1/facts')?.body).toEqual({
@@ -205,6 +212,43 @@ describe('Run on the canvas', () => {
     // A token is used once.
     await l.launch(plan?.token as string, { devices: ['fw-edge-01'] });
     expect(launched).toEqual(['r7']);
+  });
+
+  it('a limit that leaves no host is asked about before Run launches; no reopens the dialog (AFS-191)', async () => {
+    const { sent, launched } = setUp([config('c1', 'Edge')]);
+    const facts = routes['POST /launch-configs/c1/facts'] as (b: unknown) => { body: object };
+    routes['POST /launch-configs/c1/facts'] = (body) => ({
+      body: { ...facts(body).body, limited: { pattern: 'nosuchhost', hosts: [], count: 0 } },
+    });
+    routes['POST /launch-configs/c1/launch'] = () => ({ status: 201, body: { id: 'r8' } });
+    const questions: string[] = [];
+    let yes = false;
+    const asking = launcher({
+      project: 'p1',
+      path: 'flows/hello.flow.yaml',
+      send: (m) => sent.push(m),
+      launched: (id) => launched.push(id),
+      choose: vi.fn(),
+      askName: vi.fn(),
+      go: vi.fn(),
+      askYes: async (question) => {
+        questions.push(question);
+        return yes;
+      },
+    });
+    await asking.run('real');
+    const token = (sent.at(-1) as Extract<HostMessage, { type: 'launch' }>).plan?.token as string;
+    await asking.launch(token, { devices: ['fw-edge-01'] });
+    expect(questions).toEqual([
+      "Launch anyway? No host would run: the limit nosuchhost leaves none of the targets' hosts.",
+    ]);
+    expect(asked.some((a) => a.key === 'POST /launch-configs/c1/launch')).toBe(false);
+    expect((sent.at(-1) as Extract<HostMessage, { type: 'launch' }>).plan?.fields[0]?.text).toBe(
+      'fw-edge-01',
+    );
+    yes = true;
+    await asking.launch(token, { devices: ['fw-edge-01'] });
+    expect(launched).toEqual(['r8']);
   });
 
   it('who may not launch is told so, and no dialog opens', async () => {
