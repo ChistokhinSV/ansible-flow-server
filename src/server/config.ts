@@ -49,6 +49,11 @@ export interface Config {
   eeImage: string;
   /** A run that takes longer is stopped, in minutes. */
   runTimeoutMinutes: number;
+  /**
+   * AFS-177: how long a step-by-step run waits at a pause before it stops by itself
+   * (AFS_RUN_STEP_TIMEOUT_MINUTES, default 60); a launch may ask for less, never more.
+   */
+  runStepTimeoutMinutes?: number;
   /** Ended runs older than this many days are removed, and beyond this many of one flow. */
   runsKeepDays: number;
   runsKeepPerFlow: number;
@@ -195,6 +200,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const archiveMaxMb = keepOf('AFS_ARCHIVE_MAX_MB', 50, 1024);
   const devKeepHours = keepOf('AFS_DEV_KEEP_HOURS', 24, 24 * 90);
   const buildTimeoutMinutes = keepOf('AFS_BUILD_TIMEOUT_MINUTES', 60, 24 * 60);
+  const runStepTimeoutMinutes = keepOf('AFS_RUN_STEP_TIMEOUT_MINUTES', 60, 24 * 60);
   const galaxyUrl = (text('AFS_GALAXY_URL') ?? 'https://galaxy.ansible.com').replace(/\/+$/, '');
   if (!/^https?:\/\/[^\s/]+/.test(galaxyUrl))
     problems.push(`AFS_GALAXY_URL is "${galaxyUrl}": an http(s) address is needed`);
@@ -291,6 +297,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     containerEngine: engineText as Config['containerEngine'],
     eeImage,
     runTimeoutMinutes,
+    runStepTimeoutMinutes,
     runsKeepDays,
     runsKeepPerFlow,
     auditKeepDays: auditKeepDays > 36_500 || Number.isNaN(auditKeepDays) ? 365 : auditKeepDays,

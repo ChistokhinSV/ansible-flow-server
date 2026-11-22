@@ -9,6 +9,28 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-177: step-by-step runs: what a run was asked for (every step, pause points, how long a
+  // pause waits) and the step it is paused before now, so a server that restarts ends it as
+  // stopped; tokens that let an agent drive them (run_step); each person's pause points per flow.
+  '0033_step_runs': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('step_json', 'text').execute();
+      await db.schema.alterTable('run').addColumn('step_paused', 'text').execute();
+      await db.schema
+        .alterTable('api_token')
+        .addColumn('mcp_run_control', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+      await db.schema
+        .createTable('pause_point')
+        .addColumn('user_id', 'text', (c) => c.notNull())
+        .addColumn('project_id', 'text', (c) => c.notNull())
+        .addColumn('flow_file', 'text', (c) => c.notNull())
+        .addColumn('points_json', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addPrimaryKeyConstraint('pause_point_pk', ['user_id', 'project_id', 'flow_file'])
+        .execute();
+    },
+  },
   // AFS-176: links to actions from other systems: an action that runs as its link opens, where a
   // run's result goes back, the tokens of signed links, and the runs that tell a system.
   '0032_action_links': {

@@ -14,7 +14,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { type Kysely, sql } from 'kysely';
 import type { Schema } from '../db/schema';
-import type { PreparedLaunch } from '../launch/prepare';
+import type { PreparedLaunch, StepAsked } from '../launch/prepare';
 import { open, seal } from '../secrets/crypto';
 import type { MasterKey } from '../secrets/masterKey';
 import { type LastRun, readBefore } from './cursor';
@@ -108,7 +108,23 @@ export interface Run {
    * (runs/routes.ts).
    */
   serverDefault?: true;
+  /** AFS-177: a step-by-step run: what it was asked for. */
+  step?: StepAsked;
+  /** AFS-177: the step a step-by-step run is paused before now (its title). */
+  pausedBefore?: string;
 }
+
+/**
+ * AFS-177: what a step-by-step run keeps: what it was asked for, and what its driver said last
+ * (`control`: carried into the segment after an approval).
+ */
+export interface StepRecord extends StepAsked {
+  control?: { v: 1; command: 'step' | 'continue' | 'pause' | 'stop'; points: string[] };
+}
+
+/** AFS-177: why a run that was paused when its server went away ended (it cannot go on). */
+export const pausedGone = (title: string, how: 'restarted' | 'stopped' = 'restarted') =>
+  `Stopped: the server ${how} while the run was paused before ${title}; a paused run cannot go on after a restart`;
 
 /** A run as a worker gets it: with its lease, and its inputs in full. */
 export interface Job {
@@ -235,6 +251,8 @@ export class RunQueue {
       ...(row.schedule_id ? { schedule: row.schedule_id } : {}),
       ...(row.action_title ? { action: row.action_title } : {}),
       ...(row.ee_default === 1 ? { serverDefault: true as const } : {}),
+      ...(row.step_json ? { step: stepAsked(row.step_json) } : {}),
+      ...(row.step_paused ? { pausedBefore: row.step_paused } : {}),
     };
   }
 
@@ -301,6 +319,8 @@ export class RunQueue {
         dev_bundle: launch.dev ?? null,
         schedule_id: launch.schedule ?? null,
         action_title: launch.action ?? null,
+        step_json: launch.step ? JSON.stringify(launch.step) : null,
+        step_paused: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
@@ -543,6 +563,40 @@ export class RunQueue {
       .execute();
   }
 
+  /**
+   * AFS-177: the step a step-by-step run is paused before now (its title), or none: kept while
+   * the worker has it, so that a server that went away ends it as stopped, not lost.
+   */
+  async setPaused(id: string, token: string, title: string | null): Promise<void> {
+    await this.db
+      .updateTable('run')
+      .set({ step_paused: title ? title.slice(0, 300) : null })
+      .where('id', '=', id)
+      .where('lease_token', '=', token)
+      .execute();
+  }
+
+  /** AFS-177: what a step-by-step run keeps (with its driver's last word); none for others. */
+  async stepRecord(id: string): Promise<StepRecord | undefined> {
+    const row = await this.db
+      .selectFrom('run')
+      .select('step_json')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row?.step_json ? (JSON.parse(row.step_json) as StepRecord) : undefined;
+  }
+
+  /** AFS-177: what the driver said last, for the segment after an approval. */
+  async keepControl(id: string, control: StepRecord['control']): Promise<void> {
+    const step = await this.stepRecord(id);
+    if (!step) return;
+    await this.db
+      .updateTable('run')
+      .set({ step_json: JSON.stringify({ ...step, control }) })
+      .where('id', '=', id)
+      .execute();
+  }
+
   /** The designer's folder of the run (its events), once it started. */
   async runDir(id: string): Promise<string | undefined> {
     const row = await this.db
@@ -655,6 +709,9 @@ export class RunQueue {
         failed_count: null,
         run_dir: null,
         segments_json: null,
+        // AFS-177: steps again as it was asked to, from the start (not where its driver left it).
+        step_json: old.step_json ? JSON.stringify(stepAsked(old.step_json)) : null,
+        step_paused: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
@@ -691,6 +748,7 @@ export class RunQueue {
           lease_owner: null,
           lease_token: null,
           lease_until: null,
+          step_paused: null,
           updated_at: iso(now),
         })
         .where('id', '=', id)
@@ -816,7 +874,24 @@ export class RunQueue {
           lease_until: null,
           updated_at: iso(now),
         };
-        if (row.started_at)
+        // AFS-177: a step-by-step run paused when its worker went away waited for a person and
+        // changed nothing since its last step: it is stopped (it cannot go on), not lost.
+        if (row.started_at && row.step_paused)
+          await trx
+            .updateTable('run')
+            .set({
+              ...released,
+              state: 'cancelled',
+              ended_at: iso(now),
+              step_paused: null,
+              error: pausedGone(row.step_paused),
+              ...(row.view_json
+                ? { view_json: JSON.stringify(pausedGoneView(row.view_json, row.step_paused)) }
+                : {}),
+            })
+            .where('id', '=', row.id)
+            .execute();
+        else if (row.started_at)
           await trx
             .updateTable('run')
             .set({
@@ -854,7 +929,8 @@ export class RunQueue {
             .set({ ...released, state: 'queued' })
             .where('id', '=', row.id)
             .execute();
-        if (row.started_at || (row.cancel_requested !== 1 && row.attempts >= MAX_ATTEMPTS))
+        if (row.started_at && row.step_paused) counts.cancelled++;
+        else if (row.started_at || (row.cancel_requested !== 1 && row.attempts >= MAX_ATTEMPTS))
           counts.lost++;
         else if (row.cancel_requested === 1) counts.cancelled++;
         else counts.requeued++;
@@ -957,6 +1033,33 @@ export function stoppedView(viewJson: string, by: string, at?: string): unknown 
     errorCode: 'cancelled',
     error: `Stopped by ${by} before it went on`,
     ...(view.approvals ? { approvals } : {}),
+  };
+}
+
+/** AFS-177: what a step-by-step run was asked for, from its record (its driver's word left out). */
+export function stepAsked(json: string): StepAsked {
+  const s = JSON.parse(json) as StepRecord;
+  return { every: s.every, points: s.points ?? [], timeoutS: s.timeoutS };
+}
+
+/** AFS-177: the view of a paused run whose server went away: ended as stopped, saying why. */
+export function pausedGoneView(viewJson: string, title: string): unknown {
+  const { rc: _rc, ...view } = JSON.parse(viewJson) as {
+    rc?: number;
+    step?: { paused?: { node?: string } };
+    summary?: { running?: string };
+  };
+  const at = view.step?.paused?.node;
+  const { running: _running, ...summary } = view.summary ?? {};
+  const { paused: _paused, ...step } = view.step ?? {};
+  return {
+    ...view,
+    ...(view.summary ? { summary } : {}),
+    ...(view.step ? { step } : {}),
+    ...(at ? { stoppedAt: at } : {}),
+    state: 'error',
+    errorCode: 'cancelled',
+    error: pausedGone(title),
   };
 }
 

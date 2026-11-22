@@ -3,6 +3,7 @@
 
 import type { RunView } from '@ansible-flow/core/protocol';
 import type { OutputEntry } from '@ansible-flow/core/run/events';
+import type { StepCommand } from '@ansible-flow/core/run/step';
 import type {
   Grant,
   GrantLevel,
@@ -47,7 +48,13 @@ import type {
 import type { FlowError } from '../server/flowErrors';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { FactsReply } from '../server/launch/facts';
-import type { LaunchForm, LaunchRequest, PreparedLaunch, Problem } from '../server/launch/prepare';
+import type {
+  LaunchForm,
+  LaunchRequest,
+  PreparedLaunch,
+  Problem,
+  StepRequest,
+} from '../server/launch/prepare';
 import type {
   Delivery,
   NotifySettings,
@@ -561,6 +568,21 @@ export const api = {
   run: (id: string) => call<Run>('GET', `/runs/${encodeURIComponent(id)}`),
   cancelRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/cancel`),
   relaunchRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/relaunch`),
+  /** AFS-177: Step, Continue, Pause or Stop for a step-by-step run; or new pause points. */
+  stepRun: (id: string, ask: { command?: StepCommand; points?: string[] }) =>
+    call<Run>('POST', `/runs/${encodeURIComponent(id)}/step`, ask),
+  /** AFS-177: your pause points on a flow, and keeping new ones. */
+  pausePoints: (project: string, path: string) =>
+    call<{ points: string[] }>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
+    ),
+  setPausePoints: (project: string, path: string, points: string[]) =>
+    call<{ points: string[] }>(
+      'PUT',
+      `/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
+      { points },
+    ),
   /** How the run went, as the canvas shows it (its hosts and where they left each step). */
   runView: (id: string) => call<RunView>('GET', `/runs/${encodeURIComponent(id)}/view`),
   /** AFS-170: what one host did in the run, step by step. */
@@ -703,7 +725,7 @@ export const api = {
       'GET',
       `/schedule-times?${queryOf({ cron, timezone, check: '1' })}`,
     ),
-  launch: (id: string, request: LaunchRequest) =>
+  launch: (id: string, request: LaunchRequest & { step?: StepRequest }) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
 
   // AFS-175: actions, for whoever may run them.
@@ -864,6 +886,7 @@ export const api = {
       readOnly?: boolean;
       workspace?: string;
       mcpApprovals?: boolean;
+      mcpRunControl?: boolean;
     },
   ) => call<NewToken>('POST', `/users/${encodeURIComponent(id)}/tokens`, input),
   revokeUserToken: (id: string, token: string) =>
@@ -935,6 +958,7 @@ export const api = {
     readOnly?: boolean;
     workspace?: string;
     mcpApprovals?: boolean;
+    mcpRunControl?: boolean;
   }) => call<NewToken>('POST', '/tokens', input),
   revokeToken: (id: string) => call<void>('DELETE', `/tokens/${id}`),
 };

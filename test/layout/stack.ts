@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -64,7 +65,7 @@ export async function startStack(port = Number(process.env.AFS_LAYOUT_PORT ?? 18
     const code = await setupCode(child);
     const base = `http://127.0.0.1:${port}`;
     const password = `${randomBytes(9).toString('base64url')}-Afs`;
-    const pages = await seed(base, code, password);
+    const pages = await seed(base, code, password, data);
     return { base, login: 'dana', password, pages, stop } satisfies Stack;
   } catch (e) {
     await stop();
@@ -95,7 +96,12 @@ function setupCode(child: ChildProcess): Promise<string> {
   });
 }
 
-async function seed(base: string, code: string, password: string): Promise<Record<string, string>> {
+async function seed(
+  base: string,
+  code: string,
+  password: string,
+  data: string,
+): Promise<Record<string, string>> {
   let cookie = '';
   // biome-ignore lint/suspicious/noExplicitAny: the answers are read by the few fields used here
   const call = async (method: string, path: string, body?: unknown): Promise<any> => {
@@ -219,6 +225,53 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     { op: 'write', path: 'inventory.ini', text: '[all]\nlocalhost ansible_connection=local\n' },
   ]);
   const run = await call('POST', `/launch-configs/${config.id}/launch`, {});
+  // AFS-177: a step-by-step run paused before its second step. Nothing runs flows here, so the
+  // record is put as a worker leaves it while the run waits (its lease far ahead: never lost).
+  const stepped = await call('POST', `/launch-configs/${config.id}/launch`, {
+    step: { every: true },
+  });
+  const now = new Date().toISOString();
+  const facts = '01M6GPM99KC9TX091MCH61REQV';
+  const hosts = ['localhost', `${LONG}-host`.slice(0, 60)];
+  const pausedView = {
+    id: stepped.id,
+    mode: 'check',
+    startedAt: now,
+    state: 'running',
+    summary: {
+      nodes: { '01M6GPM979RJPCDJ0XFF22GBSV': { ok_hosts: hosts } },
+      outcome: {},
+      failures: [],
+      unreachable: [],
+      hosts,
+      stoppedEarly: false,
+    },
+    step: {
+      every: true,
+      points: [],
+      pauses: 2,
+      paused: {
+        id: 'layout-2',
+        node: facts,
+        play: '[facts] Read the minimal facts',
+        hosts,
+        since: Date.now() / 1000,
+        timeout: 3600,
+      },
+    },
+  };
+  const sqlite = new DatabaseSync(join(data, 'afs.db'));
+  try {
+    sqlite
+      .prepare(
+        `update run set state = 'running', claimed_at = ?, started_at = ?, attempts = 1,
+           lease_owner = 'layout', lease_token = 'layout', lease_until = '2999-01-01T00:00:00.000Z',
+           step_paused = 'Read the minimal facts', view_json = ?, updated_at = ? where id = ?`,
+      )
+      .run(now, now, JSON.stringify(pausedView), now, stepped.id);
+  } finally {
+    sqlite.close();
+  }
   // AFS-175: an action on the edge sample, a person who may only run it, and a run of it.
   const edge = (Array.isArray(projects) ? projects : projects.projects).find(
     (p: { key: string }) => p.key === 'edge',
@@ -263,6 +316,8 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     longProject: '/w/network/long',
     launch: `/w/network/hello/launch/${config.id}`,
     run: `/runs/${run.id ?? run.run?.id}`,
+    // AFS-177: a step-by-step run paused, with Step, Continue and Stop outside the canvas.
+    pausedRun: `/runs/${stepped.id}`,
     runs: '/runs',
     approvals: '/approvals',
     credentials: '/w/network/-/credentials',

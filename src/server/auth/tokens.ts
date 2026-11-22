@@ -32,6 +32,8 @@ export interface TokenInfo {
   workspace?: string;
   /** AFS-24: an agent with it may decide approvals over MCP. */
   mcpApprovals: boolean;
+  /** AFS-177: an agent with it may drive step-by-step runs over MCP (run_step). */
+  mcpRunControl: boolean;
   createdAt: string;
   expiresAt?: string;
   lastUsedAt?: string;
@@ -45,6 +47,7 @@ const infoOf = (row: Row): TokenInfo => ({
   readOnly: row.read_only === 1,
   ...(row.workspace_id ? { workspace: row.workspace_id } : {}),
   mcpApprovals: row.mcp_approve === 1,
+  mcpRunControl: row.mcp_run_control === 1,
   createdAt: row.created_at,
   ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
   ...(row.last_used_at ? { lastUsedAt: row.last_used_at } : {}),
@@ -60,6 +63,8 @@ export interface NewToken {
   workspace?: string;
   /** AFS-24: an agent with it may decide approvals over MCP. Not with a read-only token. */
   mcpApprovals?: boolean;
+  /** AFS-177: an agent with it may drive step-by-step runs over MCP. Not with a read-only token. */
+  mcpRunControl?: boolean;
 }
 
 /** Makes a token for a person. Resolves with the token (this once) and what is kept about it. */
@@ -77,6 +82,8 @@ export async function createToken(
     throw new UserError('invalid', `A token lasts 1 to ${TOKEN_MAX_DAYS} days`);
   if (input.mcpApprovals && input.readOnly)
     throw new UserError('invalid', 'A read-only token cannot decide approvals');
+  if (input.mcpRunControl && input.readOnly)
+    throw new UserError('invalid', 'A read-only token cannot drive step-by-step runs');
   const count = await db
     .selectFrom('api_token')
     .select((eb) => eb.fn.countAll().as('n'))
@@ -95,6 +102,7 @@ export async function createToken(
     read_only: input.readOnly ? 1 : 0,
     workspace_id: input.workspace ?? null,
     mcp_approve: input.mcpApprovals ? 1 : 0,
+    mcp_run_control: input.mcpRunControl ? 1 : 0,
     run_id: null,
     created_at: now.toISOString(),
     last_used_at: null,
@@ -148,6 +156,7 @@ export async function tokenUser(
       'api_token.read_only',
       'api_token.workspace_id',
       'api_token.mcp_approve',
+      'api_token.mcp_run_control',
       'api_token.run_id',
       'api_token.expires_at',
       'api_token.last_used_at',
@@ -179,6 +188,7 @@ export async function tokenUser(
       readOnly: row.read_only === 1,
       ...(row.workspace_id ? { workspace: row.workspace_id } : {}),
       ...(row.mcp_approve === 1 ? { mcpApprovals: true } : {}),
+      ...(row.mcp_run_control === 1 ? { mcpRunControl: true } : {}),
       ...(row.run_id ? { run: row.run_id } : {}),
     },
   };
@@ -207,6 +217,7 @@ export async function createRunToken(
       read_only: 0,
       workspace_id: run.workspace,
       mcp_approve: 0,
+      mcp_run_control: 0,
       run_id: run.id,
       created_at: now.toISOString(),
       last_used_at: null,

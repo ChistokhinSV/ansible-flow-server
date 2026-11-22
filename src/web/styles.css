@@ -1853,6 +1853,31 @@ textarea.code {
 .run-side .facts {
   font-size: 14px;
 }
+/* AFS-177: a step-by-step run: paused where, and Step, Continue, Pause, Stop, outside the canvas. */
+.step-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.step-bar.paused {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.step-line {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 /* AFS-86: a host's name stays whole on one line (.mono breaks anywhere, which left it a letter
    wide beside long words); a name longer than the column is cut with an ellipsis. */
 .hosts .mono {

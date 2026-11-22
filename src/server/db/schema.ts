@@ -237,6 +237,8 @@ export interface ApiTokenTable {
   workspace_id: string | null;
   /** AFS-24: an agent with this token may decide approvals over MCP (off unless asked for). */
   mcp_approve: Flag;
+  /** AFS-177: an agent with this token may drive step-by-step runs over MCP (run_step). */
+  mcp_run_control: Flag;
   /** AFS-116: the run this token was made for; it ends with the run and decides no approval. */
   run_id: string | null;
   created_at: IsoTime;
@@ -376,6 +378,13 @@ export interface RunTable {
   schedule_id: string | null;
   /** AFS-175: started through an action: the action's title then; null: not through one. */
   action_title: string | null;
+  /**
+   * AFS-177: a step-by-step run: {every, points, timeoutS, control?} as JSON (control: what the
+   * run's driver said last, carried into the segment after an approval); null: a normal run.
+   */
+  step_json: string | null;
+  /** AFS-177: the step it is paused before now (its title); null while it is not paused. */
+  step_paused: string | null;
 }
 
 /** AFS-175: a launch configuration marked as an action: what its runners see and choose. */
@@ -625,7 +634,18 @@ export interface DevBundleTable {
   expires_at: IsoTime;
 }
 
+/** AFS-177: a person's pause points on one flow (kept by the server, not in the flow file). */
+export interface PausePointTable {
+  user_id: string;
+  project_id: string;
+  flow_file: string;
+  /** The steps' node ids, as JSON. */
+  points_json: string;
+  updated_at: IsoTime;
+}
+
 export interface Schema {
+  pause_point: PausePointTable;
   flow_draft: FlowDraftTable;
   flow_draft_edit: FlowDraftEditTable;
   dev_bundle: DevBundleTable;

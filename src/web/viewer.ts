@@ -180,6 +180,11 @@ async function start(): Promise<void> {
     mayStop: operate,
     words: 'server' as const,
   };
+  // AFS-177: step-by-step runs, pause points, Step/Continue/Pause/Stop for who may launch and stop:
+  // on the flow and on a run's page, not on the flow at an older commit.
+  const stepping = operate && (!commit || !!runId);
+  /** AFS-177: this person's pause points on the flow, kept by the server. */
+  let points: string[] = [];
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
@@ -352,6 +357,7 @@ async function start(): Promise<void> {
     askName,
     go,
     mayAddConfig: manage,
+    ...(stepping ? { stepPoints: () => points } : {}),
     launched: (id) => {
       void runs().then(() => showRun(id, false));
       runsChanged();
@@ -395,7 +401,24 @@ async function start(): Promise<void> {
         switch (message.type) {
           case 'ready':
             // `embed` typed loosely, so this builds against a designer that does not have it yet.
-            send({ type: 'config', testMode: false, viewer: true, embed } as HostMessage);
+            send({
+              type: 'config',
+              testMode: false,
+              viewer: true,
+              embed,
+              ...(stepping ? { stepRuns: true } : {}),
+            } as HostMessage);
+            if (stepping)
+              void get(
+                `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
+              ).then(
+                (reply) => {
+                  if (!reply.ok) return;
+                  points = (reply.data?.points as string[] | undefined) ?? [];
+                  send({ type: 'pausePoints', points });
+                },
+                () => undefined,
+              );
             send({ type: 'catalogStatus', status: { state: 'idle' } });
             send({ type: 'snapshot', snapshot: flow.data.snapshot });
             // AFS-164: the step a link names (an error on it): selected, its level open.
@@ -416,14 +439,72 @@ async function start(): Promise<void> {
               });
               return;
             }
-            void launch.run(message.mode);
+            void launch.run(message.mode, message.step);
             return;
           case 'launchCheck':
             void launch.check(message.token, message.inputs);
             return;
           case 'launchRun':
-            void launch.launch(message.token, message.inputs);
+            void launch.launch(message.token, message.inputs, message.step);
             return;
+          case 'stepRun': {
+            // AFS-177: Step, Continue, Pause, Stop of the step-by-step run on the canvas.
+            const id = shown;
+            if (!id) return;
+            void fetch(`/api/v1/runs/${encodeURIComponent(id)}/step`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ command: message.command }),
+            }).then(
+              async (reply) => {
+                if (reply.ok) return;
+                const why = (await reply.json().catch(() => undefined))?.message;
+                send({ type: 'notify', level: 'error', text: why ?? answerWords(reply.status) });
+              },
+              () => send({ type: 'notify', level: 'error', text: 'The server does not answer' }),
+            );
+            return;
+          }
+          case 'togglePausePoint': {
+            // AFS-177: kept per person and flow on the server; a step-by-step run going gets them.
+            if (!stepping) return;
+            const before = points;
+            points = points.includes(message.node)
+              ? points.filter((n) => n !== message.node)
+              : [...points, message.node];
+            send({ type: 'pausePoints', points });
+            void fetch(
+              `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
+              {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ points }),
+              },
+            )
+              .then((reply) => {
+                if (!reply.ok) throw new Error(answerWords(reply.status));
+                // The run shown, when it is someone else's step-by-step run this person drives.
+                const id = shown;
+                const record = known.find((r) => r.id === id) as
+                  | (RunRecord & { step?: unknown })
+                  | undefined;
+                if (id && record?.step && going(record.state))
+                  void fetch(`/api/v1/runs/${encodeURIComponent(id)}/step`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ points }),
+                  }).catch(() => undefined);
+              })
+              .catch(() => {
+                points = before;
+                send({ type: 'pausePoints', points });
+                send({ type: 'notify', level: 'error', text: 'The pause point was not kept' });
+              });
+            return;
+          }
           case 'launchCancel':
             launch.cancel(message.token);
             return;

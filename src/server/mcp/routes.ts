@@ -6,7 +6,8 @@
 //   - the designer's flow tools that read (flow_list, flow_describe, flow_validate,
 //     flow_reference) on the server's projects (flowIO.ts);
 //   - the server's: projects, launch configurations, check and launch, runs (status, output, stop,
-//     list), approvals (list; decide only with a token that allows it).
+//     list), approvals (list; decide only with a token that allows it), step-by-step runs
+//     (run_launch's step; run_step only with a token that allows run control, AFS-177).
 // The server's tools call the server's own API in-process with the caller's token: the same access
 // checks, the same limits of a token made for one workspace, the same audit entries (source mcp).
 import { runTool } from '@ansible-flow/core/ai/handlers';
@@ -29,6 +30,7 @@ const MAX_TEXT = 40_000;
 const INSTRUCTIONS = `Tools of an Ansible Flow Server: the flows of its projects (read-only) and their runs.
 Flows are named <workspace>/<project>/<file> (flow_list); read one with flow_describe. Flows change in git, not here.
 A run is launched from a launch configuration (launch_config_list): run_check says what a launch would run (commit, inputs, hosts) or what is in the way; run_launch queues it. Follow it with run_status and run_output; run_stop stops it.
+A run launched with step: true pauses before each step until someone says Step, Continue or Stop on its page; run_step says it for an agent, only with a token made to allow run control and when the user has told you to.
 A run of a flow with approvals waits at each until a person decides (approval_list). Approvals stay with people: approval_decide works only with a token made to allow it, and only for someone allowed to decide.
 You act as the token's owner: you see and do only what they may.`;
 
@@ -59,6 +61,11 @@ const LAUNCH = {
     type: 'object',
     description: 'The flow\'s inputs as text, by name: "fw-edge-01, fw-edge-02" is a host list',
     additionalProperties: { type: 'string' },
+  },
+  step: {
+    type: 'boolean',
+    description:
+      'AFS-177: run step by step: the run pauses before each step until someone says Step, Continue or Stop (its page, or run_step)',
   },
 };
 
@@ -126,6 +133,20 @@ export const SERVER_TOOLS: ServerTool[] = [
     description: 'Stops a run: at once when it waits or is queued, else at its next heartbeat',
     readOnly: false,
     inputSchema: object({ run: str('The run id') }, ['run']),
+  },
+  {
+    name: 'run_step',
+    title: 'Drive a step-by-step run',
+    description:
+      'Step (run the next step, pause again), continue (run on to a pause point), pause (pause before the next step) or stop (end before the next step) for a step-by-step run. Only with a token made to allow run control, and only when the user has told you to',
+    readOnly: false,
+    inputSchema: object(
+      {
+        run: str('The run id'),
+        command: { type: 'string', enum: ['step', 'continue', 'pause', 'stop'] },
+      },
+      ['run', 'command'],
+    ),
   },
   {
     name: 'run_list',
@@ -251,8 +272,9 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
       )?.id;
     };
     const launchBody = (input: Record<string, unknown>) => {
-      const { config: _c, ...rest } = input;
-      return rest;
+      const { config: _c, step, ...rest } = input;
+      // AFS-177: step: true is a run that pauses before every step.
+      return { ...rest, ...(step === true ? { step: { every: true } } : {}) };
     };
 
     const handlers: Record<string, (input: Record<string, unknown>) => Promise<Answer>> = {
@@ -457,6 +479,22 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
           }),
         );
       },
+      run_step: async ({ run, command }) => {
+        if (!token?.mcpRunControl)
+          return {
+            text: 'This token may not drive step-by-step runs: they stay with people. Ask the user to press Step, Continue or Stop on the page of the run, or to make a token that allows agents to drive runs.',
+            isError: true,
+          };
+        const r = await api(
+          authorization,
+          'POST',
+          `/api/v1/runs/${encodeURIComponent(String(run))}/step`,
+          { command },
+        );
+        if (r.status !== 202) return refused(r);
+        const after = r.json as { number: number };
+        return { text: `Run ${after.number}: ${String(command)} sent` };
+      },
       approval_decide: async ({ run, node, decision, comment }) => {
         if (!token?.mcpApprovals)
           return {
@@ -505,20 +543,22 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
           inputSchema: s.inputSchema as { type: 'object' },
           annotations: { title: s.title, readOnlyHint: true, openWorldHint: false },
         })),
-        ...SERVER_TOOLS.filter((t) => t.name !== 'approval_decide' || user.token?.mcpApprovals).map(
-          (t) => ({
-            name: t.name,
+        ...SERVER_TOOLS.filter(
+          (t) =>
+            (t.name !== 'approval_decide' || user.token?.mcpApprovals) &&
+            (t.name !== 'run_step' || user.token?.mcpRunControl),
+        ).map((t) => ({
+          name: t.name,
+          title: t.title,
+          description: t.description,
+          inputSchema: t.inputSchema as { type: 'object' },
+          annotations: {
             title: t.title,
-            description: t.description,
-            inputSchema: t.inputSchema as { type: 'object' },
-            annotations: {
-              title: t.title,
-              readOnlyHint: t.readOnly,
-              destructiveHint: !t.readOnly,
-              openWorldHint: !t.readOnly,
-            },
-          }),
-        ),
+            readOnlyHint: t.readOnly,
+            destructiveHint: !t.readOnly,
+            openWorldHint: !t.readOnly,
+          },
+        })),
       ],
     }));
     server.setRequestHandler('tools/call', async (call) => {

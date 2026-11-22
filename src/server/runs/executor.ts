@@ -18,10 +18,16 @@ import type { RunView } from '@ansible-flow/core/protocol';
 import { stripAnsi } from '@ansible-flow/core/run/ansi';
 import type { Environment } from '@ansible-flow/core/run/environment';
 import { REDACTED } from '@ansible-flow/core/run/redact';
+import type { StepCommand } from '@ansible-flow/core/run/step';
 import { startProcess } from '@ansible-flow/node/run/exec';
 import { stamp } from '@ansible-flow/node/run/ids';
 import { runsDir } from '@ansible-flow/node/run/pastRuns';
-import { type RunFlowHooks, type RunFlowRequest, runFlow } from '@ansible-flow/node/run/runFlow';
+import {
+  type RunFlowHooks,
+  type RunFlowRequest,
+  runFlow,
+  type StepDriver,
+} from '@ansible-flow/node/run/runFlow';
 import {
   type GateDecision,
   nextSegment,
@@ -46,9 +52,10 @@ import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
 import { withLimit } from './limit';
 import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
-import type { Job, Outcome, RunQueue } from './queue';
+import { type Job, type Outcome, pausedGone, type RunQueue, type StepRecord } from './queue';
 import { pullWithSignIn } from './registry';
 import { repositoryConfig } from './repoConfig';
+import { refusalFor, type Stepper } from './stepping';
 import { failedWhy, NO_HOSTS, noHostWhy, skippedTarget, titleOf } from './words';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
@@ -209,8 +216,13 @@ export function hide(text: string, secrets: readonly string[]): string {
   return out;
 }
 
-export class Executor {
+export class Executor implements Stepper {
   private readonly active = new Map<string, { abort(why: Stop): void; done: Promise<void> }>();
+  /**
+   * AFS-177: the drivers of the step-by-step runs going here (the designer's StepDriver), and who
+   * sent Stop last (the run then says who stopped it).
+   */
+  private readonly drivers = new Map<string, { driver: StepDriver; stopBy?: string }>();
   private timer: NodeJS.Timeout | undefined;
   private filling = false;
   private stopping = false;
@@ -237,7 +249,10 @@ export class Executor {
     this.workdirs = new Workdirs(join(options.dataDir, 'work'), deps.git, deps.sync);
     this.serverImage = options.image;
     // AFS-131: a stop asked on this server stops the run at once, not at the next heartbeat.
-    deps.queue.onStopAsked = (id) => this.active.get(id)?.abort('cancel');
+    // AFS-177: a paused step-by-step run is stopped where it waits (its stats written), not killed.
+    deps.queue.onStopAsked = (id) => {
+      if (!this.stopPaused(id)) this.active.get(id)?.abort('cancel');
+    };
     this.probeDir = join(options.dataDir, 'probe');
     this.outputDir = join(options.dataDir, 'output');
     const version = collectionVersion(this.collectionSource());
@@ -466,6 +481,41 @@ export class Executor {
     }
   }
 
+  /**
+   * AFS-177: Step, Continue, Pause or Stop, or new pause points, for a step-by-step run going here;
+   * undefined when it is not going here (its process has not started, or another server has it).
+   */
+  async drive(
+    run: string,
+    ask: { command?: StepCommand; points?: string[] },
+    by: string,
+  ): Promise<{ error?: string; paused?: boolean } | undefined> {
+    const going = this.drivers.get(run);
+    if (!going) return undefined;
+    const paused = !!going.driver.paused();
+    const refused = ask.command ? refusalFor(ask.command, paused) : undefined;
+    if (refused) return { error: refused, paused };
+    if (ask.points) {
+      const failed = await going.driver.setPoints(ask.points);
+      if (failed) return { error: failed, paused };
+    }
+    if (ask.command) {
+      if (ask.command === 'stop') going.stopBy = by;
+      const failed = await going.driver.send(ask.command);
+      if (failed) return { error: failed, paused };
+      this.deps.log.info({ run, by, command: ask.command }, 'Step-by-step run driven');
+    }
+    return { paused };
+  }
+
+  /** AFS-177: Stop for a step-by-step run paused here; false when it is not paused here. */
+  private stopPaused(id: string): boolean {
+    const going = this.drivers.get(id);
+    if (!going?.driver.paused()) return false;
+    void going.driver.send('stop');
+    return true;
+  }
+
   /** Stops taking runs and stops the ones going: they fail, saying the server stopped. */
   async stop(): Promise<void> {
     this.stopping = true;
@@ -485,6 +535,13 @@ export class Executor {
      * step, so a run stopped mid-step lost where it was (that step read "not reached").
      */
     let lastRunning: string | undefined;
+    /** AFS-177: a step-by-step run: what it was asked for, and what its driver said last. */
+    const stepRec = r.step ? await queue.stepRecord(r.id).catch(() => undefined) : undefined;
+    let control: StepRecord['control'] | undefined = stepRec?.control;
+    /** AFS-177: the step it is paused before now, kept in its record (a restart ends it). */
+    let pausedAt: { node: string; title: string } | undefined;
+    /** AFS-177: who sent Stop to it (the run says who stopped it). */
+    let stepStopBy: string | undefined;
     const controller = new AbortController();
     const handled = Date.now();
     void stopped.then((s) => {
@@ -497,7 +554,7 @@ export class Executor {
           if (!beat.ok) {
             why ??= 'lost';
             controller.abort();
-          } else if (beat.cancel) {
+          } else if (beat.cancel && !this.stopPaused(r.id)) {
             why ??= 'cancel';
             controller.abort();
           }
@@ -540,7 +597,11 @@ export class Executor {
       output.write(kept);
       this.deps.hub?.publish(r.id, { kind: 'output', text: kept });
     };
-    const finish = async (outcome: Outcome, error?: string, view?: RunView) => {
+    /**
+     * `said`: AFS-177: a step-by-step run that stopped at a step boundary says so in its own words
+     * (who stopped it, before which step), not "stopped during".
+     */
+    const finish = async (outcome: Outcome, error?: string, view?: RunView, said?: string) => {
       if (why === 'lost') {
         say.warn('The run was given to another worker or lost: its end is not recorded here');
         return;
@@ -549,7 +610,9 @@ export class Executor {
       // AFS-147: the step a stopped run was in (the canvas marks it), and the targets it skipped.
       const at =
         outcome === 'cancelled'
-          ? (this.deps.hub?.live(r.id)?.summary?.running ?? lastRunning)
+          ? said
+            ? (view?.stoppedAt ?? pausedAt?.node)
+            : (this.deps.hub?.live(r.id)?.summary?.running ?? lastRunning)
           : undefined;
       const kept =
         view && (at || skipped.size)
@@ -560,7 +623,10 @@ export class Executor {
             }
           : view;
       // AFS-147: a stopped run's output ends saying who stopped it and where, as its page does.
-      if (outcome === 'cancelled') {
+      if (said) line(said);
+      // AFS-177: a paused run the server stopped says so, not who asked.
+      else if (outcome === 'cancelled' && why === 'shutdown' && error) line(error);
+      else if (outcome === 'cancelled') {
         const step = titleOf(steps, at);
         const login = (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
         // AFS-185: by name, as the page says it, not by login.
@@ -580,6 +646,9 @@ export class Executor {
         const step = titleOf(steps, this.deps.hub?.live(r.id)?.summary?.running ?? lastRunning);
         return ['cancelled', `Stopped on request${step ? ` during ${step}` : ''}`];
       }
+      // AFS-177: a paused run waited for a person: it ends as stopped, and cannot go on later.
+      if (why === 'shutdown' && pausedAt)
+        return ['cancelled', pausedGone(pausedAt.title, 'stopped')];
       if (why === 'timeout')
         return [
           'failed',
@@ -734,11 +803,27 @@ export class Executor {
       const root = workdir.dir;
       let agentFailure: string | undefined;
       /** Runs one playbook of the flow: the whole flow, or one of its segments (AFS-28). */
+      /** AFS-177: a step-by-step run's pause, as the run goes: kept in its record and its output. */
+      const notePause = (node: string | undefined, hosts: number, view: RunView) => {
+        if (node === pausedAt?.node) return;
+        pausedAt = node ? { node, title: titleOf(steps, node) ?? node } : undefined;
+        void queue.setPaused(r.id, token, pausedAt?.title ?? null).catch(() => undefined);
+        if (!pausedAt) return;
+        // What the run did so far is in its record while it waits: a server that goes away
+        // leaves the run's page that much.
+        void queue.saveView(r.id, view).catch(() => undefined);
+        line(
+          `Paused before ${pausedAt.title} (${hosts} host${hosts === 1 ? '' : 's'}): Step, Continue or Stop goes on`,
+        );
+        this.deps.hub?.publish(r.id, { kind: 'state' });
+      };
       const runOnce = (
         runId: string,
         playbookPath: string,
         runInputs: Record<string, unknown>,
         shown: (v: RunView) => RunView,
+        /** AFS-177: the approval step a later segment starts inside (after a decision). */
+        inside?: string,
       ) =>
         runner(
           {
@@ -759,12 +844,37 @@ export class Executor {
             inputs: runInputs,
             ...(creds.vaultPassword !== undefined ? { vaultPassword: creds.vaultPassword } : {}),
             ...(this.options.recordInputs === false ? { recordInputs: false } : {}),
+            // AFS-177: step by step; a later segment starts with what the driver said last.
+            ...(stepRec
+              ? {
+                  step: {
+                    every: stepRec.every,
+                    points: control?.points ?? stepRec.points,
+                    timeoutS: stepRec.timeoutS,
+                    ...(control ? { control: { ...control, reply: null } } : {}),
+                    ...(inside ? { inside } : {}),
+                  },
+                }
+              : {}),
             signal: controller.signal,
           },
           {
             report: (v) => {
               if (v.summary?.running) lastRunning = v.summary.running;
-              this.deps.hub?.publish(r.id, { kind: 'view', view: shown(v) });
+              const view = shown(v);
+              this.deps.hub?.publish(r.id, { kind: 'view', view });
+              if (stepRec) notePause(v.step?.paused?.node, v.step?.paused?.hosts.length ?? 0, view);
+            },
+            // AFS-177: the run's driver, kept while its process goes; its last word is kept after.
+            started: (_stop, driver) => {
+              if (!driver) return undefined;
+              const going: { driver: StepDriver; stopBy?: string } = { driver };
+              this.drivers.set(r.id, going);
+              return () => {
+                control = driver.control();
+                stepStopBy = going.stopBy ?? stepStopBy;
+                if (this.drivers.get(r.id) === going) this.drivers.delete(r.id);
+              };
             },
             log: line,
             // The engine gets the container's variables in its own environment, not as arguments.
@@ -795,6 +905,19 @@ export class Executor {
           why = undefined;
         }
         if (why) return await finish(...stoppedWhy(), view);
+        // AFS-177: stopped at a step boundary, by its driver or because nobody answered a pause.
+        const stepStopped = view.step?.stopped;
+        if (stepStopped) {
+          const title = titleOf(steps, stepStopped.node) ?? 'its next step';
+          // Stop on its page (cancel) of a paused run reaches it as the driver's stop too.
+          const login = stepStopBy ?? (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
+          const by = login ? await queue.personName(login).catch(() => login) : undefined;
+          const words =
+            stepStopped.reason === 'timeout'
+              ? (view.error ?? `Stopped before ${title}`)
+              : `Stopped${by ? ` by ${by}` : ''} before ${title}`;
+          return await finish('cancelled', words, view, words);
+        }
         // AFS-133: hosts that failed after a rejection (or a timeout) failed because of it: the
         // run says who decided and what they said, not Ansible's exit code.
         if (decided && !(view.state === 'done' && view.rc === 0 && !view.error))
@@ -865,6 +988,8 @@ export class Executor {
         : segments.find((g) => g.name === 'start');
       let segInputs = gate ? segmentInputs(inputs, gate.carried, decision) : inputs;
       let decidedAgainst: string | undefined;
+      // AFS-177: after a decision, a step-by-step run's next segment starts inside the approval.
+      let inside = gate ? gate.node.id : undefined;
       if (gate) {
         // AFS-146: people by their names, as the pages name them.
         const by = gate.decidedBy ? ` by ${gate.decidedByName ?? gate.decidedBy}` : '';
@@ -893,11 +1018,18 @@ export class Executor {
         const withApprovals = Object.keys(approvals).length ? { approvals } : {};
         // What the canvas shows while a segment runs: the segments before it, and this one.
         // AFS-132: until the segment has a summary of its own, the earlier ones' stays shown.
-        const view = await runOnce(runId, `${generated}/${current.file}`, segInputs, (v) => ({
-          ...v,
-          summary: v.summary ? mergeSummaries(earlier, v.summary) : earlier,
-          ...withApprovals,
-        }));
+        const view = await runOnce(
+          runId,
+          `${generated}/${current.file}`,
+          segInputs,
+          (v) => ({
+            ...v,
+            summary: v.summary ? mergeSummaries(earlier, v.summary) : earlier,
+            ...withApprovals,
+          }),
+          inside,
+        );
+        inside = undefined;
         before.push({ name: current.name, dir: folder(runId) });
         const text = (await eventsOf([folder(runId)]))[0] ?? '';
         const outcome = segmentOutcome(current, text);
@@ -907,6 +1039,8 @@ export class Executor {
           ...withApprovals,
         };
         if (why) return await finish(...stoppedWhy(), whole);
+        // AFS-177: stopped at a step boundary: it ends here, before any approval.
+        if (whole.step?.stopped) return await ended(whole);
         if (current.gate && outcome.empty) {
           line('No host reached the approval: it is skipped');
           segment = nextSegment(segments, current.name, 'empty');
@@ -936,6 +1070,8 @@ export class Executor {
             approvals: approvalsOf(await gatesOf(this.deps.db, r.id)),
           };
           await queue.saveView(r.id, waiting);
+          // AFS-177: what the driver said last goes on in the segment after the decision.
+          if (stepRec && control) await queue.keepControl(r.id, control);
           if (!(await queue.wait(r.id, token))) {
             why ??= 'lost';
             return;

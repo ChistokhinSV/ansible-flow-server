@@ -21,6 +21,7 @@ import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { VarIndexes } from '../projects/vars';
 import { lastRuns, type RunQueue } from '../runs/queue';
+import { STEP_SCHEMA, STEP_TIMEOUT_MINUTES, type StepRequest, stepAsked } from '../runs/stepping';
 import { flowAt, type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
 import type { FactsReply, InventoryAnswer, InventoryQuestion } from './facts';
 
@@ -87,6 +88,8 @@ const REQUEST = {
     // AFS-26: a dev bundle's id: its commit runs, in check mode only.
     dev: text(64, 1),
     limit: text(500),
+    // AFS-177: run step by step: {every: true} pauses before each step, points at those steps.
+    step: STEP_SCHEMA,
     inputs: {
       type: 'object',
       maxProperties: 200,
@@ -133,6 +136,8 @@ export function registerLaunch(
     inventory?: InventoryReader;
     /** AFS-183: the repository's variables, for the form's origins of the inputs. */
     vars?: VarIndexes;
+    /** AFS-177: how long a step-by-step run's pause may wait at most (minutes). */
+    stepTimeoutMinutes?: number;
   },
 ): void {
   const dev = deps.dev ?? { maxBytes: 50 * 1024 * 1024, keepHours: 24 };
@@ -560,7 +565,7 @@ export function registerLaunch(
   const queue = deps.queue;
   if (!queue) return;
   /** Settles a launch as `check` does, and puts the run in the queue. */
-  app.post<WithId & { Body: LaunchRequest }>(
+  app.post<WithId & { Body: LaunchRequest & { step?: StepRequest } }>(
     '/api/v1/launch-configs/:id/launch',
     { schema: { ...ID, body: REQUEST } },
     async (request, reply) => {
@@ -570,7 +575,12 @@ export function registerLaunch(
       if (!me) return reply;
       const config = await configs.get(request.params.id);
       if (!config) return reply.code(404).send(NONE);
-      const body = request.body ?? {};
+      const { step: stepBody, ...body } = request.body ?? {};
+      // AFS-177: step by step, as long as a pause may wait here.
+      const step = stepAsked(stepBody, deps.stepTimeoutMinutes ?? STEP_TIMEOUT_MINUTES);
+      if (step && 'error' in step)
+        return reply.code(400).send({ error: 'invalid', message: step.error, field: 'step' });
+      if (step) request.auditDetail = { step: step.every ? 'every step' : 'pause points' };
       // A dev run (AFS-26) and another branch or commit are rw's.
       if (
         (body.dev ||
@@ -594,7 +604,11 @@ export function registerLaunch(
         });
       const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
       const run = await queue.enqueue(
-        body.dev ? { ...prepared.launch, dev: body.dev } : prepared.launch,
+        {
+          ...prepared.launch,
+          ...(body.dev ? { dev: body.dev } : {}),
+          ...(step ? { step } : {}),
+        },
         shown,
         me,
         config.name,
@@ -607,6 +621,9 @@ export function registerLaunch(
           flow: run.flow.file,
           commit: run.commit.slice(0, 12),
           mode: run.mode,
+          ...(step
+            ? { step: step.every ? 'every step' : `${step.points.length} pause points` }
+            : {}),
         },
         'Run queued',
       );

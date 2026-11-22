@@ -22,6 +22,7 @@ export function TokensPanel({
     readOnly?: boolean;
     workspace?: string;
     mcpApprovals?: boolean;
+    mcpRunControl?: boolean;
   }) => Promise<NewToken>;
   revoke: (id: string) => Promise<void>;
   intro: ReactNode;
@@ -33,7 +34,14 @@ export function TokensPanel({
   // AFS-139: Last used follows a token's use elsewhere (the API, an MCP client).
   useRefresh(list.reload, 30_000);
   const workspaces = useLoad(api.workspaces, []);
-  const fresh = { name: '', days: 90, readOnly: false, workspace: '', mcpApprovals: false };
+  const fresh = {
+    name: '',
+    days: 90,
+    readOnly: false,
+    workspace: '',
+    mcpApprovals: false,
+    mcpRunControl: false,
+  };
   const [input, setInput] = useState(fresh);
   const workspaceName = (id?: string) =>
     id ? (workspaces.data?.find((w) => w.id === id)?.name ?? 'a deleted workspace') : 'all';
@@ -102,6 +110,7 @@ export function TokensPanel({
                   <td>
                     {t.readOnly ? 'read' : 'read and change'}
                     {t.mcpApprovals ? ', decide approvals (agents)' : ''}
+                    {t.mcpRunControl ? ', drive step-by-step runs (agents)' : ''}
                   </td>
                   <td>{t.workspace ? workspaceName(t.workspace) : 'all workspaces'}</td>
                   <td>
@@ -158,6 +167,7 @@ export function TokensPanel({
                   expiresInDays: input.days,
                   readOnly: input.readOnly,
                   ...(input.mcpApprovals && !input.readOnly ? { mcpApprovals: true } : {}),
+                  ...(input.mcpRunControl && !input.readOnly ? { mcpRunControl: true } : {}),
                   ...(input.workspace ? { workspace: input.workspace } : {}),
                 }),
               );
@@ -205,6 +215,18 @@ export function TokensPanel({
               />
               An agent with this token may decide approvals over MCP (off: approvals stay with
               people)
+              {input.readOnly ? ' · not for a read-only token' : ''}
+            </label>
+            {/* AFS-177: run_step, off unless asked for, as deciding approvals is. */}
+            <label className="choice">
+              <input
+                type="checkbox"
+                checked={input.mcpRunControl && !input.readOnly}
+                disabled={input.readOnly}
+                onChange={(e) => setInput({ ...input, mcpRunControl: e.target.checked })}
+              />
+              An agent with this token may drive step-by-step runs over MCP: Step, Continue, Pause,
+              Stop (off: people press them on the run's page)
               {input.readOnly ? ' · not for a read-only token' : ''}
             </label>
             <WorkspaceChoice

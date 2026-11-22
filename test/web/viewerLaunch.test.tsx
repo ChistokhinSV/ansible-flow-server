@@ -84,6 +84,39 @@ const config = (id: string, name: string, flowFile = 'flows/hello.flow.yaml') =>
 });
 
 describe('Run on the canvas', () => {
+  it('AFS-177: Run Step by Step ticks Step by step; Run launches every step with the pause points', async () => {
+    const sent: HostMessage[] = [];
+    setUp([config('c1', 'Edge')]);
+    routes['POST /launch-configs/c1/launch'] = () => ({ status: 201, body: { id: 'r1' } });
+    const l = launcher({
+      project: 'p1',
+      path: 'flows/hello.flow.yaml',
+      send: (m) => sent.push(m),
+      launched: () => undefined,
+      choose: vi.fn(),
+      askName: vi.fn(),
+      go: () => undefined,
+      stepPoints: () => ['01M6GPM99KC9TX091MCH61REQV'],
+    });
+    await l.run('real', true);
+    const plan = (sent.find((m) => m.type === 'launch') as Extract<HostMessage, { type: 'launch' }>)
+      .plan;
+    expect(plan?.steps).toEqual({ on: true });
+    await l.launch(plan?.token as string, { devices: ['fw-edge-01'] }, true);
+    expect(asked.find((a) => a.key === 'POST /launch-configs/c1/launch')?.body).toMatchObject({
+      mode: 'real',
+      step: { every: true, points: ['01M6GPM99KC9TX091MCH61REQV'] },
+    });
+  });
+
+  it('AFS-177: a page that does not step (no pause points given) offers no tick', async () => {
+    const { l, sent } = setUp([config('c1', 'Edge')]);
+    await l.run('real', true);
+    const plan = (sent.find((m) => m.type === 'launch') as Extract<HostMessage, { type: 'launch' }>)
+      .plan;
+    expect(plan?.steps).toBeUndefined();
+  });
+
   it('without a configuration of the flow, offers a new one: its page, for this flow (AFS-97)', async () => {
     const choose = vi.fn(async () => 'new' as const);
     const { l, sent, went } = setUp([config('c9', 'Other', 'flows/other.flow.yaml')], choose);
