@@ -255,6 +255,11 @@ describe('before anyone is signed in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await screen.findByRole('heading', { name: 'Network team' });
     expect(window.location.pathname).toBe('/w/network');
+    // AFS-192: no Add project here, and who adds one is said.
+    expect(screen.queryByRole('button', { name: 'Add project' })).toBeNull();
+    expect(
+      await screen.findByText(/Projects are added by administrators of the server/),
+    ).toBeTruthy();
   });
 
   it('says so when the server does not answer, and tries again when asked', async () => {
@@ -328,6 +333,7 @@ describe('signed in', () => {
     await screen.findByRole('heading', { name: 'Data centre' });
     expect(window.location.pathname).toBe('/w/dc');
     expect(await screen.findByText('No project in this workspace yet.')).toBeTruthy();
+    expect(screen.queryByText(/Projects are added by administrators/)).toBeNull();
   });
 
   it('a project page says where it is, how to clone it and who pushed', async () => {
@@ -449,7 +455,12 @@ describe('signed in', () => {
     };
     window.history.replaceState(null, '', '/w/network/edge/settings');
     render(<App />);
-    await screen.findByRole('heading', { name: 'Source' });
+    const source = await screen.findByRole('heading', { name: 'Source' });
+    // AFS-192: the problem comes first, and a mirror with nothing in it offers no clone.
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings.indexOf('Source')).toBeLessThan(headings.indexOf('Name and branch'));
+    expect(source).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Work on it with git' })).toBeNull();
     const count = () => document.body.textContent?.split(why).length ?? 0;
     expect(count() - 1).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: 'Look at the source now' }));
@@ -467,6 +478,9 @@ describe('signed in', () => {
     window.history.replaceState(null, '', '/w/network/edge');
     render(<App />);
     const note = await screen.findByText('No files or flows yet.');
+    // AFS-192: no flow to launch yet: no Add a launch configuration either.
+    await screen.findByRole('heading', { name: 'Launch configurations' });
+    expect(screen.queryByRole('link', { name: 'Add a launch configuration' })).toBeNull();
     expect(note.closest('p')?.textContent).toContain(
       'If the repository is empty, push a first commit to main with git; the server looks again by itself, or use Look at the source now. The Files tab and New flow come with the first commit.',
     );
@@ -604,12 +618,15 @@ describe('signed in', () => {
     await waitFor(() => expect(asked[1]).toEqual(['patch', { gitRef: 'try/idea' }]));
 
     fireEvent.click(screen.getByRole('button', { name: 'New branch' }));
-    fireEvent.change(
-      screen.getByLabelText('Name', { selector: 'section[aria-labelledby=branches] input' }),
-      {
-        target: { value: 'feature/ntp' },
-      },
-    );
+    const name = screen.getByLabelText('Name', {
+      selector: 'section[aria-labelledby=branches] input',
+    });
+    // AFS-192: a name git refuses is said at the field; the server is not asked.
+    fireEvent.change(name, { target: { value: 'bad name..' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Make the branch' }));
+    expect(await screen.findByText(/A branch name is letters, digits/)).toBeTruthy();
+    expect(asked).toHaveLength(2);
+    fireEvent.change(name, { target: { value: 'feature/ntp' } });
     fireEvent.click(screen.getByRole('button', { name: 'Make the branch' }));
     await waitFor(() =>
       expect(asked[2]).toEqual(['create', { name: 'feature/ntp', from: 'main' }]),
@@ -662,8 +679,11 @@ describe('signed in', () => {
         ).searchParams.get('theme'),
       ).toBe('light'),
     );
-    // AFS-107: the breadcrumbs are in the top bar, beside the search box.
-    expect(document.querySelector('.bar nav[aria-label="Breadcrumb"]')?.textContent).toContain(
+    // AFS-107: the breadcrumbs are in the top bar, beside the search box. AFS-194: the flow by
+    // its title, its file in the tooltip.
+    const crumbs = document.querySelector('.bar nav[aria-label="Breadcrumb"]');
+    expect(crumbs?.textContent).toMatch(/ \/ OS upgrade$/);
+    expect(crumbs?.querySelector('[aria-current="page"]')?.getAttribute('title')).toBe(
       'flows/os-upgrade.flow.yaml',
     );
     // Full screen and its own page are icon buttons with their names.
@@ -798,7 +818,7 @@ describe('signed in', () => {
     );
     // AFS-165: with someone else in the draft, the line about the others shows.
     const bar = await screen.findByRole('region', { name: 'Editing together' });
-    await waitFor(() => expect(bar.textContent).toContain('here now: you, Mia Ortega.'));
+    await waitFor(() => expect(bar.textContent).toContain('Here now: you, Mia Ortega'));
     expect(bar.textContent).toContain('Mia Ortega changed Pre-checks');
     // AFS-165: Save asks for the commit's message.
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -880,6 +900,33 @@ describe('signed in', () => {
           ? { branches: ['main'], details: [{ name: 'main', commit: 'a'.repeat(40) }] }
           : { branches: [], details: [] },
       }),
+      // AFS-192: the sample brings a launch configuration: the note names it, the list shows it.
+      'GET /projects/p2/launch-configs': () => ({
+        body: started
+          ? [
+              {
+                id: 'c9',
+                project: 'p2',
+                name: 'Edge switches (simulated)',
+                flowFile: 'flows/edge/edge.flow.yaml',
+                mode: 'check',
+                inputs: {},
+                createdAt: '2026-11-13T10:00:00.000Z',
+                updatedAt: '2026-11-13T10:00:00.000Z',
+              },
+            ]
+          : [],
+      }),
+      'GET /projects/p2/files?branch=main': () => ({
+        body: {
+          branch: 'main',
+          commit: 'a'.repeat(40),
+          files: [
+            { path: 'flows/edge/edge.flow.yaml', size: 9 },
+            { path: 'README.md', size: 9 },
+          ],
+        },
+      }),
       'POST /projects/p2/start': (body) => {
         sent.push(body);
         started = true;
@@ -911,6 +958,12 @@ describe('signed in', () => {
       expect(screen.queryByRole('heading', { name: 'Start this project' })).toBeNull(),
     );
     expect(sent).toEqual([{ sample: 'edge-baseline' }]);
+    expect(
+      await screen.findByText(
+        'The project has started: 2 files, 1 flow, and the launch configuration Edge switches (simulated).',
+      ),
+    ).toBeTruthy();
+    expect(await screen.findByRole('link', { name: 'Edge switches (simulated)' })).toBeTruthy();
     // AFS-139: the Branches tab counts the branch the start made, with no reload.
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /Branches/ }).textContent).toMatch(/1/),

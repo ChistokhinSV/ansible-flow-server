@@ -35,11 +35,14 @@ interface ChangeSet {
 
 /** A file as the page shows it: where it is now, its size, and what the change set did to it. */
 interface Shown extends FileEntry {
-  state?: 'new' | 'changed' | 'moved';
+  /** AFS-192: `deleted` stays in the tree, struck through, until the change set is saved. */
+  state?: 'new' | 'changed' | 'moved' | 'deleted';
   from?: string;
   /** Its text in the change set (edited here); `uploaded` when new bytes came from a file. */
   text?: string;
   uploaded?: boolean;
+  /** AFS-192: the uploaded bytes, for a preview of a text file. */
+  base64?: string;
 }
 
 const storeKey = (project: string, branch: string) => `afs.files.${project}.${branch}`;
@@ -65,22 +68,33 @@ function keepSet(project: string, branch: string, set: ChangeSet): void {
 /** The files after the change set, as far as the page can tell (an archive's files show at Save). */
 export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[] {
   const tree = new Map<string, Shown>(files.map((f) => [f.path, { ...f }]));
+  // A file marked for deletion is not moved again, nor deleted twice.
   const under = (path: string) =>
-    [...tree.keys()].filter((p) => p === path || p.startsWith(`${path}/`));
+    [...tree.keys()].filter((p) => within(p, path) && tree.get(p)?.state !== 'deleted');
   for (const c of changes) {
     if (c.op === 'write') {
       const size = c.text !== undefined ? new Blob([c.text]).size : base64Size(c.base64 ?? '');
       const was = tree.get(c.path);
+      const { base64: _, ...kept } = was ?? ({} as Shown);
       tree.set(c.path, {
-        ...(was ?? {}),
+        ...kept,
         path: c.path,
         size,
         state: was?.state === 'new' || !was ? 'new' : 'changed',
         text: c.text,
         uploaded: c.text === undefined,
+        ...(c.base64 !== undefined ? { base64: c.base64 } : {}),
         ...(c.executable !== undefined ? { executable: c.executable } : {}),
       });
-    } else if (c.op === 'delete') for (const p of under(c.path)) tree.delete(p);
+    } else if (c.op === 'delete')
+      for (const p of under(c.path)) {
+        const file = tree.get(p) as Shown;
+        // AFS-192: a file the branch has stays listed, struck through; a new one just goes.
+        tree.delete(p);
+        // Where the branch has it (a file moved first is deleted where it was).
+        const was = file.from ?? p;
+        if (file.state !== 'new') tree.set(was, { path: was, size: file.size, state: 'deleted' });
+      }
     else if (c.op === 'move')
       for (const p of under(c.from)) {
         const file = tree.get(p) as Shown;
@@ -95,6 +109,53 @@ export function applyChanges(files: FileEntry[], changes: FileChange[]): Shown[]
       }
   }
   return [...tree.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const within = (path: string, base: string) =>
+  base === '' || path === base || path.startsWith(`${base}/`);
+
+/**
+ * AFS-192: the change set with one more change. A move or delete of files that exist only in the
+ * change set (uploaded or made here, not on the branch) changes those writes instead: an upload
+ * moved is one "Upload <new path>", an upload deleted is taken back.
+ */
+export function addChange(
+  changes: readonly FileChange[],
+  c: FileChange,
+  listed: readonly FileEntry[],
+): FileChange[] {
+  const path = c.op === 'move' ? c.from : c.op === 'delete' ? c.path : undefined;
+  if (path === undefined || !path) return [...changes, c];
+  const touches = (p: string) => within(p, path) || within(path, p);
+  const onlyNew =
+    !listed.some((f) => within(f.path, path)) &&
+    changes.some((x) => x.op === 'write' && within(x.path, path)) &&
+    changes.every((x) =>
+      x.op === 'write'
+        ? true
+        : x.op === 'move'
+          ? !touches(x.from) && !touches(x.to)
+          : !touches(x.path),
+    );
+  if (!onlyNew) return [...changes, c];
+  if (c.op === 'delete') return changes.filter((x) => !(x.op === 'write' && within(x.path, path)));
+  const to = (c as { to: string }).to;
+  return changes.map((x) =>
+    x.op === 'write' && within(x.path, path) ? { ...x, path: to + x.path.slice(path.length) } : x,
+  );
+}
+
+/** AFS-192: the text of uploaded bytes, when they are UTF-8 text small enough to show. */
+export function uploadedText(base64: string): string | undefined {
+  if (base64Size(base64) > EDIT_MAX) return undefined;
+  try {
+    const raw = atob(base64);
+    const bytes = Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+    if (bytes.includes(0)) return undefined;
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return undefined;
+  }
 }
 
 /** AFS-150: the bytes base64 stands for: its padding (= at the end) stands for none. */
@@ -215,7 +276,7 @@ function FolderView({
         <li key={f.path} className="file-item">
           <button
             type="button"
-            className={`link file${selected === f.path ? ' selected' : ''}`}
+            className={`link file${selected === f.path ? ' selected' : ''}${f.state === 'deleted' ? ' deleted' : ''}`}
             aria-current={selected === f.path ? 'true' : undefined}
             onClick={() => select(f.path)}
           >
@@ -291,6 +352,28 @@ function TextView({
     );
   // AFS-140: named outside the shadow root too, for tools that do not look inside it.
   return <section ref={box} className="code-editor" aria-label={`Text of ${path}`} />;
+}
+
+/** AFS-192: a file or folder marked for deletion, with a way to keep it. */
+function DeletedNote({
+  path,
+  branch,
+  onKeep,
+}: {
+  path: string;
+  branch: string;
+  onKeep?: ((path: string) => void) | undefined;
+}) {
+  return (
+    <p className="muted">
+      <code>{path}</code> is marked for deletion: it goes from {branch} when the changes are saved.{' '}
+      {onKeep && (
+        <button type="button" className="link" onClick={() => onKeep(path)}>
+          Keep it
+        </button>
+      )}
+    </p>
+  );
 }
 
 function PathForm({
@@ -403,7 +486,10 @@ export function FilesPage({
               (x) => !(x.op === 'write' && x.path === replaceWriteOf && x.text !== undefined),
             )
           : before.changes;
-      const next = { ...(base ? { base } : {}), changes: [...changes, c] };
+      const next = {
+        ...(base ? { base } : {}),
+        changes: addChange(changes, c, listing.data?.files ?? []),
+      };
       if (id) keepSet(id, branch, next);
       return next;
     });
@@ -418,12 +504,14 @@ export function FilesPage({
     () => applyChanges(listing.data?.files ?? [], set.changes),
     [listing.data, set.changes],
   );
+  // AFS-192: the files there once saved (the tree also lists those marked for deletion).
+  const live = useMemo(() => shown.filter((f) => f.state !== 'deleted'), [shown]);
   // AFS-94: with no file asked for, the page opens the one read first (README, else the first
   // file of the top folder) instead of an empty half.
   const first = useMemo(() => {
-    const top = shown.filter((f) => !f.path.includes('/'));
+    const top = live.filter((f) => !f.path.includes('/'));
     return (top.find((f) => /^readme(\.|$)/i.test(f.path)) ?? top[0])?.path;
-  }, [shown]);
+  }, [live]);
   const selected = params.get('path') ?? first;
   // AFS-183: `?line=` (where a value is defined, from the canvas): that line of the file named.
   const lineAsked = Number(params.get('line')) || undefined;
@@ -454,12 +542,20 @@ export function FilesPage({
     });
 
   const file = shown.find((f) => f.path === selected);
+  const gone = file?.state === 'deleted';
   const folder =
     !file && selected && shown.some((f) => f.path.startsWith(`${selected}/`)) ? selected : '';
+  const folderGone = !!folder && !live.some((f) => f.path.startsWith(`${folder}/`));
   const here = file ? file.path.split('/').slice(0, -1).join('/') : (folder ?? '');
   // What the change set wrote to the file (followed through moves).
   const pending =
-    file && (file.text !== undefined || file.uploaded) ? { text: file.text } : undefined;
+    file && (file.text !== undefined || file.uploaded)
+      ? {
+          text: file.text,
+          // AFS-192: an uploaded text file is shown (read only) before it is saved.
+          preview: file.text === undefined && file.base64 ? uploadedText(file.base64) : undefined,
+        }
+      : undefined;
   const original = file?.from ?? file?.path;
   const commit = listing.data?.commit;
   const content = useLoad(async () => {
@@ -507,6 +603,16 @@ export function FilesPage({
     e.target.value = '';
     for (const f of picked)
       change({ op: 'write', path: join(here, f.name), base64: await base64Of(f) });
+    // AFS-192: the upload is what is shown next, so Rename or move is about it.
+    if (picked[0]) select(join(here, picked[0].name));
+  };
+  /** AFS-192: the deletes that take `path` away, taken back. */
+  const keep = (path: string) => {
+    setSaid(undefined);
+    update({
+      ...set,
+      changes: set.changes.filter((c) => !(c.op === 'delete' && within(path, c.path))),
+    });
   };
   const onArchive = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -596,6 +702,7 @@ export function FilesPage({
     !!file &&
     !FLOW.test(file.path) &&
     !file.link &&
+    !gone &&
     (pending ? pending.text !== undefined : true);
   const text = pending?.text ?? content.data?.text;
   const dark = kindOf(theme) === 'dark';
@@ -738,7 +845,7 @@ export function FilesPage({
               <PathForm
                 label="New file"
                 start={here ? `${here}/` : ''}
-                check={(path) => pathProblem(path, shown)}
+                check={(path) => pathProblem(path, live)}
                 onDone={(path) => {
                   setAsking(undefined);
                   if (path) {
@@ -799,19 +906,23 @@ export function FilesPage({
               <h2 id="file">
                 <code>{selected}/</code>
               </h2>
-              {canEdit && (
-                <p className="actions">
-                  <button type="button" onClick={() => setAsking('move')}>
-                    Rename or move
-                  </button>{' '}
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => change({ op: 'delete', path: folder })}
-                  >
-                    Delete the folder
-                  </button>
-                </p>
+              {folderGone ? (
+                <DeletedNote path={folder} branch={branch} onKeep={canEdit ? keep : undefined} />
+              ) : (
+                canEdit && (
+                  <p className="actions">
+                    <button type="button" onClick={() => setAsking('move')}>
+                      Rename or move
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => change({ op: 'delete', path: folder })}
+                    >
+                      Delete the folder
+                    </button>
+                  </p>
+                )
               )}
             </>
           )}
@@ -840,7 +951,7 @@ export function FilesPage({
                       </a>{' '}
                     </>
                   )}
-                  {canEdit && (
+                  {canEdit && !gone && (
                     <>
                       <button type="button" onClick={() => setAsking('move')}>
                         Rename or move
@@ -860,7 +971,7 @@ export function FilesPage({
                 {sizeWords(file.size)}
                 {file.executable ? ' · program' : ''}
                 {file.link ? ' · link' : ''}
-                {file.from && file.from !== file.path ? ` · was ${file.from}` : ''}
+                {file.from && file.from !== file.path && !gone ? ` · was ${file.from}` : ''}
                 {history.data?.[0] && (
                   <>
                     {' · last changed by '}
@@ -871,11 +982,14 @@ export function FilesPage({
               </p>
             </>
           )}
+          {gone && (
+            <DeletedNote path={file.path} branch={branch} onKeep={canEdit ? keep : undefined} />
+          )}
           {asking === 'move' && selected && (
             <PathForm
               label="New path"
               start={selected}
-              check={(to) => (to === selected ? undefined : pathProblem(to, shown, selected))}
+              check={(to) => (to === selected ? undefined : pathProblem(to, live, selected))}
               onDone={(to) => {
                 setAsking(undefined);
                 if (to && to !== selected) {
@@ -895,6 +1009,16 @@ export function FilesPage({
           )}
           {file && pending && pending.text === undefined && (
             <p className="muted">Uploaded here: it is on the branch once saved.</p>
+          )}
+          {file && pending?.preview !== undefined && (
+            <TextView
+              key={`${file.path}:upload`}
+              path={file.path}
+              text={pending.preview}
+              editable={false}
+              dark={dark}
+              onChange={() => undefined}
+            />
           )}
           {file && text !== undefined && (pending || !content.loading) && (
             <>
@@ -964,7 +1088,7 @@ export function FilesPage({
                   if (
                     !(await ask(
                       `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
-                      { danger: true },
+                      { yes: 'Discard', danger: true },
                     ))
                   )
                     return;

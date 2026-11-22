@@ -136,6 +136,9 @@ export const setSignedOutHandler = (handler: () => void) => {
   onSignedOut = handler;
 };
 
+/** The lists of projects being asked for, by workspace, until they are answered. */
+const projectsAsked = new Map<string, Promise<Project[]>>();
+
 async function call<T>(
   method: string,
   path: string,
@@ -280,8 +283,18 @@ export const api = {
     ),
   addWorkspace: (input: { key: string; name: string; description?: string }) =>
     call<Workspace>('POST', '/workspaces', input),
-  projects: (workspace: string) =>
-    call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`),
+  projects: (workspace: string) => {
+    // AFS-195: a page and its breadcrumb ask at the same moment: one request, one answer (and
+    // one refusal in the console for a project not shared).
+    let asked = projectsAsked.get(workspace);
+    if (!asked) {
+      asked = call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`);
+      projectsAsked.set(workspace, asked);
+      const done = () => projectsAsked.delete(workspace);
+      asked.then(done, done);
+    }
+    return asked;
+  },
   /** AFS-171: a repository's address read before a project mirrors it (nothing is kept). */
   checkSource: (workspace: string, input: { gitUrl: string; gitCredential?: string }) =>
     call<{ ok: boolean; message?: string; branches?: string[] }>(
@@ -380,7 +393,7 @@ export const api = {
   flowAtCommit: (id: string, path: string, commit: string) =>
     call<FlowAtCommit>(
       'GET',
-      `/projects/${id}/flows/commit?path=${encodeURIComponent(path)}&commit=${commit}`,
+      `/projects/${id}/flows/commit?path=${encodeURIComponent(path)}&commit=${encodeURIComponent(commit)}`,
     ),
   /** AFS-78: one commit with the change set. */
   saveFiles: (
@@ -417,6 +430,8 @@ export const api = {
       message?: string;
       force?: boolean;
       choices?: Record<string, 'draft' | 'branch'>;
+      /** AFS-186: the draft's revision the choices were made at. */
+      seen?: number;
       tab?: string;
       answerConflicts?: boolean;
     },
@@ -434,16 +449,33 @@ export const api = {
           saved: false;
           message: string;
           conflicts: { id: string; label: string; draft: string | null; branch: string | null }[];
+          /** AFS-186: the draft's revision the places were read at. */
+          revision?: number;
           commit?: undefined;
           unchanged?: undefined;
           coAuthors?: undefined;
           added?: undefined;
         }
     >('POST', `/drafts/${id}/save`, input),
-  discardDraft: (id: string) => call<void>('DELETE', `/drafts/${id}`),
+  /** AFS-186: `tab`: this page, whose typing is not waited for. */
+  discardDraft: (id: string, tab?: string) =>
+    call<void>('DELETE', `/drafts/${id}${tab ? `?tab=${encodeURIComponent(tab)}` : ''}`),
+  /** AFS-186: a draft discarded a moment ago, back (the flow's draft again, a new id). */
+  restoreDraft: (project: string, path: string, draft: string) =>
+    call<Draft>('POST', `/projects/${project}/drafts/restore?path=${encodeURIComponent(path)}`, {
+      draft,
+    }),
+  /** AFS-186: what the draft changes against its commit, and who changed each place. */
+  draftSummary: (id: string) => call<DraftSummary>('GET', `/drafts/${id}/summary`),
+  /** AFS-186: Stop editing: a draft that changes nothing, with nobody else in it, is dropped. */
+  leaveDraft: (id: string, tab: string) =>
+    call<{ dropped: boolean }>('POST', `/drafts/${id}/leave`, { tab }),
   /** AFS-171: this page opened (or closed) Save: the others in the draft are told. */
   draftSaving: (id: string, tab: string, saving: boolean) =>
     call<unknown>('POST', `/drafts/${id}/here`, { tab, saving }),
+  /** AFS-186: this page asks whether to discard the draft (or no longer): the others are told. */
+  draftDiscarding: (id: string, tab: string, discarding: boolean) =>
+    call<unknown>('POST', `/drafts/${id}/here`, { tab, discarding }),
   /** AFS-79: the draft and its flow as the designer shows it. */
   draft: (id: string) =>
     call<{ draft: Draft; snapshot: { doc?: FlowDocLike } }>('GET', `/drafts/${id}`),
@@ -516,10 +548,12 @@ export const api = {
     ),
 
   audit: (filter: AuditFilter) =>
-    call<{ entries: AuditEntry[]; next?: string; refs?: Record<string, AuditRef> }>(
-      'GET',
-      `/audit?${queryOf(filter)}`,
-    ),
+    call<{
+      entries: AuditEntry[];
+      next?: string;
+      refs?: Record<string, AuditRef>;
+      people?: Record<string, string>;
+    }>('GET', `/audit?${queryOf(filter)}`),
 
   credentials: (workspace: string) =>
     call<Credential[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/credentials`),
@@ -837,6 +871,19 @@ export interface FlowChanges {
 }
 
 /** AFS-76: a flow being edited in the pages: who has edited it, and from which commit. */
+/** AFS-186: what a draft changes against its commit (a step, a note, or the flow's fields). */
+export interface DraftSummary {
+  changed: boolean;
+  changes: {
+    step?: string;
+    note?: string;
+    kind: 'added' | 'removed' | 'changed';
+    fields: string[];
+    by: string[];
+  }[];
+  wires: number;
+}
+
 export interface Draft {
   id: string;
   project: string;
@@ -866,11 +913,13 @@ export interface CommitPage {
   /** The `skip` of the next page, when there is one. */
   next?: number;
 }
-export interface CommitDetails extends CommitSummary {
+export interface CommitDetails extends Omit<CommitSummary, 'files'> {
   body: string;
   files: {
     file: string;
-    change: 'added' | 'changed' | 'removed';
+    /** AFS-190: `renamed`: moved from `from` (perhaps changed a little too). */
+    change: 'added' | 'changed' | 'removed' | 'renamed';
+    from?: string;
     flow?: boolean;
     title?: string;
   }[];
@@ -885,4 +934,7 @@ export interface FlowAtCommit extends CommitSummary {
   before?: string;
   /** A removal: the last commit that changed the flow. */
   last?: string;
+  /** AFS-190: whether the project's branch has the commit; if not, the branches that do. */
+  onBranch?: boolean;
+  branches?: string[];
 }

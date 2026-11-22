@@ -324,7 +324,7 @@ describe('a run of a flow with an approval', () => {
     expect(await mine('rita')).toMatchObject({ mayDecide: false });
     expect(await mine('dana')).toMatchObject({
       mayDecide: false,
-      why: 'Who launched the run does not decide its approvals here. The workspace can allow it on its Access page',
+      why: 'You launched this run, so others decide its approvals (only an administrator can change that)',
     });
     const decide = (who: string, decision: string, comment?: string) =>
       call(who, 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
@@ -439,6 +439,25 @@ describe('a run of a flow with an approval', () => {
         status: 'rejected',
         by: 'Omar Haddad',
       });
+      // AFS-193: the host's own output has the approval it waited at and how it was decided.
+      const host = (await call('rita', 'GET', `/api/v1/runs/${run.id}/hosts/fw-edge-01`)).json();
+      expect(host.steps).toContainEqual({
+        node: GATE,
+        step: 'Approve the change',
+        entries: [{ task: 'by Omar Haddad', status: 'rejected', msg: 'Window not confirmed' }],
+      });
+      // A run that failed because its approval was rejected is filtered as rejected, not failed.
+      await database.db
+        .updateTable('run')
+        .set({ state: 'failed' })
+        .where('id', '=', run.id)
+        .execute();
+      const listed = async (state: string) =>
+        ((await call('dana', 'GET', `/api/v1/runs?state=${state}`)).json() as { id: string }[]).map(
+          (r) => r.id,
+        );
+      expect(await listed('rejected')).toContain(run.id);
+      expect(await listed('failed')).not.toContain(run.id);
     } finally {
       await database.db
         .updateTable('user_account')

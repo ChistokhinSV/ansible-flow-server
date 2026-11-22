@@ -48,7 +48,7 @@ async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[
       ),
     )
   ).flat();
-  const configs = new Map<string, Promise<{ id: string; name: string }[]>>();
+  const configs = new Map<string, Promise<{ id: string; name: string; flowGone?: string }[]>>();
   const configsOf = (project: string) => {
     let asked = configs.get(project);
     if (!asked) {
@@ -62,7 +62,8 @@ async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[
       const project = projects.find((p) => p.id === run.project);
       if (!project || !run.config) return undefined;
       const config = (await configsOf(project.id)).find((c) => c.id === run.config?.id);
-      if (!config) return undefined;
+      // AFS-187: a configuration whose flow is gone cannot be launched again.
+      if (!config || config.flowGone) return undefined;
       return {
         to: launchAddress(project.workspace, project.key, config.id),
         name: config.name,
@@ -101,7 +102,11 @@ export function Home({ me }: { me: User }) {
   const todays = (runs.data ?? []).filter((r) => new Date(r.createdAt).toDateString() === today);
   const well = todays.filter((r) => r.state === 'succeeded').length;
   // AFS-102: what did not go well is said too, not only what did.
-  const failed = todays.filter((r) => r.state === 'failed' || r.state === 'lost').length;
+  // AFS-193: a run decided against at its approval is counted as rejected, not failed.
+  const failed = todays.filter(
+    (r) => (r.state === 'failed' && !r.decidedAgainst) || r.state === 'lost',
+  ).length;
+  const rejected = todays.filter((r) => r.state === 'failed' && r.decidedAgainst).length;
   const waiting = todays.filter((r) => r.state === 'waiting').length;
   // AFS-147: every run of the day is counted somewhere: stopped and still going too.
   const stopped = todays.filter((r) => r.state === 'cancelled').length;
@@ -109,6 +114,7 @@ export function Home({ me }: { me: User }) {
   const counts = [
     `${well} went well`,
     failed ? `${failed} failed` : '',
+    rejected ? `${rejected} rejected` : '',
     stopped ? `${stopped} stopped` : '',
     going ? `${going} still ${going === 1 ? 'goes' : 'go'}` : '',
   ].filter(Boolean);

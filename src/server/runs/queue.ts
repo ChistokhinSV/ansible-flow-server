@@ -129,7 +129,11 @@ export interface RunFilter {
   project?: string;
   /** The flow's file in the repository (with `project`). */
   flow?: string;
-  state?: RunState;
+  /**
+   * AFS-193: `rejected` is a failed run whose approval was rejected or not decided in time;
+   * `failed` leaves those out.
+   */
+  state?: RunState | 'rejected';
   /** Runs of this launch configuration (its id). */
   config?: string;
   /** Runs this person asked for (their login). */
@@ -303,10 +307,15 @@ export class RunQueue {
   async view(id: string): Promise<unknown | undefined> {
     const row = await this.db
       .selectFrom('run')
-      .select('view_json')
+      .select(['view_json', 'state', 'error'])
       .where('id', '=', id)
       .executeTakeFirst();
-    return row?.view_json ? JSON.parse(row.view_json) : undefined;
+    return row?.view_json ? failedView(JSON.parse(row.view_json), row.state, row.error) : undefined;
+  }
+
+  /** AFS-185: a person's name by their login, as the pages show people (the login if none). */
+  personName(login: string): Promise<string> {
+    return nameOf(this.db, login);
   }
 
   async get(id: string): Promise<Run | undefined> {
@@ -326,7 +335,15 @@ export class RunQueue {
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 200));
     if (filter.project) query = query.where('project_id', '=', filter.project);
     if (filter.flow) query = query.where('flow_file', '=', filter.flow);
-    if (filter.state) query = query.where('state', '=', filter.state);
+    if (filter.state === 'rejected' || filter.state === 'failed') {
+      const against = this.db
+        .selectFrom('run_gate')
+        .select('run_gate.run_id')
+        .where('run_gate.status', 'in', ['rejected', 'timed out']);
+      query = query
+        .where('state', '=', 'failed')
+        .where('id', filter.state === 'rejected' ? 'in' : 'not in', against);
+    } else if (filter.state) query = query.where('state', '=', filter.state);
     if (filter.config) query = query.where('config_id', '=', filter.config);
     if (filter.by) query = query.where('requested_login', '=', filter.by);
     const words = filter.q?.trim().toLowerCase();
@@ -653,17 +670,12 @@ export class RunQueue {
     const done = await this.locked(async (trx) => {
       const row = await this.leased(trx, id, token, now);
       if (!row) return false;
-      // AFS-131: a run someone asked to stop never reads as a success, even when its steps ended
-      // before the worker could stop it.
-      const stopAsked = row.cancel_requested === 1 && outcome === 'succeeded';
-      const state: Outcome = stopAsked ? 'cancelled' : outcome;
+      // AFS-185 (was AFS-131): a run whose steps all ended before the stop reached it is
+      // recorded as it ended: its hosts reached the flow's ends; it was not stopped.
+      const state: Outcome = outcome;
       // AFS-147: who stopped it, by the name the pages show people by.
       const who = row.cancelled_by ? await nameOf(trx, row.cancelled_by) : undefined;
-      const why = stopAsked
-        ? `Asked to stop by ${who ?? 'someone'}; its steps had ended before it could be stopped`
-        : state === 'cancelled'
-          ? stoppedBy(error, who)
-          : error;
+      const why = state === 'cancelled' ? stoppedBy(error, who) : error;
       await trx
         .updateTable('run')
         .set({
@@ -900,6 +912,18 @@ export async function lastRuns(
     });
   }
   return out;
+}
+
+/**
+ * AFS-185: a run the server called failed whose view reads as Ansible's success (it reached no
+ * host, a rejection ended it): the view says failed, with the reason, so the flow page's Run panel
+ * and badge never say "went well" for it.
+ */
+export function failedView(view: unknown, state: string, error: string | null): unknown {
+  const v = view as { state?: string; rc?: number; error?: string } | null;
+  if (state !== 'failed' || !v || v.state !== 'done' || v.rc !== 0 || v.error) return view;
+  const { rc: _rc, ...rest } = v;
+  return { ...rest, state: 'error', error: error ?? 'The run failed' };
 }
 
 /**

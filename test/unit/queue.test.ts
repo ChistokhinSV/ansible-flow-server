@@ -23,7 +23,13 @@ import {
 } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { readBefore, runCursor } from '../../src/server/runs/cursor';
-import { LEASE_MS, lastRuns, MAX_ATTEMPTS, RunQueue } from '../../src/server/runs/queue';
+import {
+  failedView,
+  LEASE_MS,
+  lastRuns,
+  MAX_ATTEMPTS,
+  RunQueue,
+} from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
 import { grant } from './helpers/grant';
@@ -238,7 +244,7 @@ for (const [name, config] of databases) {
       expect((await q.get(notStarted?.id as string))?.state).toBe('cancelled');
     });
 
-    it('tells the worker at once, and a run asked to stop never ends succeeded (AFS-131)', async () => {
+    it('tells the worker at once; a run whose steps ended before the stop is recorded as it ended (AFS-185)', async () => {
       const q = queue({ maxRuns: 4, perProject: 4 });
       const told: string[] = [];
       q.onStopAsked = (id) => told.push(id);
@@ -247,11 +253,12 @@ for (const [name, config] of databases) {
       await q.start(going?.id as string, job?.token as string, at(11));
       await q.cancel(going?.id as string, 'omar', at(12));
       expect(told).toEqual([going?.id]);
-      // Its steps ended before the worker could stop it: still not a success.
+      // Its steps ended (every host at the flow's end) before the worker could stop it: it went
+      // well, and says so (AFS-131 called it stopped).
       await q.finish(going?.id as string, job?.token as string, 'succeeded', undefined, at(13));
       const ended = await q.get(going?.id as string);
-      expect(ended?.state).toBe('cancelled');
-      expect(ended?.error).toMatch(/Asked to stop by omar/);
+      expect(ended?.state).toBe('succeeded');
+      expect(ended?.error).toBeUndefined();
     });
 
     it('a run waiting for a decision holds no place, and goes on when resumed', async () => {
@@ -566,5 +573,22 @@ describe('launching over HTTP', () => {
       404,
     );
     expect((await call('POST', url, { cookie: admin, body })).json().number).toBe(2);
+  });
+});
+
+// AFS-185: a run the server called failed never shows as Ansible's success on the canvas.
+describe('failedView', () => {
+  const done = { id: 'r', mode: 'real', state: 'done', rc: 0, summary: { hosts: [] } };
+  it('a failed run whose view reads as success says failed, with the reason', () => {
+    expect(failedView(done, 'failed', 'No host ran')).toMatchObject({
+      state: 'error',
+      error: 'No host ran',
+    });
+    expect((failedView(done, 'failed', null) as { rc?: number }).rc).toBeUndefined();
+  });
+  it('leaves every other view as it is', () => {
+    expect(failedView(done, 'succeeded', null)).toBe(done);
+    const failing = { ...done, rc: 2 };
+    expect(failedView(failing, 'failed', 'x')).toBe(failing);
   });
 });

@@ -10,17 +10,32 @@ All notable changes to Ansible Flow Server.
 - The launch form says under each input which steps read it, its default and what it wins over (a step input of the same name, and the repository's definitions of the name).
 - The **Files** tab opens a file at a line with `?path=<file>&line=<n>`.
 - A run records the value each step's inputs had for each host. On the run's page, a step's **Details › Data** shows **In this run** under each input, with the hosts that had each value or one host's value, and says when it differs from what the flow states; a variable's tooltip and the step's **Run** tab show them too. Secrets are never recorded, long values are cut, and a run keeps 256 KB of values at most. The new setting `AFS_RUN_RECORD_INPUTS` (default `true`) turns it off.
-- A project's **History** tab: the commits of a branch, newest first, with author, time and short hash; a filter by words in the message, author, hash or changed files; more on request. A commit opens to the files it changed, flows by their title (`GET /api/v1/projects/<id>/commits`, `GET /api/v1/projects/<id>/commits/<hash>`).
+- A project's **History** tab: the commits of a branch, newest first, with author, time and short hash; a filter by words in the message, author, hash or changed files; more on request. A commit opens to the files it changed: flows by their title, to the flow at that commit; every other file to its text at that commit; a file moved is one line, **renamed**, with the path it had (`GET /api/v1/projects/<id>/commits`, `GET /api/v1/projects/<id>/commits/<hash>`).
 - A flow's history, from **History** in its page's **More** menu: the commits that changed the flow or its scenarios.
-- A flow at a commit (`?commit=<hash>` on its page): the flow as that commit left it, read only, in the Changes lens against the version before, with the commit's author, time and message and a way back to the current flow (`GET /api/v1/projects/<id>/flows/commit`).
+- A flow at a commit (`?commit=<hash>` on its page): the flow as that commit left it, read only, in the Changes lens against the version before, with the commit's author, time and message said once above the canvas, a way back to the current flow (to the project when the flow is gone) and to the flow's history. The hash may be its start, as History shows it; one that names no commit, or a commit without the flow, is said with the same ways on, never the current flow to edit. A commit the project's branch does not have names the branches that do (`GET /api/v1/projects/<id>/flows/commit`).
 - Redo while editing a flow in the pages: Ctrl+Y (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a new edit; it says what came back, and is refused when someone changed the same place since (`POST /api/v1/drafts/<id>/redo`).
 - Adding an existing repository as a project reads its address first. When it cannot be read (or has no branch `main`), the form says why at the address and offers **Add anyway** (`POST /api/v1/workspaces/:id/projects/check`).
 - While someone has **Save** open on a flow's draft, everyone else in it sees that a save is coming and ends their editing, before it is made.
 - On a run's page, a host's row in **Hosts** opens what that host did, step by step (`GET /api/v1/runs/:id/hosts/:host`).
 - A schedule whose fire found errors in its flow lists them under **Last**, each a link to its step.
+- While editing a flow in the pages, **Save** opens a dialog that lists what the draft changes, place by place, with who changed each, and fills the commit message from it.
+- **Bring back** restores a discarded draft, with everyone's edits, for 15 minutes after it was discarded (for whoever discarded it and the others who were in it). While someone asks whether to discard a draft, the others in it see that a discard is coming, and what they are typing goes into the draft first.
 
 ### Changed
 
+- The questions the pages ask name their button by what it does (**Delete**, **Revoke**, **Take back**, **Discard**, **Disable**, **Turn email off**) instead of OK. A question whose answer loses something has Cancel focused and a solid red button; opening a question no longer scrolls the page.
+- **Take back** on a workspace's Access says what the person keeps (their other grants and those of their groups), and afterwards a note says what was taken back, as **Give** does. **Revoke** on a token leaves a note too.
+- A flow's page names the flow by its title in the breadcrumbs (its file in the tooltip), and a draft saved with no message is committed as "Edit <flow title>".
+- An existing-image environment speaks of pulls: **Pulls**, "Pull 1 failed", "Not pulled yet". The launch configuration's environment picker says "(could not be pulled)" or "(its build failed)" after a failed try.
+- What the flow needs: "any version" instead of `*`, where each need comes from in words, the steps that use a collection by their titles, and a suggested environment name made from the flow's file.
+- A person's page names projects by their names in **What they reach**. An AWX credential reads "AWX address …" under **Holds**.
+- Words: a webhook or email test that fails reads "Not sent to …. Not reachable: …"; **Turn email off** and **New self-signed** say beside them what they do; "No steps yet: Open the draft to add them" when a draft waits; a branch name with `..`, `//`, a trailing slash or `.lock` is refused with that reason; "Nothing to start from: the repository has no branch …"; the AWX import box with no AWX credential offers **Close**.
+- A project's Settings tab tells someone without read and write that they may clone and pull but not push.
+- Someone who reaches no project sees a line saying so on **Runs** instead of filters, and **Library** tells only administrators where to make a project a library.
+- **Stop** on a real run asks first, naming the run and what stopping does (the step in progress is cut off; a run that waits for approval is not decided any more), as **Launch** and **Run again** do. A check run stops at once.
+- A stopped run says when it was stopped, after who stopped it ("Stopped by Dana Whitfield at … during Push baseline"); its output names that person by name, not by login.
+- When a run's approval waited and the run is stopped, those its approval asked are told that it no longer waits, and the approval reads "run stopped" (was "cancelled").
+- A run whose steps had all ended when **Stop** reached it is recorded as it ended (went well, or failed), not as stopped; its output says the stop came after its steps had ended.
 - Credential kinds have one name each on every page and in messages (SSH key, login and password, become password, vault password, git token, container registry, environment variables, AWX token).
 - A new schedule's **Cron** starts empty, with an example in it, instead of a cron that looked chosen.
 - A launch configuration's header names whom its runs tell, as its Settings tab does.
@@ -32,17 +47,80 @@ All notable changes to Ansible Flow Server.
 - A mirrored project with no commit says why it has no Files tab or **New flow**, and how to give it its first commit.
 - An error the server answers without words (a bare 422, 404, 500…) says what it means and what to do.
 - "N of M hosts failed at a step" also says Ansible's exit code and what it means.
+- On the **Files** tab, an upload is the file shown next (so **Rename or move** is about it), with its text when it is a text file. An upload moved before **Save** is one change at its new path ("Upload group_vars/all.yml"); an upload deleted before Save is taken back. A file marked for deletion stays in the tree, struck through, with **Keep it**.
+- A project started from a sample names the launch configurations it came with, and lists them at once.
+- An external project whose repository cannot be read shows **Source** first on its Settings tab. While it has no commit, it offers no git clone and no **Add a launch configuration**.
+- A workspace says that administrators add projects, to those who have no **Add project**.
+- **Open Sample Flow…** names the roles the project keeps in one sentence.
+- **New branch** says at the field when a name is not allowed or taken, without asking the server.
 - The audit log says whether a launch or a run again was real or a check, and names the new run of a run again by its number.
 - A launch configuration cannot be given an environment that has no image and no build going: the form says why at the field.
+- While editing a flow in the pages, who is here and what happened last is one line beside **Save** in the flow's head: someone joining, saving or discarding no longer moves the canvas down, and notes no longer lie over the canvas's toolbar or side panel. The same change made again and again (a burst of typing) is one entry with a count. What a save's clashes, the branch's move and the commit message say is in **Save**'s dialog.
+- **Save** is off while a draft changes nothing (no edit yet, or every edit taken back), and Ctrl+S says there is nothing to save. Discard of such a draft asks nothing, and **Stop editing** drops it when nobody else is in it.
+- Ctrl+Z and Ctrl+Y say what they took back or brought back (a note's text, a step's fields), not "your last move on the canvas".
+- A save with one co-author says "as co-author"; a commit's details on the **History** tab name co-authors without their e-mail addresses.
+- The flow's page says "A draft of this flow has unsaved edits by …" for a draft waiting to be saved.
+- A launch on which no host would run (no target in the inventory, or a limit that leaves none) asks first, on the launch page and in the canvas's Run dialog. **Run again** of a run that reached no host asks first too, and its question's button names the action (**Run for real**, **Run again anyway**).
+- Enter in a field of the launch form launches (asking first where **Launch** asks), instead of **What would run**.
+- The launch form says once that another branch or commit needs read and write access, and a host list with its own description is not described twice.
+- The audit log names who by their name (the login on hover), says a grant in the pages' words ("read only for group netops on Network team", "operator for Nora Brandt on the flow hello in Hello"), and shows **refused** in the warning colour, not one close to **ok**.
+- Taking back a grant records its workspace in the audit log, as giving one does. Deleting a group or a person records each grant it ended as **grant.delete** ("the group was deleted"), and the deletion lists them.
+- An existing image's environment speaks of pulls, not builds: **Pulls**, "Pull 1 failed", **pulled**. The launch form's environment picker says "(its pull failed)" or "(its build failed)", and an environment with no image is not offered as the server's default.
+- **Add a provider** puts the cursor in the provider's **Name**.
+- The flow page's **More** menu works with the keyboard: the first item has the focus when it opens, the arrows, Home and End move, and Escape gives the focus back to **More**.
+- Closing **Save**'s dialog with Escape or **Cancel** gives the focus back to where it was (Save, the canvas), not to the page.
+- Approvers see what they decide: the Approvals page, the run's page and the request email show the approval's message (or, without one, its step's intent); the email lists the hosts waiting, and the pages say how long it has waited.
+- Who launched a run and may not decide its approval reads "You launched this run, so others decide its approvals (only an administrator can change that)" and who decides it, on the pages and on the canvas; the request email to a group they belong to says they do not decide it.
+- A run whose approval was rejected or not decided in time is no longer counted or filtered as failed: the Runs page has a **Rejected** filter (`state=rejected`; `state=failed` leaves such runs out), Home counts them as rejected, the flow page's Run panel and its list of runs say rejected, and the output says "(outcome: rejected)".
+- A host's own output (its row in **Hosts**) ends with the approval it waited at, how it was decided, and where it ended.
+- A task its `failed_when` condition failed says the condition ("Its failed_when condition was true: …") instead of Ansible's "Unknown error"; the step is named without its key.
 
 ### Fixed
 
+- A step bound to one of the repository's own roles lists the role's options and required ones from its `meta/argument_specs.yml` in **Binding**, and **About** opens with them, on the flow's and run's pages and while editing. Before, every role read as having no argument_specs and **About** stayed on "Reading…".
+- On a phone the folded side panel under the canvas is one row with its label written across, not a tall strip with the label on end.
+- The Approvals count in the side menu drops as soon as a run stops waiting (decided, stopped or timed out elsewhere) and on every page opened, not only on reload.
+- On a run's page the canvas fits the window under a notice of why the run ended: its zoom controls stay in sight.
+- A time on an approval's Run tab names its time zone.
+- The output of a run no longer shows generated playbook code under the error of a host stopped at a port with no next step.
+- Deleting a flow turns off the schedules that fire it in the same save (the delete question already said so); before, they stayed on, fired once and failed. A move or delete through the **Files** tab or the API does the same.
+- A schedule whose flow has errors, or is gone, can be paused, changed and deleted; before, only Delete worked and it kept firing. Turning it on again is refused while the flow cannot run, as adding one is.
+- A launch configuration's settings (description, credentials, notifications and the rest) save while its flow has errors or is gone; only launching is refused. Changing it to another flow still needs one that can run.
+- A refused change of a launch configuration or schedule lists in the audit log only the fields it asked to change, not every field the form sent.
+- Home no longer offers **Launch again** for a configuration whose flow is gone.
+- A configuration's **Launch** tab says once that its flow is gone or has errors; **What the flow needs** is not shown while the flow cannot be read.
+- Opening a commit of a flow from its **History** no longer keeps the note of the last save or discard ("Saved as …", "The draft is discarded.") above it.
+- A read-only token may read the repository's variables (`POST /api/v1/projects/<id>/vars`), as it reads the project's files; it was refused as a write.
+- The repository's variables include those written on a host range line of the inventory (`sw-edge-0[1:4] ansible_connection=local`) for each host of the range.
+- On a run's page, **For host** lists only the run's hosts, and a variable's tooltip shows **In this run** without a host picked; a flow input a step reads directly shows the value the run was given.
+- The launch form names every step that reads an input, not three "and 1 more", and a required input that no step reads says that a run must give it.
+- Typing "/" in a file's text on the **Files** tab typed it; it moved the cursor to **Search**, and the rest of the typing went there.
+- A host list typed as a JSON list (`["sw-edge-01", "sw-edge-02"]`) runs on those hosts; one that is not valid JSON is refused at its field instead of being launched as a host name.
+- Emptying the **Limit** at launch runs without a limit; it kept the configuration's limit.
+- The notifications guide no longer says a run's inputs are never in a message: an approval's request email carries them (secrets as `***`).
+- The **Find** boxes of **Runs** and **History** are wide enough to show their hint whole.
+- A flow's page no longer keeps an old note ("Saved as …", "The draft is discarded.") when you open a commit of the flow or its **History**; the **History** list opens under the flow's line, not between it and the title.
+- In a shared draft, a step's binding open on someone else's page no longer writes its old parameters back over a parameter you changed.
+- A conflict choice in **Save** is for the values shown: when someone changes the draft while you choose, the save stops and shows the places again with their values now, instead of saving a value you did not see.
+- A page no longer calls the draft's "I am here" after the draft was saved or discarded (a 404 and a console error each time).
+- Asking a question on a phone no longer scrolls the page behind it.
+- On a run's canvas, the last step inside a subflow (Check the upgrade path, Wait for the target version) read "not reached" though its hosts ran it.
+- The flow page's Run panel and badge said "went well" for a run that failed without running anything (no host to run on); they say failed, with the reason.
+- While a run waits for approval, the flow page's Run panel says "waiting for approval", not "running", and the steps after the approval read "not reached yet", not "waiting".
+- A stopped run marks the step it was stopped in as stopped; it read "not reached".
+- The flow page's Run panel calls its run list **Run shown** (it lists the newest run too, not only earlier ones) and names the run's hosts, not only how many.
 - A run's **Terminal output** shows a host that a rejection, a timeout or any route sent to a failed end with its error alone, without the excerpt of generated code Ansible prints under it (the downloadable output keeps it).
 - The delivery log says why a webhook was not reached: connection refused, timed out, the host name not found (DNS), or its certificate (expired, for another name, not trusted). A certificate problem, or a port web requests may not use, is not tried again.
 - The **Take back** buttons on the **Access** tab no longer move sideways when a longer grant is added.
 - **What ran** marks an image as the server's default by how the run started, not by how its launch configuration reads now; dev runs are marked too.
 - The launch form offers the inventory's groups for a flow whose host list is not marked as its targets (the first host list is then the targets).
 - Search no longer shows, or opens with Enter, the results of the question typed before while the new one is asked.
+- The audit log's **Since** and **Until** stay whole words; they broke inside the word ("Sinc e").
+- One long credential name no longer squeezes the credentials list: kinds stay on one line and **Change** and **Delete** side by side in every row.
+- A read-only token that tries to open a draft is told it may only read, before any word about the request's form.
+- The guide's project table says that branches, pushes and flows need access to the project, not only a sign-in.
+- A flow's page with a long file path no longer leaves a lone "/" on a line of the breadcrumb, nor scrolls a little at tablet and laptop widths.
+- A page of a project that is not shared with you asks for the workspace's projects once, not twice.
 
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 

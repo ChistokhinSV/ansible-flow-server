@@ -2,7 +2,7 @@
 // it the approval that waits, its hosts, what went wrong and what ran; its output below (AFS-64).
 
 import type { RunView } from '@ansible-flow/core/protocol';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { atLeast, flowLevel, launchesAny, useMyAccess, useProjectAccess } from './access';
 import { AnsiText } from './ansi';
 import {
@@ -15,16 +15,17 @@ import {
   type User,
   type Workspace,
 } from './api';
-import { RunApprovals } from './approvals';
+import { APPROVALS_CHANGED, RunApprovals } from './approvals';
 import { ask } from './confirm';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
-import { quietEndOrigins } from './outputText';
+import { decidedOutcomes, quietEndOrigins } from './outputText';
 import { Link, navigate } from './router';
 import type { ThemeChoice } from './theme';
 import {
   ago,
   Breadcrumb,
+  formatTime,
   HelpLink,
   Loading,
   PageHead,
@@ -33,6 +34,7 @@ import {
   useLoad,
   WorkspaceName,
 } from './ui';
+import { stopQuestion } from './viewerRuns';
 
 export const ACTIVE = ['queued', 'running', 'waiting'];
 /** AFS-143: a person as the pages show people: by name (the login on hover). */
@@ -153,6 +155,8 @@ function StateChoices({ value, onChange }: { value: string; onChange(state: stri
     ['running', 'Running'],
     ['waiting', 'Waiting'],
     ['failed', 'Failed'],
+    // AFS-193: a run whose approval was rejected (or not decided in time) is not a failure.
+    ['rejected', 'Rejected'],
     ['succeeded', 'Went well'],
     ['queued', 'Queued'],
     ['cancelled', 'Stopped'],
@@ -191,7 +195,16 @@ const places = async (): Promise<Place[]> =>
     })),
   );
 
-const STATES = ['running', 'waiting', 'failed', 'succeeded', 'queued', 'cancelled', 'lost'];
+const STATES = [
+  'running',
+  'waiting',
+  'failed',
+  'rejected',
+  'succeeded',
+  'queued',
+  'cancelled',
+  'lost',
+];
 
 /** The choices the address holds (AFS-86), so that a reload or a shared link shows the same list. */
 interface Choices {
@@ -389,11 +402,19 @@ export function RunsPage({ me }: { me: User }) {
   }, [config, configs.data, knownConfig]);
 
   const groups = where.data?.filter((w) => w.projects.length) ?? [];
+  // AFS-194: someone who reaches no project sees no run: no choices to narrow nothing with.
+  const nowhere = !me.admin && !!where.data && groups.length === 0;
 
   return (
     <>
       <PageHead help="runs.md" title="Runs" lead="Every run you may see, the newest first." />
-      <div className="run-filters">
+      {nowhere && (
+        <p className="empty">
+          No project is shared with you yet, so there is no run to see. An administrator gives
+          access on a workspace's Access tab.
+        </p>
+      )}
+      <div className="run-filters" hidden={nowhere}>
         <label>
           Find
           <input
@@ -454,7 +475,7 @@ export function RunsPage({ me }: { me: User }) {
         )}
       </div>
       {(!fresh || list.error) && <Loading state={list} />}
-      {fresh && rows?.length === 0 && (
+      {fresh && rows?.length === 0 && !nowhere && (
         <p className="empty">
           {mine || config || q
             ? 'No run for these choices.'
@@ -530,6 +551,18 @@ function standing(run: Run): string {
   }
 }
 
+/**
+ * AFS-185: a stopped run says when, after who stopped it: "Stopped by Dana Whitfield at
+ * 21.11.2026, 08:47:56 CET during Push baseline".
+ */
+export function stoppedWhen(text: string, endedAt?: string, locale?: string): string {
+  if (!endedAt || !text.startsWith('Stopped')) return text;
+  const at = ` at ${formatTime(endedAt, locale)}`;
+  const by = /^Stopped by .+?(?= during | while | before |; |$)/.exec(text);
+  if (by) return `${by[0]}${at}${text.slice(by[0].length)}`;
+  return text.replace(/^Stopped( on request)?/, (m) => `${m}${at}`);
+}
+
 /** AFS-143: a port of a step as people say it. */
 const PORT_WORDS: Record<string, string> = {
   failed_hosts: 'failed hosts',
@@ -559,6 +592,18 @@ export function plainWhy(text: string): string {
     .replace(/\[[\w.-]+\] (?=\S)/g, '');
 }
 
+/**
+ * AFS-193: Ansible's reason for a failed task, in words. A task its failed_when condition failed
+ * has no message of its own: Ansible says "Unknown error"; the designer's callback says the
+ * condition since 1.0.2 (older runs keep Ansible's words, explained).
+ */
+export function failureWords(msg: string): string {
+  const said = plainWhy(msg);
+  if (/^(Task failed: )?(Action failed: )?Unknown error\.?$/.test(said.trim()))
+    return 'Ansible gave no reason. A failed_when condition that was true fails a task this way.';
+  return said;
+}
+
 interface HostLine {
   host: string;
   words: string;
@@ -580,7 +625,7 @@ function hostLines(view: RunView, state: Run['state'], against?: string): HostLi
         host: f.host,
         words: 'failed',
         tone: 'bad-text',
-        why: { task: f.task, ...(f.msg ? { msg: plainWhy(f.msg) } : {}) },
+        why: { task: plainWhy(f.task), ...(f.msg ? { msg: failureWords(f.msg) } : {}) },
       });
   for (const [host, reason] of Object.entries(summary.outcome))
     if (!problem.has(host))
@@ -597,7 +642,8 @@ function hostLines(view: RunView, state: Run['state'], against?: string): HostLi
   for (const hosts of Object.values(summary.problems ?? {}))
     for (const [host, p] of Object.entries(hosts)) {
       const line = problem.get(host);
-      if (line && !line.why) line.why = { task: p.task, ...(p.msg ? { msg: p.msg } : {}) };
+      if (line && !line.why)
+        line.why = { task: plainWhy(p.task), ...(p.msg ? { msg: failureWords(p.msg) } : {}) };
     }
   // AFS-131: the run's own state says whether it ended: a stopped run's view can still read as
   // running (it was stopped while it waited, or before its last view was written).
@@ -672,7 +718,15 @@ function Hosts({ run, lines }: { run: string; lines: HostLine[] }) {
               <span className="mono">{line.host}</span>
               <span className={`end ${line.tone}`}>{line.words}</span>
             </button>
-            {open === line.host && <HostOutput run={run} host={line.host} state={line.words} />}
+            {open === line.host && (
+              <HostOutput
+                run={run}
+                host={line.host}
+                state={line.words}
+                // AFS-193: where the host ended, at the end of what it did.
+                {...(/^(Ended|Stopped) at /.test(line.words) ? { end: line.words } : {})}
+              />
+            )}
           </li>
         ))}
       </ul>
@@ -681,7 +735,17 @@ function Hosts({ run, lines }: { run: string; lines: HostLine[] }) {
 }
 
 /** AFS-170: what one host did in the run: each step it ran in, and each task's result there. */
-function HostOutput({ run, host, state }: { run: string; host: string; state: string }) {
+function HostOutput({
+  run,
+  host,
+  state,
+  end,
+}: {
+  run: string;
+  host: string;
+  state: string;
+  end?: string;
+}) {
   const [steps, setSteps] = useState<Awaited<ReturnType<typeof api.runHost>>['steps']>();
   const [error, setError] = useState<string>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the host's state changes
@@ -732,6 +796,11 @@ function HostOutput({ run, host, state }: { run: string; host: string; state: st
           </ul>
         </div>
       ))}
+      {end && (
+        <p className="bad-text" data-host-end>
+          {end}
+        </p>
+      )}
     </section>
   );
 }
@@ -740,6 +809,12 @@ const STATUS_TONE: Record<string, string> = {
   failed: 'bad-text',
   unreachable: 'bad-text',
   skipped: 'muted',
+  // AFS-193: an approval the host waited at, and how it was decided.
+  approved: 'ok-text',
+  rejected: 'bad-text',
+  'timed out': 'bad-text',
+  waiting: 'warn-text',
+  'run stopped': 'muted',
 };
 
 /**
@@ -838,19 +913,32 @@ async function belongs(project: string, file: string, config?: string): Promise<
 const inputText = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value));
 
 /**
- * AFS-147: what Run again does, in words: the button's title (mode and the inputs it reuses) and,
- * for a real run, the question asked first (Launch's, with the inputs).
+ * AFS-147: what Run again does, in words: the button's title (mode and the inputs it reuses) and
+ * the question asked first: for a real run (Launch's, with the inputs), and for one that reached
+ * no host (AFS-191).
  */
-export function againWords(run: Run): { title: string; confirm: string } {
+export function againWords(run: Run): { title: string; confirm?: string; yes: string } {
   const inputs = Object.entries(run.inputs).map(([name, v]) => `${name} = ${inputText(v)}`);
   const reuses = inputs.length
     ? `It reuses the inputs ${inputs.join(', ')}.`
     : 'It takes no inputs.';
   const where = run.limit ? ` limited to ${run.limit}` : '';
   const mode = run.mode === 'real' ? 'A real run' : 'A check run';
+  // AFS-191: a run that reached no host would again (same commit, inputs and limit): asked first.
+  const none = run.error?.startsWith('No host ran')
+    ? ` ${run.error}. It would likely end the same way.`
+    : '';
+  const real = run.mode === 'real';
   return {
     title: `${mode} again, at the same commit${where}. ${reuses}`,
-    confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}`,
+    ...(real
+      ? {
+          confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}${none}`,
+        }
+      : none
+        ? { confirm: `Run ${run.flow.name} again as a check run?${none}` }
+        : {}),
+    yes: real ? 'Run for real' : 'Run again anyway',
   };
 }
 
@@ -860,7 +948,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const access = useProjectAccess(run?.project).data;
   const [output, setOutput] = useState('');
   // AFS-181: no generated-code excerpt under a failed end's error (the output file keeps it).
-  const shown = useMemo(() => quietEndOrigins(output), [output]);
+  // AFS-193: and a rejected host's end says rejected, not failed.
+  const shown = useMemo(() => decidedOutcomes(quietEndOrigins(output)), [output]);
   const [error, setError] = useState<string>();
   /** AFS-152: the run is not there, or not shared with this person. */
   const [missing, setMissing] = useState(false);
@@ -916,6 +1005,34 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
       stream?.close();
     };
   }, [id]);
+
+  // AFS-193: a run that stops waiting (decided, stopped, timed out) changes the sidebar's count of
+  // approvals: it looks again, not only on its timer.
+  const state = run?.id === id ? run.state : undefined;
+  const wasWaiting = useRef(false);
+  useEffect(() => {
+    if (wasWaiting.current && state !== 'waiting')
+      window.dispatchEvent(new Event(APPROVALS_CHANGED));
+    wasWaiting.current = state === 'waiting';
+  }, [state]);
+
+  // AFS-193: the canvas fits the window under whatever is above it (a notice of why the run
+  // ended, targets left out): its zoom controls stay in sight.
+  const body = useRef<HTMLDivElement>(null);
+  const notes = `${run?.error ?? ''}|${error ?? ''}|${run?.skippedTargets?.length ?? 0}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: measured again when the notes change
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    const place = () =>
+      el.style.setProperty(
+        '--run-flow-top',
+        `${Math.round(el.getBoundingClientRect().top + window.scrollY) + 8}px`,
+      );
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [notes, !!run]);
 
   // Its hosts, from how it went: read when it changes, and now and then while it goes.
   const going = run ? ACTIVE.includes(run.state) : false;
@@ -1018,7 +1135,18 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const act = async (what: 'cancel' | 'relaunch') => {
     // AFS-147: a real run again changes the hosts again: asked first, as Launch asks, with the
     // inputs it reuses.
-    if (what === 'relaunch' && run.mode === 'real' && !(await ask(again.confirm))) return;
+    if (what === 'relaunch' && again.confirm && !(await ask(again.confirm, { yes: again.yes })))
+      return;
+    // AFS-185: so does Stop of a real run: it cuts off what is in progress.
+    if (
+      what === 'cancel' &&
+      run.mode === 'real' &&
+      !(await ask(stopQuestion({ number: run.number, flowName: run.flow.name, state: run.state }), {
+        yes: 'Stop the run',
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     try {
       if (what === 'cancel') setRun(await api.cancelRun(run.id));
@@ -1162,7 +1290,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         <div className="run-below run-notes">
           {run.error && (
             <p className={`notice ${run.state === 'cancelled' ? '' : 'error'}`} role="status">
-              {plainWhy(run.error)}
+              {run.state === 'cancelled'
+                ? stoppedWhen(plainWhy(run.error), run.endedAt)
+                : plainWhy(run.error)}
             </p>
           )}
           {/* AFS-147: targets Ansible dropped are said, also on a run that went well. */}
@@ -1179,7 +1309,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           )}
         </div>
       )}
-      <div className="run-body">
+      <div className="run-body" ref={body}>
         <section className="run-flow" aria-label="The run on the flow's canvas">
           {run.startedAt ? (
             <iframe

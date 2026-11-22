@@ -2,6 +2,7 @@
 // do is shown only to them (the server decides either way).
 
 import { useEffect, useRef, useState } from 'react';
+import { refProblem } from '../server/projects/refName';
 import {
   atLeast,
   launchesInProject,
@@ -589,6 +590,12 @@ export function Workspace({
               </li>
             ))}
           </ul>
+          {/* AFS-192: who has no Add project learns who adds one. */}
+          {!me.admin && space.data && (
+            <p className="muted">
+              Projects are added by administrators of the server: ask one for a new project.
+            </p>
+          )}
         </>
       )}
       {space.data && tab === '-/environments' && (
@@ -754,6 +761,7 @@ function HostKey({
             if (
               !(await ask(
                 `Forget the trusted key of ${key.data?.host} and trust the key it shows now?`,
+                { yes: 'Trust the new key', danger: true },
               ))
             )
               return;
@@ -894,8 +902,14 @@ async function startedWords(project: Project): Promise<string> {
     (f) => /\.ya?ml$/.test(f) && !f.endsWith('.flow.yaml') && /(^|\/)playbooks?\/|^[^/]+$/.test(f),
   ).length;
   const counted = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // AFS-192: a sample brings launch configurations: named, so they are found under the note.
+  const configs = (await api.launchConfigs(project.id).catch(() => [])).map((c) => c.name);
   return [
-    `The project has started: ${counted(files.length, 'file')}, ${counted(flows, 'flow')}.`,
+    `The project has started: ${counted(files.length, 'file')}, ${counted(flows, 'flow')}${
+      configs.length
+        ? `, and the launch configuration${configs.length === 1 ? '' : 's'} ${configs.join(', ')}`
+        : ''
+    }.`,
     playbooks && !flows
       ? `${counted(playbooks, 'YAML file')} may be playbooks: make a New flow and start it from one.`
       : '',
@@ -996,6 +1010,7 @@ export function ProjectDetails({
           change.gitRef &&
           !(await ask(
             `Run ${change.gitRef} instead of ${project.gitRef}? Flows, launches and schedules that name no branch take ${change.gitRef} from now on.`,
+            { yes: `Run ${change.gitRef}` },
           ))
         )
           return;
@@ -1152,7 +1167,8 @@ function BranchesPanel({
       b.ahead > 0
         ? ` It has ${b.ahead} commit${b.ahead === 1 ? '' : 's'} not on ${project.gitRef}${project.hosted ? ', which will be gone' : ''}.`
         : '';
-    if (!(await ask(`Delete the branch ${b.name}?${lost}`, { danger: true }))) return;
+    if (!(await ask(`Delete the branch ${b.name}?${lost}`, { yes: 'Delete', danger: true })))
+      return;
     try {
       await api.deleteBranch(project.id, b.name, b.ahead > 0);
       onChanged();
@@ -1165,6 +1181,7 @@ function BranchesPanel({
     if (
       !(await ask(
         `Make ${b.name} the project's branch? Launch configurations and schedules that follow the project's branch run its commits from now on.`,
+        { yes: 'Make it the branch' },
       ))
     )
       return;
@@ -1262,8 +1279,14 @@ function BranchesPanel({
           submit="Make the branch"
           onCancel={() => setAdding(false)}
           onSubmit={async () => {
+            // AFS-192: a name git refuses, or one taken, is said here without asking the server.
+            const name = input.name.trim();
+            const why = refProblem(name);
+            if (why) refuse('name', why);
+            if (branches.some((b) => b.name === name))
+              refuse('name', `There is a branch ${name} already`);
             await api.createBranch(project.id, {
-              name: input.name.trim(),
+              name,
               from: input.from.trim(),
             });
             setAdding(false);
@@ -1374,6 +1397,7 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
               if (
                 project.hook &&
                 !(await ask('Make a new hook token? The git host must be given the new one.', {
+                  yes: 'Make a new token',
                   danger: true,
                 }))
               )
@@ -1392,6 +1416,7 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
               void act(async () => {
                 if (
                   !(await ask('Remove the push hook? Calls with its token are refused.', {
+                    yes: 'Remove',
                     danger: true,
                   }))
                 )
@@ -1523,6 +1548,33 @@ export function ProjectPage({
   const mayPush = me.admin || access?.workspace === 'rw';
   const mayReadFiles = me.admin || atLeast(access?.workspace ?? null, 'ro');
   const base = `/w/${workspace}/${key}`;
+  // AFS-192: a mirror whose source cannot be read (or has no commit yet) shows Source first:
+  // the problem and the address to fix come before the rest of the settings.
+  const sourceFirst = !project.hosted && (project.sync.state === 'error' || !project.commit);
+  const source = !project.hosted && (
+    <section className="panel" aria-labelledby="source">
+      <h2 id="source">Source</h2>
+      <SourceRefusal />
+      <dl className="facts">
+        <dt>Repository</dt>
+        <dd>
+          <code>{project.gitUrl}</code>
+        </dd>
+        <dt>Last look</dt>
+        <dd>
+          <SyncBadge project={project} /> {project.sync.at && <Time at={project.sync.at} />}
+          {project.sync.error && <div className="bad-text">{project.sync.error}</div>}
+        </dd>
+      </dl>
+      {me.admin && <SourceAddress project={project} onSaved={found.reload} />}
+      {sshUrl(project.gitUrl) && (
+        <HostKey project={project} admin={me.admin} onChanged={found.reload} />
+      )}
+      {me.admin && signsIn(project.gitUrl) && (
+        <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
+      )}
+    </section>
+  );
   return (
     <>
       {crumbs}
@@ -1759,6 +1811,7 @@ export function ProjectPage({
 
       {tab === 'settings' && (
         <>
+          {sourceFirst && source}
           {me.admin && (
             <section className="panel" aria-labelledby="details">
               <h2 id="details">Name and branch</h2>
@@ -1773,10 +1826,17 @@ export function ProjectPage({
             </section>
           )}
           {/* The repository holds every flow: it is for who has a level on the workspace. */}
-          {(me.admin || access?.workspace) && (
+          {/* AFS-192: a mirror with no commit has nothing to clone yet. */}
+          {(me.admin || access?.workspace) && (project.hosted || project.commit) && (
             <section className="panel" aria-labelledby="git">
               <h2 id="git">Work on it with git</h2>
               <CloneHelp project={project} />
+              {/* AFS-194: said before a push is refused. */}
+              {!me.admin && access?.workspace !== 'rw' && (
+                <p className="muted">
+                  You may clone and pull. Pushing needs read and write on the workspace.
+                </p>
+              )}
               {project.hosted && !project.commit && (
                 <p className="muted">
                   The repository is empty: push a first commit to {project.gitRef}.
@@ -1785,30 +1845,7 @@ export function ProjectPage({
             </section>
           )}
 
-          {!project.hosted && (
-            <section className="panel" aria-labelledby="source">
-              <h2 id="source">Source</h2>
-              <SourceRefusal />
-              <dl className="facts">
-                <dt>Repository</dt>
-                <dd>
-                  <code>{project.gitUrl}</code>
-                </dd>
-                <dt>Last look</dt>
-                <dd>
-                  <SyncBadge project={project} /> {project.sync.at && <Time at={project.sync.at} />}
-                  {project.sync.error && <div className="bad-text">{project.sync.error}</div>}
-                </dd>
-              </dl>
-              {me.admin && <SourceAddress project={project} onSaved={found.reload} />}
-              {sshUrl(project.gitUrl) && (
-                <HostKey project={project} admin={me.admin} onChanged={found.reload} />
-              )}
-              {me.admin && signsIn(project.gitUrl) && (
-                <SourceSignIn project={project} workspace={workspace} onSaved={found.reload} />
-              )}
-            </section>
-          )}
+          {!sourceFirst && source}
 
           {me.admin && !project.hosted && <PushHook project={project} onChanged={found.reload} />}
 

@@ -158,6 +158,8 @@ describe('home', () => {
           { id: 'c1', project: 'p1', name: 'Nightly check' },
           { id: 'c3', project: 'p1', name: 'Weekly real' },
           { id: 'c4', project: 'p1', name: 'By the clock' },
+          // AFS-187: its flow is gone: it cannot be launched again.
+          { id: 'c2', project: 'p1', name: 'Gone', flowGone: 'There is no flow x.flow.yaml' },
         ],
       }),
     };

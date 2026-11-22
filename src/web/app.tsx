@@ -72,7 +72,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   const guidePage = match('/help/guide/:page', path);
   if (guidePage?.page) return <GuidePage page={guidePage.page} />;
   if (path === '/approvals') return <ApprovalsPage />;
-  if (path === '/library') return <LibraryPage />;
+  if (path === '/library') return <LibraryPage admin={me.admin} />;
   // AFS-87: the side menu lists the administration's pages; its own address opens the first.
   if (path === '/admin') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <AdminOnly />;
@@ -231,6 +231,14 @@ function Side({
       window.removeEventListener('message', fromFrame);
     };
   }, [approvals.reload]);
+  // AFS-193: and on every page opened: a run stopped or decided elsewhere drops out of the count.
+  const firstPath = useRef(path);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reads again when the page changes
+  useEffect(() => {
+    if (firstPath.current === path) return;
+    firstPath.current = '';
+    approvals.reload();
+  }, [path]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.
   const here = /^\/w\/([^/]+)/.exec(path)?.[1];
   const known = workspaces.data?.some((w) => w.key === here);

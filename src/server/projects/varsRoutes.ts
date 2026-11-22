@@ -4,7 +4,6 @@
 // project (api/catalog.ts checks it before the handler). Nothing secret is in it.
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
-import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { pathProblem } from '../launch/configs';
 import { type Git, GitError } from './git';
@@ -44,7 +43,9 @@ export function registerVars(app: FastifyInstance, deps: VarsRouteDeps): void {
       },
     },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
+      // AFS-189: it reads, so a read-only token may ask (signedIn refuses it every POST).
+      if (!request.user)
+        return reply.code(401).send({ error: 'unauthorized', message: 'Sign in first' });
       const project = await getProject(deps.db, request.params.id);
       if (!project) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
       const { commit, inventory, roles, files } = request.body;

@@ -1,8 +1,8 @@
 // AFS-123: a flow as one commit left it, as the designer's History shows it in VS Code (AFD-320):
 // read-only on the canvas, in the Changes lens against the version just before that commit, with
-// the commit's author, day and message in the designer's banner. A flow the commit added compares
-// with nothing (every step new). The page around the frame (the flow page) says the same above it
-// and leads back to the flow as it is now.
+// the commit's author, day and message said by the page around the frame (the flow page), which
+// leads back to the flow as it is now (AFS-190: the designer's own banner is off). A flow the commit
+// added compares with nothing (every step new).
 //   /viewer.html?project=<id>&path=<flow file>&commit=<40 hex>&history=1
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import type { CompareFacts } from '@ansible-flow/core/lens/types';
@@ -30,7 +30,8 @@ export function nothingOf(doc: FlowDocument): FlowDocument {
 
 /** The Changes lens's one base: the version before the commit, or nothing for a new flow. */
 export function compareOf(facts: PastFacts, base: FlowDocument | undefined): CompareFacts {
-  const short = facts.commit.slice(0, 7);
+  // AFS-190: 12 characters, as every page shows a commit.
+  const short = facts.commit.slice(0, 12);
   if (!facts.before) {
     const ref = 'nothing';
     const label = `nothing: ${short} added the flow`;
@@ -98,8 +99,15 @@ export function showPast(options: {
                 subject: facts.subject,
                 path,
               },
-              // The page says the commit; nothing here runs.
-              embed: { runShown: true, mayRun: false, mayStop: false, words: 'server' },
+              // The page says the commit; nothing here runs. AFS-190: so the canvas does not say
+              // it again (`pastShown`, AFD-354: a designer before it ignores it).
+              embed: {
+                runShown: true,
+                mayRun: false,
+                mayStop: false,
+                words: 'server',
+                pastShown: true,
+              },
             } as HostMessage);
             send({ type: 'catalogStatus', status: { state: 'idle' } });
             send({ type: 'snapshot', snapshot });

@@ -31,6 +31,7 @@ import { registerGit } from './projects/gitHttp';
 import { registerHistory } from './projects/historyRoutes';
 import { Library } from './projects/library';
 import { registerLibrary } from './projects/libraryRoutes';
+import { RepoRoles } from './projects/roles';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import { VarIndexes } from './projects/vars';
 import { registerVars } from './projects/varsRoutes';
@@ -197,6 +198,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerDrafts(app, {
       db: deps.database.db,
       ...(deps.catalog ? { catalog: deps.catalog } : {}),
+      roles: new RepoRoles(deps.projects.git),
       drafts,
     });
     // AFS-126: an empty flow starts from a sample, a playbook or an AWX template.
@@ -223,8 +225,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.projects) registerMcp(app, { db: deps.database.db, git: deps.projects.git });
   if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
   if (deps.runs) {
-    registerRuns(app, deps.runs, deps.runOutput, deps.hub, deps.database.db);
     const notifier = deps.notifier;
+    registerRuns(
+      app,
+      deps.runs,
+      deps.runOutput,
+      deps.hub,
+      deps.database.db,
+      notifier ? (run, gate) => notifier.approvalCancelled(run, gate) : undefined,
+    );
     registerApprovals(app, {
       db: deps.database.db,
       queue: deps.runs,

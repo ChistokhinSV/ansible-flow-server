@@ -54,7 +54,7 @@ const LAUNCH = {
   mode: { type: 'string', enum: ['check', 'real'], description: 'check (nothing changes) or real' },
   ref: str('Another branch to run the newest commit of (needs rw on the flow)'),
   commit: str('A commit to run, its id: 7 to 40 hex digits (needs rw on the flow)'),
-  limit: str("Ansible's --limit"),
+  limit: str("Ansible's --limit, in place of the configuration's; empty: no limit"),
   inputs: {
     type: 'object',
     description: 'The flow\'s inputs as text, by name: "fw-edge-01, fw-edge-02" is a host list',
@@ -142,7 +142,18 @@ export const SERVER_TOOLS: ServerTool[] = [
       mine: { type: 'boolean', description: 'Only runs you asked for' },
       state: {
         type: 'string',
-        enum: ['queued', 'running', 'waiting', 'succeeded', 'failed', 'cancelled', 'lost'],
+        enum: [
+          'queued',
+          'running',
+          'waiting',
+          'succeeded',
+          'failed',
+          'cancelled',
+          'lost',
+          'rejected',
+        ],
+        description:
+          'rejected: failed because an approval was rejected or not decided in time; failed leaves those out',
       },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       before: str('Where the last page ended: the next of its answer'),

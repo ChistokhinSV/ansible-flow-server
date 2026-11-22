@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
-import { applyChanges, base64Size } from '../../src/web/files';
+import { addChange, applyChanges, base64Size, uploadedText } from '../../src/web/files';
 
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
 const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
@@ -155,6 +155,29 @@ describe('the files page', () => {
     expect(await screen.findByText('Changes not saved (3)')).toBeTruthy();
     for (const name of ['a7-one.txt', 'a7-two.txt', 'a7-three.txt'])
       expect(screen.getByText(`Upload templates/${name}`)).toBeTruthy();
+    // AFS-192: the first upload is what shows next, with its text, before it is saved.
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('path')).toBe('templates/a7-one.txt'),
+    );
+    expect(screen.getByText(/Uploaded here/)).toBeTruthy();
+    await waitFor(() =>
+      expect(document.querySelector('.code-editor')?.shadowRoot?.textContent).toContain(
+        'a7-one.txt',
+      ),
+    );
+    // Moved before it is saved: one change, the upload at its new path.
+    fireEvent.click(screen.getByRole('button', { name: 'Rename or move' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'New path' }), {
+      target: { value: 'group_vars/a7-one.txt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(await screen.findByText('Upload group_vars/a7-one.txt')).toBeTruthy();
+    expect(screen.getByText('Changes not saved (3)')).toBeTruthy();
+    // Deleted before it is saved: the upload is taken back.
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Changes not saved (2)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'web.conf.j2' }));
+    await screen.findByText(/last changed by/);
 
     // A new file outside the project, or onto one that is there, is refused as it is typed.
     fireEvent.click(screen.getByRole('button', { name: 'New file' }));
@@ -176,12 +199,20 @@ describe('the files page', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(/already/);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
-    // Deleted but not saved: said so, not "there is no ...".
+    // Deleted but not saved: said so, not "there is no ...", and still listed, struck through.
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(await screen.findByText(/is marked for deletion/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'web.conf.j2' }).classList).toContain('deleted');
+    expect(screen.getByText('deleted')).toBeTruthy();
     expect(
-      screen.getByPlaceholderText(/Upload templates\/a7-one.txt and 3 more changes/),
+      screen.getByPlaceholderText(
+        /Upload templates\/a7-two.txt; Upload templates\/a7-three.txt; Delete/,
+      ),
     ).toBeTruthy();
+    // AFS-192: Keep it takes the deletion back.
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+    expect(await screen.findByText('Changes not saved (2)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'web.conf.j2' }).classList).not.toContain('deleted');
   });
 
   it('AFS-150: sizes of each upload, an archive that replaces files asks, Discard all asks', async () => {
@@ -281,9 +312,27 @@ describe('the tree after a change set', () => {
     ]);
     expect(after.map((f) => [f.path, f.state])).toEqual([
       ['files/new.txt', 'new'],
+      // AFS-192: marked for deletion, still listed until saved.
+      ['flows/hello/hello.flow.yaml', 'deleted'],
       ['roles/web/tasks/main.yml', undefined],
       ['roles/web/templates/web.conf.j2', 'changed'],
     ]);
-    expect(after[2]?.from).toBe('templates/web.conf.j2');
+    expect(after[3]?.from).toBe('templates/web.conf.j2');
+  });
+
+  it('AFS-192: a move or delete of an upload changes the upload, not the branch', () => {
+    const up = { op: 'write', path: 'all.yml', base64: 'eDogMQo=' } as const;
+    expect(
+      addChange([up], { op: 'move', from: 'all.yml', to: 'group_vars/all.yml' }, files),
+    ).toEqual([{ ...up, path: 'group_vars/all.yml' }]);
+    expect(addChange([up], { op: 'delete', path: 'all.yml' }, files)).toEqual([]);
+    // A file the branch has, or a path an archive may fill, is moved as asked.
+    const move = { op: 'move', from: 'templates', to: 't' } as const;
+    expect(addChange([], move, files)).toEqual([move]);
+    const unpack = { op: 'unpack', path: '', base64: 'eA==' } as const;
+    const moveUp = { op: 'move', from: 'all.yml', to: 'b.yml' } as const;
+    expect(addChange([unpack, up], moveUp, files)).toEqual([unpack, up, moveUp]);
+    expect(uploadedText('eDogMQo=')).toBe('x: 1\n');
+    expect(uploadedText(Buffer.from([0, 1, 2]).toString('base64'))).toBeUndefined();
   });
 });

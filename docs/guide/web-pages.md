@@ -105,31 +105,38 @@ Code. Everyone who edits the same flow edits one shared draft:
 
 - **Edits are shared at once.** Each change goes to the server, which applies it to the draft in
   the order it gets them, and everyone's canvas shows the result. Changes to different steps all
-  apply; when two people change the same field, the later one wins. While you edit alone, the
+  apply; when two people change the same field, the later one wins. A step's binding you have
+  open follows what someone else changes in it: only the parameters you changed are yours. The
   canvas sits right under the flow's title and its buttons (**Save**, **Stop editing**,
-  **Discard**); **i** beside Full screen says which commit of which branch the draft is of. When
-  someone else is in the draft (or you have it open in another tab), a line says who is here and
-  what the others did last ("removed Ping", "changed Backup (timeout)"); **N earlier** lists the
-  ones before. Notes about the draft (the branch moved, a save's clashes, the commit message)
-  lie over the top of the canvas.
-- **Ctrl+Z takes back your own last edit**, says which step it was, and leaves the others' alone.
+  **Discard**); **i** beside Full screen says which commit of which branch the draft is of. One
+  line beside the buttons says who is here and what happened last ("Mia Ortega changed Backup
+  (timeout), 3 times", a save or discard coming, what an import added); **N earlier** lists the
+  ones before, and **main moved** says what changed on the branch. Nothing over or above the
+  canvas moves it or covers it when someone comes, goes or saves.
+- **Ctrl+Z takes back your own last edit**, says what it was (a step's fields, a note's text), and
+  leaves the others' alone.
   When someone changed the same place after you, it is refused with what they changed.
   **Ctrl+Y** (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a
   new edit; it is refused the same way when someone changed that place since.
-- **Save** (or Ctrl+S, on the page or in the canvas) asks for the commit message, then makes one
-  commit on the project's branch, with your message, by you, and
+- **Save** (or Ctrl+S, on the page or in the canvas) opens a dialog: what the draft changes, place
+  by place, with who changed each, and the commit message made of it (type your own over it).
+  Save then makes one commit on the project's branch, with that message, by you, and
   `Co-authored-by` for everyone else who edited; it then says the commit (a link to the flow at
-  it) and the co-authors. For a project with an external repository the commit is pushed there
+  it) and the co-authors. While the draft changes nothing (no edit yet, or every edit taken
+  back) **Save** is off and Ctrl+S says there is nothing to save. A commit's details on the
+  **History** tab name its co-authors without their e-mail addresses. For a project with an external repository the commit is pushed there
   first, only if the branch there has not moved. When the branch moved since the draft began, the
   draft is merged onto it step by step first; each place both changed is listed with the draft's
-  value and the branch's, you pick which to keep at each, and **Save with these** saves. While
-  you edit, a note says when the flow is changed or removed on the branch (a push from VS Code,
+  value and the branch's, you pick which to keep at each, and **Save with these** saves. When
+  someone changes the draft while you choose, the save stops and lists the places again with the
+  values as they are now. While you edit, the line says when the flow is changed or removed on
+  the branch (a push from VS Code,
   another save; your own push says "You"), so nobody's work is saved over unknowingly. When
   others are in the draft, or you have it open in another tab, **Save** says so first, and every
   other page in the draft (your other tabs too) sends what is still being typed before the commit
   is made. While someone has **Save** open (is writing the commit message), the others see "Mia
-  Ortega is about to save" over their canvas: saving ends the draft for everyone, so their
-  editing stops once the commit is made. A save that changes the flow raises its `flow.version`
+  Ortega is about to save" in the line: saving ends the draft for everyone, so their editing
+  stops once the commit is made. A save that changes the flow raises its `flow.version`
   by one from the branch's, as a save in VS Code does; a change of notes or layout only keeps
   it. Full screen has its own **Save**. Saves are listed among the project's pushes
   (Branches): who (by name), how (git push, draft saved, files changed, branch, project
@@ -157,7 +164,12 @@ Code. Everyone who edits the same flow edits one shared draft:
 - A draft is kept until it is saved or discarded: the flow's page says there are unsaved edits and
   by whom; **Open the draft** goes on with it, and anyone with `rw` may **Discard the draft** there
   without opening it. Discard asks the same question on the flow's page and in the editor, naming
-  whose unsaved edits go. A draft nobody changed is dropped when you stop editing it. Runs take the flow
+  whose unsaved edits go; while it asks, the others in the draft see "… is about to discard the
+  draft", and what they are typing goes into the draft before it is discarded. **Bring back**
+  (beside "The draft is discarded", for you and the others) restores a discarded draft with
+  everyone's edits for 15 minutes, unless the flow has a new draft by then. A draft that changes
+  nothing (nobody changed it, or every edit was taken back) is dropped when you stop editing it
+  and nobody else is in it, and Discard drops it without asking. Runs take the flow
   from the branch, so a draft runs only once saved: while you edit, the canvas has no Run buttons
   and its Run tab says to save, then launch.
 - **Binding steps** searches the module catalog of the flow's image (its launch configuration's
@@ -173,7 +185,14 @@ Code. Everyone who edits the same flow edits one shared draft:
   when there is nothing to take back), `/redo` (`nothing` when there is nothing to bring back),
   `/tidy`, `/here`, `/catalog`, `/save` (`choices` keeps `draft` or `branch` per clash id,
   `answerConflicts` answers clashes instead of a 409);
-  `DELETE /api/v1/drafts/<id>` discards;
+  `GET /api/v1/drafts/<id>/summary` says what the draft changes and who changed each place
+  (`changed` is false when there is nothing to save; the `draft` and `edit` events carry it too);
+  `/save` with `choices` also takes `seen` (the `revision` its clashes were answered at): when
+  the draft changed since, the clashes are answered again;
+  `DELETE /api/v1/drafts/<id>?tab=` discards (the other pages are told `saving` with
+  `what: "discard"` first); `POST /api/v1/projects/<id>/drafts/restore?path=` with `{"draft"}`
+  (the old id) brings it back; `POST /api/v1/drafts/<id>/leave` with `{"tab"}` is Stop editing
+  (`dropped` when it changed nothing and nobody else is in it);
   `GET /api/v1/drafts/<id>/start-from` (samples, playbooks, AWX credentials),
   `GET /api/v1/drafts/<id>/start-from/awx?credential=` (templates) and
   `POST /api/v1/drafts/<id>/start-from` with `{"sample"}`, `{"playbook"}` or
@@ -194,7 +213,10 @@ With `rw` on the workspace you change files: edit text, **New file**, **Upload f
 **Upload a folder (zip)** (a zip or tar.gz unpacked into the folder you are in), **Rename or
 move** and **Delete** (files and folders). A path is checked as you type it: it stays inside the
 project and does not land on a file or folder that is there. The changes are listed under the files, at the window's foot, until
-**Save**, which makes one commit of them on the branch, with your message (left empty, the words
+**Save**. An upload is the file shown next; a text file shows its text before it is saved. An
+upload moved or deleted before Save changes the upload: one change at its new path, or none. A
+file marked for deletion stays in the tree, struck through, until Save; **Keep it** takes the
+deletion back. **Save** makes one commit of them on the branch, with your message (left empty, the words
 the Message field shows), by you; this browser keeps them meanwhile, **Take back** drops one, and **Discard all** drops
 them all once you say so. An archive does not replace files that are there without asking: Save
 lists the files it would replace, and **Replace them and save** saves. When the branch moved since your first change, Save goes on top of it,
@@ -251,9 +273,10 @@ filter, **Look further back** goes on through a long history). The tab is for wh
 project's files (`ro` on the workspace); the address keeps the branch, the filter and the open
 commit, so it can be shared.
 
-A commit opens to the files it changed, each **added**, **changed** or **removed** (a rename is
-a removal and an addition; a merge shows what it brought to its first parent). Flows are named by
-their title and open the flow as that commit left it.
+A commit opens to the files it changed, each **added**, **changed**, **removed** or **renamed**
+(with the path it had; a merge shows what it brought to its first parent). Flows are named by
+their title and open the flow as that commit left it; every other file opens on a page of its own
+as the commit left it (a removed one as it was before). Hashes show 12 characters everywhere.
 
 A flow's own history is in its page's **More** menu (**History**): the commits that changed its
 flow file or its scenarios file (`<key>.scenarios.yaml`), each saying which. Anyone who may see the
@@ -263,18 +286,23 @@ flow has it.
 
 `/w/<workspace>/<project>/flow/<file>?commit=<hash>` shows the flow as that commit left it, read
 only, in the designer's **Changes** lens against the version just before that commit: the steps,
-wires and settings it changed are marked, and the lens lists them. Above the canvas: the commit's
-hash, author, day and message, what it did to the flow, and **Back to the current flow**. A flow
-the commit added compares with nothing, every step new; a commit that removed the flow says so and
-links to its last version. Nothing runs or is edited from here.
+wires, notes and settings it changed are marked, and the lens lists them. Above the canvas, once:
+the commit's hash, author, time and message, what it did to the flow, **Back to the current flow**
+and **History of this flow**. A flow the commit added compares with nothing, every step new; a
+commit that removed the flow says so and links to its last version (when the flow is gone from the
+branch, the way back leads to the project). A commit the project's branch does not have names the
+branches that do. The hash may be the full one or its start (7 characters or more, as History
+shows it); one that names no commit, or more than one, or a commit without the flow, is said there
+with the same ways on, and no flow shows. Nothing runs or is edited from here.
 
 Over the API (read only; `ro` on the project, or on the flow for a flow's own):
 `GET /api/v1/projects/<id>/commits?branch=&q=&limit=` gives a page of commits and, when there are
 more, `next`: pass it as `skip`, with the page's `commit`, for the next page;
 `&path=<flow file>` keeps a flow's commits. `GET /api/v1/projects/<id>/commits/<hash>` gives one
 commit with its files; `GET /api/v1/projects/<id>/flows/commit?path=&commit=` says what a commit
-did to a flow (`added`, `changed`, `removed` or `unchanged`) and which commit to compare with
-(`before`).
+did to a flow (`added`, `changed`, `removed` or `unchanged`), which commit to compare with
+(`before`), and whether the project's branch has it (`onBranch`; if not, `branches`); `commit` may
+be the start of a hash, and the answer has the full one.
 
 ## Flow library
 

@@ -296,14 +296,14 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )(
-    'One commit: author, time, message, and the files it changed (added, changed or removed; flows with their title)',
+    'One commit: author, time, message, and the files it changed (added, changed, removed or renamed from another path; flows with their title)',
   ),
   'GET /api/v1/projects/:id/flows/commit': S(
     'Projects',
     'signed in',
     P,
   )(
-    'What a commit did to a flow (added, changed, removed or nothing), with its author, time and message, and the commit to compare with',
+    "What a commit did to a flow (added, changed, removed or nothing), with its author, time and message, the commit to compare with, and whether the project's branch has it (else the branches that do); ?commit= is a full commit id or its start (7 characters or more)",
   ),
   'GET /api/v1/library/subflows': S(
     'Library',
@@ -405,7 +405,34 @@ export const ROUTES: Record<string, RouteDoc> = {
   )(
     "Save the draft as one commit on the project's branch (merged first when the branch moved; `choices` keeps the draft's or the branch's side per conflict, `force` the draft's side of the rest)",
   ),
-  'DELETE /api/v1/drafts/:id': S('Editing', 'signed in', D)('Discard the draft'),
+  'DELETE /api/v1/drafts/:id': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "Discard the draft (the other pages send what they are typing first; `tab` names the caller's page); it can be brought back for 15 minutes",
+  ),
+  'POST /api/v1/projects/:id/drafts/restore': S(
+    'Editing',
+    'signed in',
+    P,
+  )(
+    "Bring back a draft of the flow (`path`) discarded in the last 15 minutes (`draft`, its old id), as the flow's draft again; refused once the flow has a new draft",
+  ),
+  'GET /api/v1/drafts/:id/summary': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "What the draft changes against the commit it began at, step by step (and notes and the flow's fields), with who changed each place; `changed` says whether there is anything to save",
+  ),
+  'POST /api/v1/drafts/:id/leave': S(
+    'Editing',
+    'signed in',
+    D,
+  )(
+    "Say the caller's page (`tab`) left the draft; a draft that changes nothing, with nobody else in it, is dropped (`dropped`)",
+  ),
   'GET /api/v1/drafts/:id/start-from': S(
     'Editing',
     'signed in',
@@ -949,6 +976,9 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/drafts/:id/flushed': 'ro',
   'POST /api/v1/drafts/:id/save': 'rw',
   'DELETE /api/v1/drafts/:id': 'rw',
+  'POST /api/v1/projects/:id/drafts/restore': 'rw',
+  'GET /api/v1/drafts/:id/summary': 'ro',
+  'POST /api/v1/drafts/:id/leave': 'ro',
   'POST /api/v1/drafts/:id/catalog': 'ro',
   'GET /api/v1/drafts/:id/start-from': 'rw',
   'GET /api/v1/drafts/:id/start-from/awx': 'rw',
@@ -1037,6 +1067,7 @@ const FLOW_QUERY: Record<string, string> = {
   'GET /api/v1/projects/:id/flows/view': 'path',
   'POST /api/v1/projects/:id/flows/catalog': 'path',
   'POST /api/v1/projects/:id/drafts': 'path',
+  'POST /api/v1/projects/:id/drafts/restore': 'path',
   'GET /api/v1/projects/:id/flows/history': 'path',
   'GET /api/v1/projects/:id/commits': 'path',
   'GET /api/v1/projects/:id/flows/commit': 'path',
@@ -1296,7 +1327,10 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
     const route = request.routeOptions.url;
     const key = `${request.method} ${route}`;
     const doc = route ? ROUTES[key] : undefined;
-    if (!doc || doc.who === 'anyone' || doc.who === 'push hook token' || READS.has(key)) return;
+    // AFS-195: a draft's edits are kept with the draft, not in the audit log, but they are
+    // writes all the same: refused here first, not after a form error ("Path is needed.").
+    const open = READS.has(key) && !key.includes('/drafts');
+    if (!doc || doc.who === 'anyone' || doc.who === 'push hook token' || open) return;
     return reply.code(403).send({ error: 'read_only_token', message: 'This token may only read' });
   });
 

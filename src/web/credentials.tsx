@@ -42,17 +42,17 @@ const FIELD_HINT: Record<string, string> = {
 /** Secret parts written on several lines. */
 const MULTILINE = new Set(['privateKey']);
 
+/** A field's label inside a sentence: "user name", but "AWX address" as the form says it (AFS-194). */
+const inWords = (key: string) => {
+  const label = FIELD_LABEL[key] ?? key;
+  return /^[A-Z]{2}/.test(label) ? label : `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+};
+
 /** What a credential holds, in words: its visible fields and the names of its secret parts. */
 export function holds(c: Credential): string {
-  const fields = Object.entries(c.fields).map(
-    ([k, v]) => `${(FIELD_LABEL[k] ?? k).toLowerCase()} ${v}`,
-  );
+  const fields = Object.entries(c.fields).map(([k, v]) => `${inWords(k)} ${v}`);
   const secret =
-    c.kind === 'env'
-      ? c.has.length
-        ? [`variables ${c.has.join(', ')}`]
-        : []
-      : c.has.map((k) => (FIELD_LABEL[k] ?? k).toLowerCase());
+    c.kind === 'env' ? (c.has.length ? [`variables ${c.has.join(', ')}`] : []) : c.has.map(inWords);
   return [...fields, ...secret].join(' · ');
 }
 
@@ -431,7 +431,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
       )}
       {!!list.data?.length && (
         <Scroll>
-          <table>
+          <table className="credential-list">
             <thead>
               <tr>
                 <th scope="col">Name</th>
@@ -448,11 +448,11 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
             <tbody>
               {list.data.map((c) => (
                 <tr key={c.id}>
-                  <td>
+                  <td className="credential-name">
                     {c.name}
                     {c.description && <div className="muted">{c.description}</div>}
                   </td>
-                  <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
+                  <td className="kind">{KIND_LABEL[c.kind] ?? c.kind}</td>
                   <td className="long">{holds(c)}</td>
                   <td>
                     <UsedBy credential={c} workspace={workspace} />
@@ -480,7 +480,13 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
                           }
                           onClick={async () => {
                             if (
-                              !(await ask(`Delete the credential "${c.name}"?`, { danger: true }))
+                              !(await ask(
+                                `Delete the credential "${c.name}"? It cannot be brought back.`,
+                                {
+                                  yes: 'Delete',
+                                  danger: true,
+                                },
+                              ))
                             )
                               return;
                             setError(undefined);

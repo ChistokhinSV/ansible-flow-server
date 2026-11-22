@@ -46,6 +46,7 @@ export function waitingHosts(carriedJson: string | null, key: string): string[] 
 const gateOf = (row: Row): Gate => {
   const approval = (row.approval_json ? JSON.parse(row.approval_json) : {}) as ApprovalFields & {
     next?: Gate['next'];
+    intent?: string;
   };
   const hosts = waitingHosts(row.carried_json, row.node_key);
   return {
@@ -58,6 +59,7 @@ const gateOf = (row: Row): Gate => {
     approvers: approval.approvers ?? [],
     notify: approval.notify ?? [],
     ...(approval.message ? { message: approval.message } : {}),
+    ...(approval.intent ? { intent: approval.intent } : {}),
     ...(row.decided_by ? { decidedBy: row.decided_by } : {}),
     ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
     ...(row.comment ? { comment: row.comment } : {}),
@@ -77,6 +79,8 @@ export interface NewGate {
   approval?: ApprovalFields;
   /** AFS-146: where each decision sends the waiting hosts, by the next step's title. */
   next?: Gate['next'];
+  /** AFS-193: the approval step's intent: what the approvers read when it has no message. */
+  intent?: string;
 }
 
 /** A run reached an approval: the gate waits. */
@@ -92,8 +96,12 @@ export async function openGate(db: Db, input: NewGate, now = new Date()): Promis
     carried_json: JSON.stringify(input.carried),
     deadline: input.deadline ? input.deadline.toISOString() : null,
     approval_json:
-      input.approval || input.next
-        ? JSON.stringify({ ...input.approval, ...(input.next ? { next: input.next } : {}) })
+      input.approval || input.next || input.intent
+        ? JSON.stringify({
+            ...input.approval,
+            ...(input.next ? { next: input.next } : {}),
+            ...(input.intent?.trim() ? { intent: input.intent.trim() } : {}),
+          })
         : null,
     decided_by: null,
     decided_at: null,
@@ -284,13 +292,24 @@ export function whyNot(
     }
   }
   if (!selfApprove && run.requestedBy === who.user.id)
-    // AFS-146: and how that changes: the workspace's own setting.
-    return 'Who launched the run does not decide its approvals here. The workspace can allow it on its Access page';
+    // AFS-193: said to the launcher, who cannot open the setting that changes it: no pointer to
+    // a page they do not have, only who can.
+    return 'You launched this run, so others decide its approvals (only an administrator can change that)';
   return undefined;
 }
 
-/** A run that stops while it waits takes its waiting gate with it: nobody is asked any more. */
-export async function closeGates(db: Db, run: string, by?: string): Promise<void> {
+/**
+ * A run that stops while it waits takes its waiting gate with it: nobody is asked any more.
+ * Resolves with the gates it closed (AFS-185: their approvers are told).
+ */
+export async function closeGates(db: Db, run: string, by?: string): Promise<string[]> {
+  const open = await db
+    .selectFrom('run_gate')
+    .select('id')
+    .where('run_id', '=', run)
+    .where('status', '=', 'waiting')
+    .execute();
+  if (!open.length) return [];
   await db
     .updateTable('run_gate')
     // AFS-110: who stopped the run is who cancelled its gate (the page said "by nobody").
@@ -301,6 +320,7 @@ export async function closeGates(db: Db, run: string, by?: string): Promise<void
     .where('run_id', '=', run)
     .where('status', '=', 'waiting')
     .execute();
+  return open.map((g) => g.id);
 }
 
 /**

@@ -2,6 +2,7 @@
 // do what there; everyone's pages show only what their level lets them do (the server decides
 // either way).
 import { type FormEvent, useId, useState } from 'react';
+import { LEVEL_NAME } from '../server/access/types';
 import {
   api,
   type Grant,
@@ -49,13 +50,8 @@ export const launchesInProject = (access: ProjectAccess | undefined): boolean =>
 export const flowLevel = (access: ProjectAccess | undefined, file: string): Level | null =>
   access?.admin ? 'rw' : (access?.flows[file] ?? access?.workspace ?? null);
 
-/** AFS-152: a level as people say it, not its code. */
-export const LEVEL_NAME: Record<GrantLevel, string> = {
-  ro: 'read only',
-  operator: 'operator',
-  rw: 'read and write',
-  approve: 'approver',
-};
+export { LEVEL_NAME };
+
 const LEVEL_DOES: Record<GrantLevel, string> = {
   ro: 'sees flows and runs, clones',
   operator: 'launches as configured, stops runs',
@@ -217,6 +213,31 @@ export function WorkspaceAccess({
     g.flow
       ? `the flow ${flowTitle(titles, g.flow.project, g.flow.file)} in ${projectName(g.flow.projectKey)}`
       : 'the whole workspace';
+  // AFS-194: what a person keeps when one grant of theirs is taken back: their other grants and
+  // those of the groups they are in. A group's members keep what their own grants give.
+  const remains = (g: Grant) => {
+    if (g.principal.type === 'group')
+      return 'Its members keep what their own grants and other groups give.';
+    const groups = (who.data?.find((w) => w.user.login === g.principal.name)?.through ?? [])
+      .filter((t) => t.startsWith('group:'))
+      .map((t) => t.slice(6));
+    const kept = (grants.data ?? []).filter(
+      (o) =>
+        o.id !== g.id &&
+        (o.principal.type === 'group'
+          ? groups.includes(o.principal.name)
+          : o.principal.name === g.principal.name),
+    );
+    if (!kept.length) return 'They keep no access here.';
+    return `They keep ${kept
+      .map(
+        (o) =>
+          `${LEVEL_NAME[o.level]} on ${grantWhere(o)}${o.principal.type === 'group' ? ` through group ${o.principal.name}` : ''}`,
+      )
+      .join('; ')}.`;
+  };
+  const [taken, setTaken] = useState<string>();
+  const [takeError, setTakeError] = useState<string>();
   // AFS-84: giving access is opened when wanted; who can do what is what the page is read for.
   const [giving, setGiving] = useState(false);
   const id = useId();
@@ -310,6 +331,7 @@ export function WorkspaceAccess({
             type="button"
             onClick={() => {
               setGiven(undefined);
+              setTaken(undefined);
               setGiving(true);
             }}
           >
@@ -364,14 +386,26 @@ export function WorkspaceAccess({
                         className="danger"
                         aria-label={`Take back ${LEVEL_NAME[g.level]} from ${who}`}
                         onClick={async () => {
+                          const left = remains(g);
                           if (
                             !(await ask(
-                              `Take back ${LEVEL_NAME[g.level]} on ${where} from ${who}? It ends at once.`,
-                              { danger: true },
+                              `Take back ${LEVEL_NAME[g.level]} on ${where} from ${who}? It ends at once. ${left}`,
+                              { yes: 'Take back', danger: true },
                             ))
                           )
                             return;
-                          await api.removeGrant(g.id).catch((e) => setError(messageOf(e)));
+                          setTaken(undefined);
+                          setTakeError(undefined);
+                          setGiven(undefined);
+                          try {
+                            await api.removeGrant(g.id);
+                            // AFS-194: a note as Give leaves one.
+                            setTaken(
+                              `Took back ${LEVEL_NAME[g.level]} on ${where} from ${who}. ${left}`,
+                            );
+                          } catch (e) {
+                            setTakeError(messageOf(e));
+                          }
                           reload();
                         }}
                       >
@@ -384,6 +418,17 @@ export function WorkspaceAccess({
             </tbody>
           </table>
         </Scroll>
+      )}
+
+      {takeError && (
+        <p className="notice error" role="alert">
+          {takeError}
+        </p>
+      )}
+      {taken && (
+        <p className="notice ok" role="status">
+          {taken}
+        </p>
       )}
 
       {giving && (

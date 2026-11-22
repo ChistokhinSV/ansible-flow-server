@@ -224,6 +224,56 @@ function settled(input: ScheduleInput, before?: Row) {
   return { name, timezone, cron, onceAt, mode, commit, missed, overlap, inputs };
 }
 
+/**
+ * AFS-187: a save that took flows away (deleted or moved) turns off, in the same step, the
+ * schedules of the configurations that ran them from that branch (not pinned to a commit), so
+ * they do not fire and fail. Each one turned off is audited. Resolves with their names.
+ */
+export async function turnOffGoneFlows(
+  db: Db,
+  git: { exists(project: string, commit: string, path: string): Promise<boolean> },
+  project: { id: string; gitRef: string },
+  saved: { branch: string; commit: string; files: string[] },
+  by: { id: string; login: string },
+): Promise<string[]> {
+  if (!saved.files.length) return [];
+  const configs = await db
+    .selectFrom('launch_config')
+    .select(['id', 'flow_file', 'git_ref'])
+    .where('project_id', '=', project.id)
+    .where('commit_id', 'is', null)
+    .where('flow_file', 'in', saved.files)
+    .execute();
+  const off: string[] = [];
+  for (const config of configs) {
+    if ((config.git_ref ?? project.gitRef) !== saved.branch) continue;
+    if (await git.exists(project.id, saved.commit, config.flow_file)) continue;
+    const rows = await db
+      .selectFrom('schedule')
+      .select(['id', 'name'])
+      .where('config_id', '=', config.id)
+      .where('enabled', '=', 1)
+      .execute();
+    for (const row of rows) {
+      await db
+        .updateTable('schedule')
+        .set({ enabled: 0, next_at: null, updated_at: iso(new Date()) })
+        .where('id', '=', row.id)
+        .execute();
+      off.push(row.name);
+      await recordAudit(db, {
+        actor: by,
+        source: 'server',
+        action: 'schedule.change',
+        object: { type: 'schedule', id: row.id, name: row.name },
+        result: 'ok',
+        detail: { changed: ['enabled'], why: `Its flow ${config.flow_file} was deleted` },
+      });
+    }
+  }
+  return off;
+}
+
 /** What a launch of the schedule asks for. */
 const requestOf = (s: {
   mode: string | null;
@@ -317,16 +367,29 @@ export class Schedules {
    * Checks that the launch the schedule asks for could run now (the inputs it lacks, a commit
    * that is not there) and names no secret input: a schedule runs with nobody to type one.
    */
-  private async launchable(config: LaunchConfig, s: ReturnType<typeof settled>) {
+  private async launchable(config: LaunchConfig, s: ReturnType<typeof settled>, strict = true) {
     const prepared = await prepareLaunch(this.deps, config, requestOf(s), false);
+    const fields = prepared.form?.fields ?? [];
     if (!prepared.ok) {
-      const first = prepared.problems[0];
-      throw invalid(
-        first?.message ?? 'The launch is not ready',
-        first?.field ? `inputs.${first.field}` : undefined,
-      );
+      const inputs = new Set([...Object.keys(s.inputs), ...fields.map((f) => f.name)]);
+      // The schedule's own settings; the rest (the flow, its errors, the branch, the inventory,
+      // the credentials) is the configuration's.
+      const own = (field?: string) =>
+        !field
+          ? undefined
+          : inputs.has(field)
+            ? `inputs.${field}`
+            : field === 'mode' || (field === 'commit' && s.commit)
+              ? field
+              : undefined;
+      // AFS-187: a change to a schedule (pausing it above all) is refused only for what the
+      // schedule itself says; a flow with errors, or gone, is not a reason to keep it firing.
+      const first = strict
+        ? prepared.problems[0]
+        : prepared.problems.find((p) => own(p.field) !== undefined);
+      if (first) throw invalid(first.message ?? 'The launch is not ready', own(first.field));
     }
-    const secret = prepared.form.fields.filter((f) => f.secret).map((f) => f.name);
+    const secret = fields.filter((f) => f.secret).map((f) => f.name);
     const named = Object.keys(s.inputs).find((k) => secret.includes(k));
     if (named)
       throw invalid(
@@ -403,8 +466,9 @@ export class Schedules {
       },
       before,
     );
-    await this.launchable(config, s);
     const enabled = change.enabled ?? before.enabled === 1;
+    // AFS-187: turned on, it must be able to launch, as a new one must; else only what it says.
+    await this.launchable(config, s, enabled && before.enabled !== 1);
     const now = new Date();
     const set: Partial<Row> = {
       name: s.name,

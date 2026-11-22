@@ -18,7 +18,7 @@ import { hostOutput, type OutputEntry } from '@ansible-flow/core/run/events';
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf } from '../access/grants';
-import { closeGates } from '../approvals/gates';
+import { closeGates, type Gate, gatesOf } from '../approvals/gates';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { readBefore } from './cursor';
@@ -63,6 +63,8 @@ export function registerRuns(
   hub?: RunHub,
   /** The database, to read who may see which runs. */
   db?: Kysely<Schema>,
+  /** AFS-185: an approval closed because its run was stopped (its approvers are told). */
+  gateClosed?: (run: string, gate: string) => void,
 ): void {
   /** The streams open now: a server that closes ends them, or it would wait for them. */
   const streams = new Set<ServerResponse>();
@@ -246,9 +248,23 @@ export function registerRuns(
     },
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
-      if (!(await queue.get(request.params.id))) return reply.code(404).send(NONE);
-      const events = await eventsOf(request.params.id);
-      return { steps: hostSteps(events, request.params.host) };
+      const id = request.params.id;
+      const host = request.params.host;
+      if (!(await queue.get(id))) return reply.code(404).send(NONE);
+      // AFS-193: a run of a flow with approvals: segment by segment, each approval the host
+      // waited at (and how it was decided) after the segment that ended there.
+      const segments = await queue.segments(id);
+      const gates = db && segments.length ? await gatesOf(db, id) : [];
+      if (!gates.length) return { steps: hostSteps(await eventsOf(id), host) };
+      const steps: ReturnType<typeof hostSteps> = [];
+      for (const segment of segments) {
+        const events = await readFile(join(segment.dir, 'events.jsonl'), 'utf8').catch(() => '');
+        steps.push(...hostSteps(events, host));
+        for (const gate of gates)
+          if (gate.segment === segment.name && gate.hosts?.includes(host))
+            steps.push(gateStep(gate));
+      }
+      return { steps };
     },
   );
 
@@ -378,7 +394,7 @@ export function registerRuns(
     Querystring: {
       project?: string;
       flow?: string;
-      state?: RunState;
+      state?: RunState | 'rejected';
       config?: string;
       by?: string;
       q?: string;
@@ -395,7 +411,8 @@ export function registerRuns(
           properties: {
             project: text(64, 1),
             flow: text(500, 1),
-            state: { type: 'string', enum: [...STATES] },
+            // AFS-193: and rejected (a failed run decided against); failed leaves those out.
+            state: { type: 'string', enum: [...STATES, 'rejected'] },
             // A launch configuration's id: its runs.
             config: text(64, 1),
             // A login: the runs that person asked for.
@@ -446,7 +463,8 @@ export function registerRuns(
       const run = await queue.cancel(request.params.id, me.login);
       if (!run) return reply.code(404).send(NONE);
       // AFS-28: a run stopped while it waits for approval asks nobody any more.
-      if (run.state === 'cancelled' && db) await closeGates(db, run.id, me.login);
+      if (run.state === 'cancelled' && db)
+        for (const gate of await closeGates(db, run.id, me.login)) gateClosed?.(run.id, gate);
       // AFS-147: a run that ended here and now has its view in its record, not a live one.
       if (run.state === 'cancelled') hub?.ended(run.id);
       else hub?.publish(run.id, { kind: 'state' });
@@ -480,6 +498,22 @@ export function registerRuns(
  * AFS-170: one host's results in each step it ran in, in the order the steps ran. A step is named
  * as its play is ("[key] Title" says Title); its routing tasks are left out, as on the canvas.
  */
+/** AFS-193: an approval a host waited at, as a step of what the host did. */
+export function gateStep(gate: Gate): { node: string; step: string; entries: OutputEntry[] } {
+  const by = gate.decidedByName ?? gate.decidedBy;
+  const entry: OutputEntry =
+    gate.status === 'waiting'
+      ? { task: 'for a decision', status: 'waiting' }
+      : gate.status === 'timed out'
+        ? { task: 'nobody decided in time', status: 'timed out' }
+        : {
+            task: by ? `by ${by}` : '',
+            status: gate.status === 'cancelled' ? 'run stopped' : gate.status,
+            ...(gate.comment ? { msg: gate.comment } : {}),
+          };
+  return { node: gate.node.id, step: gate.node.title, entries: [entry] };
+}
+
 export function hostSteps(
   events: string,
   host: string,

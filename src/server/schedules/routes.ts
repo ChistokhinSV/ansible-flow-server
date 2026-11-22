@@ -133,6 +133,8 @@ export function registerSchedules(
         if (user.disabled) throw new ScheduleError('invalid', `${user.login} is disabled`, 'owner');
         owner = { id: user.id, login: user.login };
       }
+      // AFS-187: a refused change names the fields it asked to change, not every field sent.
+      request.auditDetail = { changed: changedKeys(change, before, change) };
       const changed = await schedules.update(before.id, { ...change, ...(owner ? { owner } : {}) });
       request.auditDetail = { changed: changedKeys(request.body, before, changed) };
       request.log.info(

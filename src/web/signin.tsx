@@ -191,6 +191,8 @@ function ProviderForm({
       >
         <Field
           label="Name"
+          // AFS-195: the form takes the focus when it opens, as Add a directory does.
+          autoFocus
           value={d.name}
           onChange={(e) =>
             set({
@@ -408,7 +410,7 @@ export function SignInPage() {
                   if (
                     !(await ask(
                       `Remove ${p.name}? Its people stay; the groups and administrator rights it gave go.`,
-                      { danger: true },
+                      { yes: 'Remove', danger: true },
                     ))
                   )
                     return;
@@ -445,6 +447,7 @@ export function SignInPage() {
                       v === 'admins' &&
                       !(await ask(
                         'Only administrators keep signing in with a password. Everyone else must sign in with a provider or a directory from now on. Go on?',
+                        { yes: 'Administrators only', danger: true },
                       ))
                     )
                       return;

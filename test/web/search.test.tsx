@@ -74,6 +74,25 @@ describe('the search field', () => {
     field.blur();
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(document.activeElement).toBe(field);
+    field.blur();
+
+    // AFS-192: a "/" typed in a field inside a shadow root (the Files editor) stays there.
+    const host = document.body.appendChild(document.createElement('section'));
+    const inner = host
+      .attachShadow({ mode: 'open' })
+      .appendChild(document.createElement('textarea'));
+    inner.focus();
+    const slash = new KeyboardEvent('keydown', {
+      key: '/',
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    });
+    inner.dispatchEvent(slash);
+    expect(slash.defaultPrevented).toBe(false);
+    expect(document.activeElement).not.toBe(field);
+    host.remove();
+    field.focus();
 
     // AFS-140: one character finds nothing on purpose, and says so.
     fireEvent.change(field, { target: { value: 'h' } });

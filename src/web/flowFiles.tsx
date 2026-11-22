@@ -335,13 +335,7 @@ export function FlowFileActions({
                     message: `Delete the flow ${name}`,
                     changes: [{ op: 'delete', path: file }],
                   });
-                  // A schedule that cannot be turned off here is turned off by the server when it
-                  // next fires and finds no flow.
-                  await Promise.all(
-                    (schedules ?? []).map((s) =>
-                      api.changeSchedule(s.config, s.id, { enabled: false }).catch(() => undefined),
-                    ),
-                  );
+                  // AFS-187: the server turns the schedules off in the same save.
                   navigate(
                     `/w/${encodeURIComponent(workspace)}/${encodeURIComponent(project.key)}`,
                   );
@@ -363,10 +357,17 @@ export function FlowFileActions({
   );
 }
 
+/** A menu's items, in order. */
+const menuItems = (box: HTMLElement | null) => [
+  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+];
+
 /**
  * AFS-110: More (⋯) in a flow page's head: Copy… and Delete…, so they take no row of their own.
- * Closes on a pick, a click elsewhere or Escape.
+ * Closes on a pick, a click elsewhere or Escape. AFS-195: a menu as the keyboard expects one:
+ * opened, its first item has focus; the arrows, Home and End move; Escape gives focus back to More.
  */
+
 export function FlowFileMenu({
   onPick,
   mayChange = true,
@@ -377,13 +378,18 @@ export function FlowFileMenu({
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
+    menuItems(box.current)[0]?.focus();
     const away = (e: MouseEvent) => {
       if (!box.current?.contains(e.target as Node)) setOpen(false);
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      // Focus was in the menu: it goes back to More, not to the page's body.
+      if (box.current?.contains(document.activeElement)) button.current?.focus();
+      setOpen(false);
     };
     document.addEventListener('mousedown', away);
     document.addEventListener('keydown', key);
@@ -399,6 +405,7 @@ export function FlowFileMenu({
   return (
     <div className="more-menu" ref={box}>
       <button
+        ref={button}
         type="button"
         className="icon-button"
         aria-label="More"
@@ -412,7 +419,29 @@ export function FlowFileMenu({
         <Icon name="more" />
       </button>
       {open && (
-        <div className="more-menu-list" role="menu">
+        <div
+          className="more-menu-list"
+          role="menu"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            const all = menuItems(box.current);
+            const at = all.indexOf(document.activeElement as HTMLElement);
+            const to =
+              e.key === 'ArrowDown'
+                ? (at + 1) % all.length
+                : e.key === 'ArrowUp'
+                  ? (at - 1 + all.length) % all.length
+                  : e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? all.length - 1
+                      : undefined;
+            if (to !== undefined) {
+              e.preventDefault();
+              all[to]?.focus();
+            } else if (e.key === 'Tab') setOpen(false);
+          }}
+        >
           <button type="button" role="menuitem" onClick={() => pick('history')}>
             History
           </button>

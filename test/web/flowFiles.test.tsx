@@ -124,6 +124,26 @@ describe('flows in the pages', () => {
     expect(flowFileFor('b', 'flows/a/other.flow.yaml')).toBe('flows/a/b.flow.yaml');
   });
 
+  it('More is a menu for the keyboard: first item focused, arrows move, Escape returns (AFS-195)', () => {
+    render(<FlowFileMenu onPick={() => undefined} />);
+    const more = screen.getByRole('button', { name: 'More' });
+    fireEvent.click(more);
+    const item = (name: string) => screen.getByRole('menuitem', { name });
+    expect(document.activeElement).toBe(item('History'));
+    const menu = screen.getByRole('menu');
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(item('Copy the flow…'));
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(document.activeElement).toBe(item('Delete the flow…'));
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(item('History'));
+    fireEvent.keyDown(menu, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(item('Delete the flow…'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
   it('Copy writes the copy beside it; Delete says who runs it and deletes the file', async () => {
     render(<Page />);
     // AFS-110: Copy and Delete are in the head's More menu.
@@ -195,10 +215,8 @@ describe('flows in the pages', () => {
       ),
     );
     fireEvent.click(within(del).getByRole('button', { name: 'Delete the flow' }));
-    await waitFor(() =>
-      expect(asked.filter((a) => a.key.startsWith('PATCH'))).toEqual([
-        { key: 'PATCH /launch-configs/c1/schedules/s1', body: { enabled: false } },
-      ]),
-    );
+    // AFS-187: the server turns them off in the same save; the page asks nothing more.
+    await waitFor(() => expect(asked.some((a) => a.key === 'POST /projects/p1/files')).toBe(true));
+    expect(asked.filter((a) => a.key.startsWith('PATCH'))).toEqual([]);
   });
 });

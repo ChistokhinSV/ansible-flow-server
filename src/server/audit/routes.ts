@@ -4,6 +4,7 @@
 // endpoint cannot go unrecorded. And the log is read here: a page of it, or an export.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { type GrantLevel, LEVEL_NAME } from '../access/types';
 import { administrator } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { viaMcp } from '../mcp/mark';
@@ -66,6 +67,7 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/projects/:id/files': { action: 'project.files-save', id: at() },
   'POST /api/v1/drafts/:id/save': { action: 'draft.save', id: at() },
   'DELETE /api/v1/drafts/:id': { action: 'draft.discard', id: at() },
+  'POST /api/v1/projects/:id/drafts/restore': { action: 'draft.restore', id: 'reply' },
   'POST /api/v1/drafts/:id/start-from': { action: 'draft.start', id: at() },
   'POST /api/v1/projects/:id/branches': { action: 'project.branch-create', id: at() },
   'DELETE /api/v1/projects/:id/branches': { action: 'project.branch-delete', id: at() },
@@ -171,6 +173,8 @@ export const READS = new Set([
   'POST /api/v1/drafts/:id/tidy',
   'POST /api/v1/drafts/:id/here',
   'POST /api/v1/drafts/:id/flushed',
+  // AFS-186: leaving drops only a draft that changes nothing (no edit is lost).
+  'POST /api/v1/drafts/:id/leave',
   'POST /api/v1/drafts/:id/catalog',
   'POST /api/v1/projects/:id/flows/catalog',
   // AFS-183: the repository's variables, read for the canvas: nothing is kept but a cache.
@@ -257,20 +261,15 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
           'access_grant.principal_type',
           'access_grant.flow_file',
           'user_account.login',
+          'user_account.name as person',
           'user_group.name',
-          'workspace.key as workspace',
-          'project.key as project',
+          'workspace.name as workspace',
+          'project.name as project',
         ])
         .where('access_grant.id', '=', id)
         .executeTakeFirst()
         .catch(() => undefined);
-      if (!grant) return undefined;
-      const who = grant.principal_type === 'user' ? grant.login : `group ${grant.name}`;
-      // AFS-141: and where: the workspace, or the flow in it.
-      const where = grant.flow_file
-        ? `${grant.workspace}/${grant.project ? `${grant.project}/` : ''}${grant.flow_file}`
-        : `${grant.workspace}`;
-      return `${grant.level} for ${who} on ${where}`;
+      return grant ? grantWords(grant) : undefined;
     }
     // AFS-141: named, not left as ids: what is deleted cannot be asked later.
     case 'environment':
@@ -302,6 +301,59 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
     default:
       return undefined;
   }
+}
+
+/**
+ * AFS-195: a grant in the pages' words: "read only for group netops on Network team", "operator
+ * for Nora Brandt on the flow hello in Hello", not level codes and file paths.
+ */
+function grantWords(grant: {
+  level: string;
+  principal_type: string;
+  flow_file: string | null;
+  login: string | null;
+  person: string | null;
+  name: string | null;
+  workspace: string | null;
+  project: string | null;
+}): string {
+  const level = LEVEL_NAME[grant.level as GrantLevel] ?? grant.level;
+  const who =
+    grant.principal_type === 'user' ? (grant.person ?? grant.login) : `group ${grant.name}`;
+  // AFS-141: and where: the workspace, or the flow in it.
+  const flow = grant.flow_file
+    ?.split('/')
+    .at(-1)
+    ?.replace(/\.flow\.ya?ml$/, '');
+  const where = flow ? `the flow ${flow} in ${grant.project ?? grant.workspace}` : grant.workspace;
+  return `${level} for ${who} on ${where}`;
+}
+
+/**
+ * AFS-195: the grants a person or group has, named, with their workspace: deleting them ends
+ * those grants, and the log says each one ended.
+ */
+async function grantsOf(
+  db: Kysely<Schema>,
+  type: 'user' | 'group',
+  id: string,
+): Promise<{ id: string; name: string; workspace: string }[]> {
+  const rows = await db
+    .selectFrom('access_grant')
+    .select(['id', 'workspace_id'])
+    .where('principal_type', '=', type)
+    .where('principal_id', '=', id)
+    .orderBy('created_at')
+    .execute()
+    .catch(() => []);
+  const named: { id: string; name: string; workspace: string }[] = [];
+  for (const row of rows)
+    named.push({
+      id: row.id,
+      name: (await nameOf(db, 'grant', row.id)) ?? row.id,
+      workspace: row.workspace_id,
+    });
+  return named;
 }
 
 /** The name a thing made goes by, from the reply that made it. */
@@ -352,6 +404,8 @@ declare module 'fastify' {
      * a group and the fields a change really changed, AFS-141).
      */
     auditDetail?: Record<string, string | boolean | string[]>;
+    /** AFS-195: the grants a deleted person or group had: each ends with them. */
+    auditGrants?: { id: string; name: string; workspace: string }[];
   }
 }
 
@@ -387,7 +441,24 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     const spec = actionOf(request);
     if (!spec || typeof spec.id !== 'object') return;
     const id = (request.params as Record<string, string>)[spec.id.param];
-    if (id) request.auditName = await nameOf(db, typeOf(spec.action), id);
+    if (!id) return;
+    request.auditName = await nameOf(db, typeOf(spec.action), id);
+    // AFS-195: a grant taken back says its workspace, as a grant given does.
+    if (spec.action === 'grant.delete') {
+      const grant = await db
+        .selectFrom('access_grant')
+        .select('workspace_id')
+        .where('id', '=', id)
+        .executeTakeFirst()
+        .catch(() => undefined);
+      if (grant) request.auditDetail = { ...request.auditDetail, workspace: grant.workspace_id };
+    }
+    if (spec.action === 'group.delete' || spec.action === 'user.delete')
+      request.auditGrants = await grantsOf(
+        db,
+        spec.action === 'user.delete' ? 'user' : 'group',
+        id,
+      );
   });
 
   app.addHook('onSend', async (request, reply, payload) => {
@@ -499,20 +570,31 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
         type: 'project',
         name: `${params.workspace}/${params.repo?.replace(/\.git$/, '')}`,
       };
+    const ended = result === 'ok' ? (request.auditGrants ?? []) : [];
+    if (ended.length > 0) detail.grants = ended.map((g) => g.name);
 
     try {
-      await recordAudit(db, {
+      const by = {
         actor,
         ...(request.user?.token ? { token: request.user.token.id } : {}),
         source: sourceOf(request),
-        action: spec.action,
-        object,
-        result,
-        status,
         ip: request.ip,
         request: request.id,
-        detail,
-      });
+      };
+      await recordAudit(db, { ...by, action: spec.action, object, result, status, detail });
+      // AFS-195: each grant that ended with the person or group, as if taken back on its own,
+      // so the access grants filter shows when that access ended.
+      const why =
+        spec.action === 'user.delete' ? 'the person was deleted' : 'the group was deleted';
+      for (const grant of ended)
+        await recordAudit(db, {
+          ...by,
+          action: 'grant.delete',
+          object: { type: 'grant', id: grant.id, name: grant.name },
+          result,
+          status,
+          detail: { workspace: grant.workspace, why },
+        });
     } catch (e) {
       // What was done is done; the missing entry is said loudly in the server's log.
       request.log.error({ err: e, action: spec.action }, 'The audit entry was not written');
@@ -565,7 +647,11 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       if (!filter) return reply;
       const page = await listAudit(db, filter);
       // AFS-106: the names of what the page mentions by id, and where they are while they exist.
-      return { ...page, refs: await auditRefs(db, page.entries) };
+      return {
+        ...page,
+        refs: await auditRefs(db, page.entries),
+        people: await peopleOf(db, page.entries),
+      };
     },
   );
 
@@ -612,5 +698,20 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
 }
 
 const withName = (name: string | undefined) => (name ? { name } : {});
+
+/** AFS-195: the names of the people a page shows by login, as every other page names them. */
+async function peopleOf(
+  db: Kysely<Schema>,
+  entries: AuditEntry[],
+): Promise<Record<string, string>> {
+  const ids = [...new Set(entries.flatMap((e) => (e.actor?.id ? [e.actor.id] : [])))];
+  if (ids.length === 0) return {};
+  const rows = await db
+    .selectFrom('user_account')
+    .select(['id', 'name'])
+    .where('id', 'in', ids)
+    .execute();
+  return Object.fromEntries(rows.filter((r) => r.name).map((r) => [r.id, r.name]));
+}
 const without = (o: Record<string, unknown>, keys: string[]) =>
   Object.fromEntries(Object.entries(o).filter(([k, v]) => !keys.includes(k) && v !== undefined));

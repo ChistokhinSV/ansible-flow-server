@@ -49,6 +49,7 @@ for (const [name, config] of databases) {
     let database: Database;
     let app: FastifyInstance;
     let schedules: Schedules;
+    let sync: ProjectSync;
     let source: TestRepo;
     let project: string;
     let workspace: string;
@@ -92,7 +93,7 @@ for (const [name, config] of databases) {
       await db().deleteFrom('schedule').execute();
       const log = createLogger({ level: 'silent', format: 'json', write: () => undefined });
       const git = new Git({ reposDir: join(root, `repos-${name}`), allowLocal: true });
-      const sync = new ProjectSync(db(), git, log);
+      sync = new ProjectSync(db(), git, log);
       source = testRepo({
         'flows/hello.flow.yaml': HELLO,
         'inventory/hosts.yaml': 'all:\n  hosts:\n    fw-edge-01: {}\n',
@@ -420,6 +421,72 @@ for (const [name, config] of databases) {
       expect(after.last).toMatchObject({ result: 'failed' });
       expect(after.last.detail).toMatch(/There is no flow flows\/hello\.flow\.yaml .*turned off/);
       expect(await runsOf(s.id)).toEqual([]);
+    });
+
+    it('AFS-187: a flow with errors, or gone, does not stop pausing or changing a schedule', async () => {
+      source.commit({ 'flows/hello.flow.yaml': HELLO }, 'The flow back');
+      await sync.sync(project);
+      const s = (
+        await call('rita', 'POST', at(), {
+          name: 'Every quarter',
+          kind: 'cron',
+          cron: '15 * * * *',
+          timezone: 'UTC',
+          mode: 'check',
+        })
+      ).json();
+      source.commit(
+        { 'flows/hello.flow.yaml': HELLO.replace('key: facts', 'key: ping') },
+        'Two steps with one key',
+      );
+      // The fire looks at the source: the server knows the commit with the errors.
+      await due(s.id);
+      await schedules.tick();
+      const paused = await call('rita', 'PATCH', at(`/${s.id}`), { enabled: false });
+      expect(paused.statusCode, paused.body).toBe(200);
+      expect(paused.json()).toMatchObject({ enabled: false, upcoming: [] });
+      const changed = await call('rita', 'PATCH', at(`/${s.id}`), { cron: '0 4 * * *' });
+      expect(changed.statusCode, changed.body).toBe(200);
+      // Turned on again it would fail at once: refused, saying why, as a new one is.
+      const resumed = await call('rita', 'PATCH', at(`/${s.id}`), { enabled: true });
+      expect(resumed.statusCode).toBe(400);
+      expect(resumed.json().message).toMatch(/^The flow has \d+ errors?/);
+      expect(resumed.json().field).toBeUndefined();
+      // What the schedule itself says is still checked.
+      const wrong = await call('rita', 'PATCH', at(`/${s.id}`), { commit: 'abcdef1' });
+      expect(wrong.statusCode).toBe(400);
+      expect(wrong.json().field).toBe('commit');
+      // A refused change names only the fields it asked to change.
+      const refusals = (await listAudit(db(), { action: 'schedule.change' })).entries.filter(
+        (e) => e.result === 'refused',
+      );
+      expect(refusals[0]?.detail?.changed).toEqual(['commit']);
+
+      // The configuration's other settings save; its flow cannot change to one that cannot run.
+      const lc = `/launch-configs/${configId}`;
+      const described = await call('rita', 'PATCH', lc, { description: 'Nightly hello' });
+      expect(described.statusCode, described.body).toBe(200);
+      expect(described.json().description).toBe('Nightly hello');
+      const moved = await call('rita', 'PATCH', lc, {
+        name: 'Hello nightly',
+        description: 'Moved',
+        flowFile: 'flows/nope.flow.yaml',
+      });
+      expect(moved.statusCode).toBe(400);
+      const lcRefused = (await listAudit(db(), { action: 'launch-config.change' })).entries.find(
+        (e) => e.result === 'refused',
+      );
+      expect(lcRefused?.detail?.changed).toEqual(['description', 'flowFile']);
+
+      // Its flow gone: still paused, changed and deleted.
+      source.commit({ 'flows/hello.flow.yaml': null }, 'Delete the flow');
+      await due(s.id);
+      await schedules.tick();
+      const renamed = await call('rita', 'PATCH', at(`/${s.id}`), { name: 'Every quarter, off' });
+      expect(renamed.statusCode, renamed.body).toBe(200);
+      const kept = await call('rita', 'PATCH', lc, { description: 'Its flow is gone' });
+      expect(kept.statusCode, kept.body).toBe(200);
+      expect((await call('rita', 'DELETE', at(`/${s.id}`))).statusCode).toBe(204);
     });
 
     it('goes with its launch configuration', async () => {

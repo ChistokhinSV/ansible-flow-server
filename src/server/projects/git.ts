@@ -22,6 +22,7 @@ import {
   LOG_FORMAT,
   parseLog,
 } from '@ansible-flow/node/history/gitLog';
+import { refProblem } from './refName';
 
 /** How long a fetch may take. */
 export const FETCH_TIMEOUT_MS = 120_000;
@@ -137,12 +138,7 @@ export function gitUrlProblem(url: string, allowLocal: boolean): string | undefi
   return 'Use an https:// or ssh:// address, or git@host:path';
 }
 
-/** A branch name as git allows one, and nothing that could read as an option or a range. */
-export function refProblem(ref: string): string | undefined {
-  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(ref) && !/\.\.|\/\/|\.lock$|\/$/.test(ref)
-    ? undefined
-    : 'A branch name is letters, digits, dots, dashes, underscores and slashes';
-}
+export { refProblem };
 
 const COMMIT = /^[0-9a-f]{40}$/;
 
@@ -854,6 +850,91 @@ export class Git {
       () => true,
       () => false,
     );
+  }
+
+  /**
+   * AFS-190: the commit an id names: a full id, or the start of one (7 characters at least, as
+   * the pages and git show them). `ambiguous`: the start of more than one commit.
+   */
+  async findCommit(
+    projectId: string,
+    id: string,
+  ): Promise<{ commit: string } | { none: true } | { ambiguous: true }> {
+    if (!/^[0-9a-f]{7,40}$/.test(id)) return { none: true };
+    if (COMMIT.test(id))
+      return (await this.hasCommit(projectId, id)) ? { commit: id } : { none: true };
+    // Every object whose id starts so; only commits count (a tree or a file may share the start).
+    const out = await this.run(['rev-parse', `--disambiguate=${id}`], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+    }).catch(() => Buffer.alloc(0));
+    const commits: string[] = [];
+    for (const name of out.toString('utf8').split('\n')) {
+      const hash = name.trim();
+      if (!COMMIT.test(hash) || !(await this.hasCommit(projectId, hash))) continue;
+      commits.push(hash);
+      if (commits.length > 1) return { ambiguous: true };
+    }
+    return commits[0] ? { commit: commits[0] } : { none: true };
+  }
+
+  /** AFS-190: the branches that have a commit (at their tip or behind it), by name. */
+  async branchesWith(projectId: string, commit: string): Promise<string[]> {
+    if (!COMMIT.test(commit)) return [];
+    const out = await this.run(
+      ['for-each-ref', '--contains', commit, '--format=%(refname:short)', 'refs/heads'],
+      { cwd: this.mirror(projectId), timeoutMs: READ_TIMEOUT_MS },
+    );
+    return out
+      .toString('utf8')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .sort();
+  }
+
+  /**
+   * AFS-190: the files a commit changed, for its list in History: as changedFiles, but a file
+   * moved (perhaps changed a little too) is one entry, `renamed`, with the path it had (`from`).
+   */
+  async commitFiles(
+    projectId: string,
+    from: string,
+    to: string,
+  ): Promise<
+    { file: string; change: 'added' | 'changed' | 'removed' | 'renamed'; from?: string }[]
+  > {
+    if (!COMMIT.test(from) || !COMMIT.test(to)) throw new GitError('Not a commit');
+    const out = await this.run(['diff', '--name-status', '--find-renames', '-z', from, to, '--'], {
+      cwd: this.mirror(projectId),
+      timeoutMs: READ_TIMEOUT_MS,
+      maxBytes: 16 * 1024 * 1024,
+    });
+    const parts = out.toString('utf8').split('\0');
+    const files: {
+      file: string;
+      change: 'added' | 'changed' | 'removed' | 'renamed';
+      from?: string;
+    }[] = [];
+    for (let i = 0; i + 1 < parts.length; ) {
+      const status = parts[i] ?? '';
+      // A rename names two paths: the one it had, then the new one.
+      if (status.startsWith('R')) {
+        const old = parts[i + 1] ?? '';
+        const file = parts[i + 2] ?? '';
+        i += 3;
+        if (file) files.push({ file, change: 'renamed', from: old });
+        continue;
+      }
+      const file = parts[i + 1] ?? '';
+      i += 2;
+      if (!file) continue;
+      files.push({
+        file,
+        change: status.startsWith('A') ? 'added' : status.startsWith('D') ? 'removed' : 'changed',
+      });
+    }
+    return files;
   }
 
   /**

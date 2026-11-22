@@ -134,5 +134,7 @@ describe('My account', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revoke laptop git' }));
     await screen.findByText('You have no token.');
     await waitFor(() => expect(tab.textContent).toBe('Access tokens0'));
+    // AFS-194: a note says it is done.
+    expect(screen.getByText('Revoked the token "laptop git": it no longer works.')).toBeTruthy();
   });
 });

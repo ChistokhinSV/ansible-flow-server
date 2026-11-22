@@ -78,7 +78,9 @@ project's list of flows says the same of each flow.
 - **A flow with errors does not run.** The refusal names the first few (the step and what is
   wrong) and how many more; the answer lists them all (`errors`: each with `step`, the step's
   title, and `node`, its id). On the pages each is a link to the step on the flow's page,
-  selected, and opened for editing when you may edit the flow.
+  selected, and opened for editing when you may edit the flow. The configuration's other
+  settings still save while it stays on that flow, branch and commit; its start values are
+  kept as they are when the flow cannot be read at all (it is gone).
 - **Read by id**, a configuration also says its credentials by name (`credentialNames`) and its
   environment by name with the image a launch gets now, or why there is none
   (`environmentInfo`). In the list and by id, `flowGone` says that its flow is not on the
@@ -86,13 +88,17 @@ project's list of flows says the same of each flow.
 - **Which commit runs:** what the launch names (`ref` or `commit`), else what the configuration
   names, else the newest commit of the project's branch, after a look at the source.
 - **At launch** a person may give `mode`, `ref` or `commit`, `limit`, and `inputs` as typed
-  text (`"fw-edge-01, fw-edge-02"` is a host list). A secret-looking input is given here and is
-  not repeated in the answer.
+  text (`"fw-edge-01, fw-edge-02"` is a host list). A host list may also be a JSON list
+  (`["fw-edge-01", "fw-edge-02"]`); one that is not valid JSON is refused at its field rather than
+  taken as a host name. A secret-looking input is given here and is not repeated in the answer.
 - **The limit** is Ansible's `--limit`: the run touches only the targeted hosts it matches. On
   the launch page, a moment after the targets or the limit change, the fields say what the
   inventory makes of them: targets it does not have, targets that match no host, and how many
   hosts the limit leaves (none: the run would stop at once). **What would run** says the same.
-  A real launch asks first; a launch with targets the inventory does not have names them first.
+  A limit given at launch replaces the configuration's; an empty one runs with no limit. A real
+  launch asks first; a launch with targets the inventory does not have names them first, and one
+  on which no host would run (no target in the inventory, or a limit that leaves none) asks
+  first, from the launch page and from the canvas's Run dialog alike. Enter in a field is Launch.
 
 **On the pages:** a project's page lists its launch configurations. A configuration's page
 shows its settings and the launch form:
@@ -104,11 +110,12 @@ shows its settings and the launch form:
   wins over. A flow input reaches the run as an extra var, so it beats a step input of the same
   name and every place in the repository that sets the name (the configuration's inventory,
   `group_vars/`, `host_vars/`, ...), each named with its file and line. The repository's part is
-  shown to who may read the project's files.
+  shown to who may read the project's files. Every step that reads it is named; a required input
+  that no step reads says that a run must give it all the same.
 
   ```text
   ntp_server · string
-  Read by Set NTP (as server), Check time; default 192.0.2.1; wins over group_vars of edge
+  Read by Set NTP (as server) and Check time; default 192.0.2.1; wins over group_vars of edge
   (inventory/group_vars/edge.yml:1), group_vars of all (inventory/group_vars/all.yml:1).
   ```
 - **What would run** shows the commit, the inputs as the flow gets them (secrets as `***`), the

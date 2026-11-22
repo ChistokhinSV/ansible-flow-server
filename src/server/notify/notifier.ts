@@ -9,6 +9,7 @@
 // because of one: an error here is logged.
 
 import type { Kysely } from 'kysely';
+import { waitingHosts } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { STATE_WORDS } from '../runs/words';
@@ -271,6 +272,92 @@ export class Notifier {
     return `${run.flowName} #${run.number} (${run.workspace.name} / ${run.project.name})`;
   }
 
+  /** Who a waiting approval asks (its approvers), and who it tells (its notify list). */
+  private async asked(run: RunFacts, approval: { approvers?: string[]; notify?: string[] }) {
+    const self = await this.db
+      .selectFrom('workspace')
+      .select('self_approve')
+      .where('id', '=', run.workspace.id)
+      .executeTakeFirst();
+    const selfApprove = self?.self_approve === 1;
+    // Who launched the run is not asked when they may not decide it (no self-approval).
+    const approvers = approval.approvers?.length
+      ? (
+          await contactsOfNames(this.db, approval.approvers, {
+            workspace: run.workspace.id,
+            project: run.project.id,
+            flowFile: run.flowFile,
+          })
+        ).filter((c) => self?.self_approve === 1 || c.label !== run.requestedLogin)
+      : await approverContacts(
+          this.db,
+          { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
+          self?.self_approve === 1 ? undefined : run.requestedBy,
+        );
+    // AFS-145: a flow's approval lists, like a configuration's, reach only who may see the flow.
+    const told = await contactsOfNames(this.db, approval.notify ?? [], {
+      workspace: run.workspace.id,
+      project: run.project.id,
+      flowFile: run.flowFile,
+    });
+    return { approvers, told, selfApprove };
+  }
+
+  /**
+   * AFS-185: the run stopped while its approval waited: who was asked is told it no longer
+   * waits, so nobody goes to decide a run that has ended.
+   */
+  approvalCancelled(runId: string, gateId: string): void {
+    this.track('approval.decided', async () => {
+      const run = await this.runFacts(runId);
+      const gate = await this.db
+        .selectFrom('run_gate')
+        .selectAll()
+        .where('id', '=', gateId)
+        .executeTakeFirst();
+      if (!run || !gate || gate.status !== 'cancelled') return;
+      const approval = (gate.approval_json ? JSON.parse(gate.approval_json) : {}) as {
+        approvers?: string[];
+        notify?: string[];
+      };
+      const { approvers, told } = await this.asked(run, approval);
+      const by = gate.decided_by
+        ? ((
+            await this.db
+              .selectFrom('user_account')
+              .select('name')
+              .where('login', '=', gate.decided_by)
+              .executeTakeFirst()
+          )?.name ?? gate.decided_by)
+        : undefined;
+      const link = this.link(`/runs/${run.id}`);
+      const lines = [
+        `"${gate.title}" of ${this.where(run)} no longer waits for a decision: the run was stopped${by ? ` by ${by}` : ''}.`,
+        'Nothing is left to decide.',
+        ...(link ? [link] : []),
+      ];
+      const message: Message = {
+        subject: `Approval no longer waits: ${gate.title} - ${run.flowName} #${run.number}`,
+        text: lines.join('\n'),
+        payload: this.envelope('approval.decided', {
+          run: this.runPayload(run),
+          approval: {
+            node: { id: gate.node_id, key: gate.node_key, title: gate.title },
+            status: gate.status,
+            ...(gate.decided_by ? { decidedBy: gate.decided_by } : {}),
+            ...(gate.decided_at ? { decidedAt: gate.decided_at } : {}),
+          },
+          ...(link ? { link } : {}),
+        }),
+      };
+      await enqueue(
+        this.db,
+        { kind: 'approval.decided', message, run: run.id },
+        placesOf([...approvers, ...told]),
+      );
+    });
+  }
+
   /** A run waits at an approval: its approvers are asked. */
   approvalWaiting(runId: string, gateId: string): void {
     this.track('approval.waiting', async () => {
@@ -285,32 +372,16 @@ export class Notifier {
         approvers?: string[];
         notify?: string[];
         message?: string;
+        intent?: string;
       };
-      const self = await this.db
-        .selectFrom('workspace')
-        .select('self_approve')
-        .where('id', '=', run.workspace.id)
-        .executeTakeFirst();
-      // Who launched the run is not asked when they may not decide it (no self-approval).
-      const approvers = approval.approvers?.length
-        ? (
-            await contactsOfNames(this.db, approval.approvers, {
-              workspace: run.workspace.id,
-              project: run.project.id,
-              flowFile: run.flowFile,
-            })
-          ).filter((c) => self?.self_approve === 1 || c.label !== run.requestedLogin)
-        : await approverContacts(
-            this.db,
-            { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
-            self?.self_approve === 1 ? undefined : run.requestedBy,
-          );
-      // AFS-145: a flow's approval lists, like a configuration's, reach only who may see the flow.
-      const told = await contactsOfNames(this.db, approval.notify ?? [], {
-        workspace: run.workspace.id,
-        project: run.project.id,
-        flowFile: run.flowFile,
-      });
+      const { approvers, told, selfApprove } = await this.asked(run, approval);
+      // AFS-193: what is decided: the approval's message (else its step's intent) and the hosts.
+      const about = approval.message?.trim() || approval.intent?.trim();
+      const hosts = waitingHosts(gate.carried_json, gate.node_key) ?? [];
+      const shownHosts =
+        hosts.length > 20
+          ? `${hosts.slice(0, 20).join(', ')} and ${hosts.length - 20} more`
+          : hosts.join(', ');
       const link = this.link(`/runs/${run.id}`);
       // AFS-146: what the approver needs to decide: the run's inputs (secrets as ***), and
       // whether it changes anything.
@@ -320,8 +391,12 @@ export class Notifier {
       );
       const lines = [
         `${this.where(run)} waits for a decision at "${gate.title}".`,
-        ...(approval.message ? ['', approval.message, ''] : []),
-        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'}).`,
+        ...(about ? ['', about, ''] : []),
+        ...(hosts.length
+          ? [`${hosts.length === 1 ? 'Host' : `Hosts (${hosts.length})`} waiting: ${shownHosts}`]
+          : []),
+        // AFS-193: a list or group address reaches who launched it too: they do not decide it.
+        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'})${selfApprove ? '' : `, who does not decide it`}.`,
         ...(inputs.length ? ['Inputs:', ...inputs] : []),
         ...(gate.deadline ? [`Nobody deciding by ${readable(gate.deadline)}: it times out.`] : []),
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',
@@ -336,6 +411,8 @@ export class Notifier {
             status: gate.status,
             approvers: approval.approvers ?? [],
             ...(approval.message ? { message: approval.message } : {}),
+            ...(approval.intent ? { intent: approval.intent } : {}),
+            ...(hosts.length ? { hosts } : {}),
             ...(gate.deadline ? { deadline: gate.deadline } : {}),
           },
           ...(link ? { link } : {}),

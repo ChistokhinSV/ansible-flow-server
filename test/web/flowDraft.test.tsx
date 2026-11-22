@@ -9,6 +9,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { discardQuestion, FlowPage } from '../../src/web/flow';
+import { navigate } from '../../src/web/router';
 import { listenForSaveKey, SAVE_KEY } from '../../src/web/saveKey';
 
 const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
@@ -111,6 +112,7 @@ describe("a flow's draft on its page (AFS-149)", () => {
                 saved: false,
                 message: 'The branch changed the same places',
                 conflicts: clashes,
+                revision: 4,
               },
             },
     };
@@ -123,8 +125,8 @@ describe("a flow's draft on its page (AFS-149)", () => {
     const note = await screen.findByRole('alert');
     // AFS-165: the message asked for goes with the save.
     expect(bodies['POST /drafts/d1/save']?.[0]).toMatchObject({ message: 'Safer rollback' });
-    // Over the canvas, not above it.
-    expect(note.closest('.flow-stage')).toBeTruthy();
+    // AFS-186: in Save's dialog, not over the canvas.
+    expect(note.closest('dialog')).toBeTruthy();
     expect(note.textContent).toContain('Rollback (a3 draft)');
     expect(note.textContent).toContain('Roll back');
     expect(note.textContent).toContain('removed or not set');
@@ -134,10 +136,12 @@ describe("a flow's draft on its page (AFS-149)", () => {
     fireEvent.click(within(note).getAllByRole('radio', { name: /The branch’s/ })[0] as HTMLElement);
     fireEvent.click(within(note).getByRole('button', { name: 'Save with these' }));
     const said = await screen.findByText(/Saved as/);
+    // AFS-186: with the draft's revision they were chosen at (a change since asks again).
     expect(bodies['POST /drafts/d1/save']?.[1]).toMatchObject({
       choices: { c1: 'branch', c2: 'draft' },
+      seen: 4,
     });
-    expect(said.textContent).toContain('with Mia Ortega as co-authors');
+    expect(said.textContent).toContain('with Mia Ortega as co-author.');
     const link = within(said).getByRole('link');
     expect(link.getAttribute('href')).toContain(`commit=${SAVED}`);
     expect(link.textContent).toBe(SAVED.slice(0, 12));
@@ -153,8 +157,17 @@ describe("a flow's draft on its page (AFS-149)", () => {
       steps: ['Backup'],
       what: 'changed Backup (timeout)',
     });
-    const line = document.querySelector('.draft-edits') as HTMLElement;
-    expect(line.textContent).toContain('Mia Ortega changed Backup (timeout)');
+    // AFS-186: the same again (a burst of typing) is one entry, counted.
+    tell({
+      type: 'afs-draft-edit',
+      by: 'Mia Ortega',
+      steps: ['Backup'],
+      what: 'changed Backup (timeout)',
+    });
+    const line = screen.getByRole('region', { name: 'Editing together' });
+    // AFS-186: in the head, beside Save: nothing above the canvas.
+    expect(line.closest('.page-head')).toBeTruthy();
+    expect(line.textContent).toContain('Mia Ortega changed Backup (timeout), 2 times');
     fireEvent.click(within(line).getByRole('button', { name: '1 earlier' }));
     expect(within(line).getByRole('list').textContent).toContain('Mia Ortega removed a2 ping');
   });
@@ -182,11 +195,13 @@ describe("a flow's draft on its page (AFS-149)", () => {
     expect(screen.queryByRole('button', { name: 'Stop editing' })).toBeNull();
   });
 
-  it('puts the canvas under the head for one person; the others line only with others (AFS-165)', async () => {
+  it('puts the canvas under the head; who is here is a line in the head (AFS-165, AFS-186)', async () => {
     routes = base();
     await editing();
-    // No line about others, no message field, no lead with the commit.
-    expect(screen.queryByRole('region', { name: 'Editing together' })).toBeNull();
+    // No message field, no lead with the commit; who is here sits in the head, beside Save.
+    const together = screen.getByRole('region', { name: 'Editing together' });
+    expect(together.closest('.page-head')).toBeTruthy();
+    expect(together.textContent).toContain('Only you here');
     expect(screen.queryByLabelText("What changed (the commit's message)")).toBeNull();
     expect(document.querySelector('.page-head p')).toBeNull();
     // The commit and how saving goes, behind "i" beside Full screen.
@@ -199,8 +214,25 @@ describe("a flow's draft on its page (AFS-149)", () => {
       type: 'afs-draft-people',
       people: [{ login: 'dana', name: 'Dana Whitfield', tabs: 2 }],
     });
-    const line = await screen.findByRole('region', { name: 'Editing together' });
-    expect(line.textContent).toContain('here now: only you (you in other tabs too).');
+    await vi.waitFor(() =>
+      expect(together.textContent).toContain('Only you here (and your other tabs)'),
+    );
+  });
+
+  it('gives focus back to Save when its dialog is closed by Escape (AFS-195)', async () => {
+    routes = base();
+    await editing();
+    const save = screen.getByRole('button', { name: 'Save' });
+    save.focus();
+    fireEvent.click(save);
+    const field = within(saveForm()).getByLabelText("What changed (the commit's message)");
+    field.focus();
+    const dialog = field.closest('dialog') as HTMLDialogElement;
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('form', { name: 'Save the draft' })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save' }));
   });
 
   it('tells the others a save is coming while Save is open, and says so when someone else opens it (AFS-171)', async () => {
@@ -223,7 +255,7 @@ describe("a flow's draft on its page (AFS-149)", () => {
       ],
     });
     expect(
-      (await screen.findByText('Mia Ortega is about to save.')).closest('.draft-float'),
+      (await screen.findByText(/Mia Ortega is about to save/)).closest('.page-head'),
     ).toBeTruthy();
     tell({
       type: 'afs-draft-people',
@@ -232,7 +264,7 @@ describe("a flow's draft on its page (AFS-149)", () => {
         { login: 'mia', name: 'Mia Ortega' },
       ],
     });
-    expect(screen.queryByText('Mia Ortega is about to save.')).toBeNull();
+    expect(screen.queryByText(/Mia Ortega is about to save/)).toBeNull();
   });
 
   it('saves on Ctrl+S, from the page and from the canvas (AFS-166)', async () => {
@@ -255,6 +287,16 @@ describe("a flow's draft on its page (AFS-149)", () => {
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(bodies['POST /drafts/d1/save']).toHaveLength(1);
+  });
+
+  it('drops the saved note when another commit of the flow is opened (AFS-188)', async () => {
+    routes = { ...base(), 'POST /drafts/d1/save': () => ({ body: { commit: SAVED } }) };
+    await editing();
+    tell({ type: SAVE_KEY });
+    tell({ type: SAVE_KEY });
+    expect(await screen.findByText(/Saved as/)).toBeTruthy();
+    act(() => navigate(`/?commit=${COMMIT}`));
+    expect(screen.queryByText(/Saved as/)).toBeNull();
   });
 
   it('selects the step a link names on the canvas (AFS-164)', async () => {
@@ -288,10 +330,69 @@ describe("a flow's draft on its page (AFS-149)", () => {
         'dana',
       ),
     ).toBe(
-      'Discard the draft for everyone? It cannot be undone: the unsaved edits by you and Mia Ortega go.',
+      'Discard the draft for everyone? The unsaved edits by you and Mia Ortega go (Bring back restores them for 15 minutes).',
     );
-    expect(discardQuestion([], 'dana')).toBe(
-      'Discard the draft for everyone? It cannot be undone: nobody has changed it yet.',
+    // AFS-186: a draft that changes nothing loses nothing: no question, unless others are in it.
+    expect(discardQuestion([{ login: 'dana', name: 'Dana Whitfield' }], 'dana', false)).toBe(
+      undefined,
     );
+    expect(discardQuestion([], 'dana', false, ['Mia Ortega'])).toBe(
+      'Discard the draft? It changes nothing, but Mia Ortega is in it: their editing stops.',
+    );
+  });
+
+  it('has nothing to save while the draft changes nothing (AFS-186)', async () => {
+    routes = base();
+    await editing();
+    tell({ type: 'afs-draft-changed', changed: false });
+    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    act(() => {
+      fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    });
+    expect(screen.queryByRole('form', { name: 'Save the draft' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Editing together' }).textContent).toContain(
+      'Nothing to save: the draft changes nothing yet.',
+    );
+    tell({ type: 'afs-draft-changed', changed: true });
+    expect(save.disabled).toBe(false);
+  });
+
+  it('says what the draft changes and who changed it, and makes the message of it (AFS-186)', async () => {
+    routes = {
+      ...base(),
+      'GET /drafts/d1/summary': () => ({
+        body: {
+          changed: true,
+          changes: [
+            { step: 'a2 ios_banner', kind: 'added', fields: [], by: ['Mia Ortega'] },
+            { step: 'Backup', kind: 'changed', fields: ['title'], by: ['Dana Whitfield'] },
+          ],
+          wires: 1,
+        },
+      }),
+    };
+    await editing();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const form = saveForm();
+    expect(await within(form).findByText('added a2 ios_banner (Mia Ortega)')).toBeTruthy();
+    expect(within(form).getByText('changed Backup (title) (Dana Whitfield)')).toBeTruthy();
+    const input = within(form).getByLabelText(
+      "What changed (the commit's message)",
+    ) as HTMLInputElement;
+    expect(input.value).toBe('Added a2 ios_banner; changed Backup (title)');
+  });
+
+  it('offers to bring back a draft someone else discarded (AFS-186)', async () => {
+    const restore = 'POST /projects/p1/drafts/restore?path=flows%2Fupgrade.flow.yaml';
+    routes = { ...base(), [restore]: () => ({ body: { ...draft, id: 'd2' } }) };
+    await editing();
+    tell({ type: 'afs-draft-gone', by: 'Mia Ortega' });
+    const said = await screen.findByText(/Mia Ortega discarded the draft/);
+    fireEvent.click(within(said).getByRole('button', { name: 'Bring back' }));
+    await screen.findByRole('button', { name: 'Stop editing' });
+    expect(bodies[restore]).toEqual([{ draft: 'd1' }]);
+    const frame = screen.getByTitle(/on the designer/) as HTMLIFrameElement;
+    expect(new URL(frame.src, window.location.origin).searchParams.get('draft')).toBe('d2');
   });
 });

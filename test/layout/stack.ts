@@ -211,6 +211,10 @@ async function seed(base: string, code: string, password: string): Promise<Recor
       },
     ],
   );
+  // AFS-195: a flow deep in folders with long names: its breadcrumb must not push the page down.
+  const deep =
+    'flows/edge-baseline-for-the-branch-offices/edge-baseline-for-the-branch-offices.flow.yaml';
+  await save('A copy deep in folders', [{ op: 'write', path: deep, text }]);
   await save('Tune the inventory', [
     { op: 'write', path: 'inventory.ini', text: '[all]\nlocalhost ansible_connection=local\n' },
   ]);
@@ -222,6 +226,7 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     files: '/w/network/hello/files',
     flow: `/w/network/hello/flow/${flow}`,
     flowEdit: `/w/network/hello/flow/${flow}?edit=1`,
+    flowDeep: `/w/network/hello/flow/${deep}`,
     // AFS-123: the project's history, and the flow as one commit left it.
     history: '/w/network/hello/history',
     flowAtCommit: `/w/network/hello/flow/${flow}?commit=${changed}`,

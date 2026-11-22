@@ -53,7 +53,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `GET /runs/:id`                                                 | One run                                                       | `ro`         |
 | `POST /runs/:id/cancel`                                         | Stop it: at once when queued, else at the worker's next word  | `operator`   |
 
-- **Filters:** `project` (its id), `flow` (the flow's file), `state`, `config` (a launch
+- **Filters:** `project` (its id), `flow` (the flow's file), `state` (`rejected`: failed because
+  an approval was rejected or not decided in time; `failed` leaves those out), `config` (a launch
   configuration's id), `by` (the login of who asked for the run; your own for your runs) and
   `q` (words in the flow's name or file, the configuration's name or a login, or `#12` for a
   run's number; the Runs page's **Find** box).
@@ -103,8 +104,11 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   found, 5 options Ansible does not accept, 99 interrupted, 250 an unexpected error;
   `cancelled` when stopped on request, saying who stopped it and during which step ("Stopped by
   Dana Whitfield during Upgrade", "Stopped by Dana Whitfield while it waited for approval at
-  Change approval"). On the canvas that step reads **stopped** and the steps after it **not
-  reached**. A run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+  Change approval"); its page adds when. On the canvas that step reads **stopped** and the steps
+  after it **not reached**. **Stop** on a real run asks first; a check run stops at once. Stopping a
+  run that waits for approval tells those its approval asked that it no longer waits. A run whose
+  steps had all ended when the stop reached it is recorded as it ended, and its output says so. A
+  run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
 - **Targets not in the inventory:** Ansible skips them. The run names them
   (`skippedTargets` on `GET /runs/:id`, and on its page), also when it went well.
 
@@ -123,15 +127,17 @@ image (marked "the server's default" when the run got the server's default image
 the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
 same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. **Run again** runs the
 same commit, inputs and credentials as a new run; its title says which inputs it reuses, and on
-a real run it asks first, as Launch does. **Hosts** lists the run's hosts and how each fared; a
+a real run it asks first, as Launch does; so does a run that reached no host, which would likely
+end the same way. **Hosts** lists the run's hosts and how each fared; a
 host's row opens what it did, step by step: each task's result, with Ansible's message and
 output.
 
 **The value each host had:** a run records the values each step's inputs had for each host. In
 the run's flow, a step's **Details › Data** shows **In this run** under each input (the values
-with their hosts, or one host's after **For host**), and says when it differs from the value the
-flow states; a variable's tooltip adds the value for the host picked, and the step's **Run** tab
-lists a host's input values from its row. Secrets are never recorded (`no_log` steps, vaulted
+with their hosts, or one host's after **For host**, which lists the run's hosts), and says when it
+differs from the value the flow states; a variable's tooltip adds the values too (every host's, or
+the host picked; for a flow input a step reads directly, the value the run was given), and the
+step's **Run** tab lists a host's input values from its row. Secrets are never recorded (`no_log` steps, vaulted
 values, secret-looking names and keys, the run's secret inputs): they read "secret: not recorded".
 A value is cut past 2000 characters and a run keeps 256 KB of values at most. An administrator
 turns recording off with `AFS_RUN_RECORD_INPUTS=false`: runs then record no input values at all.

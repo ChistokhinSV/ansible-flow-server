@@ -9,7 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGrant, deleteGrant } from '../../src/server/access/grants';
 import { buildApp } from '../../src/server/app';
-import { decideGate, openGate } from '../../src/server/approvals/gates';
+import { closeGates, decideGate, openGate } from '../../src/server/approvals/gates';
 import { listAudit } from '../../src/server/audit/store';
 import { createToken } from '../../src/server/auth/tokens';
 import { createGroup, createUser, setMembers } from '../../src/server/auth/users';
@@ -444,6 +444,25 @@ for (const [name, config] of databases) {
       expect((await listDeliveries(db(), { run: own.id })).length).toBe(before);
     });
 
+    it('a waiting approval says what is decided, for which hosts, and that its launcher does not decide it (AFS-193)', async () => {
+      const mails = smtp.received.length;
+      const run = await launch('dana');
+      const g = await openGate(db(), {
+        run: run.id,
+        node: { id: 'N-approve', key: 'change-approval', title: 'Approve the change' },
+        segment: 'start',
+        carried: { afd_hostsets: { flow_change_approval_waiting: ['fw-edge-01', 'fw-edge-02'] } },
+        intent: 'The engineer on duty confirms the maintenance window.',
+      });
+      notifier.approvalWaiting(run.id, g.id);
+      await notifier.idle();
+      expect(sentTo(mails)).toEqual(['omar@example.net']);
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
+      expect(mail).toContain('The engineer on duty confirms the maintenance window.');
+      expect(mail).toContain('Hosts (2) waiting: fw-edge-01, fw-edge-02');
+      expect(mail).toMatch(/Launched by .+ \(a .+ run\), who does not decide it\./);
+    });
+
     it('a decision tells who launched the run, with the comment', async () => {
       const mails = smtp.received.length;
       const run = await launch('dana');
@@ -468,6 +487,21 @@ for (const [name, config] of databases) {
       // AFS-146: who decided, without a stray comma.
       expect(mail).toMatch(/was rejected by [^,]+?\./);
       expect(mail).not.toContain('usually to a rollback');
+    });
+
+    it('a stop while the approval waits tells who was asked that it no longer waits (AFS-185)', async () => {
+      const mails = smtp.received.length;
+      const run = await launch('dana');
+      const g = await gate(run.id);
+      expect(await closeGates(db(), run.id, 'dana')).toEqual([g.id]);
+      // Closed once: a second stop closes nothing.
+      expect(await closeGates(db(), run.id, 'dana')).toEqual([]);
+      notifier.approvalCancelled(run.id, g.id);
+      await notifier.idle();
+      expect(sentTo(mails)).toEqual(['omar@example.net']);
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
+      expect(mail).toContain('no longer waits for a decision: the run was stopped by');
+      expect(mail).toContain('Approval no longer waits');
     });
 
     it("a launch configuration's runs tell as it says: only failures, or every end", async () => {

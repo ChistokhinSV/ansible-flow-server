@@ -32,6 +32,7 @@ export type InventoryReader = (
 import { changedKeys } from '../audit/changes';
 import { addDevBundle, getDevBundle } from './dev';
 import {
+  hostListTexts,
   type LaunchForm,
   type LaunchRequest,
   type PrepareDeps,
@@ -303,6 +304,8 @@ export function registerLaunch(
         !(await mayManage(request, reply, before.project, request.body.flowFile))
       )
         return reply;
+      // AFS-187: a refused change names the fields it asked to change, not every field sent.
+      request.auditDetail = { changed: changedKeys(request.body, before, request.body) };
       const changed = await configs.update(request.params.id, request.body);
       request.auditDetail = { changed: changedKeys(request.body, before, changed) };
       request.log.info(
@@ -527,10 +530,12 @@ export function registerLaunch(
             problems,
           });
         }
-        const texts = Object.fromEntries(
+        const typed = Object.fromEntries(
           form.fields.map((f) => [f.name, asked.inputs?.[f.name] ?? f.text]),
         );
-        const read = checkInputs(form.fields, texts);
+        // AFS-191: a host list typed as JSON reads as its names; a broken one is said at its field.
+        const lists = hostListTexts(form.fields, typed);
+        const read = 'error' in lists ? lists : checkInputs(form.fields, lists.texts);
         const answer = await inventory({
           project: config.project,
           commit: form.commit,
@@ -539,9 +544,7 @@ export function registerLaunch(
           ...(form.inventory ? { inventory: form.inventory } : {}),
           ...(form.eeImage ? { image: form.eeImage } : {}),
           credentials: config.credentials,
-          ...(asked.limit?.trim() || config.limit
-            ? { limit: asked.limit?.trim() || config.limit }
-            : {}),
+          ...(form.limit ? { limit: form.limit } : {}),
           ...(groups ? { groups: true } : {}),
         });
         const { facts: _facts, factsError: _why, ...rest } = answer;

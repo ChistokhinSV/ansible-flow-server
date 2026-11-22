@@ -19,7 +19,16 @@ export const flowAt = (workspace: string, project: string, file: string, commit?
     .map(encodeURIComponent)
     .join('/')}${commit ? `?commit=${commit}` : ''}`;
 
-const CHANGE_TAG = { added: 'new', changed: 'changed', removed: 'gone' } as const;
+const CHANGE_TAG = {
+  added: 'new',
+  changed: 'changed',
+  removed: 'gone',
+  renamed: 'changed',
+} as const;
+
+/** AFS-190: a file's text as a commit left it, on a page of its own. */
+const fileAt = (project: string, commit: string, file: string) =>
+  `/api/v1/projects/${encodeURIComponent(project)}/files/content?commit=${commit}&path=${encodeURIComponent(file)}`;
 
 /** A list of commits read a page at a time: the first page anew when `key` changes. */
 function useCommitPages(
@@ -74,19 +83,32 @@ function useCommitPages(
 }
 
 /** One commit's line: its subject, then who, when and its short hash. */
+/**
+ * AFS-186: a commit's message body as the page shows it: a co-author trailer names the person,
+ * not their e-mail address (git keeps it; the page does not spread it).
+ */
+export function bodyWords(body: string): string {
+  return body.replace(/^Co-authored-by:[ \t]*(.*?)[ \t]*<[^>]*>[ \t]*$/gim, 'Co-author: $1');
+}
+
 function CommitLine({ commit, children }: { commit: CommitSummary; children?: ReactNode }) {
   return (
     <>
       <span className="commit-subject">{commit.subject || '(no message)'}</span>
       <span className="commit-meta muted">
-        {commit.author} · <Time at={commit.at} /> · <code>{commit.commit.slice(0, 8)}</code>
+        {/* AFS-190: 12 characters, as every page shows a commit. */}
+        {commit.author} · <Time at={commit.at} /> · <code>{commit.commit.slice(0, 12)}</code>
         {children}
       </span>
     </>
   );
 }
 
-/** The files a commit changed, flows by their title leading to the flow at that commit. */
+/**
+ * The files a commit changed, flows by their title leading to the flow at that commit. AFS-190:
+ * every other file opens as the commit left it (a removed one as it was before), and a file moved
+ * is one line.
+ */
 function CommitFiles({
   workspace,
   project,
@@ -104,7 +126,7 @@ function CommitFiles({
   return (
     <div className="commit-files">
       <Loading state={details} />
-      {d?.body ? <p className="commit-body">{d.body}</p> : null}
+      {d?.body ? <p className="commit-body">{bodyWords(d.body)}</p> : null}
       {d && d.parents.length > 1 ? (
         <p className="muted small">A merge: the files it brought to its first parent.</p>
       ) : null}
@@ -114,6 +136,11 @@ function CommitFiles({
           {d.files.map((f) => (
             <li key={f.file}>
               <span className={`tag ${CHANGE_TAG[f.change]}`}>{f.change}</span>{' '}
+              {f.from ? (
+                <span className="muted small">
+                  from <code>{f.from}</code> to{' '}
+                </span>
+              ) : null}
               {f.flow ? (
                 <>
                   <Link
@@ -129,7 +156,22 @@ function CommitFiles({
                   {f.title ? <span className="muted small"> {f.file}</span> : null}
                 </>
               ) : (
-                <code>{f.file}</code>
+                <a
+                  href={fileAt(
+                    project.id,
+                    f.change === 'removed' ? (d.parents[0] ?? commit) : commit,
+                    f.file,
+                  )}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={
+                    f.change === 'removed'
+                      ? 'The file as it was before this commit removed it, on a page of its own'
+                      : 'The file as this commit left it, on a page of its own'
+                  }
+                >
+                  <code>{f.file}</code>
+                </a>
               )}
             </li>
           ))}

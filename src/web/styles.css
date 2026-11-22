@@ -408,6 +408,12 @@ code,
   font-size: 14px;
   margin-bottom: 0.4rem;
   overflow-wrap: anywhere;
+  /* AFS-195: the parts wrap as wholes; a long last part (a flow's file) takes a line of its own
+     and is cut there, never leaving its "/" alone on a line between. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.3em;
 }
 .crumbs a {
   text-decoration: none;
@@ -416,6 +422,7 @@ code,
    breadcrumb: the title under it says it whole. */
 .crumbs [aria-current="page"] {
   display: inline-block;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -862,6 +869,15 @@ a.row-main:hover strong {
 .filters input {
   max-width: 11rem;
 }
+/* AFS-195: a filter's label stays one word ("Since", not "Sinc" over "e"); its field gives way. */
+.filters label.inline {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+.filters label.inline > input,
+.filters label.inline > select {
+  min-width: 0;
+}
 td.detail,
 td.long code,
 td.detail code {
@@ -1142,78 +1158,100 @@ ul.tight {
   }
 }
 
-/* AFS-76: editing a flow's draft in the pages. */
-.draft-bar p {
-  margin: 0 0 0.5rem;
+/* AFS-76: editing a flow's draft in the pages. AFS-186: who is here and what happened last is one
+   line in the head, beside Save: it takes what the buttons leave of the row, so nobody coming,
+   going or saving moves the canvas, and nothing lies over it. */
+.flow-head .page-head > .actions:has(.draft-line) {
+  flex: 1 1 24rem;
+  min-width: 0;
+  justify-content: flex-end;
 }
-/* AFS-149: one line for what the others did; the earlier ones open over what is under it. AFS-165:
-   shown only while someone else (or another tab) is in the draft. */
-.draft-edits {
+.draft-line {
   position: relative;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
-  gap: 0.75rem;
+  gap: 0.6rem;
   align-items: baseline;
-  height: 1.5em;
-  margin: 0 0 0.5rem;
+  justify-content: flex-end;
   white-space: nowrap;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
-.draft-edits-newest {
+/* Who is here gives way first: what happened last is the news. */
+.draft-line-who {
+  flex: 0 3 auto;
+  min-width: 4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+}
+.draft-line-news {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.draft-edits button.link {
+.draft-line button.link {
   flex: none;
+  font-size: inherit;
 }
-.draft-earlier {
+/* AFS-186: the earlier edits and the branch's move open under the line, on a background of their
+   own. */
+.draft-popover {
   position: absolute;
-  z-index: 30;
-  top: 1.6em;
-  left: 0;
-  max-width: min(40rem, 100%);
+  z-index: 40;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: min(36rem, calc(100vw - 2rem));
   max-height: 16rem;
   overflow: auto;
   margin: 0;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.8rem;
   white-space: normal;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+  text-align: left;
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--menu-shadow);
 }
-.draft-earlier li + li {
+.draft-popover li + li {
   margin-top: 0.25rem;
 }
-/* AFS-149: the draft's notes (the branch moved, a save's clashes) lie over the canvas's top, not
-   above it: the canvas keeps its place and size. */
-.draft-float {
-  position: absolute;
-  z-index: 6;
-  top: 2.75rem;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(40rem, calc(100% - 2rem));
-  max-height: calc(100% - 4rem);
+.draft-popover p {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .draft-line {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}
+/* AFS-186: Save asks in a dialog: what the draft changes, the message, the places both changed. */
+dialog.draft-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
   overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
 }
-.draft-float .notice {
-  margin: 0;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+.draft-summary p {
+  margin: 0 0 0.25rem;
 }
-.draft-float .notice.warn {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
+.draft-summary ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+  max-height: 12rem;
+  overflow: auto;
 }
-.draft-float .notice.warn p {
-  flex: 1;
+.draft-dialog .notice {
   margin: 0;
 }
-.draft-float .draft-conflict {
+.draft-dialog .draft-conflict {
   flex-direction: column;
   align-items: stretch;
+  padding: 0;
 }
-.draft-float .draft-conflict p {
+.draft-dialog .draft-conflict p {
   flex: none;
 }
 .draft-clashes {
@@ -1235,10 +1273,6 @@ ul.tight {
 }
 .draft-clash-value {
   white-space: pre-wrap;
-}
-/* AFS-112: notices in the bar keep apart from the row of buttons under them. */
-.draft-bar .notice {
-  margin: 0 0 0.75rem;
 }
 .draft-conflict {
   display: flex;
@@ -1264,18 +1298,11 @@ ul.tight {
 .draft-save {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   margin: 0;
-  padding: 0.75rem 0.9rem;
-  border-radius: 10px;
-  background: var(--raised);
-  box-shadow: var(--menu-shadow);
 }
 .draft-save label {
   font-weight: 600;
-}
-.draft-error {
-  margin: 0 0 0.6rem;
 }
 /* AFS-165: the "i" beside Full screen: the draft's commit, in a few lines. */
 .draft-info {
@@ -1423,6 +1450,14 @@ ul.plain {
 .tag.moved {
   color: var(--accent);
   border-color: var(--accent);
+}
+/* AFS-192: marked for deletion, listed until the change set is saved. */
+.tag.deleted {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.file-tree .file.deleted {
+  text-decoration: line-through;
 }
 .small {
   font-size: 0.85em;
@@ -1850,7 +1885,8 @@ textarea.code {
   .run-flow {
     align-self: flex-start;
     min-height: 480px;
-    height: calc(100vh - 160px);
+    /* AFS-193: under the run's header and any notice above the canvas (measured by the page). */
+    height: calc(100vh - var(--run-flow-top, 160px));
   }
 }
 @media (max-width: 860px) {
@@ -2227,6 +2263,10 @@ section + .columns,
   text-decoration: none;
 }
 /* AFS-86: the runs list: its choices on one line, and the way to older runs under it. */
+/* AFS-194: the filters of a person who reaches no project are not shown. */
+.run-filters[hidden] {
+  display: none;
+}
 .run-filters {
   display: flex;
   flex-wrap: wrap;
@@ -2257,6 +2297,12 @@ section + .columns,
   min-height: 2rem;
   padding: 0.25rem 0.6rem;
   font-size: 13px;
+}
+/* AFS-190: the base input rule (width 100%) outweighed .run-find alone, so the box took its
+   content's width and cut the placeholder ("message, author, has"). */
+.run-filters .run-find {
+  width: 18rem;
+  max-width: 100%;
 }
 .run-more {
   margin: 1rem 0 0;
@@ -3094,6 +3140,14 @@ ul.found > li {
   }
 }
 
+/* AFS-195: on a tablet the side menu is a row of its own (the brand and Menu) above the bar: the
+   canvas leaves it room, so the page does not scroll a little. */
+@media (min-width: 641px) and (max-width: 860px) {
+  .flow-page {
+    height: calc(100dvh - 8.5rem);
+  }
+}
+
 /* On a phone a flow's head (title, buttons, the draft's bar) fills most of the window: the page
    scrolls, and the canvas's frame keeps most of a window's height of its own. */
 @media (max-width: 640px) {
@@ -3170,6 +3224,17 @@ td button,
 td a.button,
 td .badge {
   white-space: nowrap;
+}
+/* AFS-195: one long credential name wraps in its own column instead of squeezing the kinds and
+   stacking every row's buttons. */
+.credential-list td.credential-name {
+  max-width: 18rem;
+}
+.credential-list td.kind {
+  white-space: nowrap;
+}
+.credential-list td .actions {
+  flex-wrap: nowrap;
 }
 /* A time with its zone (AFS-139) is long: in a table it may wrap between the date and the clock. */
 td time {
@@ -3512,6 +3577,14 @@ dialog.confirm::backdrop {
 .confirm-actions {
   margin: 0;
 }
+/* AFS-194: the yes of a question that loses something is solid red: red text on a dark red
+   background read too faint in the dark theme. */
+.confirm-actions button.danger,
+.confirm-actions button.danger:hover:not(:disabled) {
+  background: var(--bad);
+  color: var(--bg);
+  font-weight: 600;
+}
 
 /* AFS-123: a project's History tab and a flow's history. A commit is a row that opens to its
    files; the subject takes the room, who, when and the hash under it. */
@@ -3583,10 +3656,18 @@ a.flow-history-item:hover .commit-subject,
 .flow-history-list li[aria-current="true"] .commit-subject {
   font-weight: 600;
 }
+/* AFS-190: the one place the commit is said: two short lines, little room taken from the canvas. */
 .notice.past-note {
   margin: 0.25rem 0 0.5rem;
+  padding-block: 0.4rem;
+  font-size: 13px;
 }
 .notice.past-note p {
-  margin: 0.15rem 0;
+  margin: 0.1rem 0;
   overflow-wrap: anywhere;
+}
+
+/* AFS-191: "Groups in the inventory:" on the line of its group buttons, not above it. */
+fieldset.name-chips {
+  align-items: center;
 }

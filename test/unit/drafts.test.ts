@@ -522,6 +522,145 @@ describe('saving a draft open in several tabs (AFS-149)', () => {
   });
 });
 
+describe('a draft that changes nothing, what a draft changes, and a discard (AFS-186)', () => {
+  /** Someone pushes titles straight to the branch: the draft's base is behind. */
+  const push = (dir: string, titles: Record<string, string>) => {
+    const clone = join(root, dir);
+    execFileSync('git', ['clone', '--quiet', bare, clone]);
+    const path = join(clone, FILE);
+    const doc = parse(readFileSync(path, 'utf8'));
+    for (const n of doc.nodes as { id: string; title: string }[])
+      if (titles[n.id]) n.title = titles[n.id] as string;
+    execFileSync(process.execPath, [
+      '-e',
+      `require('fs').writeFileSync(${JSON.stringify(path)}, ${JSON.stringify(stringify(doc))})`,
+    ]);
+    const g = (...args: string[]) => execFileSync('git', args, { cwd: clone, encoding: 'utf8' });
+    g('-c', 'user.name=Dana', '-c', 'user.email=dana@example.net', 'commit', '-qam', dir);
+    g('push', '--quiet', 'origin', 'HEAD:main');
+  };
+
+  it('an edit and its undo change nothing: Stop editing drops the draft', async () => {
+    const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    expect((await call('omar', 'GET', `/drafts/${id}`)).json.changed).toBe(false);
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'For a moment'));
+    expect((await call('omar', 'GET', `/drafts/${id}`)).json.changed).toBe(true);
+    const undone = await call('omar', 'POST', `/drafts/${id}/undo`);
+    // What was taken back, in the activity's words.
+    expect(undone.json.changes).toEqual([
+      expect.objectContaining({ kind: 'changed', fields: ['title'] }),
+    ]);
+    expect((await call('omar', 'GET', `/drafts/${id}`)).json.changed).toBe(false);
+    // Someone else is in it: leaving keeps it for them.
+    await call('mia', 'POST', `/drafts/${id}/here`, { tab: 'm1' });
+    expect((await call('omar', 'POST', `/drafts/${id}/leave`, { tab: 'o1' })).json).toEqual({
+      dropped: false,
+    });
+    expect((await call('mia', 'POST', `/drafts/${id}/leave`, { tab: 'm1' })).json).toEqual({
+      dropped: true,
+    });
+    expect((await call('omar', 'GET', `/drafts/${id}`)).status).toBe(404);
+  });
+
+  it('says what the draft changes and who changed each place', async () => {
+    const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Omar hello'));
+    await call('mia', 'POST', `/drafts/${id}/commands`, retitle(PING, 'Mia ping'));
+    const summary = (await call('omar', 'GET', `/drafts/${id}/summary`)).json;
+    expect(summary.changed).toBe(true);
+    expect(summary.changes).toEqual(
+      expect.arrayContaining([
+        { step: 'Omar hello', kind: 'changed', fields: ['title'], by: ['Omar Haddad'] },
+        { step: 'Mia ping', kind: 'changed', fields: ['title'], by: ['Mia Ortega'] },
+      ]),
+    );
+    await call('omar', 'DELETE', `/drafts/${id}`);
+  });
+
+  it('asks again when the draft changed while the clashes were chosen', async () => {
+    const id = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('mia', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Draft a3'));
+    push('other3', { [HELLO]: 'Pushed a3' });
+    const asked = await call('mia', 'POST', `/drafts/${id}/save`, { answerConflicts: true });
+    expect(asked.json.conflicts).toEqual([
+      expect.objectContaining({ draft: 'Draft a3', branch: 'Pushed a3' }),
+    ]);
+    const place = asked.json.conflicts[0].id as string;
+    // Omar renames the same step while Mia chooses: her choice was made on the old value.
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Draft a2'));
+    const again = await call('mia', 'POST', `/drafts/${id}/save`, {
+      choices: { [place]: 'draft' },
+      seen: asked.json.revision,
+      answerConflicts: true,
+    });
+    expect(again.json).toMatchObject({
+      saved: false,
+      message: 'The draft changed while you chose: check the values again',
+      conflicts: [expect.objectContaining({ draft: 'Draft a2', branch: 'Pushed a3' })],
+    });
+    expect(again.json.revision).toBeGreaterThan(asked.json.revision);
+    const saved = await call('mia', 'POST', `/drafts/${id}/save`, {
+      choices: { [again.json.conflicts[0].id]: 'draft' },
+      seen: again.json.revision,
+      answerConflicts: true,
+    });
+    expect(saved.json.commit).toMatch(/^[0-9a-f]{40}$/);
+    const text = execFileSync('git', ['show', `${saved.json.commit}:${FILE}`], {
+      cwd: bare,
+      encoding: 'utf8',
+    });
+    expect(titleIn(text, HELLO)).toBe('Draft a2');
+  });
+
+  it('tells the others a discard is coming, and brings a discarded draft back', async () => {
+    const id = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('mia', 'POST', `/drafts/${id}/commands`, retitle(PING, 'Mia was here'));
+    // Omar asks whether to discard: Mia's page hears it.
+    const asking = await call('omar', 'POST', `/drafts/${id}/here`, {
+      tab: 'o1',
+      discarding: true,
+    });
+    expect(asking.json.people).toContainEqual(
+      expect.objectContaining({ login: 'omar', discarding: true }),
+    );
+    const mia = follow('mia', id, 'm1');
+    await mia.until(() => mia.events.some((e) => e.event === 'draft'));
+    // Mia's page sends what she typed when told, before the draft goes.
+    const typed = (async () => {
+      await mia.until(() => mia.events.some((e) => e.event === 'saving'));
+      const news = mia.events.find((e) => e.event === 'saving')?.data;
+      expect(news).toMatchObject({ by: { login: 'omar' }, what: 'discard' });
+      await call('mia', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Typed by Mia'));
+      await call('mia', 'POST', `/drafts/${id}/flushed`, {
+        flush: news.flush,
+        stream: news.stream,
+      });
+    })();
+    expect((await call('omar', 'DELETE', `/drafts/${id}?tab=o1`)).status).toBe(204);
+    await typed;
+    await mia.until(() => mia.events.some((e) => e.event === 'discarded'));
+    await mia.close();
+    // Mia brings it back: a new draft with her edits, typing included.
+    const restore = (who: string) =>
+      call(who, 'POST', `/projects/${project.id}/drafts/restore?path=${FILE}`, { draft: id });
+    // Not for someone who may only read the flow.
+    expect((await restore('lena')).status).toBe(403);
+    const back = await restore('mia');
+    expect(back.status).toBe(200);
+    expect(back.json.id).not.toBe(id);
+    const doc = (await call('mia', 'GET', `/drafts/${back.json.id}`)).json.snapshot.doc;
+    const titleOf = (n: string) => doc.nodes.find((x: { id: string }) => x.id === n).title;
+    expect([titleOf(PING), titleOf(HELLO)]).toEqual(['Mia was here', 'Typed by Mia']);
+    // Once only.
+    expect((await restore('omar')).status).toBe(404);
+    await call('mia', 'DELETE', `/drafts/${back.json.id}`);
+  });
+});
+
 describe("the module catalog of the flow's image", () => {
   it('says while it is first read, then answers search and docs', async () => {
     const { CatalogIndex } = await import('@ansible-flow/node/catalog/catalogIndex');
@@ -583,6 +722,10 @@ describe("the module catalog of the flow's image", () => {
       const loading = await post(`/drafts/${draft}/catalog`, search);
       expect(loading.status).toBe(202);
       expect(loading.json.status).toMatchObject({ state: 'loading', environment: 'afd-ee:2.19' });
+      // AFD-351: the repository's own roles come from git: they do not wait for the catalog.
+      const roles = await post(`/drafts/${draft}/catalog`, { request: { op: 'roles' } });
+      expect(roles.status).toBe(200);
+      expect(Array.isArray(roles.json.result)).toBe(true);
       ready = true;
       const found = await post(`/drafts/${draft}/catalog`, search);
       expect(found.json.result.map((h: { fqcn: string }) => h.fqcn)).toEqual([

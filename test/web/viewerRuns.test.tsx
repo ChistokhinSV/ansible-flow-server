@@ -31,6 +31,12 @@ describe('the runs of a flow on the canvas', () => {
     // Hosts failed: the run itself still finished.
     expect(pastRunOf(run({ state: 'failed', hosts: { total: 4, failed: 1 } })).ok).toBe(true);
     expect(pastRunOf(run({ state: 'cancelled' })).ok).toBe(false);
+    // AFS-193: a run decided against at its approval reads rejected, not "1 failed".
+    expect(
+      pastRunOf(
+        run({ state: 'failed', hosts: { total: 1, failed: 1 }, decidedAgainst: 'rejected' }),
+      ),
+    ).toMatchObject({ ok: false, ended: 'rejected' });
   });
 
   it('a run still going is listed as running', () => {
@@ -54,5 +60,12 @@ describe('the runs of a flow on the canvas', () => {
         config: 'Edge switches',
       },
     });
+  });
+
+  it('gives the canvas the inputs the run had, as anyone may see them (AFS-189)', () => {
+    expect(runnerOf(run({ inputs: { site: 'lab', api_token: '***' } }))).toMatchObject({
+      flowInputs: { site: 'lab', api_token: '***' },
+    });
+    expect(runnerOf(run({}))).not.toHaveProperty('flowInputs');
   });
 });
