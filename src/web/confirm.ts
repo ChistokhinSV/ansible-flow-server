@@ -4,7 +4,10 @@
 // second waits for the first to be answered.
 
 export interface AskOptions {
-  /** The button that says yes (default "OK"). */
+  /**
+   * The button that says yes, named by what it does: Delete, Revoke, Take back (AFS-194; every
+   * page's question names it, a test checks; "OK" only where nothing better fits).
+   */
   yes?: string;
   /** The button that says no (default "Cancel"). */
   no?: string;
@@ -73,6 +76,8 @@ function show(question: string, options: AskOptions): Promise<boolean> {
         to.focus();
       }
     });
+    // AFS-194: opening the dialog must not move the page (showModal's own focus scrolled it).
+    const scrolled = scrolledAround(before);
     document.body.append(dialog);
     if (typeof dialog.showModal === 'function') {
       try {
@@ -83,5 +88,19 @@ function show(question: string, options: AskOptions): Promise<boolean> {
     } else dialog.setAttribute('open', '');
     // AFS-186: the page behind stays where it was (on a phone it scrolled to the dialog).
     (options.danger ? no : yes).focus({ preventScroll: true });
+    for (const [element, top, left] of scrolled) {
+      if (element.scrollTop !== top) element.scrollTop = top;
+      if (element.scrollLeft !== left) element.scrollLeft = left;
+    }
   });
+}
+
+/** The page and the boxes around `element` that scroll, with where they are scrolled to. */
+function scrolledAround(element: Element | null): [Element, number, number][] {
+  const all: [Element, number, number][] = [];
+  const page = document.scrollingElement;
+  if (page) all.push([page, page.scrollTop, page.scrollLeft]);
+  for (let e = element?.parentElement; e; e = e.parentElement)
+    if (e !== page && (e.scrollTop || e.scrollLeft)) all.push([e, e.scrollTop, e.scrollLeft]);
+  return all;
 }

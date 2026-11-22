@@ -45,14 +45,17 @@ const STATE_LABEL: Record<string, string> = {
 export const environmentAddress = (workspace: string, id: string) =>
   `/w/${encodeURIComponent(workspace)}/environments/${encodeURIComponent(id)}`;
 
-function BuildBadge({ build }: { build?: EnvironmentBuild }) {
-  if (!build) return <span className="badge">not built</span>;
+function BuildBadge({ build, pull = false }: { build?: EnvironmentBuild; pull?: boolean }) {
+  if (!build) return <span className="badge">{pull ? 'not pulled' : 'not built'}</span>;
+  // AFS-194: an image environment's builds are pulls.
+  const label = pull ? PULL_LABEL[build.state] : undefined;
   return (
     <span className={`badge ${STATE_TONE[build.state] ?? ''}`}>
-      {STATE_LABEL[build.state] ?? build.state}
+      {label ?? STATE_LABEL[build.state] ?? build.state}
     </span>
   );
 }
+const PULL_LABEL: Record<string, string> = { done: 'pulled', building: 'pulling' };
 
 /**
  * AFS-163: the server's default image: what runs get when their launch configuration names no
@@ -201,7 +204,7 @@ export function WorkspaceEnvironments({
                     )}
                   </td>
                   <td>
-                    <BuildBadge build={e.latest} />
+                    <BuildBadge build={e.latest} pull={e.kind === 'image'} />
                   </td>
                   {/* AFS-153: one way of saying it in every row. */}
                   <td>
@@ -554,14 +557,15 @@ function Builds({
       clearInterval(timer);
     };
   }, [open, going, env.id]);
-  if (!builds.length) return <p className="empty">Not built yet.</p>;
+  const pull = env.kind === 'image';
+  if (!builds.length) return <p className="empty">{pull ? 'Not pulled yet.' : 'Not built yet.'}</p>;
   return (
     <>
       <Scroll>
         <table>
           <thead>
             <tr>
-              <th scope="col">Build</th>
+              <th scope="col">{pull ? 'Pull' : 'Build'}</th>
               <th scope="col">State</th>
               <th scope="col">Image</th>
               <th scope="col">By</th>
@@ -580,7 +584,7 @@ function Builds({
                   </div>
                 </td>
                 <td>
-                  <BuildBadge build={b} />
+                  <BuildBadge build={b} pull={pull} />
                   {b.pruned && <div className="muted">image removed</div>}
                   {b.error && <div className="bad-text">{b.error}</div>}
                 </td>
@@ -602,7 +606,9 @@ function Builds({
       </Scroll>
       {open && (
         <>
-          <h3>Log of build {builds.find((b) => b.id === open)?.number}</h3>
+          <h3>
+            Log of {pull ? 'pull' : 'build'} {builds.find((b) => b.id === open)?.number}
+          </h3>
           <pre className="log">{log || '(nothing yet)'}</pre>
         </>
       )}
@@ -631,10 +637,14 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
     !!env.spec &&
     (!exact(env.spec.ansibleCore) || env.spec.collections.some((c) => !exact(c.version)));
   const changed = env.kind === 'spec' && env.updatedAt > newest.createdAt;
+  // AFS-194: an image environment's builds are pulls, and are called so.
+  const pull = env.kind === 'image';
+  const Word = pull ? 'Pull' : 'Build';
   if (newest.state === 'queued' || newest.state === 'building')
     return (
       <p className="notice" role="status">
-        Build {newest.number} is {newest.state === 'queued' ? 'waiting to start' : 'building'}
+        {Word} {newest.number} is{' '}
+        {newest.state === 'queued' ? 'waiting to start' : pull ? 'pulling' : 'building'}
         {newest.startedAt && (
           <>
             {' '}
@@ -647,20 +657,25 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
   if (newest.state === 'failed')
     return (
       <p className="notice error" role="status">
-        Build {newest.number} failed <Time at={newest.endedAt ?? newest.createdAt} />
+        {Word} {newest.number} failed <Time at={newest.endedAt ?? newest.createdAt} />
         {newest.error ? `: ${newest.error}` : ''}.{' '}
-        {env.current ? 'Runs still get the image of an earlier build.' : 'Runs get no image yet.'}
+        {env.current
+          ? `Runs still get the image of an earlier ${pull ? 'pull' : 'build'}.`
+          : 'Runs get no image yet.'}
       </p>
     );
   return (
     <p className={`notice ${changed ? 'warn' : 'ok'}`} role="status">
-      Built: build {newest.number}, <Time at={newest.endedAt ?? newest.createdAt} />
+      {pull ? 'Pulled: pull' : 'Built: build'} {newest.number},{' '}
+      <Time at={newest.endedAt ?? newest.createdAt} />
       {newest.image === env.current ? ', is the image runs get now' : ''}.{' '}
-      {changed
-        ? 'The spec changed after this build: build again to use the change.'
-        : floating
-          ? 'Building again takes the newest versions the spec allows, and makes a new image only if they changed.'
-          : 'The spec has not changed since: building again gives the same versions.'}
+      {pull
+        ? ''
+        : changed
+          ? 'The spec changed after this build: build again to use the change.'
+          : floating
+            ? 'Building again takes the newest versions the spec allows, and makes a new image only if they changed.'
+            : 'The spec has not changed since: building again gives the same versions.'}
     </p>
   );
 }
@@ -914,7 +929,7 @@ export function EnvironmentPage({
         )}
       </div>
       <section aria-labelledby="builds">
-        <h2 id="builds">Builds</h2>
+        <h2 id="builds">{env.kind === 'image' ? 'Pulls' : 'Builds'}</h2>
         <Loading state={builds} />
         {builds.data && <Builds env={env} builds={builds.data} reload={reload} />}
       </section>
@@ -936,6 +951,7 @@ export function EnvironmentPage({
             onClick={async () => {
               if (
                 !(await ask(`Delete the environment ${env.name}, its builds and their images?`, {
+                  yes: 'Delete',
                   danger: true,
                 }))
               )
@@ -1107,13 +1123,14 @@ export function EnvironmentCheck({
                         <code>{l.name}</code>
                       </td>
                       <td>
-                        {l.wants}
+                        {/* AFS-194: "*" in words, and where the need comes from said as such. */}
+                        {l.wants === '*' || !l.wants ? 'any version' : l.wants}
                         <div className="muted">
                           {l.from === 'flow'
-                            ? 'the steps'
+                            ? 'asked by the steps'
                             : l.from === 'requirements'
-                              ? 'requirements.yml'
-                              : 'both'}
+                              ? 'asked by requirements.yml'
+                              : 'asked by the steps and requirements.yml'}
                         </div>
                         {l.conflict && <div className="bad-text">{l.conflict}</div>}
                       </td>
@@ -1163,7 +1180,8 @@ export function EnvironmentCheck({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                placeholder="hello-ee"
+                // AFS-194: a name made from this flow's file, not another project's.
+                placeholder={`${(c.flow.file.split('/').at(-1) ?? 'flow').replace(/\.flow\.ya?ml$/, '').toLowerCase()}-ee`}
                 hint="Its spec is what the flow needs; it is built right away. Then choose it in the configuration."
               />
               {error && (

@@ -2246,6 +2246,10 @@ section + .columns,
   text-decoration: none;
 }
 /* AFS-86: the runs list: its choices on one line, and the way to older runs under it. */
+/* AFS-194: the filters of a person who reaches no project are not shown. */
+.run-filters[hidden] {
+  display: none;
+}
 .run-filters {
   display: flex;
   flex-wrap: wrap;
@@ -3536,6 +3540,14 @@ dialog.confirm::backdrop {
 }
 .confirm-actions {
   margin: 0;
+}
+/* AFS-194: the yes of a question that loses something is solid red: red text on a dark red
+   background read too faint in the dark theme. */
+.confirm-actions button.danger,
+.confirm-actions button.danger:hover:not(:disabled) {
+  background: var(--bad);
+  color: var(--bg);
+  font-weight: 600;
 }
 
 /* AFS-123: a project's History tab and a flow's history. A commit is a row that opens to its

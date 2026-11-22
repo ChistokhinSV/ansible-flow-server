@@ -140,7 +140,8 @@ function TestForm({ onSent }: { onSent(): void }) {
         <p className={`notice ${result.status === 'sent' ? 'ok' : 'error'}`} role="status">
           {result.status === 'sent'
             ? `Sent to ${result.target}.`
-            : `Not sent: ${result.lastError ?? 'no answer yet'}`}
+            : // AFS-194: two sentences: "Not sent: Not reachable: …" said "not" twice in a row.
+              `Not sent to ${result.target}. ${(result.lastError ?? 'No answer yet').replace(/[^.]$/, '$&.')}`}
         </p>
       )}
     </Form>
@@ -173,6 +174,7 @@ function WebhookKey({ has, onMade }: { has: boolean; onMade(): void }) {
           if (
             has &&
             !(await ask('Make a new key? Receivers checking the old one will refuse.', {
+              yes: 'Make a new key',
               danger: true,
             }))
           )
@@ -354,6 +356,7 @@ function Settings({
                     if (
                       !(await ask(
                         'Turn email off for the whole server? The mail server settings are removed, and nobody gets email until a mail server is saved again. Webhooks still go.',
+                        { yes: 'Turn email off', danger: true },
                       ))
                     )
                       return;
@@ -366,6 +369,13 @@ function Settings({
               )
             }
           />
+          {settings.smtp && (
+            // AFS-194: what Turn email off does, said beside it and not only in its tooltip.
+            <p className="muted small">
+              Turn email off forgets the mail server: nobody gets email until one is saved again.
+              Webhooks still go.
+            </p>
+          )}
         </section>
         <section className="panel" aria-labelledby="hooks">
           <h2 id="hooks">Webhooks</h2>

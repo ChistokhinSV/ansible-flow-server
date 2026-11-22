@@ -679,8 +679,11 @@ describe('signed in', () => {
         ).searchParams.get('theme'),
       ).toBe('light'),
     );
-    // AFS-107: the breadcrumbs are in the top bar, beside the search box.
-    expect(document.querySelector('.bar nav[aria-label="Breadcrumb"]')?.textContent).toContain(
+    // AFS-107: the breadcrumbs are in the top bar, beside the search box. AFS-194: the flow by
+    // its title, its file in the tooltip.
+    const crumbs = document.querySelector('.bar nav[aria-label="Breadcrumb"]');
+    expect(crumbs?.textContent).toMatch(/ \/ OS upgrade$/);
+    expect(crumbs?.querySelector('[aria-current="page"]')?.getAttribute('title')).toBe(
       'flows/os-upgrade.flow.yaml',
     );
     // Full screen and its own page are icon buttons with their names.

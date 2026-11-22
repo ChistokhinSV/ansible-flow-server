@@ -412,7 +412,7 @@ export function DirectoriesSection({ groups }: { groups: Group[] }) {
                 if (
                   !(await ask(
                     `Remove ${d.name}? Its people stay; the groups, rights and disabling it gave go.`,
-                    { danger: true },
+                    { yes: 'Remove', danger: true },
                   ))
                 )
                   return;

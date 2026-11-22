@@ -38,7 +38,7 @@ function byProject(subflows: LibrarySubflow[]): [string, LibrarySubflow[]][] {
   return [...groups];
 }
 
-export function LibraryPage() {
+export function LibraryPage({ admin = false }: { admin?: boolean }) {
   const listed = useLoad(() => api.library(), []);
   const subflows = listed.data?.subflows ?? [];
   return (
@@ -51,9 +51,10 @@ export function LibraryPage() {
       <Loading state={listed} />
       {listed.data && !subflows.length && (
         <p className="empty">
-          No library yet, or none you may read. An administrator makes a project a library on its
-          Settings tab (Library, Make it a library); its flows' subflows are then offered here, to
-          every project.
+          {/* AFS-194: how to make one is said to who can (an administrator), not to everyone. */}
+          {admin
+            ? "No library yet. Make a project a library on its Settings tab (Library, Make it a library); its flows' subflows are then offered here, to every project."
+            : "No library yet, or none you may read. An administrator can make a project a library; its flows' subflows are then offered here."}
         </p>
       )}
       {byProject(subflows).map(([project, list]) => {

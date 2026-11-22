@@ -707,7 +707,9 @@ export class Drafts {
           .filter((e) => e.id !== by.id)
           .map((e) => people.find((p) => p.id === e.id))
           .filter((p): p is NonNullable<typeof p> => !!p);
-        const subject = options.message?.trim() || `Edit ${draft.file} in Ansible Flow Server`;
+        // AFS-194: the flow by its title, as the pages name it, not its file's path.
+        const named = parseFlow(text).doc?.flow?.name?.trim() || draft.file;
+        const subject = options.message?.trim() || `Edit ${named} in Ansible Flow Server`;
         const trailers = others.map((p) => `Co-authored-by: ${p.name} <${mail(p)}>`);
         const message = `${subject}\n${trailers.length ? `\n${trailers.join('\n')}\n` : ''}`;
         const author = {

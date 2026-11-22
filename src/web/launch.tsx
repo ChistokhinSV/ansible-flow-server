@@ -773,6 +773,7 @@ function DeleteConfig({ config, to }: { config: LaunchConfig; to: string }) {
   const remove = async () => {
     if (
       !(await ask(`Delete the launch configuration "${config.name}"? Its runs stay.`, {
+        yes: 'Delete',
         danger: true,
       }))
     )
@@ -1803,7 +1804,16 @@ function ConfigForm({
                 <option key={e.id} value={e.id}>
                   {e.name}
                   {/* AFS-153: an image is pulled, a definition is built. */}
-                  {e.current ? '' : e.kind === 'spec' ? ' (not built yet)' : ' (not pulled yet)'}
+                  {/* AFS-194: and one whose last try failed says so, as Save's refusal does. */}
+                  {e.current
+                    ? ''
+                    : e.latest?.state === 'failed'
+                      ? e.kind === 'spec'
+                        ? ' (its build failed)'
+                        : ' (could not be pulled)'
+                      : e.kind === 'spec'
+                        ? ' (not built yet)'
+                        : ' (not pulled yet)'}
                 </option>
               ))}
               <option value={IMAGE_BY_NAME}>an image by name…</option>

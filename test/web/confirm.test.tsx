@@ -58,3 +58,31 @@ describe('ask', () => {
     expect(await two).toBe(false);
   });
 });
+
+// AFS-194: every question a page asks names its yes by what it does (Delete, Revoke, Take back),
+// never a bare "OK": each ask( call from a page passes `yes:`.
+describe('the pages’ questions', () => {
+  it('each names its yes button', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const dir = join(__dirname, '../../src/web');
+    const unnamed: string[] = [];
+    for (const file of readdirSync(dir)) {
+      if (!/\.tsx?$/.test(file) || file === 'confirm.ts') continue;
+      const text = readFileSync(join(dir, file), 'utf8');
+      if (!/import \{[^}]*\bask\b[^}]*\} from '\.\/confirm'/.test(text)) continue;
+      for (const m of text.matchAll(/\bask\(/g)) {
+        // The call's text, to its closing bracket.
+        let depth = 0;
+        let end = m.index + 3;
+        for (; end < text.length; end++) {
+          if (text[end] === '(') depth++;
+          else if (text[end] === ')' && --depth === 0) break;
+        }
+        const call = text.slice(m.index, end + 1);
+        if (!/\byes:/.test(call)) unnamed.push(`${file}: ${call.slice(0, 80)}`);
+      }
+    }
+    expect(unnamed).toEqual([]);
+  });
+});

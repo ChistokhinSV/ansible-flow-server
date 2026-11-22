@@ -4,6 +4,7 @@
 //        ?environment=<id>                                    ... or against another of the workspace
 //   POST /api/v1/launch-configs/:id/environment               an environment made for the flow, built
 // The flow and the requirements file are read at the commit the configuration would run.
+import type { FlowDocument, FlowNode } from '@ansible-flow/core/flow/types';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { accessOf, atLeast } from '../access/grants';
@@ -112,7 +113,12 @@ export function registerFlowChecks(
         return reply
           .code(404)
           .send({ error: 'not_found', message: 'No such environment', field: 'environment' });
-      const lines = checkNeeds(read.needs, env?.catalog);
+      // AFS-194: the steps that use a collection by their titles, as the canvas shows them.
+      const titles = stepTitles(read.doc);
+      const lines = checkNeeds(read.needs, env?.catalog).map((l) => ({
+        ...l,
+        nodes: l.nodes.map((key) => titles.get(key) ?? key),
+      }));
       const answer: FlowCheck = {
         flow: { file: config.flowFile, name: read.doc.flow?.name ?? config.flowFile },
         commit: read.commit,
@@ -184,4 +190,17 @@ export function registerFlowChecks(
       }
     },
   );
+}
+
+/** Every step's title by its key, on every level. */
+function stepTitles(doc: FlowDocument): Map<string, string> {
+  const titles = new Map<string, string>();
+  const walk = (nodes: FlowNode[] = []) => {
+    for (const n of nodes) {
+      if (n.title) titles.set(n.key, n.title);
+      walk(n.subflow?.nodes);
+    }
+  };
+  walk(doc.nodes);
+  return titles;
 }

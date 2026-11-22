@@ -96,7 +96,11 @@ export async function createBranch(
       commit = await deps.git.commitOf(project.id, input.from.trim());
     } catch (e) {
       if (e instanceof GitError)
-        throw new BranchRefused('not_found', `Nothing to start from: ${e.message}`);
+        // AFS-194: one sentence: "Nothing to start from: the repository has no branch x".
+        throw new BranchRefused(
+          'not_found',
+          `Nothing to start from: ${e.message.replace(/^[A-Z](?=[a-z ])/, (c) => c.toLowerCase())}`,
+        );
       throw e;
     }
     await deps.git.setBranch(project.id, name, { commit }, await upstreamOf(deps, project));
