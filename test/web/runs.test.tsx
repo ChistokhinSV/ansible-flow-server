@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Run } from '../../src/web/api';
 import { App } from '../../src/web/app';
-import { againWords, stoppedWhen } from '../../src/web/runs';
+import { againWords, failureWords, stoppedWhen } from '../../src/web/runs';
 import { formatTime } from '../../src/web/ui';
 import { stepTitle, stopQuestion } from '../../src/web/viewerRuns';
 
@@ -723,5 +723,17 @@ describe('stop words', () => {
     };
     expect(stepTitle(doc, 'b')).toBe('Check the path');
     expect(stepTitle(doc, 'c')).toBeUndefined();
+  });
+});
+
+describe('failure reasons in words (AFS-193)', () => {
+  it("explains Ansible's Unknown error and passes other reasons through without step keys", () => {
+    expect(failureWords('Task failed: Action failed: Unknown error.')).toMatch(/failed_when/);
+    expect(failureWords('Its failed_when condition was true: rc != 0')).toBe(
+      'Its failed_when condition was true: rc != 0',
+    );
+    expect(failureWords('Stopped at [precheck] Pre-checks: failed_hosts is not wired')).toBe(
+      'Stopped at Pre-checks: its failed hosts have no next step in the flow',
+    );
   });
 });

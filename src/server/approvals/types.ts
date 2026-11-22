@@ -13,6 +13,11 @@ export interface Gate {
   approvers: string[];
   notify: string[];
   message?: string;
+  /**
+   * AFS-193: the approval step's intent, for an approval without a message: what the approvers
+   * read about what they decide.
+   */
+  intent?: string;
   decidedBy?: string;
   decidedAt?: string;
   comment?: string;

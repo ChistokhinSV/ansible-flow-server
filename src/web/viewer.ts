@@ -297,6 +297,7 @@ async function start(): Promise<void> {
     type Told = {
       node: { id: string };
       mayDecide: boolean;
+      why?: string;
       deciders?: string[];
       hosts?: string[];
       next?: Record<string, string>;
@@ -313,6 +314,8 @@ async function start(): Promise<void> {
           {
             ...a,
             ...(g.mayDecide ? { mayDecide: true } : {}),
+            // AFS-193: why this person does not decide it (a designer after 1.0.2-rc.3 says it).
+            ...(!g.mayDecide && g.why ? { why: g.why } : {}),
             ...(g.deciders ? { deciders: g.deciders } : {}),
             ...(g.hosts?.length ? { hosts: g.hosts } : {}),
             ...(g.next ? { next: g.next } : {}),

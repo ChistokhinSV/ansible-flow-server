@@ -927,6 +927,7 @@ export class Executor {
             carried: outcome.carried,
             ...(seconds ? { deadline: new Date(Date.now() + seconds * 1000) } : {}),
             ...(node?.approval ? { approval: node.approval } : {}),
+            ...(node?.intent ? { intent: node.intent } : {}),
             next: nextSteps(doc, current.gate),
           });
           const waiting: RunView = {

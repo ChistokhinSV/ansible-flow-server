@@ -142,7 +142,18 @@ export const SERVER_TOOLS: ServerTool[] = [
       mine: { type: 'boolean', description: 'Only runs you asked for' },
       state: {
         type: 'string',
-        enum: ['queued', 'running', 'waiting', 'succeeded', 'failed', 'cancelled', 'lost'],
+        enum: [
+          'queued',
+          'running',
+          'waiting',
+          'succeeded',
+          'failed',
+          'cancelled',
+          'lost',
+          'rejected',
+        ],
+        description:
+          'rejected: failed because an approval was rejected or not decided in time; failed leaves those out',
       },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       before: str('Where the last page ended: the next of its answer'),

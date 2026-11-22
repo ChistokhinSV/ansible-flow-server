@@ -69,11 +69,20 @@ All notable changes to Ansible Flow Server.
 - **Add a provider** puts the cursor in the provider's **Name**.
 - The flow page's **More** menu works with the keyboard: the first item has the focus when it opens, the arrows, Home and End move, and Escape gives the focus back to **More**.
 - Closing **Save**'s dialog with Escape or **Cancel** gives the focus back to where it was (Save, the canvas), not to the page.
+- Approvers see what they decide: the Approvals page, the run's page and the request email show the approval's message (or, without one, its step's intent); the email lists the hosts waiting, and the pages say how long it has waited.
+- Who launched a run and may not decide its approval reads "You launched this run, so others decide its approvals (only an administrator can change that)" and who decides it, on the pages and on the canvas; the request email to a group they belong to says they do not decide it.
+- A run whose approval was rejected or not decided in time is no longer counted or filtered as failed: the Runs page has a **Rejected** filter (`state=rejected`; `state=failed` leaves such runs out), Home counts them as rejected, the flow page's Run panel and its list of runs say rejected, and the output says "(outcome: rejected)".
+- A host's own output (its row in **Hosts**) ends with the approval it waited at, how it was decided, and where it ended.
+- A task its `failed_when` condition failed says the condition ("Its failed_when condition was true: …") instead of Ansible's "Unknown error"; the step is named without its key.
 
 ### Fixed
 
 - A step bound to one of the repository's own roles lists the role's options and required ones from its `meta/argument_specs.yml` in **Binding**, and **About** opens with them, on the flow's and run's pages and while editing. Before, every role read as having no argument_specs and **About** stayed on "Reading…".
 - On a phone the folded side panel under the canvas is one row with its label written across, not a tall strip with the label on end.
+- The Approvals count in the side menu drops as soon as a run stops waiting (decided, stopped or timed out elsewhere) and on every page opened, not only on reload.
+- On a run's page the canvas fits the window under a notice of why the run ended: its zoom controls stay in sight.
+- A time on an approval's Run tab names its time zone.
+- The output of a run no longer shows generated playbook code under the error of a host stopped at a port with no next step.
 - Deleting a flow turns off the schedules that fire it in the same save (the delete question already said so); before, they stayed on, fired once and failed. A move or delete through the **Files** tab or the API does the same.
 - A schedule whose flow has errors, or is gone, can be paused, changed and deleted; before, only Delete worked and it kept firing. Turning it on again is refused while the flow cannot run, as adding one is.
 - A launch configuration's settings (description, credentials, notifications and the rest) save while its flow has errors or is gone; only launching is refused. Changing it to another flow still needs one that can run.

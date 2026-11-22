@@ -444,6 +444,25 @@ for (const [name, config] of databases) {
       expect((await listDeliveries(db(), { run: own.id })).length).toBe(before);
     });
 
+    it('a waiting approval says what is decided, for which hosts, and that its launcher does not decide it (AFS-193)', async () => {
+      const mails = smtp.received.length;
+      const run = await launch('dana');
+      const g = await openGate(db(), {
+        run: run.id,
+        node: { id: 'N-approve', key: 'change-approval', title: 'Approve the change' },
+        segment: 'start',
+        carried: { afd_hostsets: { flow_change_approval_waiting: ['fw-edge-01', 'fw-edge-02'] } },
+        intent: 'The engineer on duty confirms the maintenance window.',
+      });
+      notifier.approvalWaiting(run.id, g.id);
+      await notifier.idle();
+      expect(sentTo(mails)).toEqual(['omar@example.net']);
+      const mail = readable(smtp.received.at(-1)?.data ?? '');
+      expect(mail).toContain('The engineer on duty confirms the maintenance window.');
+      expect(mail).toContain('Hosts (2) waiting: fw-edge-01, fw-edge-02');
+      expect(mail).toMatch(/Launched by .+ \(a .+ run\), who does not decide it\./);
+    });
+
     it('a decision tells who launched the run, with the comment', async () => {
       const mails = smtp.received.length;
       const run = await launch('dana');

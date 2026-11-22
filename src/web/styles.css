@@ -1885,7 +1885,8 @@ textarea.code {
   .run-flow {
     align-self: flex-start;
     min-height: 480px;
-    height: calc(100vh - 160px);
+    /* AFS-193: under the run's header and any notice above the canvas (measured by the page). */
+    height: calc(100vh - var(--run-flow-top, 160px));
   }
 }
 @media (max-width: 860px) {

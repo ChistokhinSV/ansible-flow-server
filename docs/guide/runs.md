@@ -53,7 +53,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `GET /runs/:id`                                                 | One run                                                       | `ro`         |
 | `POST /runs/:id/cancel`                                         | Stop it: at once when queued, else at the worker's next word  | `operator`   |
 
-- **Filters:** `project` (its id), `flow` (the flow's file), `state`, `config` (a launch
+- **Filters:** `project` (its id), `flow` (the flow's file), `state` (`rejected`: failed because
+  an approval was rejected or not decided in time; `failed` leaves those out), `config` (a launch
   configuration's id), `by` (the login of who asked for the run; your own for your runs) and
   `q` (words in the flow's name or file, the configuration's name or a login, or `#12` for a
   run's number; the Runs page's **Find** box).
