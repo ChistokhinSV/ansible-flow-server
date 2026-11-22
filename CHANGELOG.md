@@ -2,7 +2,9 @@
 
 All notable changes to Ansible Flow Server.
 
-## Unreleased
+## 1.0.2 — Actions for everyone, links from NetBox and Zabbix, History, and where a value comes from
+
+Carries Ansible Flow Designer 1.0.2.
 
 ### Added
 
