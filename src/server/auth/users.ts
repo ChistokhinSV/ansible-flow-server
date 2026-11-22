@@ -250,6 +250,8 @@ export async function deleteUser(db: Db, id: string): Promise<void> {
     // Named here as well as in the schema: SQLite keeps its word only with foreign keys on.
     await trx.deleteFrom('session').where('user_id', '=', id).execute();
     await trx.deleteFrom('api_token').where('user_id', '=', id).execute();
+    // AFS-176: signed links act as whoever made them: theirs end with them.
+    await trx.deleteFrom('action_token').where('created_by', '=', id).execute();
     await trx.deleteFrom('group_member').where('user_id', '=', id).execute();
     await trx
       .deleteFrom('access_grant')

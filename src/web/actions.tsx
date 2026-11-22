@@ -3,10 +3,13 @@
 // the plain progress view of a run of it. No canvas, no YAML, no Ansible words. And the action's
 // settings and grants, on its launch configuration's Settings tab.
 import { type FormEvent, useEffect, useId, useState } from 'react';
+import { ActionLinks } from './actionLinks';
 import {
   type Action,
   type ActionCard,
   type ActionField,
+  type ActionForm as ActionFormData,
+  type ActionHosts,
   type ActionProgress,
   type ActionSettings,
   ApiError,
@@ -201,30 +204,70 @@ function ActionInput({
 
 export function ActionPage({ id }: { id: string }) {
   const form = useLoad(() => api.action(id), [id]);
-  const f = form.data;
+  if (!form.data) return <Loading state={form} />;
+  return (
+    <>
+      <PageHead title={form.data.title} lead={form.data.summary} help="actions.md" />
+      <ActionFormView key={id} id={id} form={form.data} />
+    </>
+  );
+}
+
+/** AFS-176: the host names a host list offers: its group's hosts when the action narrows it. */
+function picksFor(
+  field: ActionField,
+  hosts: { loading?: boolean; data?: ActionHosts | undefined },
+): { names: string[]; why?: string } | 'reading' {
+  if (hosts.loading) return 'reading';
+  const data = hosts.data;
+  if (!data) return { names: [], why: 'The names cannot be read now' };
+  if (field.group) {
+    const inGroup = data.inGroup?.[field.group];
+    return inGroup?.length
+      ? { names: inGroup }
+      : { names: [], why: `The inventory names no hosts in ${field.group}` };
+  }
+  return {
+    names: [...data.groups, ...data.hosts],
+    ...(data.why ? { why: data.why } : {}),
+  };
+}
+
+/**
+ * An action's short form: its asked inputs, what will happen, and Run. AFS-176: a link's page
+ * gives it the link's values (`start`), shows only the fields still to fill (`only`; the others
+ * are listed as given), and says the run came by a link (`from`).
+ */
+export function ActionFormView({
+  id,
+  form: f,
+  start,
+  only,
+  problems: firstProblems,
+  from,
+}: {
+  id: string;
+  form: ActionFormData;
+  start?: Record<string, string>;
+  only?: string[];
+  problems?: Record<string, string>;
+  from?: { link: true; reply?: string | undefined };
+}) {
   /** What was typed or picked; a field not touched has its start value. */
   const [typed, setTyped] = useState<Record<string, string>>({});
-  const [problems, setProblems] = useState<Record<string, string>>({});
+  const [problems, setProblems] = useState<Record<string, string>>(firstProblems ?? {});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const needsHosts = !!f?.fields.some((x) => x.hosts);
+  const shown = only ? f.fields.filter((x) => only.includes(x.name)) : f.fields;
+  const needsHosts = shown.some((x) => x.hosts);
   const hosts = useLoad(
     async () => (needsHosts ? api.actionHosts(id) : undefined),
     [id, needsHosts],
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: another action starts empty
-  useEffect(() => setTyped({}), [id]);
-  if (!f) return <Loading state={form} />;
-  const values = Object.fromEntries(f.fields.map((x) => [x.name, typed[x.name] ?? x.text]));
-
-  const hostPicks = hosts.loading
-    ? ('reading' as const)
-    : hosts.data
-      ? {
-          names: [...hosts.data.groups, ...hosts.data.hosts],
-          ...(hosts.data.why ? { why: hosts.data.why } : {}),
-        }
-      : { names: [], why: 'The names cannot be read now' };
+  const values = Object.fromEntries(
+    f.fields.map((x) => [x.name, typed[x.name] ?? start?.[x.name] ?? x.text]),
+  );
+  const given = only ? f.fields.filter((x) => !only.includes(x.name)) : [];
 
   const run = async (event: FormEvent) => {
     event.preventDefault();
@@ -248,7 +291,7 @@ export function ActionPage({ id }: { id: string }) {
     }
     setBusy(true);
     try {
-      const done = await api.runAction(id, values);
+      const done = await api.runAction(id, values, from);
       navigate(progressAddress(done.id));
     } catch (e) {
       const field = e instanceof ApiError ? e.details.field : undefined;
@@ -266,61 +309,72 @@ export function ActionPage({ id }: { id: string }) {
   };
 
   return (
-    <>
-      <PageHead title={f.title} lead={f.summary} help="actions.md" />
-      <section className="panel action-form" aria-label="Run this action">
-        {f.blocked ? (
-          <p className="notice warn" role="status">
-            {f.blocked}. Ask {f.ask.join(' or ')}.
-          </p>
-        ) : (
-          <form className="form" noValidate onSubmit={run}>
-            {f.fields.length === 0 && <p className="muted">It asks nothing: Run is all.</p>}
-            {f.fields.map((x) => (
-              <ActionInput
-                key={x.name}
-                field={x}
-                value={values[x.name] ?? ''}
-                problem={problems[x.name]}
-                onChange={(v) => {
-                  setTyped({ ...typed, [x.name]: v });
-                  if (problems[x.name]) setProblems({ ...problems, [x.name]: '' });
-                }}
-                {...(x.hosts ? { hosts: hostPicks } : {})}
-              />
-            ))}
-            <div className="happens">
-              <h2>What will happen</h2>
-              <ul>
-                {f.happens.map((h) => (
-                  <li key={h}>{h}</li>
-                ))}
-              </ul>
-            </div>
-            {error && (
-              <p className="notice error" role="alert">
-                {error}
-              </p>
-            )}
-            <div className="actions">
-              <button type="submit" className="primary" disabled={busy}>
-                {busy ? 'Starting…' : 'Run'}
-              </button>
-              <Link to="/actions">Back to actions</Link>
-            </div>
-          </form>
-        )}
-        <p className="muted small">
-          Questions about it: ask {f.ask.join(' or ')}.
-          {f.configPage && (
+    <section className="panel action-form" aria-label="Run this action">
+      {f.blocked ? (
+        <p className="notice warn" role="status">
+          {f.blocked}. Ask {f.ask.join(' or ')}.
+        </p>
+      ) : (
+        <form className="form" noValidate onSubmit={run}>
+          {given.length > 0 && (
             <>
-              {' '}
-              <Link to={f.configPage}>Its launch configuration</Link>
+              <h2>From the link</h2>
+              <dl className="facts">
+                {given.map((x) => (
+                  <div key={x.name}>
+                    <dt>{x.label}</dt>
+                    <dd>{values[x.name] || <span className="muted">(none)</span>}</dd>
+                  </div>
+                ))}
+              </dl>
+              <h2>Still to fill in</h2>
             </>
           )}
-        </p>
-      </section>
-    </>
+          {f.fields.length === 0 && <p className="muted">It asks nothing: Run is all.</p>}
+          {shown.map((x) => (
+            <ActionInput
+              key={x.name}
+              field={x}
+              value={values[x.name] ?? ''}
+              problem={problems[x.name]}
+              onChange={(v) => {
+                setTyped({ ...typed, [x.name]: v });
+                if (problems[x.name]) setProblems({ ...problems, [x.name]: '' });
+              }}
+              {...(x.hosts ? { hosts: picksFor(x, hosts) } : {})}
+            />
+          ))}
+          <div className="happens">
+            <h2>What will happen</h2>
+            <ul>
+              {f.happens.map((h) => (
+                <li key={h}>{h}</li>
+              ))}
+            </ul>
+          </div>
+          {error && (
+            <p className="notice error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="actions">
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Starting…' : 'Run'}
+            </button>
+            <Link to="/actions">Back to actions</Link>
+          </div>
+        </form>
+      )}
+      <p className="muted small">
+        Questions about it: ask {f.ask.join(' or ')}.
+        {f.configPage && (
+          <>
+            {' '}
+            <Link to={f.configPage}>Its launch configuration</Link>
+          </>
+        )}
+      </p>
+    </section>
   );
 }
 
@@ -365,6 +419,13 @@ export function ActionRunPage({ run }: { run: string }) {
         help="actions.md"
       />
       <section className="panel progress" aria-label="How it goes">
+        {/* AFS-176: an action that runs as its link opens says what the link started. */}
+        {new URLSearchParams(window.location.search).get('started') === 'link' && (
+          <p className="notice ok">
+            The link started {p.action.title} (run #{p.run.number}) as it opened, with the values
+            below.
+          </p>
+        )}
         <p className="progress-headline" role="status" aria-live="polite">
           <StateBadge state={p.run.state} />
           <span>{p.headline}</span>
@@ -450,6 +511,8 @@ interface AskedRow {
   label: string;
   help: string;
   choices: string;
+  /** AFS-176: a host list's inventory group. */
+  group: string;
 }
 
 const NEW: ActionSettings = {
@@ -459,18 +522,25 @@ const NEW: ActionSettings = {
   mode: 'check',
   confirm: true,
   enabled: true,
+  runOnOpen: false,
+  reply: null,
 };
+
+const SYSTEM_WORDS = { netbox: 'NetBox', zabbix: 'Zabbix' } as const;
 
 /** The action of a configuration: make it one, change its words, and who may run it. */
 export function ConfigActionSection({
   config,
   name,
   inputs,
+  workspace,
 }: {
   config: string;
   name: string;
   /** The flow's inputs (the launch form's fields). */
   inputs: FlowInput[];
+  /** AFS-176: the workspace's key, for its NetBox and Zabbix credentials. */
+  workspace?: string;
 }) {
   const id = useId();
   const state = useLoad(() => api.configAction(config), [config]);
@@ -493,6 +563,8 @@ export function ConfigActionSection({
             mode: a.mode,
             confirm: a.confirm,
             enabled: a.enabled,
+            runOnOpen: !!a.runOnOpen,
+            reply: a.reply ?? null,
           }
         : { ...NEW, title: name },
     );
@@ -509,6 +581,7 @@ export function ConfigActionSection({
                 label: asked?.label ?? i.name,
                 help: asked?.help ?? i.description ?? '',
                 choices: asked?.choices?.join(', ') ?? '',
+                group: asked?.group ?? '',
               },
             ];
           }),
@@ -531,6 +604,7 @@ export function ConfigActionSection({
           label: r.label.trim(),
           ...(r.help.trim() ? { help: r.help.trim() } : {}),
           ...(names(r.choices).length ? { choices: names(r.choices) } : {}),
+          ...(r.group.trim() && !names(r.choices).length ? { group: r.group.trim() } : {}),
         }));
       await api.setConfigAction(config, { ...settings, asked });
       setSaved(action ? 'The action is changed.' : 'It is an action now.');
@@ -593,6 +667,26 @@ export function ConfigActionSection({
             <dd>
               {action.mode === 'real' ? 'for real' : 'as a check'}
               {action.confirm ? ', asks to confirm' : ''}
+              {action.runOnOpen ? '; a link with every value runs as it opens' : ''}
+            </dd>
+          </div>
+          {action.asked.some((a) => a.group) && (
+            <div>
+              <dt>Hosts from</dt>
+              <dd>
+                {action.asked
+                  .filter((a) => a.group)
+                  .map((a) => `${a.label}: group ${a.group}`)
+                  .join(', ')}
+              </dd>
+            </div>
+          )}
+          <div>
+            <dt>Result back</dt>
+            <dd>
+              {action.reply
+                ? `to ${SYSTEM_WORDS[action.reply.system]}, ${action.reply.when === 'failed' ? 'when a run from its link did not go well' : 'when a run from its link ends'}`
+                : 'nowhere'}
             </dd>
           </div>
           {action.owner && (
@@ -701,6 +795,22 @@ export function ConfigActionSection({
                             )}
                           </Labelled>
                         )}
+                        {i.type === 'host_list' && !names(r.choices).length && (
+                          <Labelled
+                            label="Only hosts of group"
+                            hint="An inventory group: the form offers only its hosts, and takes no others. Empty: any."
+                          >
+                            {(props) => (
+                              <input
+                                {...props}
+                                maxLength={200}
+                                spellCheck={false}
+                                value={r.group}
+                                onChange={(e) => set({ group: e.target.value })}
+                              />
+                            )}
+                          </Labelled>
+                        )}
                       </div>
                     )}
                   </div>
@@ -729,6 +839,20 @@ export function ConfigActionSection({
             />
             Run asks to confirm first
           </label>
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={!!settings.runOnOpen}
+              onChange={(e) => setSettings({ ...settings, runOnOpen: e.target.checked })}
+            />
+            A link that gives every value runs as it opens, without a confirm page (opening the link
+            never runs it by itself: the page starts it, and says so)
+          </label>
+          <ReplyFields
+            workspace={workspace}
+            reply={settings.reply ?? null}
+            onChange={(reply) => setSettings({ ...settings, reply })}
+          />
           <label className="choice">
             <input
               type="checkbox"
@@ -779,6 +903,14 @@ export function ConfigActionSection({
         </form>
       )}
       {action && manage && (
+        <ActionLinks
+          config={config}
+          action={action}
+          tokens={state.data.tokens ?? []}
+          onChange={state.reload}
+        />
+      )}
+      {action && manage && (
         <ActionGrants
           config={config}
           title={action.title}
@@ -787,6 +919,88 @@ export function ConfigActionSection({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * AFS-176: where a run started from a NetBox or Zabbix link tells how it ended: the system, a
+ * credential of the workspace with its address and token, and when.
+ */
+function ReplyFields({
+  workspace,
+  reply,
+  onChange,
+}: {
+  workspace?: string | undefined;
+  reply: NonNullable<ActionSettings['reply']> | null;
+  onChange(reply: NonNullable<ActionSettings['reply']> | null): void;
+}) {
+  const id = useId();
+  const creds = useLoad(async () => (workspace ? api.credentials(workspace) : []), [workspace]);
+  const system = reply?.system ?? '';
+  const mine = (creds.data ?? []).filter((c) => c.kind === system);
+  return (
+    <fieldset className="choices">
+      <legend>Result back</legend>
+      <p className="muted small">
+        A run started from a NetBox link writes a journal entry on the object; from a Zabbix
+        problem's link, a message on the problem. The address and token are a credential of this
+        workspace (kind NetBox token or Zabbix token).
+      </p>
+      <div className="pair">
+        <div className="field">
+          <label htmlFor={`${id}-system`}>Tell</label>
+          <select
+            id={`${id}-system`}
+            value={system}
+            onChange={(e) => {
+              const to = e.target.value as '' | 'netbox' | 'zabbix';
+              onChange(to ? { system: to, credential: '', when: reply?.when ?? 'ended' } : null);
+            }}
+          >
+            <option value="">nobody</option>
+            <option value="netbox">NetBox</option>
+            <option value="zabbix">Zabbix</option>
+          </select>
+        </div>
+        {reply && (
+          <div className="field">
+            <label htmlFor={`${id}-cred`}>With the credential</label>
+            <select
+              id={`${id}-cred`}
+              value={reply.credential}
+              onChange={(e) => onChange({ ...reply, credential: e.target.value })}
+            >
+              <option value="">(choose)</option>
+              {mine.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {creds.data && !mine.length && (
+              <small className="muted">
+                The workspace has no {SYSTEM_WORDS[reply.system]} token yet: add one on its
+                Credentials tab.
+              </small>
+            )}
+          </div>
+        )}
+        {reply && (
+          <div className="field">
+            <label htmlFor={`${id}-when`}>When</label>
+            <select
+              id={`${id}-when`}
+              value={reply.when}
+              onChange={(e) => onChange({ ...reply, when: e.target.value as 'ended' | 'failed' })}
+            >
+              <option value="ended">every run that ends</option>
+              <option value="failed">only when it did not go well</option>
+            </select>
+          </div>
+        )}
+      </div>
+    </fieldset>
   );
 }
 

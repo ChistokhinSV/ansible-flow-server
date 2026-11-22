@@ -396,6 +396,10 @@ export interface LaunchActionTable {
   owner_login: string | null;
   created_at: IsoTime;
   updated_at: IsoTime;
+  /** AFS-176: 1: a link with every value runs as its page opens. */
+  run_on_open: Flag;
+  /** AFS-176: where a run started from a link tells how it ended ({system, credential, when}). */
+  reply_json: string | null;
 }
 
 /** AFS-175: "may run this action", given to a user or a group; nothing else of the workspace. */
@@ -406,6 +410,31 @@ export interface ActionGrantTable {
   principal_id: string;
   created_at: IsoTime;
   created_by: string;
+}
+
+/**
+ * AFS-176: a signed link's token: lets a system with no person (a Zabbix action, a NetBox
+ * webhook) run one action, as whoever made it. Kept as a hash; shown once.
+ */
+export interface ActionTokenTable {
+  id: string;
+  config_id: string;
+  name: string;
+  token_hash: string;
+  hint: string;
+  created_by: string;
+  created_login: string;
+  created_at: IsoTime;
+  last_used_at: IsoTime | null;
+}
+
+/** AFS-176: a run started from a link that tells a system how it ended (a NetBox object, a Zabbix event). */
+export interface ActionReplyTable {
+  run_id: string;
+  config_id: string;
+  system: string;
+  object: string;
+  created_at: IsoTime;
 }
 
 /**
@@ -612,6 +641,8 @@ export interface Schema {
   launch_config_credential: LaunchConfigCredentialTable;
   launch_action: LaunchActionTable;
   action_grant: ActionGrantTable;
+  action_token: ActionTokenTable;
+  action_reply: ActionReplyTable;
   credential: CredentialTable;
   git_push: GitPushTable;
   setting: SettingTable;

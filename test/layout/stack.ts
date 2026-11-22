@@ -287,6 +287,9 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     action: `/actions/${edgeConfig.id}`,
     actionRun: `/actions/runs/${actionRun.id}`,
     edgeLaunchSettings: `/w/network/edge/launch/${edgeConfig.id}/settings`,
+    // AFS-176: a link to the action: every value given (a confirm page), and one left out (a form).
+    actionConfirm: `/a/${edgeConfig.id}?devices=sw-edge-01&site=Berlin`,
+    actionLink: `/a/${edgeConfig.id}?site=Berlin`,
   };
 }
 

@@ -102,6 +102,12 @@ export const ACTIONS: Record<string, Action> = {
     id: at(),
   },
   'POST /api/v1/actions/:id/run': { action: 'action.run', id: at() },
+  // AFS-176: signed links for systems with no person.
+  'POST /api/v1/launch-configs/:id/action/tokens': { action: 'action.link-create', id: at() },
+  'DELETE /api/v1/launch-configs/:id/action/tokens/:token': {
+    action: 'action.link-revoke',
+    id: at(),
+  },
   'POST /api/v1/workspaces/:id/grants': {
     action: 'grant.create',
     id: 'reply',

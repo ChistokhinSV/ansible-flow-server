@@ -18,8 +18,10 @@ import type {
   ActionForm,
   ActionGrant,
   ActionHosts,
+  ActionLink,
   ActionProgress,
   ActionSettings,
+  ActionToken,
   WorkspaceActionGrant,
 } from '../server/actions/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
@@ -75,8 +77,10 @@ export type {
   ActionForm,
   ActionGrant,
   ActionHosts,
+  ActionLink,
   ActionProgress,
   ActionSettings,
+  ActionToken,
   AuditEntry,
   AuditFilter,
   Branch,
@@ -706,20 +710,32 @@ export const api = {
   actions: () => call<ActionCard[]>('GET', '/actions'),
   action: (id: string) => call<ActionForm>('GET', `/actions/${encodeURIComponent(id)}`),
   actionHosts: (id: string) => call<ActionHosts>('GET', `/actions/${encodeURIComponent(id)}/hosts`),
-  runAction: (id: string, inputs: Record<string, string>) =>
+  runAction: (
+    id: string,
+    inputs: Record<string, string>,
+    from?: { link: true; reply?: string | undefined },
+  ) =>
     call<{ id: string; number: number; state: string; progress: string }>(
       'POST',
       `/actions/${encodeURIComponent(id)}/run`,
-      { inputs },
+      { inputs, ...(from ? { link: true, ...(from.reply ? { reply: from.reply } : {}) } : {}) },
+    ),
+  /** AFS-176: what a link to an action gives (its query as the link has it). Nothing runs. */
+  actionLink: (id: string, query: string) =>
+    call<ActionLink>(
+      'GET',
+      `/actions/${encodeURIComponent(id)}/link${query.startsWith('?') ? query : query ? `?${query}` : ''}`,
     ),
   actionProgress: (run: string) =>
     call<ActionProgress>('GET', `/actions/runs/${encodeURIComponent(run)}`),
   /** AFS-175: a configuration's action (null: none), and who may run it (for who may change it). */
   configAction: (config: string) =>
-    call<{ action: Action | null; grants?: ActionGrant[]; mayManage: boolean }>(
-      'GET',
-      `/launch-configs/${encodeURIComponent(config)}/action`,
-    ),
+    call<{
+      action: Action | null;
+      grants?: ActionGrant[];
+      tokens?: ActionToken[];
+      mayManage: boolean;
+    }>('GET', `/launch-configs/${encodeURIComponent(config)}/action`),
   setConfigAction: (config: string, settings: ActionSettings) =>
     call<Action>('PUT', `/launch-configs/${encodeURIComponent(config)}/action`, settings),
   removeConfigAction: (config: string) =>
@@ -730,6 +746,18 @@ export const api = {
     call<void>(
       'DELETE',
       `/launch-configs/${encodeURIComponent(config)}/action/grants/${encodeURIComponent(grant)}`,
+    ),
+  /** AFS-176: a signed link for a system with no person: its token, shown this once. */
+  createActionToken: (config: string, name: string) =>
+    call<ActionToken & { token: string }>(
+      'POST',
+      `/launch-configs/${encodeURIComponent(config)}/action/tokens`,
+      { name },
+    ),
+  revokeActionToken: (config: string, token: string) =>
+    call<void>(
+      'DELETE',
+      `/launch-configs/${encodeURIComponent(config)}/action/tokens/${encodeURIComponent(token)}`,
     ),
   workspaceActionGrants: (workspace: string) =>
     call<WorkspaceActionGrant[]>(

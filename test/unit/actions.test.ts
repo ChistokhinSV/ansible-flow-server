@@ -366,8 +366,10 @@ for (const [name, config] of databases) {
         'Say hello',
       ]);
       expect((mine.body.ask as string[])[0]).toMatch(/wanda \(who set up this action\)/);
-      // Shared with another who may run it; the full run page for who may see the run.
-      expect((await call('gail', 'GET', `/api/v1/actions/runs/${run}`)).status).toBe(200);
+      // AFS-176: not shared with another who may only run it; the full run page for who may
+      // see the run.
+      expect((await call('gail', 'GET', `/api/v1/actions/runs/${run}`)).status).toBe(404);
+      expect((await call('otto', 'GET', `/api/v1/actions/runs/${run}`)).status).toBe(200);
       expect((await call('rita', 'GET', `/api/v1/actions/runs/${run}`)).body.runPage).toBe(
         `/runs/${run}`,
       );

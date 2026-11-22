@@ -3789,3 +3789,39 @@ fieldset.field.pick legend {
 .progress > .actions {
   margin-top: 1rem;
 }
+
+/* --- AFS-176: links to actions: the confirm page, Copy link, signed links */
+.confirm-link .lead {
+  margin: 0 0 0.6rem;
+  font-weight: 600;
+}
+.confirm-link .facts {
+  margin-bottom: 0.6rem;
+}
+.copy-block {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.25rem 0 0.75rem;
+  min-width: 0;
+}
+.copy-block pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 10px;
+  background: var(--code-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  max-height: 18rem;
+  overflow: auto;
+}
+.copy-block button {
+  flex: none;
+}
+fieldset.copy-link h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.95rem;
+}

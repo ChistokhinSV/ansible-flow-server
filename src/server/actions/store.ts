@@ -1,6 +1,6 @@
 // AFS-175: actions (ADR-0036). A launch configuration marked as an action, the people and groups
 // who may run it, and what a value given for it means (the fill seam AFS-176's links use).
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { LaunchField } from '@ansible-flow/core/run/launch';
 import type { Kysely } from 'kysely';
 import { type Access, atLeast } from '../access/grants';
@@ -11,9 +11,12 @@ import type {
   ActionGrant,
   ActionInput,
   ActionMode,
+  ActionReply,
   ActionSettings,
+  ActionToken,
   WorkspaceActionGrant,
 } from './types';
+import { ACTION_SYSTEMS } from './types';
 
 type Db = Kysely<Schema>;
 type Row = Schema['launch_action'];
@@ -63,6 +66,8 @@ function actionOf(row: Row, names: Map<string, string>): Action {
     mode: row.mode as ActionMode,
     confirm: row.confirm === 1,
     enabled: row.enabled === 1,
+    runOnOpen: row.run_on_open === 1,
+    reply: row.reply_json ? (JSON.parse(row.reply_json) as ActionReply) : null,
     ...(row.owner_login
       ? {
           owner: {
@@ -193,6 +198,15 @@ export function checkSettings(
     seen.add(a.name);
     const label = text(a.label, `The label of ${a.name}`, 80);
     const help = a.help?.trim() ? text(a.help, `The help of ${a.name}`, 200) : undefined;
+    let group: string | undefined;
+    if (a.group?.trim()) {
+      if (field.type !== 'host_list')
+        throw invalid(`${a.name} is not a host list: it takes no inventory group`, 'asked');
+      if (a.choices?.length)
+        throw invalid(`${a.name} has choices: a group narrows a host list without them`, 'asked');
+      group = text(a.group, `The group of ${a.name}`, 200);
+      if (/[\s,:]/.test(group)) throw invalid(`The group of ${a.name} is one group name`, 'asked');
+    }
     let choices: string[] | undefined;
     if (a.choices?.length) {
       if (field.type === 'dict' || field.type === 'list')
@@ -202,8 +216,26 @@ export function checkSettings(
       if (field.type === 'host_list' && choices.some((c) => /[\s,]/.test(c)))
         throw invalid(`A choice of ${a.name} is one host or group name`, 'asked');
     }
-    return { name: a.name, label, ...(help ? { help } : {}), ...(choices ? { choices } : {}) };
+    return {
+      name: a.name,
+      label,
+      ...(help ? { help } : {}),
+      ...(choices ? { choices } : {}),
+      ...(group ? { group } : {}),
+    };
   });
+  let reply: ActionReply | null = null;
+  if (input.reply) {
+    if (!ACTION_SYSTEMS.includes(input.reply.system))
+      throw invalid('A result goes back to NetBox or Zabbix', 'reply');
+    if (input.reply.when !== 'ended' && input.reply.when !== 'failed')
+      throw invalid('A result goes back when a run ends, or when it failed', 'reply');
+    reply = {
+      system: input.reply.system,
+      credential: text(input.reply.credential, 'The credential', 64),
+      when: input.reply.when,
+    };
+  }
   return {
     title,
     summary,
@@ -211,6 +243,8 @@ export function checkSettings(
     mode: input.mode,
     confirm: !!input.confirm,
     enabled: input.enabled !== false,
+    runOnOpen: !!input.runOnOpen,
+    reply,
   };
 }
 
@@ -229,6 +263,8 @@ export async function setAction(
     mode: settings.mode,
     confirm: settings.confirm ? 1 : 0,
     enabled: settings.enabled ? 1 : 0,
+    run_on_open: settings.runOnOpen ? 1 : 0,
+    reply_json: settings.reply ? JSON.stringify(settings.reply) : null,
     owner_id: by.id,
     owner_login: by.login,
     updated_at: at,
@@ -252,6 +288,8 @@ export async function setAction(
 export async function removeAction(db: Db, config: string): Promise<boolean> {
   return db.transaction().execute(async (trx) => {
     await trx.deleteFrom('action_grant').where('config_id', '=', config).execute();
+    // AFS-176: its signed links stop with it.
+    await trx.deleteFrom('action_token').where('config_id', '=', config).execute();
     const done = await trx
       .deleteFrom('launch_action')
       .where('config_id', '=', config)
@@ -483,6 +521,7 @@ export function actionFields(action: Action, fields: readonly LaunchField[]): Ac
         required: f.required,
         ...(a.choices?.length ? { choices: a.choices } : {}),
         ...(f.type === 'host_list' && !a.choices?.length ? { hosts: true } : {}),
+        ...(a.group && f.type === 'host_list' && !a.choices?.length ? { group: a.group } : {}),
         // A start value outside the choices is not offered: the runner picks one.
         text: a.choices?.length
           ? f.type === 'host_list'
@@ -532,4 +571,157 @@ export function fillAction(
     texts[f.name] = value;
   }
   return { texts, missing };
+}
+
+/**
+ * AFS-176: the hosts of an inventory group, with those of its child groups: what a host list
+ * narrowed to the group offers and takes. Undefined: the inventory has no such group.
+ */
+export function groupHosts(
+  groups: Record<string, { parents: string[]; hosts: string[] }>,
+  group: string,
+): string[] | undefined {
+  if (!groups[group]) return undefined;
+  const found = new Set<string>();
+  const seen = new Set<string>();
+  const walk = (name: string) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    for (const host of groups[name]?.hosts ?? []) found.add(host);
+    for (const [child, g] of Object.entries(groups)) if (g.parents.includes(name)) walk(child);
+  };
+  walk(group);
+  return [...found].sort();
+}
+
+/**
+ * AFS-176: a host list narrowed to a group takes only that group's hosts (or the group itself).
+ * The first name outside it, at its field; undefined when all are in.
+ */
+export function outsideGroup(
+  field: Pick<ActionField, 'name' | 'label' | 'group'>,
+  text: string,
+  hosts: readonly string[],
+): { field: string; message: string } | undefined {
+  if (!field.group) return undefined;
+  const outside = names(text).find((n) => n !== field.group && !hosts.includes(n));
+  return outside === undefined
+    ? undefined
+    : {
+        field: field.name,
+        message: `${field.label}: ${outside.slice(0, 60)} is not in ${field.group}`,
+      };
+}
+
+// --- signed links (AFS-176): a token per action, for systems with no person
+
+/** What every action token starts with: never taken for a person's token (afs_). */
+export const ACTION_TOKEN_PREFIX = 'afsl_';
+export const ACTION_TOKEN_LIMIT = 20;
+const TOUCH_MS = 60_000;
+const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
+export const looksLikeActionToken = (text: string) => /^afsl_[A-Za-z0-9_-]{43}$/.test(text);
+
+type TokenRow = Schema['action_token'];
+const tokenOf = (row: TokenRow): ActionToken => ({
+  id: row.id,
+  name: row.name,
+  hint: row.hint,
+  createdAt: row.created_at,
+  createdBy: row.created_login,
+  ...(row.last_used_at ? { lastUsedAt: row.last_used_at } : {}),
+});
+
+export async function actionTokens(db: Db, config: string): Promise<ActionToken[]> {
+  const rows = await db
+    .selectFrom('action_token')
+    .selectAll()
+    .where('config_id', '=', config)
+    .orderBy('created_at')
+    .orderBy('id')
+    .execute();
+  return rows.map(tokenOf);
+}
+
+/** Makes a signed link's token for an action: resolves with it (this once) and what is kept. */
+export async function createActionToken(
+  db: Db,
+  config: string,
+  name: string,
+  by: { id: string; login: string },
+): Promise<{ token: string; info: ActionToken }> {
+  const named = text(name, 'name', 100);
+  const count = await db
+    .selectFrom('action_token')
+    .select((eb) => eb.fn.countAll().as('n'))
+    .where('config_id', '=', config)
+    .executeTakeFirstOrThrow();
+  if (Number(count.n) >= ACTION_TOKEN_LIMIT)
+    throw invalid(`An action has at most ${ACTION_TOKEN_LIMIT} signed links: revoke one first`);
+  const token = `${ACTION_TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
+  const row: TokenRow = {
+    id: randomUUID(),
+    config_id: config,
+    name: named,
+    token_hash: tokenHash(token),
+    hint: token.slice(-4),
+    created_by: by.id,
+    created_login: by.login,
+    created_at: now(),
+    last_used_at: null,
+  };
+  await db.insertInto('action_token').values(row).execute();
+  return { token, info: tokenOf(row) };
+}
+
+export async function revokeActionToken(db: Db, config: string, id: string): Promise<boolean> {
+  const done = await db
+    .deleteFrom('action_token')
+    .where('id', '=', id)
+    .where('config_id', '=', config)
+    .executeTakeFirst();
+  return Number(done.numDeletedRows) > 0;
+}
+
+/**
+ * The action token a request carries, when it is one of this action's: its id, name and who
+ * made it (the run is theirs). Using it is noted (at most once a minute).
+ */
+export async function actionTokenOf(
+  db: Db,
+  config: string,
+  token: string,
+): Promise<{ id: string; name: string; by: string } | undefined> {
+  if (!looksLikeActionToken(token)) return undefined;
+  const row = await db
+    .selectFrom('action_token')
+    .selectAll()
+    .where('token_hash', '=', tokenHash(token))
+    .executeTakeFirst();
+  if (!row || row.config_id !== config) return undefined;
+  const at = new Date();
+  if (!row.last_used_at || at.getTime() - Date.parse(row.last_used_at) > TOUCH_MS)
+    await db
+      .updateTable('action_token')
+      .set({ last_used_at: at.toISOString() })
+      .where('id', '=', row.id)
+      .execute();
+  return { id: row.id, name: row.name, by: row.created_by };
+}
+
+/** AFS-176: notes that a run started from a link tells a system how it ended. */
+export async function noteReply(
+  db: Db,
+  reply: { run: string; config: string; system: string; object: string },
+): Promise<void> {
+  await db
+    .insertInto('action_reply')
+    .values({
+      run_id: reply.run,
+      config_id: reply.config,
+      system: reply.system,
+      object: reply.object,
+      created_at: now(),
+    })
+    .execute();
 }
