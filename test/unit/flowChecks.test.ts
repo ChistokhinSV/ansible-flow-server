@@ -184,8 +184,9 @@ for (const [name, config] of databases) {
         ['ansible.utils', '>=6.0.0', 'requirements'],
         ['cisco.ios', '>=11.6.0', 'flow'],
       ]);
+      // AFS-194: the steps by their titles.
       expect(check.lines[1]).toMatchObject({
-        nodes: ['facts'],
+        nodes: ['Read a few facts'],
         ok: false,
         why: expect.stringMatching(/build it/),
       });

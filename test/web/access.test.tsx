@@ -70,6 +70,10 @@ beforeEach(() => {
       grants = [...grants, made];
       return { status: 201, body: made };
     },
+    'DELETE /grants/g2': () => {
+      grants = grants.filter((g) => (g as { id: string }).id !== 'g2');
+      return { status: 204 };
+    },
     'DELETE /grants/g1': () => {
       grants = grants.filter((g) => (g as { id: string }).id !== 'g1');
       return { status: 204 };
@@ -145,8 +149,15 @@ describe("a workspace's access", () => {
     fireEvent.click(
       within(panel).getByRole('button', { name: 'Take back read only from Omar Haddad (omar)' }),
     );
+    // AFS-194: the question says what the person keeps; a note says it is done, as Give does.
     expect(asks[0]).toBe(
-      'Take back read only on the flow Firewall upgrade in Edge from Omar Haddad (omar)? It ends at once.',
+      'Take back read only on the flow Firewall upgrade in Edge from Omar Haddad (omar)? It ends at once. They keep read and write on the whole workspace through group net-ops.',
+    );
+    expect(
+      (await within(panel).findByText(/^Took back read only on the flow Firewall upgrade/))
+        .textContent,
+    ).toBe(
+      'Took back read only on the flow Firewall upgrade in Edge from Omar Haddad (omar). They keep read and write on the whole workspace through group net-ops.',
     );
     fireEvent.click(
       within(panel).getByRole('button', { name: 'Take back read and write from group net-ops' }),

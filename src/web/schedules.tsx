@@ -634,7 +634,9 @@ export function SchedulesSection({
                 className="danger"
                 aria-label={`Delete ${s.name}`}
                 onClick={async () => {
-                  if (await ask(`Delete the schedule "${s.name}"?`, { danger: true }))
+                  if (
+                    await ask(`Delete the schedule "${s.name}"?`, { yes: 'Delete', danger: true })
+                  )
                     void act(() => api.deleteSchedule(config, s.id));
                 }}
               >

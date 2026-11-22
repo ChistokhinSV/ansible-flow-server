@@ -72,7 +72,7 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
   const guidePage = match('/help/guide/:page', path);
   if (guidePage?.page) return <GuidePage page={guidePage.page} />;
   if (path === '/approvals') return <ApprovalsPage />;
-  if (path === '/library') return <LibraryPage />;
+  if (path === '/library') return <LibraryPage admin={me.admin} />;
   // AFS-87: the side menu lists the administration's pages; its own address opens the first.
   if (path === '/admin') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
   if (path === '/admin/audit') return me.admin ? <AuditPage /> : <AdminOnly />;

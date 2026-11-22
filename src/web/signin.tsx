@@ -408,7 +408,7 @@ export function SignInPage() {
                   if (
                     !(await ask(
                       `Remove ${p.name}? Its people stay; the groups and administrator rights it gave go.`,
-                      { danger: true },
+                      { yes: 'Remove', danger: true },
                     ))
                   )
                     return;
@@ -445,6 +445,7 @@ export function SignInPage() {
                       v === 'admins' &&
                       !(await ask(
                         'Only administrators keep signing in with a password. Everyone else must sign in with a provider or a directory from now on. Go on?',
+                        { yes: 'Administrators only', danger: true },
                       ))
                     )
                       return;

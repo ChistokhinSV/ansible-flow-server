@@ -88,7 +88,8 @@ export function StartFrom({
         <div className="library-pick-head">
           <h2 id="start-from">{TITLE[what]}</h2>
           <button type="button" className="link" onClick={() => onDone()}>
-            Cancel
+            {/* AFS-194: where there is nothing to pick, the box only informs: Close. */}
+            {data && what === 'awx' && !data.awx.length ? 'Close' : 'Cancel'}
           </button>
         </div>
         {error && (

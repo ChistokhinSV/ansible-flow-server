@@ -4,7 +4,7 @@
 import { type ReactNode, useId, useState } from 'react';
 import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
 import { ask } from './confirm';
-import { Copyable, Field, Form, Loading, Scroll, Time, useLoad, useRefresh } from './ui';
+import { Copyable, Field, Form, Loading, messageOf, Scroll, Time, useLoad, useRefresh } from './ui';
 
 export function TokensPanel({
   load,
@@ -39,6 +39,8 @@ export function TokensPanel({
     id ? (workspaces.data?.find((w) => w.id === id)?.name ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
   const [adding, setAdding] = useState(false);
+  // AFS-194: a note after Revoke, as after making one.
+  const [revoked, setRevoked] = useState<{ ok: boolean; text: string }>();
   return (
     <section className="panel" aria-labelledby="tokens">
       {/* AFS-102: the section's action at its head. */}
@@ -63,6 +65,14 @@ export function TokensPanel({
             </button>
           </p>
         </div>
+      )}
+      {revoked && (
+        <p
+          className={`notice ${revoked.ok ? 'ok' : 'error'}`}
+          role={revoked.ok ? 'status' : 'alert'}
+        >
+          {revoked.text}
+        </p>
       )}
       <Loading state={list} />
       {list.data?.length === 0 && <p className="muted">{none}</p>}
@@ -107,12 +117,22 @@ export function TokensPanel({
                       aria-label={`Revoke ${t.name}`}
                       onClick={async () => {
                         if (
-                          !(await ask(`Revoke the token "${t.name}"? It stops working.`, {
-                            danger: true,
-                          }))
+                          !(await ask(
+                            `Revoke the token "${t.name}"? Programs that sign in with it are refused from now on.`,
+                            { yes: 'Revoke', danger: true },
+                          ))
                         )
                           return;
-                        await revoke(t.id).catch(() => undefined);
+                        setRevoked(undefined);
+                        try {
+                          await revoke(t.id);
+                          setRevoked({
+                            ok: true,
+                            text: `Revoked the token "${t.name}": it no longer works.`,
+                          });
+                        } catch (e) {
+                          setRevoked({ ok: false, text: messageOf(e) });
+                        }
                         list.reload();
                         onChanged?.();
                       }}

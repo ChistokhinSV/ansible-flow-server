@@ -420,7 +420,11 @@ export function FlowPage({
           <Link to={`/w/${workspace}/${key}`}>
             <ProjectName workspace={workspace} project={key} />
           </Link>{' '}
-          / <span aria-current="page">{file}</span>
+          {/* AFS-194: the flow by its title, as the other crumbs are names; the path is its tooltip. */}
+          /{' '}
+          <span aria-current="page" title={file}>
+            {title}
+          </span>
         </Breadcrumb>
         <PageHead
           title={!found.loading && !project ? 'Not found' : title}
@@ -548,7 +552,11 @@ export function FlowPage({
             {/* AFS-153: a flow with no step yet does nothing when run: it says so, and how. */}
             {flow?.ok && flow.steps === 0 && (
               <span className="warn-text" data-empty-flow>
-                No steps yet{mayEdit ? ': Edit to add them' : ''}
+                {/* AFS-194: the button named as it reads. */}
+                No steps yet
+                {mayEdit
+                  ? `: ${waiting?.editors.length ? 'Open the draft' : 'Edit'} to add them`
+                  : ''}
               </span>
             )}
             {/* AFS-147: a flow that is gone offers no launch: its configurations cannot run. */}
@@ -650,6 +658,7 @@ export function FlowPage({
         {editing ? (
           <DraftBar
             draft={editing}
+            title={title}
             me={me.login}
             tools={tools}
             tab={tab}
@@ -1007,9 +1016,12 @@ function DraftBar({
   outside,
   saveNow,
   link,
+  title,
 }: {
   draft: Draft;
   me: string;
+  /** AFS-194: the flow's title, for the commit message offered. */
+  title?: string;
   /** Where Save, Stop editing and Discard go (the head). */
   tools: HTMLElement | null;
   tab: string;
@@ -1404,7 +1416,7 @@ function DraftBar({
               // biome-ignore lint/a11y/noAutofocus: the one field of what Save just opened
               autoFocus
               aria-label="What changed (the commit's message)"
-              placeholder={`Edit ${draft.file}`}
+              placeholder={`Edit ${title ?? draft.file}`}
               value={message}
               onChange={(e) => {
                 typed.current = true;

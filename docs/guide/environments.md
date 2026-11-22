@@ -27,7 +27,8 @@ until another is picked.
   and its collections). Builds go one at a time; each has a log. Collection server out of reach:
   pin exact versions, or point `AFS_GALAXY_URL` at one that can be reached.
 - **An existing image** is pulled (or, when it has no registry, the engine's copy is used) and
-  read the same way.
+  read the same way. Its page calls each try a pull (**Pulls**, "Pull 2 failed"), and the launch
+  configuration's picker marks one whose last pull failed "(could not be pulled)".
 - Images of builds beyond an environment's newest few (`keep`, 3) are removed from the engine.
 - The **ansible-builder file** (`execution-environment.yml`, version 3) describes the same
   environment for AWX or AAP: ansible-core, ansible-runner, the collections at the versions the

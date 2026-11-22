@@ -761,6 +761,7 @@ function HostKey({
             if (
               !(await ask(
                 `Forget the trusted key of ${key.data?.host} and trust the key it shows now?`,
+                { yes: 'Trust the new key', danger: true },
               ))
             )
               return;
@@ -1009,6 +1010,7 @@ export function ProjectDetails({
           change.gitRef &&
           !(await ask(
             `Run ${change.gitRef} instead of ${project.gitRef}? Flows, launches and schedules that name no branch take ${change.gitRef} from now on.`,
+            { yes: `Run ${change.gitRef}` },
           ))
         )
           return;
@@ -1165,7 +1167,8 @@ function BranchesPanel({
       b.ahead > 0
         ? ` It has ${b.ahead} commit${b.ahead === 1 ? '' : 's'} not on ${project.gitRef}${project.hosted ? ', which will be gone' : ''}.`
         : '';
-    if (!(await ask(`Delete the branch ${b.name}?${lost}`, { danger: true }))) return;
+    if (!(await ask(`Delete the branch ${b.name}?${lost}`, { yes: 'Delete', danger: true })))
+      return;
     try {
       await api.deleteBranch(project.id, b.name, b.ahead > 0);
       onChanged();
@@ -1178,6 +1181,7 @@ function BranchesPanel({
     if (
       !(await ask(
         `Make ${b.name} the project's branch? Launch configurations and schedules that follow the project's branch run its commits from now on.`,
+        { yes: 'Make it the branch' },
       ))
     )
       return;
@@ -1393,6 +1397,7 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
               if (
                 project.hook &&
                 !(await ask('Make a new hook token? The git host must be given the new one.', {
+                  yes: 'Make a new token',
                   danger: true,
                 }))
               )
@@ -1411,6 +1416,7 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
               void act(async () => {
                 if (
                   !(await ask('Remove the push hook? Calls with its token are refused.', {
+                    yes: 'Remove',
                     danger: true,
                   }))
                 )
@@ -1825,6 +1831,12 @@ export function ProjectPage({
             <section className="panel" aria-labelledby="git">
               <h2 id="git">Work on it with git</h2>
               <CloneHelp project={project} />
+              {/* AFS-194: said before a push is refused. */}
+              {!me.admin && access?.workspace !== 'rw' && (
+                <p className="muted">
+                  You may clone and pull. Pushing needs read and write on the workspace.
+                </p>
+              )}
               {project.hosted && !project.commit && (
                 <p className="muted">
                   The repository is empty: push a first commit to {project.gitRef}.

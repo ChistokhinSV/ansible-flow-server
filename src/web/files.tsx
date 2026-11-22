@@ -1088,7 +1088,7 @@ export function FilesPage({
                   if (
                     !(await ask(
                       `Discard ${n === 1 ? 'the change' : `all ${n} changes`} not saved? ${n === 1 ? 'It' : 'They'} cannot be brought back.`,
-                      { danger: true },
+                      { yes: 'Discard', danger: true },
                     ))
                   )
                     return;

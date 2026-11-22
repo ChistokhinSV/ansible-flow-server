@@ -479,7 +479,7 @@ export function CertificatePage() {
                     if (
                       await ask(
                         `Replace the certificate with a new self-signed one for ${state.defaultNames.join(', ')}? Browsers will warn until people trust it.`,
-                        { danger: true },
+                        { yes: 'Make a new one', danger: true },
                       )
                     )
                       void other.run(() => api.selfSignedCertificate());
@@ -488,6 +488,12 @@ export function CertificatePage() {
                   New self-signed
                 </button>
               </div>
+              {/* AFS-194: what the button replaces, said before it is pressed. */}
+              <p className="muted small">
+                New self-signed replaces the certificate in use with one the server makes for{' '}
+                {state.defaultNames.join(', ')}. The one in use is kept under Before it, to roll
+                back to.
+              </p>
             </section>
             {state.previous && (
               <section className="panel" aria-labelledby="before">
@@ -498,7 +504,7 @@ export function CertificatePage() {
                     type="button"
                     disabled={other.busy}
                     onClick={async () => {
-                      if (await ask('Go back to this certificate?'))
+                      if (await ask('Go back to this certificate?', { yes: 'Roll back' }))
                         void other.run(() => api.rollbackCertificate());
                     }}
                   >

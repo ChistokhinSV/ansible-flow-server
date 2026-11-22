@@ -23,6 +23,15 @@ All notable changes to Ansible Flow Server.
 
 ### Changed
 
+- The questions the pages ask name their button by what it does (**Delete**, **Revoke**, **Take back**, **Discard**, **Disable**, **Turn email off**) instead of OK. A question whose answer loses something has Cancel focused and a solid red button; opening a question no longer scrolls the page.
+- **Take back** on a workspace's Access says what the person keeps (their other grants and those of their groups), and afterwards a note says what was taken back, as **Give** does. **Revoke** on a token leaves a note too.
+- A flow's page names the flow by its title in the breadcrumbs (its file in the tooltip), and a draft saved with no message is committed as "Edit <flow title>".
+- An existing-image environment speaks of pulls: **Pulls**, "Pull 1 failed", "Not pulled yet". The launch configuration's environment picker says "(could not be pulled)" or "(its build failed)" after a failed try.
+- What the flow needs: "any version" instead of `*`, where each need comes from in words, the steps that use a collection by their titles, and a suggested environment name made from the flow's file.
+- A person's page names projects by their names in **What they reach**. An AWX credential reads "AWX address …" under **Holds**.
+- Words: a webhook or email test that fails reads "Not sent to …. Not reachable: …"; **Turn email off** and **New self-signed** say beside them what they do; "No steps yet: Open the draft to add them" when a draft waits; a branch name with `..`, `//`, a trailing slash or `.lock` is refused with that reason; "Nothing to start from: the repository has no branch …"; the AWX import box with no AWX credential offers **Close**.
+- A project's Settings tab tells someone without read and write that they may clone and pull but not push.
+- Someone who reaches no project sees a line saying so on **Runs** instead of filters, and **Library** tells only administrators where to make a project a library.
 - **Stop** on a real run asks first, naming the run and what stopping does (the step in progress is cut off; a run that waits for approval is not decided any more), as **Launch** and **Run again** do. A check run stops at once.
 - A stopped run says when it was stopped, after who stopped it ("Stopped by Dana Whitfield at … during Push baseline"); its output names that person by name, not by login.
 - When a run's approval waited and the run is stopped, those its approval asked are told that it no longer waits, and the approval reads "run stopped" (was "cancelled").

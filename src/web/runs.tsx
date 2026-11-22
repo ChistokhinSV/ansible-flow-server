@@ -391,11 +391,19 @@ export function RunsPage({ me }: { me: User }) {
   }, [config, configs.data, knownConfig]);
 
   const groups = where.data?.filter((w) => w.projects.length) ?? [];
+  // AFS-194: someone who reaches no project sees no run: no choices to narrow nothing with.
+  const nowhere = !me.admin && !!where.data && groups.length === 0;
 
   return (
     <>
       <PageHead help="runs.md" title="Runs" lead="Every run you may see, the newest first." />
-      <div className="run-filters">
+      {nowhere && (
+        <p className="empty">
+          No project is shared with you yet, so there is no run to see. An administrator gives
+          access on a workspace's Access tab.
+        </p>
+      )}
+      <div className="run-filters" hidden={nowhere}>
         <label>
           Find
           <input
@@ -456,7 +464,7 @@ export function RunsPage({ me }: { me: User }) {
         )}
       </div>
       {(!fresh || list.error) && <Loading state={list} />}
-      {fresh && rows?.length === 0 && (
+      {fresh && rows?.length === 0 && !nowhere && (
         <p className="empty">
           {mine || config || q
             ? 'No run for these choices.'

@@ -500,6 +500,7 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
                 !user.disabled &&
                 !(await ask(
                   `Disable ${user.name || user.login}? They are signed out at once, cannot sign in, and their tokens stop working. Their grants are kept.`,
+                  { yes: 'Disable', danger: true },
                 ))
               )
                 return;
@@ -518,7 +519,7 @@ function Standing({ user, me, onChanged }: { user: User; me: User; onChanged(u: 
                 if (
                   !(await ask(
                     `Delete ${user.login}? Their tokens and grants go with them; the audit log keeps what they did.`,
-                    { danger: true },
+                    { yes: 'Delete', danger: true },
                   ))
                 )
                   return;
@@ -567,6 +568,18 @@ function Reach({ user }: { user: User }) {
   const rows = load.data?.workspaces ?? [];
   // AFS-152: flows by their titles, levels in words.
   const titles = useFlowTitles(rows.flatMap((r) => r.flows.map((f) => f.projectId)));
+  // AFS-194: projects by their names, as Access says them, not their keys.
+  const spaces = rows.filter((r) => r.flows.length).map((r) => r.workspace.key);
+  const projectNames = useLoad(async () => {
+    const names = new Map<string, string>();
+    await Promise.all(
+      spaces.map(async (key) => {
+        for (const p of (await api.projects(key).catch(() => undefined)) ?? [])
+          names.set(`${key}/${p.key}`, p.name);
+      }),
+    );
+    return names;
+  }, [spaces.join(',')]).data;
   return (
     <>
       <Loading state={load} />
@@ -595,7 +608,9 @@ function Reach({ user }: { user: User }) {
                       <div key={`${f.project}/${f.file}`}>
                         {flowTitle(titles, f.projectId, f.file)}:{' '}
                         {f.level ? LEVEL_NAME[f.level] : 'none'}{' '}
-                        <span className="muted">in {f.project}</span>
+                        <span className="muted">
+                          in {projectNames?.get(`${workspace.key}/${f.project}`) ?? f.project}
+                        </span>
                       </div>
                     ))}
                   </td>
@@ -875,7 +890,7 @@ export function GroupPage({ id }: { id: string }) {
                 if (
                   !(await ask(
                     `Delete the group ${group.name}? Its grants go with it; its members stay.`,
-                    { danger: true },
+                    { yes: 'Delete', danger: true },
                   ))
                 )
                   return;
