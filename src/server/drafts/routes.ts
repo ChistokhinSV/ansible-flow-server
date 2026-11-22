@@ -27,6 +27,7 @@ import type { SessionUser } from '../auth/sessions';
 import type { Schema } from '../db/schema';
 import { environmentImage } from '../environments/image';
 import { FlowError, snapshotOf } from '../projects/flows';
+import type { RepoRoles } from '../projects/roles';
 import { getProject } from '../projects/store';
 import type { CatalogState } from '../runs/catalogs';
 import { DraftError, type DraftNews, type Drafts, type Editor } from './drafts';
@@ -101,6 +102,8 @@ export function registerDrafts(
     db: Kysely<Schema>;
     drafts: Drafts;
     catalog?: { get(image?: string): CatalogState; retry(image?: string): void };
+    /** AFD-351: the repository's own roles at a commit (the designer's `roles`). */
+    roles?: RepoRoles;
     /** How long a save waits for the others' typing (tests: shorter). */
     flushMs?: number;
   },
@@ -611,11 +614,11 @@ export function registerDrafts(
     },
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
-      const draft = await drafts.text(request.params.id);
+      const draft = await drafts.get(request.params.id);
       const project = await drafts.projectOf(request.params.id);
       if (!draft || !project)
         return reply.code(404).send({ error: 'not_found', message: 'No such draft' });
-      return catalogAnswer(project.id, draft.file, request.body.request, reply);
+      return catalogAnswer(project.id, draft.file, request.body.request, reply, draft.baseCommit);
     },
   );
 
@@ -652,7 +655,7 @@ export function registerDrafts(
       const asked = request.body.request;
       if (asked.op === 'rebuild')
         return reply.code(403).send({ error: 'forbidden', message: 'Edit the flow to rebuild' });
-      return catalogAnswer(project.id, request.query.path, asked, reply);
+      return catalogAnswer(project.id, request.query.path, asked, reply, project.commit);
     },
   );
 
@@ -661,7 +664,20 @@ export function registerDrafts(
     file: string,
     asked: CatalogRequest | { op: 'status' },
     reply: FastifyReply,
+    /** The commit the flow shown is at: its repository's roles are read there. */
+    commit?: string,
   ) {
+    // AFD-351: the repository's own roles come from git, not from the image's catalog.
+    if (asked.op === 'roles') {
+      if (!deps.roles || !commit) return { result: [] };
+      try {
+        return { result: await deps.roles.roles(projectId, commit) };
+      } catch {
+        return reply
+          .code(404)
+          .send({ error: 'not_found', message: 'The repository cannot be read now' });
+      }
+    }
     if (!deps.catalog)
       return reply.code(422).send({ error: 'refused', message: 'This server reads no catalogs' });
     const image = await imageOf(projectId, file);
@@ -687,8 +703,7 @@ export function registerDrafts(
       }
       case 'names':
         return { result: index.names(asked.type) };
-      // A repository's own roles and playbooks are not read here yet.
-      case 'roles':
+      // A repository's own playbooks are not read here yet.
       case 'playbooks':
         return { result: [] };
       default:

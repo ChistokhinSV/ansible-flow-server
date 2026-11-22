@@ -722,6 +722,10 @@ describe("the module catalog of the flow's image", () => {
       const loading = await post(`/drafts/${draft}/catalog`, search);
       expect(loading.status).toBe(202);
       expect(loading.json.status).toMatchObject({ state: 'loading', environment: 'afd-ee:2.19' });
+      // AFD-351: the repository's own roles come from git: they do not wait for the catalog.
+      const roles = await post(`/drafts/${draft}/catalog`, { request: { op: 'roles' } });
+      expect(roles.status).toBe(200);
+      expect(Array.isArray(roles.json.result)).toBe(true);
       ready = true;
       const found = await post(`/drafts/${draft}/catalog`, search);
       expect(found.json.result.map((h: { fqcn: string }) => h.fqcn)).toEqual([

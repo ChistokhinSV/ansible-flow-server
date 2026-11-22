@@ -78,4 +78,12 @@
   body .afd-right.collapsed {
     padding: 4px 8px;
   }
+  /* AFD-351: under the canvas the folded side panel is one row with its label written across,
+     not a 100px strip with the label standing on end. */
+  body .afd-right.collapsed .afd-unfold {
+    flex-direction: row;
+  }
+  body .afd-right.collapsed .afd-unfold-label {
+    writing-mode: horizontal-tb;
+  }
 }
