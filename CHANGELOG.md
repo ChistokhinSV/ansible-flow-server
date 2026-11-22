@@ -2,6 +2,16 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- **Step by step**: a run can pause before each step until someone says **Step** (run that step, pause again), **Continue** (run on to a pause point), **Pause** or **Stop** (end before the next step, keeping what ran). Tick **Step by step** on the **Launch** tab or in the canvas's Run dialog (**Run Step by Step**). The run's page says where it waits and how many hosts wait there, with the buttons above the canvas, also on a phone; the canvas rings the step.
+- Pause points: set on a step's menu on the canvas, kept per person and flow by the server, and sent to your step-by-step run going now.
+- Who may stop a run may drive it (operator on its flow, administrators); each command is in the audit log as `run.step`.
+- A paused run stops by itself after `AFS_RUN_STEP_TIMEOUT_MINUTES` (default 60); a launch may ask for less. A run paused when the server stops or restarts ends as stopped, saying why.
+- The API: `step` on `POST /api/v1/launch-configs/<id>/launch`, `POST /api/v1/runs/<id>/step`, and `/api/v1/projects/<id>/pause-points`. MCP: `step` on `run_launch`, and `run_step` for a token made to allow agents to drive step-by-step runs.
+
 ## 1.0.2 — Actions for everyone, links from NetBox and Zabbix, History, and where a value comes from
 
 Carries Ansible Flow Designer 1.0.2.

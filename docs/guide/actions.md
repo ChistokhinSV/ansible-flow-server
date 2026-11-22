@@ -42,6 +42,9 @@ configurations, runs or search results, not even the workspace's name in the men
 ends it at once. Operators of the flow and administrators may run it without a grant. The
 workspace's **Access** tab lists who may run each action.
 
+An action never runs step by step: its runs go from start to end (a step-by-step run of the
+same configuration, launched from its **Launch** tab, says "Paused before ..." in this view too).
+
 Approvals in the flow still apply: the run waits at an approval step until someone allowed
 decides, as for every run. The runner does not decide (unless the workspace lets whoever launched
 a run decide, see [Approvals](approvals.md)).

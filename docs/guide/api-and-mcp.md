@@ -38,17 +38,21 @@ the audit log with the source `mcp`.
 | `project_list`                                                  | Workspaces and projects you may see: branch, commit, sync state                                   |
 | `launch_config_list`                                            | A project's launch configurations, each with how its last run went (`lastRun`)                    |
 | `run_check`                                                     | What a launch would run (commit, inputs, hosts) or what is in its way                             |
-| `run_launch`                                                    | Queue a run of a launch configuration (`operator`)                                                |
+| `run_launch`                                                    | Queue a run of a launch configuration (`operator`); `step: true` runs it step by step             |
 | `run_status`, `run_output`, `run_list`                          | How a run stands (state, approvals, hosts per step), its output, the runs                         |
 | `run_stop`                                                      | Stop a run                                                                                        |
 | `approval_list`                                                 | Approvals that wait, and whether you may decide each                                              |
 | `approval_decide`                                               | Only with a token made to allow it (below)                                                        |
+| `run_step`                                                      | Step, Continue, Pause or Stop a step-by-step run; only with a token made to allow it (below)      |
 
 - **Flows are read-only here:** they change in git (clone the project from the server, edit it
   in VS Code, push). Edit tools come with editing on the server.
 - **Approvals stay with people:** `approval_decide` is offered only to a token made with
   "An agent with this token may decide approvals over MCP" (on My account, or
   `"mcpApprovals": true` when making a token), and then only where its owner may decide.
+- **Step-by-step runs stay with people too:** `run_step` is offered only to a token made with
+  "An agent with this token may drive step-by-step runs over MCP" (`"mcpRunControl": true`), and
+  then only where its owner may stop the run. See [Step by step](runs.md#step-by-step).
 - A launch configuration is named by its id or as `<workspace>/<project>/<name>`.
 - `run_list` takes a `project`, a `config` (a launch configuration), `by` (a login) or `mine`
   (the runs the token's owner asked for), and a `state`. When there are more runs, its answer
