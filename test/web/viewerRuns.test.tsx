@@ -31,6 +31,12 @@ describe('the runs of a flow on the canvas', () => {
     // Hosts failed: the run itself still finished.
     expect(pastRunOf(run({ state: 'failed', hosts: { total: 4, failed: 1 } })).ok).toBe(true);
     expect(pastRunOf(run({ state: 'cancelled' })).ok).toBe(false);
+    // AFS-193: a run decided against at its approval reads rejected, not "1 failed".
+    expect(
+      pastRunOf(
+        run({ state: 'failed', hosts: { total: 1, failed: 1 }, decidedAgainst: 'rejected' }),
+      ),
+    ).toMatchObject({ ok: false, ended: 'rejected' });
   });
 
   it('a run still going is listed as running', () => {

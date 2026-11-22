@@ -1,6 +1,6 @@
 // AFS-181: a failed end's error comes without the generated-code excerpt Ansible prints under it.
 import { describe, expect, it } from 'vitest';
-import { quietEndOrigins } from '../../src/web/outputText';
+import { decidedOutcomes, quietEndOrigins } from '../../src/web/outputText';
 
 const esc = String.fromCharCode(27);
 const red = (line: string) => `${esc}[0;31m${line}${esc}[0m`;
@@ -51,5 +51,42 @@ describe('quietEndOrigins', () => {
   it('shows an excerpt not all here yet as it is (the output is still coming)', () => {
     const partial = ended.slice(0, 5).join('\n');
     expect(quietEndOrigins(partial)).toBe(partial);
+  });
+});
+
+describe('round 3 (AFS-193)', () => {
+  it('leaves out the excerpt under a stop at a port with no next step', () => {
+    const stop = [
+      '[ERROR]: Task failed: Action failed: Stopped at [precheck] Pre-checks: failed_hosts is not wired',
+      'Origin: /work/flows/edge/generated/edge.yml:185:7',
+      '',
+      '183   hosts: afd_stop',
+      '184   tasks:',
+      '185     - name: "[precheck] failed_hosts is open"',
+      '          ^ column 7',
+      '',
+      'fatal: [sw-edge-02]: FAILED! => {}',
+    ];
+    expect(quietEndOrigins(stop.join('\n')).split('\n')).toEqual([stop[0], stop[8]]);
+    const onPurpose = stop.map((l, i) =>
+      i === 0
+        ? '[ERROR]: Task failed: Action failed: Stopped at [precheck] Pre-checks: failed_hosts open on purpose (checked by hand)'
+        : l,
+    );
+    expect(quietEndOrigins(onPurpose.join('\n'))).not.toContain('Origin:');
+  });
+
+  it("says a rejected host's end was rejected, and leaves other ends as they are", () => {
+    const text = [
+      ...ended,
+      '[ERROR]: Task failed: Action failed: Ended at [end-failed] Failed (outcome: failed)',
+      'msg: No decision in time at [approve] Approve. Ended at [end-failed] Failed (outcome: failed)',
+    ].join('\n');
+    const out = decidedOutcomes(text).split('\n');
+    expect(out[1]).toContain(
+      'Rejected at [approve] Approve. Ended at [end-failed] Failed (outcome: rejected)',
+    );
+    expect(out.at(-2)).toContain('(outcome: failed)');
+    expect(out.at(-1)).toContain('(outcome: not decided in time)');
   });
 });

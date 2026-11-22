@@ -129,7 +129,11 @@ export interface RunFilter {
   project?: string;
   /** The flow's file in the repository (with `project`). */
   flow?: string;
-  state?: RunState;
+  /**
+   * AFS-193: `rejected` is a failed run whose approval was rejected or not decided in time;
+   * `failed` leaves those out.
+   */
+  state?: RunState | 'rejected';
   /** Runs of this launch configuration (its id). */
   config?: string;
   /** Runs this person asked for (their login). */
@@ -331,7 +335,15 @@ export class RunQueue {
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 200));
     if (filter.project) query = query.where('project_id', '=', filter.project);
     if (filter.flow) query = query.where('flow_file', '=', filter.flow);
-    if (filter.state) query = query.where('state', '=', filter.state);
+    if (filter.state === 'rejected' || filter.state === 'failed') {
+      const against = this.db
+        .selectFrom('run_gate')
+        .select('run_gate.run_id')
+        .where('run_gate.status', 'in', ['rejected', 'timed out']);
+      query = query
+        .where('state', '=', 'failed')
+        .where('id', filter.state === 'rejected' ? 'in' : 'not in', against);
+    } else if (filter.state) query = query.where('state', '=', filter.state);
     if (filter.config) query = query.where('config_id', '=', filter.config);
     if (filter.by) query = query.where('requested_login', '=', filter.by);
     const words = filter.q?.trim().toLowerCase();

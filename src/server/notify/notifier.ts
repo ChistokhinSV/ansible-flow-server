@@ -9,6 +9,7 @@
 // because of one: an error here is logged.
 
 import type { Kysely } from 'kysely';
+import { waitingHosts } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { STATE_WORDS } from '../runs/words';
@@ -278,6 +279,7 @@ export class Notifier {
       .select('self_approve')
       .where('id', '=', run.workspace.id)
       .executeTakeFirst();
+    const selfApprove = self?.self_approve === 1;
     // Who launched the run is not asked when they may not decide it (no self-approval).
     const approvers = approval.approvers?.length
       ? (
@@ -298,7 +300,7 @@ export class Notifier {
       project: run.project.id,
       flowFile: run.flowFile,
     });
-    return { approvers, told };
+    return { approvers, told, selfApprove };
   }
 
   /**
@@ -370,8 +372,16 @@ export class Notifier {
         approvers?: string[];
         notify?: string[];
         message?: string;
+        intent?: string;
       };
-      const { approvers, told } = await this.asked(run, approval);
+      const { approvers, told, selfApprove } = await this.asked(run, approval);
+      // AFS-193: what is decided: the approval's message (else its step's intent) and the hosts.
+      const about = approval.message?.trim() || approval.intent?.trim();
+      const hosts = waitingHosts(gate.carried_json, gate.node_key) ?? [];
+      const shownHosts =
+        hosts.length > 20
+          ? `${hosts.slice(0, 20).join(', ')} and ${hosts.length - 20} more`
+          : hosts.join(', ');
       const link = this.link(`/runs/${run.id}`);
       // AFS-146: what the approver needs to decide: the run's inputs (secrets as ***), and
       // whether it changes anything.
@@ -381,8 +391,12 @@ export class Notifier {
       );
       const lines = [
         `${this.where(run)} waits for a decision at "${gate.title}".`,
-        ...(approval.message ? ['', approval.message, ''] : []),
-        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'}).`,
+        ...(about ? ['', about, ''] : []),
+        ...(hosts.length
+          ? [`${hosts.length === 1 ? 'Host' : `Hosts (${hosts.length})`} waiting: ${shownHosts}`]
+          : []),
+        // AFS-193: a list or group address reaches who launched it too: they do not decide it.
+        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'})${selfApprove ? '' : `, who does not decide it`}.`,
         ...(inputs.length ? ['Inputs:', ...inputs] : []),
         ...(gate.deadline ? [`Nobody deciding by ${readable(gate.deadline)}: it times out.`] : []),
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',
@@ -397,6 +411,8 @@ export class Notifier {
             status: gate.status,
             approvers: approval.approvers ?? [],
             ...(approval.message ? { message: approval.message } : {}),
+            ...(approval.intent ? { intent: approval.intent } : {}),
+            ...(hosts.length ? { hosts } : {}),
             ...(gate.deadline ? { deadline: gate.deadline } : {}),
           },
           ...(link ? { link } : {}),

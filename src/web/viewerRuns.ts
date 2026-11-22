@@ -16,6 +16,8 @@ export interface RunRecord {
   inputs?: Record<string, unknown>;
   /** AFS-105: how many hosts it ran on and how many failed, once it went. */
   hosts?: { total: number; failed: number };
+  /** AFS-193: a failed run whose approval was decided against. */
+  decidedAgainst?: 'rejected' | 'timed out';
 }
 /** AFS-139: a run that has not ended yet. */
 export const going = (state: string | undefined): boolean =>
@@ -30,13 +32,20 @@ export const pastRunOf = (run: RunRecord): PastRun =>
     id: run.id,
     mode: run.mode,
     startedAt: run.startedAt ?? run.createdAt,
-    ok: run.state === 'succeeded' || (run.state === 'failed' && (run.hosts?.failed ?? 0) > 0),
+    // AFS-193: a rejected run reads "rejected" in the list, not "1 host, 1 failed".
+    ok:
+      run.state === 'succeeded' ||
+      (run.state === 'failed' && !run.decidedAgainst && (run.hosts?.failed ?? 0) > 0),
     hosts: run.hosts?.total ?? 0,
     failed: run.hosts?.failed ?? 0,
     flowVersion: run.flow.version,
     ...(going(run.state) ? { running: true } : {}),
     // AFS-147: how one that did not finish ended, in the list's word (a designer after 1.0.1-rc.7).
-    ...(ENDED[run.state] ? { ended: ENDED[run.state] } : {}),
+    ...(run.state === 'failed' && run.decidedAgainst
+      ? { ended: run.decidedAgainst === 'rejected' ? 'rejected' : 'not decided in time' }
+      : ENDED[run.state]
+        ? { ended: ENDED[run.state] }
+        : {}),
   }) as PastRun;
 const ENDED: Record<string, string> = { cancelled: 'stopped', lost: 'lost', failed: 'failed' };
 

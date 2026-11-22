@@ -84,7 +84,14 @@ describe('approvals', () => {
     const others = screen
       .getByRole('heading', { name: 'Waiting for others' })
       .closest('section') as HTMLElement;
-    expect(within(others).getByText('Only change-board may decide this approval')).toBeTruthy();
+    // AFS-193: why not as a sentence, and who does decide it.
+    expect(
+      within(others).getByText(
+        'Only change-board may decide this approval. change-board decides it.',
+      ),
+    ).toBeTruthy();
+    // And how long it has waited.
+    expect(within(yours).getByText(/Waiting since.*\(\d+ h( \d+ min)?\)/)).toBeTruthy();
     expect(within(others).queryByRole('button', { name: 'Approve…' })).toBeNull();
 
     fireEvent.change(within(yours).getByLabelText('Comment'), {
@@ -106,6 +113,20 @@ describe('approvals', () => {
     expect(screen.getByRole('link', { name: /^Approvals/ }).getAttribute('aria-current')).toBe(
       'page',
     );
+  });
+
+  it("an approval without a message shows its step's intent (AFS-193)", async () => {
+    const one = waiting('r1', true);
+    const { message: _, ...rest } = one.gate as ReturnType<typeof gate> & { message?: string };
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /approvals': () => ({
+        body: [{ ...one, gate: { ...rest, intent: 'The engineer on duty confirms the window.' } }],
+      }),
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    expect(await screen.findByText('The engineer on duty confirms the window.')).toBeTruthy();
   });
 
   it('rejecting needs a reason and asks once more; then it is said and counted (AFS-133)', async () => {

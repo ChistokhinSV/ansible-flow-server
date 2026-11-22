@@ -231,6 +231,14 @@ function Side({
       window.removeEventListener('message', fromFrame);
     };
   }, [approvals.reload]);
+  // AFS-193: and on every page opened: a run stopped or decided elsewhere drops out of the count.
+  const firstPath = useRef(path);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reads again when the page changes
+  useEffect(() => {
+    if (firstPath.current === path) return;
+    firstPath.current = '';
+    approvals.reload();
+  }, [path]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.
   const here = /^\/w\/([^/]+)/.exec(path)?.[1];
   const known = workspaces.data?.some((w) => w.key === here);

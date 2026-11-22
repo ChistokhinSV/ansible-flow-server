@@ -4,7 +4,7 @@
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { api, type Gate } from './api';
 import { Link } from './router';
-import { Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Loading, messageOf, PageHead, span, Time, useLoad } from './ui';
 
 /** AFS-133: the sidebar's count and other lists read again once a decision is made. */
 export const APPROVALS_CHANGED = 'afs-approvals-changed';
@@ -186,7 +186,8 @@ function GateCard({
           {gate.status === 'waiting' ? 'waiting for a decision' : gateWord(gate.status)}
         </span>
       </p>
-      {gate.message && <p>{gate.message}</p>}
+      {/* AFS-193: what the approvers decide: the approval's message, else its step's intent. */}
+      {(gate.message || gate.intent) && <p data-gate-message>{gate.message || gate.intent}</p>}
       {/* AFS-133: what is being decided: the hosts that wait here. */}
       {gate.hosts && gate.hosts.length > 0 && (
         <p data-gate-hosts>
@@ -198,7 +199,8 @@ function GateCard({
       {/* AFS-143: "waiting since" only while it waits; a decided one says when it was asked. */}
       {gate.status === 'waiting' ? (
         <p className="muted">
-          Waiting since <Time at={gate.createdAt} />
+          {/* AFS-193: and for how long, as Home says it. */}
+          Waiting since <Time at={gate.createdAt} /> ({span(gate.createdAt)})
           {gate.deadline && (
             <>
               {' '}
@@ -229,7 +231,11 @@ function GateCard({
         (mayDecide ? (
           <DecideForm title={gate.node.title} next={gate.next} onDecide={onDecide} />
         ) : (
-          <p className="muted">{why ?? `${decidersText(gate)} decides it.`}</p>
+          // AFS-193: why not, as a sentence, and who does decide it.
+          <p className="muted" data-gate-why>
+            {why ? `${why}. ` : ''}
+            {decidersText(gate)} decides it.
+          </p>
         ))}
     </div>
   );

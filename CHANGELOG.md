@@ -54,9 +54,18 @@ All notable changes to Ansible Flow Server.
 - A launch on which no host would run (no target in the inventory, or a limit that leaves none) asks first, on the launch page and in the canvas's Run dialog. **Run again** of a run that reached no host asks first too, and its question's button names the action (**Run for real**, **Run again anyway**).
 - Enter in a field of the launch form launches (asking first where **Launch** asks), instead of **What would run**.
 - The launch form says once that another branch or commit needs read and write access, and a host list with its own description is not described twice.
+- Approvers see what they decide: the Approvals page, the run's page and the request email show the approval's message (or, without one, its step's intent); the email lists the hosts waiting, and the pages say how long it has waited.
+- Who launched a run and may not decide its approval reads "You launched this run, so others decide its approvals (only an administrator can change that)" and who decides it, on the pages and on the canvas; the request email to a group they belong to says they do not decide it.
+- A run whose approval was rejected or not decided in time is no longer counted or filtered as failed: the Runs page has a **Rejected** filter (`state=rejected`; `state=failed` leaves such runs out), Home counts them as rejected, the flow page's Run panel and its list of runs say rejected, and the output says "(outcome: rejected)".
+- A host's own output (its row in **Hosts**) ends with the approval it waited at, how it was decided, and where it ended.
+- A task its `failed_when` condition failed says the condition ("Its failed_when condition was true: …") instead of Ansible's "Unknown error"; the step is named without its key.
 
 ### Fixed
 
+- The Approvals count in the side menu drops as soon as a run stops waiting (decided, stopped or timed out elsewhere) and on every page opened, not only on reload.
+- On a run's page the canvas fits the window under a notice of why the run ended: its zoom controls stay in sight.
+- A time on an approval's Run tab names its time zone.
+- The output of a run no longer shows generated playbook code under the error of a host stopped at a port with no next step.
 - Deleting a flow turns off the schedules that fire it in the same save (the delete question already said so); before, they stayed on, fired once and failed. A move or delete through the **Files** tab or the API does the same.
 - A schedule whose flow has errors, or is gone, can be paused, changed and deleted; before, only Delete worked and it kept firing. Turning it on again is refused while the flow cannot run, as adding one is.
 - A launch configuration's settings (description, credentials, notifications and the rest) save while its flow has errors or is gone; only launching is refused. Changing it to another flow still needs one that can run.
