@@ -1,6 +1,6 @@
 {
   "name": "ansible-flow-server",
-  "version": "1.0.2-rc.3",
+  "version": "1.0.2-rc.4",
   "private": true,
   "description": "Run Ansible Flow Designer flows for a team: shared projects, access levels, approvals, schedules, execution environments, a REST API and MCP.",
   "license": "MIT",
