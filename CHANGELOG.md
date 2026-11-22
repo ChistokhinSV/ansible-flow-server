@@ -6,6 +6,12 @@ All notable changes to Ansible Flow Server.
 
 ### Added
 
+- **Actions**: a launch configuration can be made an action (on its **Settings**, by an administrator or someone with read and write on the workspace): a plain title, a sentence on what it does, the inputs a runner chooses with their own labels, help lines and choices, check or real fixed by the action, and whether Run asks to confirm. Everything else runs with the configuration's values and cannot be changed by a runner.
+- "May run this action", given to people or groups on the action: it lets them run that action and follow their runs, and nothing else of the workspace. Operators of the flow and administrators may run actions too; approvals in the flow still apply. The workspace's **Access** tab lists who may run each action, and the audit log records setting, granting and running actions.
+- **Actions** in the side menu, for anyone with an action: cards with each action's last run of yours; an action opens a short form with only what it asks, what will happen in words, and **Run**. Someone whose only access is actions lands on Actions and sees only it in the menu.
+- A run of an action has a plain progress view at its own address: steps done of how many, by title, who an approval waits for, done or failed with the reason in words and whom to ask, and the values it was asked for. It follows the run live; who may see the run also gets a link to its full page. The form and the progress view work on phones.
+- The API: `GET /api/v1/actions`, `GET /api/v1/actions/<id>`, `POST /api/v1/actions/<id>/run`, `GET /api/v1/actions/runs/<run>` (and `/events`), and `/api/v1/launch-configs/<id>/action` with its `/grants`.
+
 - Where a value comes from, from the repository: on a flow's page, a run's page, a flow at a commit and while editing a draft, a variable's tooltip and **Details › Data** list every place in the repository that sets the name (the inventory the flow's runs use, `group_vars/` and `host_vars/`, a role's defaults and vars, a playbook's vars files), with its precedence and the one that wins for the host picked in **For host**. A file and line opens the **Files** tab at that line in a new tab. It needs read access to the project's files; secret values are never shown (`POST /api/v1/projects/<id>/vars`).
 - The launch form says under each input which steps read it, its default and what it wins over (a step input of the same name, and the repository's definitions of the name).
 - The **Files** tab opens a file at a line with `?path=<file>&line=<n>`.

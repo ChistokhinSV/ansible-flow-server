@@ -3671,3 +3671,121 @@ a.flow-history-item:hover .commit-subject,
 fieldset.name-chips {
   align-items: center;
 }
+
+/* --- AFS-175: actions: cards, the short form, the plain progress of a run */
+.action-cards .card strong {
+  font-size: 1.05rem;
+}
+.action-form .happens {
+  margin: 0.5rem 0 0;
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  background: var(--panel);
+}
+.action-form .happens h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.3rem;
+}
+.action-form .happens ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.action-form .happens li + li {
+  margin-top: 0.25rem;
+}
+fieldset.field.pick {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+fieldset.field.pick legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+}
+.progress-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  margin: 0 0 1rem;
+}
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--raised);
+  overflow: hidden;
+}
+.progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.progress-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.progress-steps li {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.55rem 2px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.progress-steps .step-mark {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding-top: 0.1rem;
+}
+.progress-steps .step-done .step-mark {
+  color: var(--ok);
+}
+.progress-steps .step-running .step-mark {
+  color: var(--link);
+}
+.progress-steps .step-waiting .step-mark {
+  color: var(--warn);
+}
+.progress-steps .step-failed .step-mark {
+  color: var(--bad);
+}
+.progress-steps .step-not-run,
+.progress-steps .step-to-do {
+  color: var(--muted);
+}
+.progress .notice p {
+  margin: 0;
+}
+.progress .notice p + p {
+  margin-top: 0.4rem;
+}
+.asked-row {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+.asked-row .pair {
+  margin-top: 0.5rem;
+}
+.list.plain {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.list.plain > li {
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--line);
+}
+.list.plain > li.row-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.progress > .actions {
+  margin-top: 1rem;
+}

@@ -11,6 +11,17 @@ import type {
   MyAccess,
   UserReach,
 } from '../server/access/types';
+import type {
+  Action,
+  ActionCard,
+  ActionField,
+  ActionForm,
+  ActionGrant,
+  ActionHosts,
+  ActionProgress,
+  ActionSettings,
+  WorkspaceActionGrant,
+} from '../server/actions/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
 import type { AuditRef } from '../server/audit/refs';
 import type { AuditEntry, AuditFilter } from '../server/audit/store';
@@ -58,6 +69,14 @@ import { answerWords } from './answer';
 /** Where a list of runs goes on after a run: what `before` takes for the next page. */
 export { runCursor } from '../server/runs/cursor';
 export type {
+  Action,
+  ActionCard,
+  ActionField,
+  ActionForm,
+  ActionGrant,
+  ActionHosts,
+  ActionProgress,
+  ActionSettings,
   AuditEntry,
   AuditFilter,
   Branch,
@@ -682,6 +701,41 @@ export const api = {
     ),
   launch: (id: string, request: LaunchRequest) =>
     call<Run>('POST', `/launch-configs/${encodeURIComponent(id)}/launch`, request),
+
+  // AFS-175: actions, for whoever may run them.
+  actions: () => call<ActionCard[]>('GET', '/actions'),
+  action: (id: string) => call<ActionForm>('GET', `/actions/${encodeURIComponent(id)}`),
+  actionHosts: (id: string) => call<ActionHosts>('GET', `/actions/${encodeURIComponent(id)}/hosts`),
+  runAction: (id: string, inputs: Record<string, string>) =>
+    call<{ id: string; number: number; state: string; progress: string }>(
+      'POST',
+      `/actions/${encodeURIComponent(id)}/run`,
+      { inputs },
+    ),
+  actionProgress: (run: string) =>
+    call<ActionProgress>('GET', `/actions/runs/${encodeURIComponent(run)}`),
+  /** AFS-175: a configuration's action (null: none), and who may run it (for who may change it). */
+  configAction: (config: string) =>
+    call<{ action: Action | null; grants?: ActionGrant[]; mayManage: boolean }>(
+      'GET',
+      `/launch-configs/${encodeURIComponent(config)}/action`,
+    ),
+  setConfigAction: (config: string, settings: ActionSettings) =>
+    call<Action>('PUT', `/launch-configs/${encodeURIComponent(config)}/action`, settings),
+  removeConfigAction: (config: string) =>
+    call<void>('DELETE', `/launch-configs/${encodeURIComponent(config)}/action`),
+  grantAction: (config: string, who: { user: string } | { group: string }) =>
+    call<ActionGrant>('POST', `/launch-configs/${encodeURIComponent(config)}/action/grants`, who),
+  ungrantAction: (config: string, grant: string) =>
+    call<void>(
+      'DELETE',
+      `/launch-configs/${encodeURIComponent(config)}/action/grants/${encodeURIComponent(grant)}`,
+    ),
+  workspaceActionGrants: (workspace: string) =>
+    call<WorkspaceActionGrant[]>(
+      'GET',
+      `/workspaces/${encodeURIComponent(workspace)}/action-grants`,
+    ),
 
   approvals: () => call<WaitingApproval[]>('GET', '/approvals'),
   /** AFS-133: the newest decided approvals this person may see. */

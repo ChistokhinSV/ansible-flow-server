@@ -256,6 +256,11 @@ export async function deleteUser(db: Db, id: string): Promise<void> {
       .where('principal_type', '=', 'user')
       .where('principal_id', '=', id)
       .execute();
+    await trx
+      .deleteFrom('action_grant')
+      .where('principal_type', '=', 'user')
+      .where('principal_id', '=', id)
+      .execute();
     await trx.deleteFrom('user_account').where('id', '=', id).execute();
   });
 }
@@ -401,6 +406,11 @@ export async function deleteGroup(db: Db, id: string): Promise<void> {
     await trx.deleteFrom('group_member').where('group_id', '=', id).execute();
     await trx
       .deleteFrom('access_grant')
+      .where('principal_type', '=', 'group')
+      .where('principal_id', '=', id)
+      .execute();
+    await trx
+      .deleteFrom('action_grant')
       .where('principal_type', '=', 'group')
       .where('principal_id', '=', id)
       .execute();
