@@ -31,6 +31,7 @@ import { registerGit } from './projects/gitHttp';
 import { registerHistory } from './projects/historyRoutes';
 import { Library } from './projects/library';
 import { registerLibrary } from './projects/libraryRoutes';
+import { RepoRoles } from './projects/roles';
 import { type ProjectDeps, registerProjects } from './projects/routes';
 import { VarIndexes } from './projects/vars';
 import { registerVars } from './projects/varsRoutes';
@@ -197,6 +198,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerDrafts(app, {
       db: deps.database.db,
       ...(deps.catalog ? { catalog: deps.catalog } : {}),
+      roles: new RepoRoles(deps.projects.git),
       drafts,
     });
     // AFS-126: an empty flow starts from a sample, a playbook or an AWX template.
