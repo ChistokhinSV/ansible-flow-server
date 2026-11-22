@@ -10,6 +10,8 @@ export const KINDS = [
   'registry',
   'env',
   'awx',
+  'netbox',
+  'zabbix',
 ] as const;
 export type CredentialKind = (typeof KINDS)[number];
 
@@ -38,6 +40,9 @@ export const SPEC: Record<
   env: { fields: [], secret: [], required: [] },
   // AFS-126: an AWX (or Automation Controller) address and a token, to import its templates.
   awx: { fields: ['url'], secret: ['token'], required: ['url', 'token'] },
+  // AFS-176: a NetBox or Zabbix address and an API token, to tell it how a run from its link ended.
+  netbox: { fields: ['address'], secret: ['token'], required: ['address', 'token'] },
+  zabbix: { fields: ['address'], secret: ['token'], required: ['address', 'token'] },
 };
 
 /**
@@ -53,6 +58,8 @@ export const KIND_NAME: Record<CredentialKind, string> = {
   registry: 'container registry',
   env: 'environment variables',
   awx: 'AWX token',
+  netbox: 'NetBox token',
+  zabbix: 'Zabbix token',
 };
 
 /** The kinds a project's git source can sign in with over HTTPS. */
@@ -111,6 +118,17 @@ export function fieldProblem(name: string, value: string): string | undefined {
       return url && (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname
         ? undefined
         : 'An AWX address starts with https:// or http:// (https://awx.example.net).';
+    }
+    case 'address': {
+      let url: URL | undefined;
+      try {
+        url = new URL(v);
+      } catch {
+        url = undefined;
+      }
+      return url && (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname
+        ? undefined
+        : 'An address starts with https:// or http:// (https://netbox.example.net).';
     }
     case 'vaultId':
       return /^[A-Za-z0-9_.-]{1,100}$/.test(v)

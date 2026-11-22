@@ -1,8 +1,10 @@
 // Access on the pages. Administrators give and take levels on a workspace's page and see who can
 // do what there; everyone's pages show only what their level lets them do (the server decides
 // either way).
+
 import { type FormEvent, useId, useState } from 'react';
 import { LEVEL_NAME } from '../server/access/types';
+import { WorkspaceActionGrants } from './actions';
 import {
   api,
   type Grant,
@@ -535,6 +537,8 @@ export function WorkspaceAccess({
           </form>
         </div>
       )}
+
+      <WorkspaceActionGrants workspace={workspace} />
 
       <h3>Approvals</h3>
       <label className="choice">

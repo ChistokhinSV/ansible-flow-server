@@ -219,6 +219,36 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     { op: 'write', path: 'inventory.ini', text: '[all]\nlocalhost ansible_connection=local\n' },
   ]);
   const run = await call('POST', `/launch-configs/${config.id}/launch`, {});
+  // AFS-175: an action on the edge sample, a person who may only run it, and a run of it.
+  const edge = (Array.isArray(projects) ? projects : projects.projects).find(
+    (p: { key: string }) => p.key === 'edge',
+  );
+  const edgeConfigs = await call('GET', `/projects/${edge.id}/launch-configs`);
+  const edgeConfig = (Array.isArray(edgeConfigs) ? edgeConfigs : edgeConfigs.configs)[0];
+  await call('PUT', `/launch-configs/${edgeConfig.id}/action`, {
+    title: 'Restart the edge switch',
+    summary:
+      'Puts the NTP and AAA baseline back on one edge switch, with a backup first and a rollback if it does not validate.',
+    asked: [
+      {
+        name: 'devices',
+        label: 'Switch',
+        help: 'The switch to put right: one of the edge switches of the site.',
+      },
+      {
+        name: 'site',
+        label: 'Site',
+        help: 'Where the switch is.',
+        choices: ['Berlin', 'Lisbon', `${LONG}-site`.slice(0, 80)],
+      },
+    ],
+    mode: 'check',
+    confirm: true,
+  });
+  await call('POST', `/launch-configs/${edgeConfig.id}/action/grants`, { user: 'mia' });
+  const actionRun = await call('POST', `/actions/${edgeConfig.id}/run`, {
+    inputs: { devices: 'sw-edge-01', site: 'Berlin' },
+  });
   return {
     home: '/',
     workspace: '/w/network',
@@ -252,6 +282,14 @@ async function seed(base: string, code: string, password: string): Promise<Recor
     launchSettings: `/w/network/hello/launch/${config.id}/settings`,
     // AFS-169: an environment, with its Save and Build bar.
     environment: `/w/network/environments/${environment.id}`,
+    // AFS-175: actions, an action's form, and the progress of a run of one.
+    actions: '/actions',
+    action: `/actions/${edgeConfig.id}`,
+    actionRun: `/actions/runs/${actionRun.id}`,
+    edgeLaunchSettings: `/w/network/edge/launch/${edgeConfig.id}/settings`,
+    // AFS-176: a link to the action: every value given (a confirm page), and one left out (a form).
+    actionConfirm: `/a/${edgeConfig.id}?devices=sw-edge-01&site=Berlin`,
+    actionLink: `/a/${edgeConfig.id}?site=Berlin`,
   };
 }
 

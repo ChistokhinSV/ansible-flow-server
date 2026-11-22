@@ -9,7 +9,82 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-176: links to actions from other systems: an action that runs as its link opens, where a
+  // run's result goes back, the tokens of signed links, and the runs that tell a system.
+  '0032_action_links': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('launch_action')
+        .addColumn('run_on_open', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+      await db.schema.alterTable('launch_action').addColumn('reply_json', 'text').execute();
+      await db.schema
+        .createTable('action_token')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('config_id', 'text', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('token_hash', 'text', (c) => c.notNull().unique())
+        .addColumn('hint', 'text', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .addColumn('created_login', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('last_used_at', 'text')
+        .execute();
+      await db.schema
+        .createIndex('action_token_config')
+        .on('action_token')
+        .columns(['config_id'])
+        .execute();
+      await db.schema
+        .createTable('action_reply')
+        .addColumn('run_id', 'text', (c) => c.primaryKey())
+        .addColumn('config_id', 'text', (c) => c.notNull())
+        .addColumn('system', 'text', (c) => c.notNull())
+        .addColumn('object', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .execute();
+    },
+  },
   // AFS-173: the repository files a start from a sample brings (its roles), saved with the flow.
+  // AFS-175: actions: a launch configuration marked as one, who may run it, and the runs it started.
+  '0031_actions': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('launch_action')
+        .addColumn('config_id', 'text', (c) => c.primaryKey())
+        .addColumn('title', 'text', (c) => c.notNull())
+        .addColumn('summary', 'text', (c) => c.notNull())
+        .addColumn('asked_json', 'text', (c) => c.notNull())
+        .addColumn('mode', 'text', (c) => c.notNull())
+        .addColumn('confirm', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('enabled', 'integer', (c) => c.notNull().defaultTo(1))
+        .addColumn('owner_id', 'text')
+        .addColumn('owner_login', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('action_grant')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('config_id', 'text', (c) => c.notNull())
+        .addColumn('principal_type', 'text', (c) => c.notNull())
+        .addColumn('principal_id', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createIndex('action_grant_config')
+        .on('action_grant')
+        .columns(['config_id'])
+        .execute();
+      await db.schema
+        .createIndex('action_grant_principal')
+        .on('action_grant')
+        .columns(['principal_type', 'principal_id'])
+        .execute();
+      await db.schema.alterTable('run').addColumn('action_title', 'text').execute();
+    },
+  },
   '0030_draft_edit_files': {
     async up(db: Kysely<unknown>) {
       await db.schema.alterTable('flow_draft_edit').addColumn('files_json', 'text').execute();

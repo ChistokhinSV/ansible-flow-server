@@ -4,12 +4,14 @@
 // shown at the field it is about.
 // AFS-85: a configuration's page is four tabs (Launch, Runs, Schedules, Settings), each with an
 // address; the launch form comes first, and what is rarely typed is folded away.
+
 import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { errorsLead, type FlowError } from '../server/flowErrors';
 import type { FactsReply } from '../server/launch/facts';
 import { type CredentialKind, KIND_NAME as KIND_LABEL } from '../server/secrets/kinds';
 import { atLeast, flowLevel, useProjectAccess } from './access';
+import { ConfigActionSection } from './actions';
 import {
   ApiError,
   api,
@@ -1216,13 +1218,28 @@ export function LaunchConfigPage({
                 }}
               />
             </section>
+            {/* AFS-175: the configuration as an action, and who may run it. */}
+            <ConfigActionSection
+              config={c.id}
+              name={c.name}
+              inputs={form.data?.fields ?? []}
+              workspace={workspace}
+            />
             <DeleteConfig config={c} to={base(workspace, key)} />
           </>
         ) : (
-          <section className="panel" aria-label="Settings">
-            <SettingsFacts config={c} project={project.data} workspace={workspace} />
-            <p className="muted">Changing them needs rw on this flow.</p>
-          </section>
+          <>
+            <section className="panel" aria-label="Settings">
+              <SettingsFacts config={c} project={project.data} workspace={workspace} />
+              <p className="muted">Changing them needs rw on this flow.</p>
+            </section>
+            <ConfigActionSection
+              config={c.id}
+              name={c.name}
+              inputs={form.data?.fields ?? []}
+              workspace={workspace}
+            />
+          </>
         )
       ) : (
         <>

@@ -26,6 +26,7 @@ import type { Logger } from './log';
 import { serverMeta } from './meta';
 import { emailChannel, webhookChannel } from './notify/channels';
 import { Notifier } from './notify/notifier';
+import { netboxChannel, type ReplyCredential, zabbixChannel } from './notify/replies';
 import { smtpForSending, webhookKey } from './notify/settings';
 import { Metrics } from './ops/metrics';
 import { Git } from './projects/git';
@@ -239,11 +240,23 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       perProject: config.maxRunsPerProject,
     });
     // AFS-29: what happens is told by email and webhook, from an outbox in the database.
+    // AFS-176: and to NetBox and Zabbix, with a credential read when a message is sent.
+    const replyCredential: ReplyCredential = async (id) => {
+      const c = await reveal(db, masterKey, id).catch(() => undefined);
+      const address = c?.fields.address;
+      const token = c?.secret.token;
+      return c && (c.kind === 'netbox' || c.kind === 'zabbix') && address && token
+        ? { address, token }
+        : undefined;
+    };
+    const agent = `${meta.name}/${meta.version}`;
     const notify = new Notifier(
       db,
       [
         emailChannel(() => smtpForSending(db, masterKey)),
-        webhookChannel(() => webhookKey(db, masterKey), `${meta.name}/${meta.version}`),
+        webhookChannel(() => webhookKey(db, masterKey), agent),
+        netboxChannel(replyCredential, agent),
+        zabbixChannel(replyCredential, agent),
       ],
       log,
       {

@@ -24,7 +24,10 @@ export type Who =
   | 'operator'
   | 'rw'
   | 'ro on the workspace'
-  | 'rw on the workspace';
+  | 'rw on the workspace'
+  // AFS-175: an action's grant, operator on its flow, or an administrator; the route checks it
+  // (ADR-0036: the access levels do not know action grants).
+  | 'may run the action';
 
 /**
  * Which workspace a route reaches, for a token made for one workspace: one named by a route
@@ -547,6 +550,99 @@ export const ROUTES: Record<string, RouteDoc> = {
     C,
   )('Launch: the run goes in the queue'),
 
+  'GET /api/v1/actions': S(
+    'Actions',
+    'signed in',
+    'self',
+  )('The actions you may run (title, sentence, workspace), each with your newest run of it'),
+  'GET /api/v1/actions/:id': S(
+    'Actions',
+    'may run the action',
+    C,
+  )(
+    "An action's form: only the inputs it asks (label, help, choices), what will happen in words, whom to ask",
+  ),
+  'GET /api/v1/actions/:id/link': S(
+    'Actions',
+    'may run the action',
+    C,
+  )(
+    'AFS-176: what a link to an action gives (its query: values by input name, `_reply` where the result goes back): the form, the values, what is missing or not right, and whether it is ready to confirm. Nothing runs',
+  ),
+  'GET /api/v1/actions/:id/hosts': S(
+    'Actions',
+    'may run the action',
+    C,
+  )("The inventory's hosts and groups by name, for a host list the action asks"),
+  'POST /api/v1/actions/:id/run': S(
+    'Actions',
+    'may run the action',
+    C,
+  )(
+    'Run an action with the values it asks (inputs by name); an input it does not ask is refused. The run goes in the queue. `reply` (a NetBox object `dcim.device:1`, a Zabbix event `event:2048`) is where its result goes back when the action says so. A system with no person runs it with a signed link: `Authorization: Bearer afsl_…`, in the header only',
+  ),
+  'GET /api/v1/actions/runs/:id': S(
+    'Actions',
+    'may run the action',
+    R,
+  )(
+    'How a run of an action goes, in words: steps done of N, who an approval waits for, done or failed and why, whom to ask',
+  ),
+  'GET /api/v1/actions/runs/:id/events': S(
+    'Actions',
+    'may run the action',
+    R,
+  )('The same, live, as server-sent events: progress, end'),
+  'GET /api/v1/launch-configs/:id/action': S(
+    'Actions',
+    'signed in',
+    C,
+  )("A launch configuration's action (null when it is none), and who may run it"),
+  'PUT /api/v1/launch-configs/:id/action': S(
+    'Actions',
+    'administrators',
+    C,
+  )(
+    'Make a launch configuration an action, or change it: title, sentence, the inputs it asks, mode, confirm, on or off',
+  ),
+  'DELETE /api/v1/launch-configs/:id/action': S(
+    'Actions',
+    'administrators',
+    C,
+  )('Stop a launch configuration being an action (its grants go too)'),
+  'POST /api/v1/launch-configs/:id/action/grants': S(
+    'Actions',
+    'administrators',
+    C,
+  )('Let a user or group run the action (nothing else of the workspace)'),
+  'DELETE /api/v1/launch-configs/:id/action/grants/:grant': S(
+    'Actions',
+    'administrators',
+    C,
+  )('Take back who may run the action'),
+  'GET /api/v1/launch-configs/:id/action/tokens': S(
+    'Actions',
+    'administrators',
+    C,
+  )("An action's signed links, by name (never the tokens)"),
+  'POST /api/v1/launch-configs/:id/action/tokens': S(
+    'Actions',
+    'administrators',
+    C,
+  )(
+    'Make a signed link for a system with no person (a Zabbix action, a NetBox webhook): a token that runs this action only, as you, shown this once. In a session only',
+  ),
+  'DELETE /api/v1/launch-configs/:id/action/tokens/:token': S(
+    'Actions',
+    'administrators',
+    C,
+  )('Revoke a signed link: it stops at once'),
+  'GET /api/v1/workspaces/:id/action-grants': S(
+    'Actions',
+    'administrators',
+    W,
+  )("Who may run the workspace's actions"),
+
   'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
     "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
   ),
@@ -1037,6 +1133,17 @@ const NEEDS: Record<string, Who> = {
   // AFS-26: unpushed work comes from someone who may push.
   'POST /api/v1/projects/:id/dev-bundles': 'rw on the workspace',
   'GET /api/v1/runs/:id': 'ro',
+  // AFS-175: who sets up actions and gives them: rw on the workspace (ADR-0036).
+  'GET /api/v1/launch-configs/:id/action': 'ro',
+  'PUT /api/v1/launch-configs/:id/action': 'rw on the workspace',
+  'DELETE /api/v1/launch-configs/:id/action': 'rw on the workspace',
+  'POST /api/v1/launch-configs/:id/action/grants': 'rw on the workspace',
+  'DELETE /api/v1/launch-configs/:id/action/grants/:grant': 'rw on the workspace',
+  'GET /api/v1/workspaces/:id/action-grants': 'rw on the workspace',
+  // AFS-176: signed links are made and revoked by who sets up the action.
+  'GET /api/v1/launch-configs/:id/action/tokens': 'rw on the workspace',
+  'POST /api/v1/launch-configs/:id/action/tokens': 'rw on the workspace',
+  'DELETE /api/v1/launch-configs/:id/action/tokens/:token': 'rw on the workspace',
   'GET /api/v1/runs/:id/output': 'ro',
   'GET /api/v1/runs/:id/view': 'ro',
   'GET /api/v1/runs/:id/hosts/:node/:host': 'ro',

@@ -87,6 +87,8 @@ export interface Run {
   dev?: true;
   /** AFS-34: the schedule that launched it. */
   schedule?: string;
+  /** AFS-175: started through an action: the action's title then. */
+  action?: string;
   /**
    * AFS-146: a failed run that failed because its approval was rejected (or nobody decided in
    * time): the pages say so, not "failed". Added by the API (runs/routes.ts).
@@ -231,6 +233,7 @@ export class RunQueue {
         : {}),
       ...(row.dev_bundle ? { dev: true } : {}),
       ...(row.schedule_id ? { schedule: row.schedule_id } : {}),
+      ...(row.action_title ? { action: row.action_title } : {}),
       ...(row.ee_default === 1 ? { serverDefault: true as const } : {}),
     };
   }
@@ -297,6 +300,7 @@ export class RunQueue {
         segments_json: null,
         dev_bundle: launch.dev ?? null,
         schedule_id: launch.schedule ?? null,
+        action_title: launch.action ?? null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);

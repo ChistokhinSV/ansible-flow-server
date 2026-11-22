@@ -4,6 +4,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
+import { ActionLinkPage } from './actionLinks';
+import { ActionPage, ActionRunPage, ActionsPage } from './actions';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
 import { ApiDocs } from './apidocs';
 import { APPROVALS_CHANGED, ApprovalsPage } from './approvals';
@@ -42,8 +44,27 @@ const THEME_LABEL: Record<ThemeChoice, string> = {
   system: 'Theme: as the device',
 };
 
+/**
+ * AFS-175: what the person reaches: whether they have actions, and whether actions are all they
+ * have (no workspace, not an administrator): then Actions is their home and their menu.
+ */
+interface Reach {
+  actions: number;
+  actionOnly: boolean;
+}
+
 /** The page an address is. */
-function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice }) {
+function Page({
+  path,
+  me,
+  theme,
+  reach,
+}: {
+  path: string;
+  me: User;
+  theme: ThemeChoice;
+  reach?: Reach | undefined;
+}) {
   // A flow's address ends with its file's path, which has slashes of its own.
   const flow = /^\/w\/([^/]+)\/([^/]+)\/flow\/(.+)$/.exec(path);
   if (flow) {
@@ -57,7 +78,16 @@ function Page({ path, me, theme }: { path: string; me: User; theme: ThemeChoice 
       return <NotFound />;
     }
   }
-  if (path === '/') return <Home me={me} />;
+  if (path === '/') return reach?.actionOnly ? <ActionsPage home /> : <Home me={me} />;
+  // AFS-175: actions, an action's form, and the progress of a run of one.
+  if (path === '/actions') return <ActionsPage />;
+  const actionRun = match('/actions/runs/:id', path);
+  if (actionRun?.id) return <ActionRunPage run={actionRun.id} />;
+  const action = match('/actions/:id', path);
+  if (action?.id) return <ActionPage id={action.id} />;
+  // AFS-176: a link to an action from another system (NetBox, Zabbix), with values in its query.
+  const linked = match('/a/:id', path);
+  if (linked?.id) return <ActionLinkPage id={linked.id} />;
   if (path === '/workspaces') return <Workspaces me={me} />;
   if (path === '/runs') return <RunsPage me={me} />;
   const one = match('/runs/:id', path);
@@ -202,12 +232,14 @@ function Side({
   me,
   path,
   theme,
+  reach,
   onTheme,
   onSignOut,
 }: {
   me: User;
   path: string;
   theme: ThemeChoice;
+  reach?: Reach | undefined;
   onTheme(): void;
   onSignOut(): void;
 }) {
@@ -292,25 +324,42 @@ function Side({
         </button>
       </div>
       <div className="side-body" id="side-menu">
-        <nav aria-label="Main" className="side-nav">
-          <Link to="/" aria-current={at('/')}>
-            Home
-          </Link>
-          <Link to="/runs" aria-current={at('/runs')}>
-            Runs
-          </Link>
-          <Link to="/approvals" aria-current={at('/approvals')}>
-            Approvals
-            {waiting > 0 && (
-              <span className="count" title={`${waiting} waiting for you`}>
-                {waiting}
-              </span>
+        {reach?.actionOnly ? (
+          // AFS-175: who has only actions has nothing else to go to.
+          <nav aria-label="Main" className="side-nav">
+            <Link
+              to="/actions"
+              aria-current={path === '/' || path.startsWith('/actions') ? 'page' : undefined}
+            >
+              Actions
+            </Link>
+          </nav>
+        ) : (
+          <nav aria-label="Main" className="side-nav">
+            <Link to="/" aria-current={at('/')}>
+              Home
+            </Link>
+            {!!reach?.actions && (
+              <Link to="/actions" aria-current={path.startsWith('/actions') ? 'page' : undefined}>
+                Actions
+              </Link>
             )}
-          </Link>
-          <Link to="/library" aria-current={at('/library')}>
-            Library
-          </Link>
-        </nav>
+            <Link to="/runs" aria-current={at('/runs')}>
+              Runs
+            </Link>
+            <Link to="/approvals" aria-current={at('/approvals')}>
+              Approvals
+              {waiting > 0 && (
+                <span className="count" title={`${waiting} waiting for you`}>
+                  {waiting}
+                </span>
+              )}
+            </Link>
+            <Link to="/library" aria-current={at('/library')}>
+              Library
+            </Link>
+          </nav>
+        )}
         {/* AFS-152: no empty heading for who has no workspace yet (Home says whom to ask). */}
         {(me.admin || !!workspaces.data?.length) && (
           <nav aria-label="Workspaces" className="side-nav">
@@ -401,6 +450,21 @@ export function App() {
   // AFS-107: the top bar's place for a page's breadcrumbs.
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
   useFocusOnNewPage(path);
+  // AFS-175: whether this person has actions, and whether they are all they have.
+  const signedInId = session.state === 'signed-in' ? session.user.id : undefined;
+  const reached = useLoad(async (): Promise<Reach | undefined> => {
+    if (session.state !== 'signed-in') return undefined;
+    const user = session.user;
+    const [actions, workspaces] = await Promise.all([
+      api.actions().catch(() => []),
+      user.admin ? Promise.resolve([{}]) : api.workspaces().catch(() => [{}]),
+    ]);
+    return {
+      actions: actions.length,
+      actionOnly: !user.admin && workspaces.length === 0 && actions.length > 0,
+    };
+  }, [signedInId]);
+  const reach = reached.data;
 
   const signedIn = (user: User) => {
     // /signin is only the page a refused provider sign-in comes back to: nothing is there once in.
@@ -460,6 +524,7 @@ export function App() {
           me={me}
           path={path}
           theme={theme}
+          reach={reach}
           onTheme={() => setTheme(nextTheme(theme))}
           onSignOut={async () => {
             await api.signOut().catch(() => undefined);
@@ -472,12 +537,15 @@ export function App() {
           {/* AFS-107: the bar is as wide as the page under it, and holds the page's breadcrumbs. */}
           <div className={`bar ${kind.replace('page', 'bar-of')}`}>
             <div className="bar-crumbs" ref={setBarSlot} />
-            <SearchBox me={me} />
+            {!reach?.actionOnly && <SearchBox me={me} />}
           </div>
           <main id="main" className={kind}>
             {me.admin && <CertificateBanner path={path} />}
             <BarSlot.Provider value={barSlot}>
-              <Page path={path} me={me} theme={theme} />
+              {/* AFS-175: Home waits to know whether actions are all this person has. */}
+              {path === '/' && reached.loading && !reach ? null : (
+                <Page path={path} me={me} theme={theme} reach={reach} />
+              )}
             </BarSlot.Provider>
           </main>
         </div>

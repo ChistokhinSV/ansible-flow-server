@@ -9,6 +9,7 @@
 // because of one: an error here is logged.
 
 import type { Kysely } from 'kysely';
+import type { ActionReply } from '../actions/types';
 import { waitingHosts } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
@@ -22,6 +23,7 @@ import {
   launcherContacts,
   placesOf,
 } from './recipients';
+import { replyTarget } from './replies';
 import {
   enqueue,
   getDelivery,
@@ -504,6 +506,7 @@ export class Notifier {
     this.track('run.ended', async () => {
       const run = await this.runFacts(runId);
       if (!run || !ENDED.has(run.state) || !run.configId) return;
+      await this.replyToSystem(run);
       const config = await this.db
         .selectFrom('launch_config')
         .select('notify_json')
@@ -543,6 +546,59 @@ export class Notifier {
         ),
       );
     });
+  }
+
+  /**
+   * AFS-176: a run started from a NetBox or Zabbix link tells that system how it ended, when its
+   * action says so: a journal entry on the object, a message on the problem. Once per run.
+   */
+  private async replyToSystem(run: RunFacts): Promise<void> {
+    const reply = await this.db
+      .selectFrom('action_reply')
+      .innerJoin('launch_action', 'launch_action.config_id', 'action_reply.config_id')
+      .select([
+        'action_reply.system',
+        'action_reply.object',
+        'launch_action.title',
+        'launch_action.reply_json',
+      ])
+      .where('action_reply.run_id', '=', run.id)
+      .executeTakeFirst();
+    if (!reply?.reply_json) return;
+    const settings = JSON.parse(reply.reply_json) as ActionReply;
+    if (settings.system !== reply.system) return;
+    if (settings.when === 'failed' && run.state === 'succeeded') return;
+    const system = settings.system === 'netbox' ? 'NetBox' : 'Zabbix';
+    const link = this.link(`/actions/runs/${run.id}`);
+    const how =
+      run.state === 'succeeded'
+        ? 'went well'
+        : run.state === 'cancelled'
+          ? 'was stopped before it ended'
+          : 'did not go well';
+    const lines = [
+      `Ansible Flow Server: "${reply.title}" ${how} (${run.mode === 'real' ? 'run' : 'check run'} #${run.number}).`,
+      `Started by ${run.requestedName} from a ${system} link.`,
+      ...(run.error && run.state !== 'succeeded' ? [`Why: ${run.error.slice(0, 500)}`] : []),
+      ...(link ? [`How it went: ${link}`] : []),
+    ];
+    const message: Message = {
+      subject: `${reply.title} ${how}`,
+      text: lines.join('\n'),
+      payload: {
+        kind:
+          run.state === 'succeeded' ? 'success' : run.state === 'cancelled' ? 'warning' : 'danger',
+        run: run.id,
+        object: reply.object,
+      },
+    };
+    await enqueue(this.db, { kind: 'run.ended', message, run: run.id, dedupe: `reply:${run.id}` }, [
+      {
+        channel: settings.system,
+        recipient: `${system} ${reply.object}`,
+        target: replyTarget(settings.credential, reply.object),
+      },
+    ]);
   }
 
   /**

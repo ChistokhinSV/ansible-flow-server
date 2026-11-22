@@ -508,6 +508,11 @@ export class LaunchConfigs {
       await trx.deleteFrom('launch_config_credential').where('config_id', '=', id).execute();
       // AFS-34: its schedules go with it.
       await trx.deleteFrom('schedule').where('config_id', '=', id).execute();
+      // AFS-175: its action and who may run it go with it.
+      await trx.deleteFrom('action_grant').where('config_id', '=', id).execute();
+      await trx.deleteFrom('launch_action').where('config_id', '=', id).execute();
+      // AFS-176: and its signed links' tokens.
+      await trx.deleteFrom('action_token').where('config_id', '=', id).execute();
       const done = await trx.deleteFrom('launch_config').where('id', '=', id).executeTakeFirst();
       if (!done.numDeletedRows) throw new LaunchError('not_found', 'No such launch configuration');
     });

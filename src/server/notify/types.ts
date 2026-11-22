@@ -11,7 +11,9 @@ export const EVENTS = [
 export type EventKind = (typeof EVENTS)[number];
 
 export const CHANNELS = ['email', 'webhook'] as const;
-export type ChannelKind = (typeof CHANNELS)[number];
+/** AFS-176: the systems a run started from their link tells how it ended (not for tests). */
+export const REPLY_CHANNELS = ['netbox', 'zabbix'] as const;
+export type ChannelKind = (typeof CHANNELS)[number] | (typeof REPLY_CHANNELS)[number];
 
 export type DeliveryStatus = 'pending' | 'sent' | 'failed';
 

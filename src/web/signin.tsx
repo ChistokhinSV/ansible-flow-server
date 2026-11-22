@@ -13,7 +13,11 @@ import { Copyable, Field, Form, Loading, messageOf, PageHead, Time, useLoad } fr
 /** The sign-in page's provider buttons, and why the last sign-in failed (?error=). */
 export function ProviderButtons({ methods }: { methods: { data?: SignInMethods } }) {
   const error = new URLSearchParams(window.location.search).get('error');
-  const back = window.location.pathname === '/signin' ? '/' : window.location.pathname;
+  // AFS-176: back to the page asked for with its query (a link to an action carries its values).
+  const back =
+    window.location.pathname === '/signin'
+      ? '/'
+      : `${window.location.pathname}${window.location.search}`;
   const providers = methods.data?.providers ?? [];
   return (
     <>

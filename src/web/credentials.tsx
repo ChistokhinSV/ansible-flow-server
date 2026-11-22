@@ -32,12 +32,15 @@ const FIELD_LABEL: Record<string, string> = {
   password: 'Password',
   token: 'Token',
   url: 'AWX address',
+  address: 'Address',
 };
 const FIELD_HINT: Record<string, string> = {
   method: 'sudo unless given',
   vaultId: 'Only for a vault with an id',
   host: 'registry.example.net',
   url: 'https://awx.example.net (to import its templates into a flow)',
+  address:
+    'https://netbox.example.net or https://zabbix.example.net (where a run tells how it ended)',
 };
 /** Secret parts written on several lines. */
 const MULTILINE = new Set(['privateKey']);

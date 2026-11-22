@@ -19,6 +19,7 @@ export const AUDIT_KINDS: Record<string, string> = {
   schedule: 'schedules',
   environment: 'environments',
   run: 'runs',
+  action: 'actions',
   approval: 'approvals',
   'dev-bundle': 'designer uploads',
   notification: 'notifications',

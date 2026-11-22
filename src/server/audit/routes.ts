@@ -93,6 +93,21 @@ export const ACTIONS: Record<string, Action> = {
     id: 'reply',
     parent: 'launch-config',
   },
+  // AFS-175: actions, who may run them, and their runs.
+  'PUT /api/v1/launch-configs/:id/action': { action: 'action.set', id: at() },
+  'DELETE /api/v1/launch-configs/:id/action': { action: 'action.remove', id: at() },
+  'POST /api/v1/launch-configs/:id/action/grants': { action: 'action.grant', id: at() },
+  'DELETE /api/v1/launch-configs/:id/action/grants/:grant': {
+    action: 'action.grant-remove',
+    id: at(),
+  },
+  'POST /api/v1/actions/:id/run': { action: 'action.run', id: at() },
+  // AFS-176: signed links for systems with no person.
+  'POST /api/v1/launch-configs/:id/action/tokens': { action: 'action.link-create', id: at() },
+  'DELETE /api/v1/launch-configs/:id/action/tokens/:token': {
+    action: 'action.link-revoke',
+    id: at(),
+  },
   'POST /api/v1/workspaces/:id/grants': {
     action: 'grant.create',
     id: 'reply',
@@ -197,6 +212,7 @@ const REASONED = new Set([
   'environment',
   'run',
   'approval',
+  'action',
 ]);
 const typeOf = (action: string) => action.slice(0, action.indexOf('.'));
 
@@ -249,6 +265,17 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
       );
     case 'approval':
       return nameOf(db, 'run', id);
+    // AFS-175: an action by its title; one removed since, by its configuration's name.
+    case 'action':
+      return (
+        (await one(
+          db
+            .selectFrom('launch_action')
+            .select('title as n')
+            .where('config_id', '=', id)
+            .executeTakeFirst(),
+        )) ?? nameOf(db, 'launch-config', id)
+      );
     case 'grant': {
       const grant = await db
         .selectFrom('access_grant')
