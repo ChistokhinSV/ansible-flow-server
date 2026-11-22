@@ -1219,7 +1219,12 @@ export function LaunchConfigPage({
               />
             </section>
             {/* AFS-175: the configuration as an action, and who may run it. */}
-            <ConfigActionSection config={c.id} name={c.name} inputs={form.data?.fields ?? []} />
+            <ConfigActionSection
+              config={c.id}
+              name={c.name}
+              inputs={form.data?.fields ?? []}
+              workspace={workspace}
+            />
             <DeleteConfig config={c} to={base(workspace, key)} />
           </>
         ) : (
@@ -1228,7 +1233,12 @@ export function LaunchConfigPage({
               <SettingsFacts config={c} project={project.data} workspace={workspace} />
               <p className="muted">Changing them needs rw on this flow.</p>
             </section>
-            <ConfigActionSection config={c.id} name={c.name} inputs={form.data?.fields ?? []} />
+            <ConfigActionSection
+              config={c.id}
+              name={c.name}
+              inputs={form.data?.fields ?? []}
+              workspace={workspace}
+            />
           </>
         )
       ) : (

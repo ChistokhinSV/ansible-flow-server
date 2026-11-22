@@ -463,7 +463,7 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
         eb.selectFrom('launch_config').select('id').where('project_id', '=', id),
       )
       .execute();
-    for (const table of ['action_grant', 'launch_action'] as const)
+    for (const table of ['action_grant', 'launch_action', 'action_token', 'action_reply'] as const)
       await trx
         .deleteFrom(table)
         .where('config_id', 'in', (eb) =>

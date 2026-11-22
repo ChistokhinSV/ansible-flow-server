@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { Message } from './channels';
+import { shownReply } from './replies';
 import type { ChannelKind, Delivery, DeliveryStatus, EventKind } from './types';
 
 type Db = Kysely<Schema>;
@@ -19,6 +20,8 @@ const TAKEN_MS = 2 * 60_000;
 
 /** A webhook's address as the log shows it: scheme and host; its path can be its secret. */
 export function shownTarget(channel: string, target: string): string {
+  // AFS-176: a reply's target is its credential and object: the object is shown.
+  if (channel === 'netbox' || channel === 'zabbix') return shownReply(target);
   if (channel !== 'webhook') return target;
   try {
     const u = new URL(target);

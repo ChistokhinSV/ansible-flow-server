@@ -2,8 +2,9 @@
 
 - Status: accepted (2026-11-22, AFS-175)
 - Builds on: ADR-0012 (launch configurations), ADR-0020 (access levels and approvals)
-- Prepares: AFS-176 (action links from NetBox and Zabbix: `?input=value`, a confirm-only page,
-  tokens per action)
+- Extended by: ADR-0037 (AFS-176: links from NetBox and Zabbix, signed links, the result back; a
+  host list narrowed to a group; fixed values no longer named in "What will happen"; the progress
+  view for who sees the flow's runs and who started the run, not every runner of the action)
 
 ## Context
 

@@ -562,6 +562,13 @@ export const ROUTES: Record<string, RouteDoc> = {
   )(
     "An action's form: only the inputs it asks (label, help, choices), what will happen in words, whom to ask",
   ),
+  'GET /api/v1/actions/:id/link': S(
+    'Actions',
+    'may run the action',
+    C,
+  )(
+    'AFS-176: what a link to an action gives (its query: values by input name, `_reply` where the result goes back): the form, the values, what is missing or not right, and whether it is ready to confirm. Nothing runs',
+  ),
   'GET /api/v1/actions/:id/hosts': S(
     'Actions',
     'may run the action',
@@ -572,7 +579,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'may run the action',
     C,
   )(
-    'Run an action with the values it asks (inputs by name); an input it does not ask is refused. The run goes in the queue',
+    'Run an action with the values it asks (inputs by name); an input it does not ask is refused. The run goes in the queue. `reply` (a NetBox object `dcim.device:1`, a Zabbix event `event:2048`) is where its result goes back when the action says so. A system with no person runs it with a signed link: `Authorization: Bearer afsl_…`, in the header only',
   ),
   'GET /api/v1/actions/runs/:id': S(
     'Actions',
@@ -613,6 +620,23 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     C,
   )('Take back who may run the action'),
+  'GET /api/v1/launch-configs/:id/action/tokens': S(
+    'Actions',
+    'administrators',
+    C,
+  )("An action's signed links, by name (never the tokens)"),
+  'POST /api/v1/launch-configs/:id/action/tokens': S(
+    'Actions',
+    'administrators',
+    C,
+  )(
+    'Make a signed link for a system with no person (a Zabbix action, a NetBox webhook): a token that runs this action only, as you, shown this once. In a session only',
+  ),
+  'DELETE /api/v1/launch-configs/:id/action/tokens/:token': S(
+    'Actions',
+    'administrators',
+    C,
+  )('Revoke a signed link: it stops at once'),
   'GET /api/v1/workspaces/:id/action-grants': S(
     'Actions',
     'administrators',
@@ -1116,6 +1140,10 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/launch-configs/:id/action/grants': 'rw on the workspace',
   'DELETE /api/v1/launch-configs/:id/action/grants/:grant': 'rw on the workspace',
   'GET /api/v1/workspaces/:id/action-grants': 'rw on the workspace',
+  // AFS-176: signed links are made and revoked by who sets up the action.
+  'GET /api/v1/launch-configs/:id/action/tokens': 'rw on the workspace',
+  'POST /api/v1/launch-configs/:id/action/tokens': 'rw on the workspace',
+  'DELETE /api/v1/launch-configs/:id/action/tokens/:token': 'rw on the workspace',
   'GET /api/v1/runs/:id/output': 'ro',
   'GET /api/v1/runs/:id/view': 'ro',
   'GET /api/v1/runs/:id/hosts/:node/:host': 'ro',

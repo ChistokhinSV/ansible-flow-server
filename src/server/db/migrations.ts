@@ -9,6 +9,42 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-176: links to actions from other systems: an action that runs as its link opens, where a
+  // run's result goes back, the tokens of signed links, and the runs that tell a system.
+  '0032_action_links': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('launch_action')
+        .addColumn('run_on_open', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+      await db.schema.alterTable('launch_action').addColumn('reply_json', 'text').execute();
+      await db.schema
+        .createTable('action_token')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('config_id', 'text', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('token_hash', 'text', (c) => c.notNull().unique())
+        .addColumn('hint', 'text', (c) => c.notNull())
+        .addColumn('created_by', 'text', (c) => c.notNull())
+        .addColumn('created_login', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('last_used_at', 'text')
+        .execute();
+      await db.schema
+        .createIndex('action_token_config')
+        .on('action_token')
+        .columns(['config_id'])
+        .execute();
+      await db.schema
+        .createTable('action_reply')
+        .addColumn('run_id', 'text', (c) => c.primaryKey())
+        .addColumn('config_id', 'text', (c) => c.notNull())
+        .addColumn('system', 'text', (c) => c.notNull())
+        .addColumn('object', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .execute();
+    },
+  },
   // AFS-173: the repository files a start from a sample brings (its roles), saved with the flow.
   // AFS-175: actions: a launch configuration marked as one, who may run it, and the runs it started.
   '0031_actions': {
