@@ -374,6 +374,38 @@ export interface RunTable {
   dev_bundle: string | null;
   /** AFS-34: the schedule that launched it. */
   schedule_id: string | null;
+  /** AFS-175: started through an action: the action's title then; null: not through one. */
+  action_title: string | null;
+}
+
+/** AFS-175: a launch configuration marked as an action: what its runners see and choose. */
+export interface LaunchActionTable {
+  config_id: string;
+  title: string;
+  summary: string;
+  /** The inputs it asks ([{name, label, help?, choices?}]), as JSON; the rest stay fixed. */
+  asked_json: string;
+  /** check or real: fixed by the action. */
+  mode: string;
+  /** 1: Run asks to confirm first. */
+  confirm: Flag;
+  /** 0: turned off (its words and grants are kept). */
+  enabled: Flag;
+  /** Who set it last: its owner, whom its runners ask. */
+  owner_id: string | null;
+  owner_login: string | null;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
+/** AFS-175: "may run this action", given to a user or a group; nothing else of the workspace. */
+export interface ActionGrantTable {
+  id: string;
+  config_id: string;
+  principal_type: string;
+  principal_id: string;
+  created_at: IsoTime;
+  created_by: string;
 }
 
 /**
@@ -578,6 +610,8 @@ export interface Schema {
   run: RunTable;
   launch_config: LaunchConfigTable;
   launch_config_credential: LaunchConfigCredentialTable;
+  launch_action: LaunchActionTable;
+  action_grant: ActionGrantTable;
   credential: CredentialTable;
   git_push: GitPushTable;
   setting: SettingTable;

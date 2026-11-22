@@ -3,6 +3,7 @@
 // (/api/v1/meta, which clients read before they talk to it).
 import fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { registerAccess } from './access/routes';
+import { registerActions } from './actions/routes';
 import { registerCatalog } from './api/catalog';
 import { plainInvalid } from './api/invalid';
 import { registerApprovals } from './approvals/routes';
@@ -217,6 +218,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ...(deps.dev ? { dev: deps.dev } : {}),
       ...(deps.inventory ? { inventory: deps.inventory } : {}),
       vars,
+    });
+    // AFS-175: actions: approved launches for people who do not read flows.
+    registerActions(app, {
+      db: deps.database.db,
+      git: deps.projects.git,
+      sync: deps.projects.sync,
+      vars,
+      ...(deps.runs ? { queue: deps.runs } : {}),
+      ...(deps.hub ? { hub: deps.hub } : {}),
     });
   }
 

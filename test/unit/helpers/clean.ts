@@ -13,6 +13,8 @@ const WORKSPACES = [
   'notification',
   'run_gate',
   'access_grant',
+  'action_grant',
+  'launch_action',
   'run',
   'launch_config_credential',
   'launch_config',
