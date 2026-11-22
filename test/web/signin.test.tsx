@@ -93,6 +93,8 @@ describe('sign-in with a provider', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add a provider' }));
     const form = screen.getByRole('region', { name: 'Add a provider' });
+    // AFS-195: the form opened takes the focus.
+    expect(document.activeElement).toBe(within(form).getByLabelText(/^Name/));
     const type = (label: RegExp, value: string) =>
       fireEvent.change(within(form).getByLabelText(label), { target: { value } });
     type(/^Name/, 'Keycloak');

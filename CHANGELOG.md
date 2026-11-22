@@ -63,6 +63,12 @@ All notable changes to Ansible Flow Server.
 - A launch on which no host would run (no target in the inventory, or a limit that leaves none) asks first, on the launch page and in the canvas's Run dialog. **Run again** of a run that reached no host asks first too, and its question's button names the action (**Run for real**, **Run again anyway**).
 - Enter in a field of the launch form launches (asking first where **Launch** asks), instead of **What would run**.
 - The launch form says once that another branch or commit needs read and write access, and a host list with its own description is not described twice.
+- The audit log names who by their name (the login on hover), says a grant in the pages' words ("read only for group netops on Network team", "operator for Nora Brandt on the flow hello in Hello"), and shows **refused** in the warning colour, not one close to **ok**.
+- Taking back a grant records its workspace in the audit log, as giving one does. Deleting a group or a person records each grant it ended as **grant.delete** ("the group was deleted"), and the deletion lists them.
+- An existing image's environment speaks of pulls, not builds: **Pulls**, "Pull 1 failed", **pulled**. The launch form's environment picker says "(its pull failed)" or "(its build failed)", and an environment with no image is not offered as the server's default.
+- **Add a provider** puts the cursor in the provider's **Name**.
+- The flow page's **More** menu works with the keyboard: the first item has the focus when it opens, the arrows, Home and End move, and Escape gives the focus back to **More**.
+- Closing **Save**'s dialog with Escape or **Cancel** gives the focus back to where it was (Save, the canvas), not to the page.
 
 ### Fixed
 
@@ -98,6 +104,12 @@ All notable changes to Ansible Flow Server.
 - **What ran** marks an image as the server's default by how the run started, not by how its launch configuration reads now; dev runs are marked too.
 - The launch form offers the inventory's groups for a flow whose host list is not marked as its targets (the first host list is then the targets).
 - Search no longer shows, or opens with Enter, the results of the question typed before while the new one is asked.
+- The audit log's **Since** and **Until** stay whole words; they broke inside the word ("Sinc e").
+- One long credential name no longer squeezes the credentials list: kinds stay on one line and **Change** and **Delete** side by side in every row.
+- A read-only token that tries to open a draft is told it may only read, before any word about the request's form.
+- The guide's project table says that branches, pushes and flows need access to the project, not only a sign-in.
+- A flow's page with a long file path no longer leaves a lone "/" on a line of the breadcrumb, nor scrolls a little at tablet and laptop widths.
+- A page of a project that is not shared with you asks for the workspace's projects once, not twice.
 
 ## 1.0.1 — Access you can see, guided first steps, plainer words
 

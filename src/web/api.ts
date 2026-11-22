@@ -136,6 +136,9 @@ export const setSignedOutHandler = (handler: () => void) => {
   onSignedOut = handler;
 };
 
+/** The lists of projects being asked for, by workspace, until they are answered. */
+const projectsAsked = new Map<string, Promise<Project[]>>();
+
 async function call<T>(
   method: string,
   path: string,
@@ -280,8 +283,18 @@ export const api = {
     ),
   addWorkspace: (input: { key: string; name: string; description?: string }) =>
     call<Workspace>('POST', '/workspaces', input),
-  projects: (workspace: string) =>
-    call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`),
+  projects: (workspace: string) => {
+    // AFS-195: a page and its breadcrumb ask at the same moment: one request, one answer (and
+    // one refusal in the console for a project not shared).
+    let asked = projectsAsked.get(workspace);
+    if (!asked) {
+      asked = call<Project[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/projects`);
+      projectsAsked.set(workspace, asked);
+      const done = () => projectsAsked.delete(workspace);
+      asked.then(done, done);
+    }
+    return asked;
+  },
   /** AFS-171: a repository's address read before a project mirrors it (nothing is kept). */
   checkSource: (workspace: string, input: { gitUrl: string; gitCredential?: string }) =>
     call<{ ok: boolean; message?: string; branches?: string[] }>(
@@ -535,10 +548,12 @@ export const api = {
     ),
 
   audit: (filter: AuditFilter) =>
-    call<{ entries: AuditEntry[]; next?: string; refs?: Record<string, AuditRef> }>(
-      'GET',
-      `/audit?${queryOf(filter)}`,
-    ),
+    call<{
+      entries: AuditEntry[];
+      next?: string;
+      refs?: Record<string, AuditRef>;
+      people?: Record<string, string>;
+    }>('GET', `/audit?${queryOf(filter)}`),
 
   credentials: (workspace: string) =>
     call<Credential[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/credentials`),

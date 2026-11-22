@@ -842,6 +842,14 @@ export function EnvironmentPage({
                     <div className="actions">
                       <button
                         type="button"
+                        // AFS-195: one with no image (a failed pull, never built) is not offered
+                        // as everyone's default; going back is always offered.
+                        disabled={!env.current && serverImage.data.environment?.id !== env.id}
+                        title={
+                          !env.current && serverImage.data.environment?.id !== env.id
+                            ? `It has no image yet: ${env.kind === 'image' ? 'pull' : 'build'} it first`
+                            : undefined
+                        }
                         onClick={async () => {
                           setDefaultError(undefined);
                           const mine = serverImage.data?.environment?.id === env.id;

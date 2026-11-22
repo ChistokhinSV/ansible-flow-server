@@ -408,6 +408,12 @@ code,
   font-size: 14px;
   margin-bottom: 0.4rem;
   overflow-wrap: anywhere;
+  /* AFS-195: the parts wrap as wholes; a long last part (a flow's file) takes a line of its own
+     and is cut there, never leaving its "/" alone on a line between. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.3em;
 }
 .crumbs a {
   text-decoration: none;
@@ -416,6 +422,7 @@ code,
    breadcrumb: the title under it says it whole. */
 .crumbs [aria-current="page"] {
   display: inline-block;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -861,6 +868,15 @@ a.row-main:hover strong {
 }
 .filters input {
   max-width: 11rem;
+}
+/* AFS-195: a filter's label stays one word ("Since", not "Sinc" over "e"); its field gives way. */
+.filters label.inline {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+.filters label.inline > input,
+.filters label.inline > select {
+  min-width: 0;
 }
 td.detail,
 td.long code,
@@ -3123,6 +3139,14 @@ ul.found > li {
   }
 }
 
+/* AFS-195: on a tablet the side menu is a row of its own (the brand and Menu) above the bar: the
+   canvas leaves it room, so the page does not scroll a little. */
+@media (min-width: 641px) and (max-width: 860px) {
+  .flow-page {
+    height: calc(100dvh - 8.5rem);
+  }
+}
+
 /* On a phone a flow's head (title, buttons, the draft's bar) fills most of the window: the page
    scrolls, and the canvas's frame keeps most of a window's height of its own. */
 @media (max-width: 640px) {
@@ -3199,6 +3223,17 @@ td button,
 td a.button,
 td .badge {
   white-space: nowrap;
+}
+/* AFS-195: one long credential name wraps in its own column instead of squeezing the kinds and
+   stacking every row's buttons. */
+.credential-list td.credential-name {
+  max-width: 18rem;
+}
+.credential-list td.kind {
+  white-space: nowrap;
+}
+.credential-list td .actions {
+  flex-wrap: nowrap;
 }
 /* A time with its zone (AFS-139) is long: in a table it may wrap between the date and the clock. */
 td time {

@@ -404,7 +404,49 @@ for (const [name, config] of databases) {
         headers: { cookie: admin },
         payload: { group: 'change-board', level: 'ro' },
       });
-      expect((await newest('grant.create'))?.object.name).toBe('ro for group change-board on ops');
+      expect((await newest('grant.create'))?.object.name).toBe(
+        'read only for group change-board on Operations',
+      );
+
+      // AFS-195: a grant taken back says its workspace; deleting the group ends its grants, and
+      // each ended grant is in the log with why.
+      const grants = (
+        await app.inject({
+          method: 'GET',
+          url: `/api/v1/workspaces/${ws.id}/grants`,
+          headers: { cookie: admin },
+        })
+      ).json() as { id: string }[];
+      expect(grants).toHaveLength(1);
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${ws.id}/grants`,
+        headers: { cookie: admin },
+        payload: { user: 'omar', level: 'operator' },
+      });
+      const omarGrant = (await newest('grant.create'))?.object.id as string;
+      await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/grants/${omarGrant}`,
+        headers: { cookie: admin },
+      });
+      expect(await newest('grant.delete')).toMatchObject({
+        object: { name: 'operator for Omar Haddad on Operations' },
+        detail: { workspace: ws.id },
+      });
+      await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/groups/${group.id}`,
+        headers: { cookie: admin },
+      });
+      expect((await newest('group.delete'))?.detail).toMatchObject({
+        grants: ['read only for group change-board on Operations'],
+      });
+      expect(await newest('grant.delete')).toMatchObject({
+        result: 'ok',
+        object: { id: grants[0]?.id, name: 'read only for group change-board on Operations' },
+        detail: { workspace: ws.id, why: 'the group was deleted' },
+      });
     });
 
     it('a change lists the fields whose values changed, not every field sent (AFS-141)', () => {

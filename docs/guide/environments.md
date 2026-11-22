@@ -11,7 +11,9 @@ launch configuration's own image, else the server's default image, is used.
 environment or image. It starts as `AFS_EE_IMAGE`. An administrator can make an environment the
 default instead (**Make it the server's default** on its page; **Go back to AFS_EE_IMAGE** undoes
 it): build one with the collections the team always needs, and runs without an environment get its
-newest good image. While the environment picked has no image yet, `AFS_EE_IMAGE` is used. The
+newest good image. The page offers it only for an environment that has an image (a pull or build
+that failed leaves none); while the environment picked has no image (through the API), `AFS_EE_IMAGE`
+is used. The
 environments list and each environment's page say which image is the default; a run's **What ran**
 names the image it got, marked as the server's default. The default environment cannot be deleted
 until another is picked.

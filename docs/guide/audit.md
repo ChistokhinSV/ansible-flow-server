@@ -16,7 +16,10 @@ it; with the HTTP status), the client's address and the request id of the server
   made with a token names it, beside where it came from; the name stays after the token is
   revoked. People and groups made, changed, deleted; who was added to a group
   and who left it, by login. A person not made is named by the login tried, with the reason.
-- Access grants given and taken back, named with the workspace (or flow) they are on.
+- Access grants given and taken back, named in the pages' words with the workspace (or flow) they
+  are on ("read only for group netops on Network team"), with the workspace in the detail.
+  Deleting a person or a group ends their grants: each one is recorded as taken back
+  (`grant.delete`, "the group was deleted"), and the deletion lists them.
 - Workspaces, projects, credentials, launch configurations, schedules and environments made,
   changed, deleted; syncs and push hooks. A change names only the fields whose values changed.
 - Runs launched, stopped, run again, named by their flow and number (`Firewall firmware upgrade
@@ -32,14 +35,15 @@ and the yes/no and number values, never text (the one exception is an approval's
 is kept as the record of why it was decided). A refusal of a change to people, groups, workspaces,
 projects, grants, launch configurations, schedules, environments, runs or approvals keeps the
 server's reason. On the page, **About** filters by kind (access grants, schedules, approvals and
-the rest). Entries are only added; those older than
+the rest), and **Who** names people by their name (the login on hover). Entries are only added;
+those older than
 `AFS_AUDIT_KEEP_DAYS` (365, `0` keeps all) are removed every hour. Administrators read it on the
 page `/admin/audit`, or:
 
-| Address (under `/api/v1`) | Answers                                                                                                                                                                                               | Who            |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `GET /audit`              | `{entries, next}`, newest first. Filters: `actor`, `action` (`run` or `run.launch`), `objectType`, `objectId`, `result`, `source`, `from`, `to`. Paging: `before=<next>`, `limit` (100, at most 1000) | administrators |
-| `GET /audit/export`       | The same filters, as a file: `format=csv` (default) or `json`; at most 50000 entries                                                                                                                  | administrators |
+| Address (under `/api/v1`) | Answers                                                                                                                                                                                                                                                              | Who            |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `GET /audit`              | `{entries, next, refs, people}`, newest first (`people`: the names of the people in it, by id). Filters: `actor`, `action` (`run` or `run.launch`), `objectType`, `objectId`, `result`, `source`, `from`, `to`. Paging: `before=<next>`, `limit` (100, at most 1000) | administrators |
+| `GET /audit/export`       | The same filters, as a file: `format=csv` (default) or `json`; at most 50000 entries                                                                                                                                                                                 | administrators |
 
 ```sh
 curl -H "Authorization: Bearer $AFS_TOKEN" -o audit.csv \

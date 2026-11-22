@@ -191,6 +191,8 @@ function ProviderForm({
       >
         <Field
           label="Name"
+          // AFS-195: the form takes the focus when it opens, as Add a directory does.
+          autoFocus
           value={d.name}
           onChange={(e) =>
             set({

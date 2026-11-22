@@ -1327,7 +1327,10 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
     const route = request.routeOptions.url;
     const key = `${request.method} ${route}`;
     const doc = route ? ROUTES[key] : undefined;
-    if (!doc || doc.who === 'anyone' || doc.who === 'push hook token' || READS.has(key)) return;
+    // AFS-195: a draft's edits are kept with the draft, not in the audit log, but they are
+    // writes all the same: refused here first, not after a form error ("Path is needed.").
+    const open = READS.has(key) && !key.includes('/drafts');
+    if (!doc || doc.who === 'anyone' || doc.who === 'push hook token' || open) return;
     return reply.code(403).send({ error: 'read_only_token', message: 'This token may only read' });
   });
 

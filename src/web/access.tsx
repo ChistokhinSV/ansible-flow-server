@@ -2,6 +2,7 @@
 // do what there; everyone's pages show only what their level lets them do (the server decides
 // either way).
 import { type FormEvent, useId, useState } from 'react';
+import { LEVEL_NAME } from '../server/access/types';
 import {
   api,
   type Grant,
@@ -49,13 +50,8 @@ export const launchesInProject = (access: ProjectAccess | undefined): boolean =>
 export const flowLevel = (access: ProjectAccess | undefined, file: string): Level | null =>
   access?.admin ? 'rw' : (access?.flows[file] ?? access?.workspace ?? null);
 
-/** AFS-152: a level as people say it, not its code. */
-export const LEVEL_NAME: Record<GrantLevel, string> = {
-  ro: 'read only',
-  operator: 'operator',
-  rw: 'read and write',
-  approve: 'approver',
-};
+export { LEVEL_NAME };
+
 const LEVEL_DOES: Record<GrantLevel, string> = {
   ro: 'sees flows and runs, clones',
   operator: 'launches as configured, stops runs',

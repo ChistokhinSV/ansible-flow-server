@@ -431,7 +431,7 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
       )}
       {!!list.data?.length && (
         <Scroll>
-          <table>
+          <table className="credential-list">
             <thead>
               <tr>
                 <th scope="col">Name</th>
@@ -448,11 +448,11 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
             <tbody>
               {list.data.map((c) => (
                 <tr key={c.id}>
-                  <td>
+                  <td className="credential-name">
                     {c.name}
                     {c.description && <div className="muted">{c.description}</div>}
                   </td>
-                  <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
+                  <td className="kind">{KIND_LABEL[c.kind] ?? c.kind}</td>
                   <td className="long">{holds(c)}</td>
                   <td>
                     <UsedBy credential={c} workspace={workspace} />
