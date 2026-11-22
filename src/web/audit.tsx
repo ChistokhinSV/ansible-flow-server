@@ -20,8 +20,15 @@ const SOURCE_LABEL: Record<string, string> = {
 const dayAfter = (day: string) =>
   new Date(Date.parse(`${day}T00:00:00`) + 24 * 60 * 60 * 1000).toISOString();
 
-function Who({ entry }: { entry: AuditEntry }) {
-  if (entry.actor) return <span className="login">{entry.actor.login}</span>;
+function Who({ entry, people }: { entry: AuditEntry; people: Record<string, string> }) {
+  // AFS-195: by name, as every other page; the login stays at hand.
+  const name = entry.actor?.id ? people[entry.actor.id] : undefined;
+  if (entry.actor)
+    return name && name !== entry.actor.login ? (
+      <span title={entry.actor.login}>{name}</span>
+    ) : (
+      <span className="login">{entry.actor.login}</span>
+    );
   const os = entry.detail?.osUser;
   if (entry.source === 'cli')
     return <span className="muted">on the server{typeof os === 'string' ? ` (${os})` : ''}</span>;
@@ -168,6 +175,7 @@ export function AuditPage() {
   const [to, setTo] = useState(choices.until);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [refs, setRefs] = useState<Refs>({});
+  const [people, setPeople] = useState<Record<string, string>>({});
   const [next, setNext] = useState<string | undefined>();
   const [state, setState] = useState<{ loading: boolean; error?: string }>({ loading: true });
 
@@ -177,6 +185,7 @@ export function AuditPage() {
       const page = await api.audit({ ...filter, ...(before ? { before } : {}), limit: 100 });
       setEntries((shown) => (before ? [...shown, ...page.entries] : page.entries));
       setRefs((known) => (before ? { ...known, ...page.refs } : (page.refs ?? {})));
+      setPeople((known) => (before ? { ...known, ...page.people } : (page.people ?? {})));
       setNext(page.next);
       setState({ loading: false });
     } catch (e) {
@@ -293,7 +302,7 @@ export function AuditPage() {
                     <Time at={e.at} />
                   </td>
                   <td className="audit-who">
-                    <Who entry={e} />
+                    <Who entry={e} people={people} />
                   </td>
                   <td>
                     {SOURCE_LABEL[e.source] ?? e.source}
@@ -320,7 +329,8 @@ export function AuditPage() {
                   </td>
                   <td>
                     <span
-                      className={`badge ${e.result === 'ok' ? 'ok' : e.result === 'failed' ? 'bad' : 'busy'}`}
+                      // AFS-195: refused in the warning colour, never close to ok.
+                      className={`badge ${e.result === 'ok' ? 'ok' : e.result === 'failed' ? 'bad' : 'warn'}`}
                     >
                       {e.result}
                       {e.status && e.result !== 'ok' ? ` ${e.status}` : ''}

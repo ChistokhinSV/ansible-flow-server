@@ -1803,7 +1803,16 @@ function ConfigForm({
                 <option key={e.id} value={e.id}>
                   {e.name}
                   {/* AFS-153: an image is pulled, a definition is built. */}
-                  {e.current ? '' : e.kind === 'spec' ? ' (not built yet)' : ' (not pulled yet)'}
+                  {e.current
+                    ? ''
+                    : e.latest?.state === 'failed'
+                      ? // AFS-195: a failed pull or build is said as such, not "not yet".
+                        e.kind === 'spec'
+                        ? ' (its build failed)'
+                        : ' (its pull failed)'
+                      : e.kind === 'spec'
+                        ? ' (not built yet)'
+                        : ' (not pulled yet)'}
                 </option>
               ))}
               <option value={IMAGE_BY_NAME}>an image by name…</option>

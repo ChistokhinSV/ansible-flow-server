@@ -11,7 +11,9 @@ launch configuration's own image, else the server's default image, is used.
 environment or image. It starts as `AFS_EE_IMAGE`. An administrator can make an environment the
 default instead (**Make it the server's default** on its page; **Go back to AFS_EE_IMAGE** undoes
 it): build one with the collections the team always needs, and runs without an environment get its
-newest good image. While the environment picked has no image yet, `AFS_EE_IMAGE` is used. The
+newest good image. The page offers it only for an environment that has an image (a pull or build
+that failed leaves none); while the environment picked has no image (through the API), `AFS_EE_IMAGE`
+is used. The
 environments list and each environment's page say which image is the default; a run's **What ran**
 names the image it got, marked as the server's default. The default environment cannot be deleted
 until another is picked.
@@ -27,7 +29,7 @@ until another is picked.
   and its collections). Builds go one at a time; each has a log. Collection server out of reach:
   pin exact versions, or point `AFS_GALAXY_URL` at one that can be reached.
 - **An existing image** is pulled (or, when it has no registry, the engine's copy is used) and
-  read the same way.
+  read the same way. Its page speaks of pulls: **Pulls**, each with its log, "Pull 1 failed".
 - Images of builds beyond an environment's newest few (`keep`, 3) are removed from the engine.
 - The **ansible-builder file** (`execution-environment.yml`, version 3) describes the same
   environment for AWX or AAP: ansible-core, ansible-runner, the collections at the versions the

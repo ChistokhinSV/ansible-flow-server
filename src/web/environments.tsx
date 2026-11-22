@@ -45,11 +45,15 @@ const STATE_LABEL: Record<string, string> = {
 export const environmentAddress = (workspace: string, id: string) =>
   `/w/${encodeURIComponent(workspace)}/environments/${encodeURIComponent(id)}`;
 
-function BuildBadge({ build }: { build?: EnvironmentBuild }) {
-  if (!build) return <span className="badge">not built</span>;
+/** AFS-195: what an environment's build is called: an existing image is pulled, not built. */
+const pulled = (env: { kind: string }) => env.kind === 'image';
+const PULL_LABEL: Record<string, string> = { ...STATE_LABEL, done: 'pulled', building: 'pulling' };
+
+function BuildBadge({ build, pull = false }: { build?: EnvironmentBuild; pull?: boolean }) {
+  if (!build) return <span className="badge">{pull ? 'not pulled' : 'not built'}</span>;
   return (
     <span className={`badge ${STATE_TONE[build.state] ?? ''}`}>
-      {STATE_LABEL[build.state] ?? build.state}
+      {(pull ? PULL_LABEL : STATE_LABEL)[build.state] ?? build.state}
     </span>
   );
 }
@@ -201,7 +205,7 @@ export function WorkspaceEnvironments({
                     )}
                   </td>
                   <td>
-                    <BuildBadge build={e.latest} />
+                    <BuildBadge build={e.latest} pull={pulled(e)} />
                   </td>
                   {/* AFS-153: one way of saying it in every row. */}
                   <td>
@@ -554,14 +558,16 @@ function Builds({
       clearInterval(timer);
     };
   }, [open, going, env.id]);
-  if (!builds.length) return <p className="empty">Not built yet.</p>;
+  const word = pulled(env) ? 'Pull' : 'Build';
+  if (!builds.length)
+    return <p className="empty">{pulled(env) ? 'Not pulled yet.' : 'Not built yet.'}</p>;
   return (
     <>
       <Scroll>
         <table>
           <thead>
             <tr>
-              <th scope="col">Build</th>
+              <th scope="col">{word}</th>
               <th scope="col">State</th>
               <th scope="col">Image</th>
               <th scope="col">By</th>
@@ -580,7 +586,7 @@ function Builds({
                   </div>
                 </td>
                 <td>
-                  <BuildBadge build={b} />
+                  <BuildBadge build={b} pull={pulled(env)} />
                   {b.pruned && <div className="muted">image removed</div>}
                   {b.error && <div className="bad-text">{b.error}</div>}
                 </td>
@@ -602,7 +608,9 @@ function Builds({
       </Scroll>
       {open && (
         <>
-          <h3>Log of build {builds.find((b) => b.id === open)?.number}</h3>
+          <h3>
+            Log of {word.toLowerCase()} {builds.find((b) => b.id === open)?.number}
+          </h3>
           <pre className="log">{log || '(nothing yet)'}</pre>
         </>
       )}
@@ -631,10 +639,14 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
     !!env.spec &&
     (!exact(env.spec.ansibleCore) || env.spec.collections.some((c) => !exact(c.version)));
   const changed = env.kind === 'spec' && env.updatedAt > newest.createdAt;
+  // AFS-195: an existing image is pulled: its failed pull is not called a build.
+  const pull = pulled(env);
+  const word = pull ? 'Pull' : 'Build';
   if (newest.state === 'queued' || newest.state === 'building')
     return (
       <p className="notice" role="status">
-        Build {newest.number} is {newest.state === 'queued' ? 'waiting to start' : 'building'}
+        {word} {newest.number} is{' '}
+        {newest.state === 'queued' ? 'waiting to start' : pull ? 'pulling' : 'building'}
         {newest.startedAt && (
           <>
             {' '}
@@ -647,9 +659,18 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
   if (newest.state === 'failed')
     return (
       <p className="notice error" role="status">
-        Build {newest.number} failed <Time at={newest.endedAt ?? newest.createdAt} />
+        {word} {newest.number} failed <Time at={newest.endedAt ?? newest.createdAt} />
         {newest.error ? `: ${newest.error}` : ''}.{' '}
-        {env.current ? 'Runs still get the image of an earlier build.' : 'Runs get no image yet.'}
+        {env.current
+          ? `Runs still get the image of an earlier ${word.toLowerCase()}.`
+          : 'Runs get no image yet.'}
+      </p>
+    );
+  if (pull)
+    return (
+      <p className="notice ok" role="status">
+        Pulled: pull {newest.number}, <Time at={newest.endedAt ?? newest.createdAt} />
+        {newest.image === env.current ? ', is the image runs get now' : ''}.
       </p>
     );
   return (
@@ -827,6 +848,14 @@ export function EnvironmentPage({
                     <div className="actions">
                       <button
                         type="button"
+                        // AFS-195: one with no image (a failed pull, never built) is not offered
+                        // as everyone's default; going back is always offered.
+                        disabled={!env.current && serverImage.data.environment?.id !== env.id}
+                        title={
+                          !env.current && serverImage.data.environment?.id !== env.id
+                            ? `It has no image yet: ${pulled(env) ? 'pull' : 'build'} it first`
+                            : undefined
+                        }
                         onClick={async () => {
                           setDefaultError(undefined);
                           const mine = serverImage.data?.environment?.id === env.id;
@@ -914,7 +943,7 @@ export function EnvironmentPage({
         )}
       </div>
       <section aria-labelledby="builds">
-        <h2 id="builds">Builds</h2>
+        <h2 id="builds">{pulled(env) ? 'Pulls' : 'Builds'}</h2>
         <Loading state={builds} />
         {builds.data && <Builds env={env} builds={builds.data} reload={reload} />}
       </section>

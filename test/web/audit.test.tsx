@@ -43,6 +43,19 @@ afterEach(() => {
 });
 
 describe('the audit log', () => {
+  it('names who by their name, with the login at hand (AFS-195)', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /audit?limit=100': () => ({
+        body: { entries: [entry(1)], people: { u1: 'Dana Whitfield' } },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/audit');
+    render(<App />);
+    const who = await screen.findByText('Dana Whitfield', { selector: 'td span' });
+    expect(who.getAttribute('title')).toBe('dana');
+  });
+
   it('administration leads to it', async () => {
     routes = { 'GET /session': () => ({ body: dana }) };
     window.history.replaceState(null, '', '/admin');
@@ -97,6 +110,8 @@ describe('the audit log', () => {
     expect(screen.getByText('mallory').className).toBe('login');
     expect(screen.getByText('login typed, not signed in')).toBeTruthy();
     expect(screen.getByText('refused 401')).toBeTruthy();
+    // AFS-195: refused in the warning colour, not the colour of ok.
+    expect(screen.getByText('refused 401').className).toBe('badge warn');
 
     fireEvent.click(screen.getByRole('button', { name: 'Older entries' }));
     await screen.findByText('on the server (root)');

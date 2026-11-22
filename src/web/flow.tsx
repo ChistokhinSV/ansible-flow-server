@@ -420,7 +420,10 @@ export function FlowPage({
           <Link to={`/w/${workspace}/${key}`}>
             <ProjectName workspace={workspace} project={key} />
           </Link>{' '}
-          / <span aria-current="page">{file}</span>
+          /{' '}
+          <span aria-current="page" title={file}>
+            {file}
+          </span>
         </Breadcrumb>
         <PageHead
           title={!found.loading && !project ? 'Not found' : title}
@@ -949,9 +952,17 @@ function Modal({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // AFS-195: closed (Escape, Cancel), focus goes back where it was (Save, the canvas), not to the
+  // page's body: the dialog leaves the page before it is closed, so the browser cannot. Read as
+  // it opens, before its field takes focus.
+  const before = useRef<HTMLElement | null>(null);
+  if (!open) before.current = null;
+  else if (!before.current && document.activeElement instanceof HTMLElement)
+    before.current = document.activeElement;
   useEffect(() => {
     const d = ref.current;
     if (!d || !open) return;
+    const back = before.current;
     if (typeof d.showModal === 'function') {
       try {
         d.showModal();
@@ -962,6 +973,7 @@ function Modal({
     return () => {
       if (typeof d.close === 'function' && d.open) d.close();
       d.removeAttribute('open');
+      if (back && back !== document.body && back.isConnected) back.focus();
     };
   }, [open]);
   if (!open) return null;

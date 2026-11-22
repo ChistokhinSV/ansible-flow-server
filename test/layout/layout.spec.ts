@@ -181,6 +181,14 @@ for (const [width, height] of SIZES)
             `the canvas is ${Math.round(tall)}px tall in a ${Math.round(frame.height)}px frame`,
           );
       }
+      // AFS-195: a flow's page fits the window from tablet width up: it does not scroll a few
+      // pixels because the breadcrumb took a third line.
+      if ((name === 'flow' || name === 'flowDeep') && width >= 768) {
+        const over = await page.evaluate(
+          () => document.documentElement.scrollHeight - window.innerHeight,
+        );
+        if (over > 1) found.push(`the flow's page scrolls ${over}px down`);
+      }
       // AFS-165: editing, the canvas is right under the head: no lines of text between. AFS-186:
       // who is here is a line in the head, so someone coming or going never moves the canvas.
       if (name === 'flowEdit') {

@@ -219,6 +219,22 @@ describe("a flow's draft on its page (AFS-149)", () => {
     );
   });
 
+  it('gives focus back to Save when its dialog is closed by Escape (AFS-195)', async () => {
+    routes = base();
+    await editing();
+    const save = screen.getByRole('button', { name: 'Save' });
+    save.focus();
+    fireEvent.click(save);
+    const field = within(saveForm()).getByLabelText("What changed (the commit's message)");
+    field.focus();
+    const dialog = field.closest('dialog') as HTMLDialogElement;
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('form', { name: 'Save the draft' })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save' }));
+  });
+
   it('tells the others a save is coming while Save is open, and says so when someone else opens it (AFS-171)', async () => {
     routes = { ...base(), 'POST /drafts/d1/here': () => ({ body: { people: [] } }) };
     await editing();

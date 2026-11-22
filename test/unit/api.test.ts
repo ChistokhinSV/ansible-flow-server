@@ -191,6 +191,14 @@ for (const [name, config] of databases) {
       expect(
         (await call('POST', `/api/v1/users/${bot.id}/tokens`, secret, { name: 'x' })).statusCode,
       ).toBe(403);
+      // AFS-195: opening a draft is a write: refused before its form is checked (no ?path).
+      const draft = await call(
+        'POST',
+        '/api/v1/projects/00000000-0000-4000-8000-000000000000/drafts',
+        secret,
+      );
+      expect(draft.statusCode).toBe(403);
+      expect(draft.json().error).toBe('read_only_token');
     });
 
     it('a token for one workspace reaches that workspace and nothing else', async () => {

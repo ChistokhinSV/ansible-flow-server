@@ -3,6 +3,14 @@ export const LEVELS = ['ro', 'operator', 'rw'] as const;
 export type Level = (typeof LEVELS)[number];
 export type GrantLevel = Level | 'approve';
 
+/** AFS-152: a level as people say it, not its code (AFS-195: the audit log says it so too). */
+export const LEVEL_NAME: Record<GrantLevel, string> = {
+  ro: 'read only',
+  operator: 'operator',
+  rw: 'read and write',
+  approve: 'approver',
+};
+
 export interface Grant {
   id: string;
   principal: { type: 'user' | 'group'; id: string; name: string };
