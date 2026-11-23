@@ -5,6 +5,8 @@
 - Extended by: ADR-0037 (AFS-176: links from NetBox and Zabbix, signed links, the result back; a
   host list narrowed to a group; fixed values no longer named in "What will happen"; the progress
   view for who sees the flow's runs and who started the run, not every runner of the action)
+- Amended by AFS-206 (2026-11-23): who rw may give an action to; action grants in the access
+  tables; ending grants in the audit log (see "Amendment" below)
 
 ## Context
 
@@ -78,3 +80,31 @@ inventory and a canvas.
 - A run's record shows it came from an action (its title), so lists and the audit log say so.
 - Actions do not show the flow's canvas, commit or inventory to their runners; whoever needs those
   needs ro on the flow.
+
+## Amendment (AFS-206): whom an action is given to, and one access table
+
+- **Context:** `POST /launch-configs/:id/action/grants` named a person by login or a group by
+  name and answered 404 "No user x" or 201 with the person's full name. Someone with rw on one
+  workspace could so list the server's logins, names and groups, which only administrators list
+  (`GET /users`).
+- **Decision:** someone who is not an administrator gives an action only to people and groups who
+  already reach the workspace: a grant on it, on one of its flows or on one of its actions, their
+  own or (for people) a group's. Anyone else, and a name that does not exist, get one answer: 404
+  "No person (group) x with access to this workspace: name one who has, or ask an administrator
+  to give it". The configuration's action (`GET …/action`) gives its managers `people` (the
+  workspace's people and groups) for the form to offer. Administrators give it to anyone, as
+  before.
+- **Rejected:** a uniform 201 for every name (a grant held by name until such a person exists):
+  a typo would go unnoticed and the grant list would still tell; a rate limit only slows the
+  listing.
+- **Consequence:** a person's first action in a workspace where they have nothing comes from an
+  administrator (who creates the person anyway); from then on rw may give them more.
+- **One access table:** what a person reaches (`GET /users/:id/access`, `/session/access`) and who
+  can do what in a workspace (`GET /workspaces/:id/access`) list the actions an action grant
+  gives (`actions`), and a workspace reached through actions only has a row. The Access tab lists
+  every action of the workspace (`GET /workspaces/:id/actions`, rw on the workspace), granted or
+  not. `Access` (levels) still does not read action grants.
+- **Ending is recorded:** deleting a person, a group, a launch configuration that is an action, or
+  the action, records `action.grant-remove` for each grant that ends (and `action.remove` for an
+  action that ends with its configuration), with `why`, as access grants are for a deleted person.
+  An action grant's entry names the person or group, not the grant's id.

@@ -105,7 +105,7 @@ describe('the audit log', () => {
     };
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
-    await screen.findByText('workspace.change');
+    await screen.findByText('changed a workspace');
     // AFS-153: the login typed for a refused sign-in, said as such, on one line.
     expect(screen.getByText('mallory').className).toBe('login');
     expect(screen.getByText('login typed, not signed in')).toBeTruthy();
@@ -134,7 +134,7 @@ describe('the audit log', () => {
     };
     window.history.replaceState(null, '', '/admin/audit?who=a1&about=user&bogus=1');
     render(<App />);
-    await screen.findByText('workspace.change');
+    await screen.findByText('changed a workspace');
     expect(asked).toContain('GET /audit?actor=a1&action=user&limit=100');
     expect((screen.getByLabelText(/Who/) as HTMLInputElement).value).toBe('a1');
     fireEvent.change(screen.getByLabelText(/Result/), { target: { value: 'refused' } });
@@ -179,7 +179,7 @@ describe('the audit log', () => {
     };
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
-    await screen.findByText('launch-config.create');
+    await screen.findByText('added a launch configuration');
     expect(screen.getByRole('link', { name: 'Back up edge' }).getAttribute('href')).toBe(
       `/w/net/edge/launch/${LC}`,
     );
@@ -222,7 +222,7 @@ describe('the audit log', () => {
     };
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
-    await screen.findAllByText('run.relaunch');
+    await screen.findAllByText('ran again');
     expect(screen.getByRole('link', { name: 'Back up edge #4' }).getAttribute('href')).toBe(
       `/runs/${NEW}`,
     );
@@ -259,7 +259,10 @@ describe('the audit log', () => {
     };
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
-    await screen.findByText('project.create');
+    // AFS-206: what was done in words, its code on hover.
+    expect((await screen.findByText('added a project')).getAttribute('title')).toBe(
+      'project.create',
+    );
     expect(screen.getByText('token a1-readonly')).toBeTruthy();
     expect(screen.getByText('token e428a134…')).toBeTruthy();
     // Said once: not again among the detail.

@@ -1437,6 +1437,12 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
 /** AFS-84: a project's tabs, by the end of their address (Files is a page of its own). */
 export type ProjectTab = '' | 'runs' | 'history' | 'branches' | 'settings';
 
+/** AFS-206: a workspace's tabs, as a mistyped address may name them. */
+const WORKSPACE_TAB_KEYS = ['access', 'environments', 'credentials'];
+
+/** AFS-206: the lead of a project's page for who sees some of its flows only. */
+const seeFlows = (n: number) => `You see ${n} flow${n === 1 ? '' : 's'} of this project`;
+
 /** How many runs a project's page asks for: its Runs tab lists them, Overview the newest few. */
 const RUNS_SHOWN = 100;
 /** AFS-149: how a push came, in the Pushes list. */
@@ -1466,15 +1472,31 @@ export function ProjectPage({
   // AFS-109: the New flow form, open or not.
   const [newFlow, setNewFlow] = useState(false);
   const project = found.data;
+  // AFS-206: a workspace's tab typed without its `-` (/w/network/access) goes to the tab, when no
+  // project has that key.
+  const gone = !found.loading && !found.error && !project;
+  useEffect(() => {
+    if (gone && !tab && WORKSPACE_TAB_KEYS.includes(key))
+      navigate(`/w/${workspace}/-/${key}`, { replace: true });
+  }, [gone, tab, key, workspace]);
   const id = project?.id;
-  const access = useProjectAccess(id).data;
+  const accessState = useProjectAccess(id);
+  const access = accessState.data;
+  // AFS-206: grants on some flows only: those flows and their runs are all the page shows; the
+  // repository's tabs are not offered (the server refuses or narrows what they read). What they
+  // read is asked once the access is known, so it is not asked for such a person at all.
+  const flowOnly = !me.admin && !!access?.flowOnly;
+  const repository = !!id && (access ? !flowOnly : !!accessState.error);
   // AFS-139: read again when the project's commit moves (a start from a sample or an archive, a
   // push, a branch made elsewhere): the Branches tab and its count follow without a reload.
   const branchList = useLoad(
-    async () => (id ? await api.branches(id) : undefined),
-    [id, project?.commit],
+    async () => (id && repository ? await api.branches(id) : undefined),
+    [id, project?.commit, repository],
   );
-  const pushes = useLoad(async () => (id ? api.pushes(id) : []), [id, project?.commit]);
+  const pushes = useLoad(
+    async () => (id && repository ? api.pushes(id) : []),
+    [id, project?.commit, repository],
+  );
   const runs = useLoad(async () => (id ? api.runs({ project: id, limit: RUNS_SHOWN }) : []), [id]);
   const flows = useLoad(
     async () => (id ? api.flows(id) : ({ flows: [] } as FlowList)),
@@ -1548,6 +1570,19 @@ export function ProjectPage({
   const mayPush = me.admin || access?.workspace === 'rw';
   const mayReadFiles = me.admin || atLeast(access?.workspace ?? null, 'ro');
   const base = `/w/${workspace}/${key}`;
+  const repositoryTabs = [
+    // Everything else in the repository (AFS-78) is a page of its own.
+    // AFS-159: an empty project the server hosts takes files before its first flow too.
+    ...(project.commit || (project.hosted && mayPush) ? [{ key: 'files', label: 'Files' }] : []),
+    // AFS-123: the commits of the project, for who may read its files.
+    ...(project.commit && mayReadFiles ? [{ key: 'history', label: 'History' }] : []),
+    {
+      key: 'branches',
+      label: 'Branches',
+      ...(branchList.data?.details ? { count: branchList.data.details.length } : {}),
+    },
+    { key: 'settings', label: 'Settings' },
+  ];
   // AFS-192: a mirror whose source cannot be read (or has no commit yet) shows Source first:
   // the problem and the address to fix come before the rest of the settings.
   const sourceFirst = !project.hosted && (project.sync.state === 'error' || !project.commit);
@@ -1584,7 +1619,11 @@ export function ProjectPage({
         lead={
           <>
             {project.description && <>{project.description} · </>}
-            {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
+            {flowOnly
+              ? seeFlows(Object.keys(access?.flows ?? {}).length)
+              : project.hosted
+                ? 'Kept by this server'
+                : `Mirror of ${project.gitUrl}`}
             {access && (
               <>
                 {' · '}
@@ -1621,21 +1660,17 @@ export function ProjectPage({
         tabs={[
           { key: '', label: 'Overview' },
           { key: 'runs', label: 'Runs' },
-          // Everything else in the repository (AFS-78) is a page of its own.
-          // AFS-159: an empty project the server hosts takes files before its first flow too.
-          ...(project.commit || (project.hosted && mayPush)
-            ? [{ key: 'files', label: 'Files' }]
-            : []),
-          // AFS-123: the commits of the project, for who may read its files.
-          ...(project.commit && mayReadFiles ? [{ key: 'history', label: 'History' }] : []),
-          {
-            key: 'branches',
-            label: 'Branches',
-            ...(branchList.data?.details ? { count: branchList.data.details.length } : {}),
-          },
-          { key: 'settings', label: 'Settings' },
+          // AFS-206: nothing of the repository for who sees some of its flows only.
+          ...(flowOnly ? [] : repositoryTabs),
         ]}
       />
+      {flowOnly && tab !== '' && tab !== 'runs' && (
+        <p className="empty">
+          You see only the flows you were given here and their runs. The project's files, history,
+          branches and settings are for who has access to the whole workspace: ask an administrator
+          for it.
+        </p>
+      )}
 
       {tab === '' && (
         <>
@@ -1739,6 +1774,7 @@ export function ProjectPage({
       )}
 
       {tab === 'history' &&
+        !flowOnly &&
         (project.commit && mayReadFiles ? (
           <ProjectHistory workspace={workspace} project={project} />
         ) : access ? (
@@ -1749,7 +1785,7 @@ export function ProjectPage({
           </p>
         ) : null)}
 
-      {tab === 'branches' && (
+      {tab === 'branches' && !flowOnly && (
         <>
           <Loading state={branchList} />
           {branchList.data && (
@@ -1809,7 +1845,7 @@ export function ProjectPage({
         </>
       )}
 
-      {tab === 'settings' && (
+      {tab === 'settings' && !flowOnly && (
         <>
           {sourceFirst && source}
           {me.admin && (

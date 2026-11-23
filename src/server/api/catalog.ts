@@ -642,6 +642,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     W,
   )("Who may run the workspace's actions"),
+  'GET /api/v1/workspaces/:id/actions': S(
+    'Actions',
+    'administrators',
+    W,
+  )(
+    'Every action of the workspace, on or off, with who may run it through a grant (operators of its flow and administrators may too)',
+  ),
 
   'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
     "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
@@ -1073,7 +1080,8 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/workspaces/:id/projects': 'can see',
   'GET /api/v1/projects/:id': 'can see',
   'GET /api/v1/projects/:id/branches': 'can see',
-  'GET /api/v1/projects/:id/pushes': 'can see',
+  // AFS-206: the pushes' messages and authors are the repository's: ro on it, as History.
+  'GET /api/v1/projects/:id/pushes': 'ro',
   'GET /api/v1/projects/:id/flows': 'can see',
   'GET /api/v1/projects/:id/access': 'can see',
   'GET /api/v1/projects/:id/flows/view': 'ro',
@@ -1109,7 +1117,7 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/projects/:id/vars': 'ro',
   'POST /api/v1/projects/:id/files': 'rw on the workspace',
   'POST /api/v1/projects/:id/sync': 'rw on the workspace',
-  'GET /api/v1/projects/:id/host-key': 'can see',
+  'GET /api/v1/projects/:id/host-key': 'ro',
   'POST /api/v1/projects/:id/branches': 'rw on the workspace',
   'DELETE /api/v1/projects/:id/branches': 'rw on the workspace',
   'POST /api/v1/projects/:id/start': 'rw on the workspace',
@@ -1159,6 +1167,7 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/launch-configs/:id/action/grants': 'rw on the workspace',
   'DELETE /api/v1/launch-configs/:id/action/grants/:grant': 'rw on the workspace',
   'GET /api/v1/workspaces/:id/action-grants': 'rw on the workspace',
+  'GET /api/v1/workspaces/:id/actions': 'rw on the workspace',
   // AFS-176: signed links are made and revoked by who sets up the action.
   'GET /api/v1/launch-configs/:id/action/tokens': 'rw on the workspace',
   'POST /api/v1/launch-configs/:id/action/tokens': 'rw on the workspace',

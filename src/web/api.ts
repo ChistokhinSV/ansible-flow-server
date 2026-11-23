@@ -10,6 +10,7 @@ import type {
   GroupGrant,
   Level,
   MyAccess,
+  ReachedAction,
   UserReach,
 } from '../server/access/types';
 import type {
@@ -23,6 +24,7 @@ import type {
   ActionProgress,
   ActionSettings,
   ActionToken,
+  WorkspaceAction,
   WorkspaceActionGrant,
 } from '../server/actions/types';
 import type { Gate, WaitingApproval } from '../server/approvals/types';
@@ -122,6 +124,7 @@ export type {
   Problem,
   Project,
   Push,
+  ReachedAction,
   Run,
   RunNotify,
   Schedule,
@@ -135,6 +138,7 @@ export type {
   UserReach,
   WaitingApproval,
   Workspace,
+  WorkspaceAction,
 };
 
 export class ApiError extends Error {
@@ -256,6 +260,11 @@ export interface ProjectAccess {
   workspace: Level | null;
   approve: boolean;
   flows: Record<string, Level | null>;
+  /**
+   * AFS-206: their grants here are on some flows only (no level on the workspace): the pages show
+   * those flows and their runs, nothing else of the project.
+   */
+  flowOnly?: boolean;
 }
 
 /** Who can do what in a workspace, as their grants come out. */
@@ -267,6 +276,8 @@ export interface WhoCan {
   workspace: Level | null;
   approve: boolean;
   flows: { project: string; projectId: string; file: string; level: Level | null }[];
+  /** AFS-206: the actions an action grant lets them run. */
+  actions: ReachedAction[];
   through: string[];
 }
 
@@ -756,6 +767,11 @@ export const api = {
       action: Action | null;
       grants?: ActionGrant[];
       tokens?: ActionToken[];
+      /** AFS-206: whom it may be given to: the workspace's people and groups. */
+      people?: {
+        users: { id: string; login: string; name: string }[];
+        groups: { id: string; name: string }[];
+      };
       mayManage: boolean;
     }>('GET', `/launch-configs/${encodeURIComponent(config)}/action`),
   setConfigAction: (config: string, settings: ActionSettings) =>
@@ -781,6 +797,9 @@ export const api = {
       'DELETE',
       `/launch-configs/${encodeURIComponent(config)}/action/tokens/${encodeURIComponent(token)}`,
     ),
+  /** AFS-206: every action of a workspace, with who may run it. */
+  workspaceActions: (workspace: string) =>
+    call<WorkspaceAction[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/actions`),
   workspaceActionGrants: (workspace: string) =>
     call<WorkspaceActionGrant[]>(
       'GET',

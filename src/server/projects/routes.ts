@@ -14,7 +14,7 @@ import type { ServerResponse } from 'node:http';
 import { type LibrarySubflow, libraryFindings, usesLibrary } from '@ansible-flow/core/flow/library';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
-import { accessOf, atLeast } from '../access/grants';
+import { type Access, accessOf, atLeast } from '../access/grants';
 import { administrator, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { Schema } from '../db/schema';
@@ -48,6 +48,7 @@ import {
   listPushes,
   listWorkspaces,
   newHookToken,
+  type Project,
   ProjectError,
   removeHookToken,
   updateProject,
@@ -125,12 +126,40 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     };
   type WithId = { Params: { id: string } };
 
+  /**
+   * AFS-206: a person whose grants in a workspace are on some of its flows only (no level on the
+   * workspace) sees those flows and their runs, nothing of the repository beyond them: not its
+   * branches' commits, pushes, files or history, nor the other flows' names, nor how many
+   * projects the workspace has.
+   */
+  const flowOnly = (access: Access | undefined, workspace: string) =>
+    !!access && !access.admin && !access.onWorkspace(workspace);
+  /** A project as a flow-only person reads it: without its source, credential or source errors. */
+  const shownTo = (access: Access | undefined, project: Project): Project => {
+    if (!flowOnly(access, project.workspace)) return project;
+    const { gitUrl: _url, gitCredential: _credential, ...rest } = project;
+    return {
+      ...rest,
+      sync: { state: project.sync.state, ...(project.sync.at ? { at: project.sync.at } : {}) },
+    };
+  };
+  /** How many of a workspace's projects the person sees (AFS-206: not the workspace's count). */
+  const seenCount = async (
+    access: Access | undefined,
+    workspace: { id: string; projects: number },
+  ) =>
+    !access || access.admin || access.onWorkspace(workspace.id)
+      ? workspace.projects
+      : (await listProjects(db, workspace.id)).filter((p) => access.sees(workspace.id, p.id))
+          .length;
+
   // --- workspaces
 
   app.get('/api/v1/workspaces', async (request, reply) => {
     if (!signedIn(request, reply)) return reply;
     const access = await accessOf(db, request);
-    return (await listWorkspaces(db)).filter((w) => access?.sees(w.id));
+    const seen = (await listWorkspaces(db)).filter((w) => access?.sees(w.id));
+    return Promise.all(seen.map(async (w) => ({ ...w, projects: await seenCount(access, w) })));
   });
 
   app.post<{ Body: { key: string; name: string; description?: string } }>(
@@ -158,7 +187,11 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     if (!ws) return reply.code(404).send(NO_WORKSPACE);
     // AFS-32: the caller's own level on it, so the pages show only what it allows.
     const access = await accessOf(db, request);
-    return { ...ws, level: me.admin ? 'admin' : (access?.onWorkspace(ws.id) ?? null) };
+    return {
+      ...ws,
+      projects: await seenCount(access, ws),
+      level: me.admin ? 'admin' : (access?.onWorkspace(ws.id) ?? null),
+    };
   });
 
   app.patch<
@@ -208,7 +241,9 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     const workspace = await getWorkspace(db, request.params.id);
     if (!workspace) return reply.code(404).send(NO_WORKSPACE);
     const access = await accessOf(db, request);
-    return (await listProjects(db, workspace.id)).filter((p) => access?.sees(workspace.id, p.id));
+    return (await listProjects(db, workspace.id))
+      .filter((p) => access?.sees(workspace.id, p.id))
+      .map((p) => shownTo(access, p));
   });
 
   type NewProjectBody = {
@@ -335,7 +370,9 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
 
   app.get<WithId>('/api/v1/projects/:id', { schema: ID }, async (request, reply) => {
     if (!signedIn(request, reply)) return reply;
-    return (await getProject(db, request.params.id)) ?? reply.code(404).send(NO_PROJECT);
+    const project = await getProject(db, request.params.id);
+    if (!project) return reply.code(404).send(NO_PROJECT);
+    return shownTo(await accessOf(db, request), project);
   });
 
   type ProjectChangeBody = {
@@ -498,7 +535,11 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     if (!project) return reply.code(404).send(NO_PROJECT);
     // `branches`: the names, as before; `details`: each with its newest commit (AFS-59).
     const details = await listBranches(deps, project);
-    return { branches: details.map((b) => b.name).sort(), details };
+    const branches = details.map((b) => b.name).sort();
+    // AFS-206: a flow-only person gets the names (to launch a branch their flow grant allows),
+    // not the newest commits' messages and authors, which are the repository's.
+    if (flowOnly(await accessOf(db, request), project.workspace)) return { branches };
+    return { branches, details };
   });
 
   app.post<WithId & { Body: { name: string; from: string } }>(
@@ -822,6 +863,7 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
     if (!project) return reply.code(404).send(NO_PROJECT);
     const access = await accessOf(db, request);
     if (!access) return reply;
+    const only = flowOnly(access, project.workspace);
     let files: string[] = [];
     try {
       files = (await flows.list(project.id, project.commit)).flows.map((f) => f.file);
@@ -832,9 +874,16 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
       admin: access.admin,
       workspace: access.onWorkspace(project.workspace) ?? null,
       approve: access.approves(project.workspace),
+      // AFS-206: someone with grants on some flows only learns of those flows, not the others'
+      // files; `flowOnly` tells the pages to show them only those flows and their runs.
       flows: Object.fromEntries(
-        files.map((file) => [file, access.onFlow(project.workspace, project.id, file) ?? null]),
+        files
+          .map(
+            (file) => [file, access.onFlow(project.workspace, project.id, file) ?? null] as const,
+          )
+          .filter(([, level]) => !only || level),
       ),
+      flowOnly: only,
     };
   });
 

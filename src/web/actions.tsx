@@ -18,7 +18,7 @@ import {
 import { ask } from './confirm';
 import { Link, navigate } from './router';
 import { StateBadge } from './runs';
-import { ago, Labelled, Loading, messageOf, PageHead, useLoad } from './ui';
+import { ago, Labelled, Loading, messageOf, PageHead, Scroll, useLoad } from './ui';
 
 /** Where an action's form and a run's progress are. */
 export const actionAddress = (id: string) => `/actions/${encodeURIComponent(id)}`;
@@ -37,17 +37,15 @@ const toggle = (text: string, name: string) => {
 /** The actions this person may run (empty for who has none). */
 export const useActions = () => useLoad(() => api.actions().catch(() => [] as ActionCard[]), []);
 
-export function ActionsPage({ home = false }: { home?: boolean }) {
+/** `home`: the page is one's Home (an action-only person's); it reads the same either way. */
+export function ActionsPage(_: { home?: boolean }) {
   const actions = useLoad(api.actions, []);
   return (
     <>
       <PageHead
         title="Actions"
-        lead={
-          home
-            ? 'What you may run here. Pick one, fill in what it asks, and Run.'
-            : 'Approved things to run: pick one, fill in what it asks, and Run.'
-        }
+        // AFS-206: one intro, whether Actions is one's Home or a page of the menu.
+        lead="The actions you may run: pick one, fill in what it asks, and Run."
         help="actions.md"
       />
       <Loading state={actions} />
@@ -916,6 +914,7 @@ export function ConfigActionSection({
           title={action.title}
           onChange={state.reload}
           grants={state.data.grants ?? []}
+          {...(state.data.people ? { people: state.data.people } : {})}
         />
       )}
     </section>
@@ -1008,11 +1007,14 @@ function ActionGrants({
   config,
   title,
   grants,
+  people,
   onChange,
 }: {
   config: string;
   title: string;
   grants: NonNullable<Awaited<ReturnType<typeof api.configAction>>['grants']>;
+  /** AFS-206: the workspace's people and groups: whom it may be given to. */
+  people?: Awaited<ReturnType<typeof api.configAction>>['people'];
   onChange(): void;
 }) {
   const id = useId();
@@ -1047,7 +1049,8 @@ function ActionGrants({
       <h3>Who may run it</h3>
       <p className="muted small">
         A grant here lets someone run this action and follow the runs they start, nothing else of
-        the workspace. Operators of the flow and administrators may run it too.
+        the workspace. Operators of the flow and administrators may run it too. It is given to
+        people and groups with access to this workspace; an administrator gives it to anyone.
       </p>
       {grants.length === 0 ? (
         <p className="muted">Nobody yet but operators and administrators.</p>
@@ -1107,8 +1110,19 @@ function ActionGrants({
               value={who}
               autoComplete="off"
               spellCheck={false}
+              list={`${id}-people`}
               onChange={(e) => setWho(e.target.value)}
             />
+            {/* AFS-206: offered from the workspace's people, not the server's. */}
+            <datalist id={`${id}-people`}>
+              {kind === 'user'
+                ? people?.users.map((u) => (
+                    <option key={u.id} value={u.login}>
+                      {u.name}
+                    </option>
+                  ))
+                : people?.groups.map((g) => <option key={g.id} value={g.name} />)}
+            </datalist>
           </div>
         </div>
         {note && (
@@ -1126,28 +1140,60 @@ function ActionGrants({
   );
 }
 
-/** AFS-175: the workspace's Access tab: who may run its actions. */
-export function WorkspaceActionGrants({ workspace }: { workspace: string }) {
-  const grants = useLoad(() => api.workspaceActionGrants(workspace), [workspace]);
-  if (!grants.data?.length) return null;
+/**
+ * AFS-175, AFS-206: the workspace's Access tab: every action of the workspace and who may run it,
+ * those nobody was given yet too (operators of the flow and administrators may run every one).
+ */
+export function WorkspaceActions({ workspace }: { workspace: string }) {
+  const actions = useLoad(() => api.workspaceActions(workspace), [workspace]);
   return (
     <>
-      <h3>Who may run actions</h3>
+      <h3>Actions</h3>
       <p className="muted small">
-        Each gives one action and nothing else of the workspace; they are given and taken back on
-        the action's launch configuration, Settings.
+        Who may run each action of the workspace. Operators of its flow and administrators may run
+        every one; a grant gives one action and nothing else of the workspace. Grants are given and
+        taken back on the action's launch configuration, Settings.
       </p>
-      <ul className="list plain">
-        {grants.data.map((g) => (
-          <li key={g.id}>
-            {g.principal.type === 'group' ? `group ${g.principal.name}` : g.principal.name}{' '}
-            <span className="muted">may run</span>{' '}
-            <Link to={`/w/${workspace}/${g.action.projectKey}/launch/${g.action.config}/settings`}>
-              {g.action.title}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <Loading state={actions} />
+      {actions.data?.length === 0 && <p className="muted">No action in this workspace yet.</p>}
+      {!!actions.data?.length && (
+        <Scroll>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">Runs the flow</th>
+                <th scope="col">Who may run it</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actions.data.map((a) => (
+                <tr key={a.config}>
+                  <td>
+                    <Link to={`/w/${workspace}/${a.projectKey}/launch/${a.config}/settings`}>
+                      {a.title}
+                    </Link>
+                    {!a.enabled && <span className="muted"> · off</span>}
+                  </td>
+                  <td>
+                    {a.configName} <span className="muted">in {a.projectName}</span>
+                  </td>
+                  <td>
+                    {a.grants.map((g) => (
+                      <div key={g.id}>
+                        {g.principal.type === 'group'
+                          ? `group ${g.principal.name}`
+                          : g.principal.name}
+                      </div>
+                    ))}
+                    <div className="muted">operators of the flow, administrators</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Scroll>
+      )}
     </>
   );
 }

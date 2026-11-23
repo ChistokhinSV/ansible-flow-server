@@ -13,6 +13,24 @@ Carries Ansible Flow Designer 1.1.0-rc.1.
 - Who may stop a run may drive it (operator on its flow, administrators); each command is in the audit log as `run.step`.
 - A paused run stops by itself after `AFS_RUN_STEP_TIMEOUT_MINUTES` (default 60); a launch may ask for less. A run paused when the server stops or restarts ends as stopped, saying why.
 - The API: `step` on `POST /api/v1/launch-configs/<id>/launch`, `POST /api/v1/runs/<id>/step`, and `/api/v1/projects/<id>/pause-points`. MCP: `step` on `run_launch`, and `run_step` for a token made to allow agents to drive step-by-step runs.
+- The workspace's **Access** tab lists every action of the workspace and who may run it, also those nobody was given yet, and **Who can do what** has an Actions column. A person's **What they reach** and **Your access** on My account list the actions they may run. `GET /api/v1/workspaces/<id>/actions`.
+
+### Changed
+
+- Someone whose grants in a workspace are on some of its flows only sees those flows, their launch configurations and runs: a project's page shows them **Overview** and **Runs**, with "You see 1 flow of this project" under its title, and no Files, History, Branches or Settings tabs. Read only on one flow no longer says it clones.
+- Someone with read and write on a workspace gives an action to people and groups who already have access to that workspace, offered as they type; an administrator gives it to anyone.
+- Deleting a launch configuration asks with the action it is, who can no longer run it, and a run of it that still goes or is paused.
+- The audit log says what was done in words ("gave access", "took back an action"), with the code on hover; an action set up for the first time is named by its title; an action grant's entry names the person, not the grant's id.
+- A reader no longer sees the Check / Real choice and Step by step on a launch configuration's page; the token form offers deciding approvals and driving step-by-step runs only to people who can.
+- The Actions page has one intro, whether it is your Home or a page of the menu.
+
+### Fixed
+
+- Someone with a grant on one flow could read every commit message and author of the project's repository through its Branches tab and `GET /api/v1/projects/<id>/pushes` and `/branches`, and the names of its other flows and their drafts. Pushes now need read only on the workspace; branches answer such a person with their names only; the project's access, drafts and the project itself show only what their flows need.
+- Workspaces and Home counted every project of a workspace for someone who sees only some of them.
+- Someone with read and write on a workspace could learn whether any login or group existed on the server (and a person's full name) by giving an action to it. Anyone outside the workspace now gets the same answer as a name that does not exist.
+- Deleting a launch configuration that is an action, or a person or group with action grants, ended the action and its grants without a word in the audit log: each is now recorded as ended, with why.
+- `/w/<workspace>/access` (and `environments`, `credentials`) said Not found: it opens the workspace's tab.
 
 ## 1.0.3 — Steps move again after Undo
 

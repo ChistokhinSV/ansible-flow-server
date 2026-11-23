@@ -22,6 +22,7 @@ import type { FlowCommand } from '@ansible-flow/core/flow/commands';
 import type { CatalogRequest, CatalogStatus } from '@ansible-flow/core/protocol';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { accessOf } from '../access/grants';
 import { signedIn } from '../auth/guards';
 import type { SessionUser } from '../auth/sessions';
 import type { Schema } from '../db/schema';
@@ -217,7 +218,13 @@ export function registerDrafts(
     { schema: ID },
     async (request, reply) => {
       if (!signedIn(request, reply)) return reply;
-      return drafts.list(request.params.id);
+      const project = await getProject(deps.db, request.params.id);
+      if (!project) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
+      // AFS-206: the drafts of the flows the person may see, not every flow's.
+      const access = await accessOf(deps.db, request);
+      return (await drafts.list(project.id)).filter(
+        (d) => !!access?.onFlow(project.workspace, project.id, d.file),
+      );
     },
   );
 

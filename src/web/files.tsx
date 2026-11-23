@@ -697,6 +697,27 @@ export function FilesPage({
       // AFS-143, AFS-152: what was looked for, with a way back to a page the person can open.
       <MissingProject workspace={workspace} project={key} error={found.error} />
     );
+  // AFS-206: grants on some flows only reach those flows and their runs, not the files.
+  if (!me.admin && access?.flowOnly)
+    return (
+      <>
+        {crumbs}
+        <PageHead title={project.name} />
+        <Tabs
+          label="Project"
+          base={`/w/${workspace}/${key}`}
+          current="files"
+          tabs={[
+            { key: '', label: 'Overview' },
+            { key: 'runs', label: 'Runs' },
+          ]}
+        />
+        <p className="empty">
+          You see only the flows you were given here and their runs. The project's files are for who
+          has access to the whole workspace: ask an administrator for it.
+        </p>
+      </>
+    );
   const editable =
     canEdit &&
     !!file &&

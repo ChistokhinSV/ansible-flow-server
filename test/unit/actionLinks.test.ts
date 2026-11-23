@@ -278,7 +278,8 @@ describe('links to actions on SQLite', () => {
       reply: { system: 'netbox', credential: netboxCred },
     });
     expect(
-      (await call('wanda', 'POST', `/api/v1/launch-configs/${lb}/action/grants`, { user: 'mia' }))
+      // AFS-206: mia's first grant here comes from an administrator (rw names who reach it).
+      (await call('dana', 'POST', `/api/v1/launch-configs/${lb}/action/grants`, { user: 'mia' }))
         .status,
     ).toBe(201);
   });

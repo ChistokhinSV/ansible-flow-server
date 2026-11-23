@@ -94,6 +94,8 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
   const tokens = useLoad(api.tokens, []);
   // What was saved is kept here, so the form shows it again after a look at the other tab.
   const [mine, setMine] = useState(me);
+  // AFS-206: the token form offers what one's access can use.
+  const myReach = useMyAccess();
   return (
     <>
       <PageHead
@@ -116,6 +118,7 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
       />
       {tab === 'tokens' ? (
         <TokensPanel
+          reach={myReach.data}
           load={api.tokens}
           add={api.addToken}
           revoke={api.revokeToken}
@@ -168,7 +171,13 @@ function MyAccessPanel() {
             {mine.data.workspaces.map((w) => (
               <li key={w.workspace.id}>
                 <p>
-                  <Link to={`/w/${w.workspace.key}`}>{w.workspace.name}</Link>:{' '}
+                  {/* AFS-206: a workspace reached through actions only is not one to open. */}
+                  {w.level || w.flows.length || w.approve ? (
+                    <Link to={`/w/${w.workspace.key}`}>{w.workspace.name}</Link>
+                  ) : (
+                    <Link to="/actions">{w.workspace.name}</Link>
+                  )}
+                  :{' '}
                   {accessWords({
                     level: w.level,
                     flows: w.flows.map((f) => ({
@@ -176,6 +185,7 @@ function MyAccessPanel() {
                       level: f.level,
                     })),
                     approve: w.approve,
+                    actions: (w.actions ?? []).map((a) => a.title),
                   })}
                 </p>
                 <p className="muted">

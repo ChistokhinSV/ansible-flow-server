@@ -592,6 +592,7 @@ function Reach({ user }: { user: User }) {
                 <th scope="col">Workspace</th>
                 <th scope="col">Level</th>
                 <th scope="col">Flows of their own</th>
+                <th scope="col">Actions</th>
                 <th scope="col">Approves</th>
                 <th scope="col">Through</th>
               </tr>
@@ -614,6 +615,18 @@ function Reach({ user }: { user: User }) {
                       </div>
                     ))}
                   </td>
+                  <td>
+                    {/* AFS-206: the actions an action grant lets them run. */}
+                    {who.actions?.map((a) => (
+                      <div key={a.config}>
+                        <Link
+                          to={`/w/${workspace.key}/${a.projectKey}/launch/${a.config}/settings`}
+                        >
+                          {a.title}
+                        </Link>
+                      </div>
+                    ))}
+                  </td>
                   <td>{who.approve ? 'yes' : ''}</td>
                   <td className="muted">{who.through.map(throughWords).join(', ')}</td>
                 </tr>
@@ -631,6 +644,11 @@ export function UserPage({ id, me }: { id: string; me: User }) {
   const [user, setUser] = useState<User>();
   useEffect(() => setUser(load.data), [load.data]);
   const name = user ? user.name || user.login : undefined;
+  // AFS-206: a service account's token form offers what its access can use.
+  const serviceReach = useLoad(
+    async () => (load.data?.service ? api.userAccess(id) : undefined),
+    [id, load.data?.service],
+  );
   return (
     <>
       <Breadcrumb>
@@ -681,6 +699,7 @@ export function UserPage({ id, me }: { id: string; me: User }) {
             key={`t-${user.id}`}
             load={() => api.userTokens(user.id)}
             add={user.service ? (input) => api.addUserToken(user.id, input) : undefined}
+            reach={serviceReach.data}
             revoke={(token) => api.revokeUserToken(user.id, token)}
             none={user.service ? 'No token: the account cannot sign in.' : 'No token.'}
             intro={

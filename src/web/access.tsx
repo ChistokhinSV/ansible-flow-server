@@ -4,7 +4,7 @@
 
 import { type FormEvent, useId, useState } from 'react';
 import { LEVEL_NAME } from '../server/access/types';
-import { WorkspaceActionGrants } from './actions';
+import { WorkspaceActions } from './actions';
 import {
   api,
   type Grant,
@@ -60,12 +60,25 @@ const LEVEL_DOES: Record<GrantLevel, string> = {
   rw: 'any branch, configurations, pushes',
   approve: 'decides approval gates',
 };
-const LEVEL_WORDS = Object.fromEntries(
-  Object.entries(LEVEL_NAME).map(([level, name]) => [
-    level,
-    `${name[0]?.toUpperCase()}${name.slice(1)}: ${LEVEL_DOES[level as GrantLevel]}`,
-  ]),
-) as Record<GrantLevel, string>;
+/**
+ * AFS-206: what a level gives on one flow: that flow and its runs, never the repository (a flow
+ * grant does not clone, push or read the project's files or history).
+ */
+const FLOW_DOES: Record<GrantLevel, string> = {
+  ro: 'sees the flow and its runs',
+  operator: 'launches it as configured, stops its runs',
+  rw: 'launches any branch, manages its configurations',
+  approve: 'decides its approval gates',
+};
+const wordsOf = (does: Record<GrantLevel, string>) =>
+  Object.fromEntries(
+    Object.entries(LEVEL_NAME).map(([level, name]) => [
+      level,
+      `${name[0]?.toUpperCase()}${name.slice(1)}: ${does[level as GrantLevel]}`,
+    ]),
+  ) as Record<GrantLevel, string>;
+const LEVEL_WORDS = wordsOf(LEVEL_DOES);
+const FLOW_LEVEL_WORDS = wordsOf(FLOW_DOES);
 
 /** A flow's file as people read it when its title is not known: its name without folders. */
 export const flowName = (file: string) =>
@@ -82,10 +95,13 @@ export function accessWords({
   level,
   flows = [],
   approve = false,
+  actions = [],
 }: {
   level: Level | 'admin' | null;
   flows?: OwnFlow[];
   approve?: boolean;
+  /** AFS-206: the titles of the actions an action grant lets them run. */
+  actions?: string[];
 }): string {
   if (level === 'admin') return 'administrator: everything';
   const parts: string[] = [];
@@ -95,10 +111,11 @@ export function accessWords({
   for (const [l, titles] of byLevel)
     parts.push(
       l
-        ? `${LEVEL_NAME[l]} on ${titles.join(', ')}${level ? '' : ` (${LEVEL_DOES[l]})`}`
+        ? `${LEVEL_NAME[l]} on ${titles.join(', ')}${level ? '' : ` (${FLOW_DOES[l]})`}`
         : `none on ${titles.join(', ')}`,
     );
   if (approve) parts.push(`approves (${LEVEL_DOES.approve})`);
+  if (actions.length) parts.push(`may run ${actions.join(', ')}`);
   // Seen without a level of one's own: through grants on some of its flows.
   return parts.length ? parts.join('; ') : 'some flows only';
 }
@@ -295,6 +312,7 @@ export function WorkspaceAccess({
                 <th scope="col">Person</th>
                 <th scope="col">Workspace</th>
                 <th scope="col">Flows of their own</th>
+                <th scope="col">Actions</th>
                 <th scope="col">Approves</th>
                 <th scope="col">Through</th>
               </tr>
@@ -314,6 +332,12 @@ export function WorkspaceAccess({
                         {f.level ? LEVEL_NAME[f.level] : 'none'}
                       </div>
                     ))}
+                  </td>
+                  <td>
+                    {/* AFS-206: actions they may run through a grant: one table says all. */}
+                    {w.admin
+                      ? 'every action'
+                      : w.actions?.map((a) => <div key={a.config}>{a.title}</div>)}
                   </td>
                   <td>{w.approve ? 'yes' : ''}</td>
                   <td className="muted">
@@ -477,7 +501,8 @@ export function WorkspaceAccess({
                     checked={input.level === level}
                     onChange={() => setInput({ ...input, level })}
                   />
-                  {LEVEL_WORDS[level]}
+                  {/* AFS-206: on one flow, what a flow grant gives (no clone, no files). */}
+                  {(input.project ? FLOW_LEVEL_WORDS : LEVEL_WORDS)[level]}
                 </label>
               ))}
             </fieldset>
@@ -538,7 +563,7 @@ export function WorkspaceAccess({
         </div>
       )}
 
-      <WorkspaceActionGrants workspace={workspace} />
+      <WorkspaceActions workspace={workspace} />
 
       <h3>Approvals</h3>
       <label className="choice">

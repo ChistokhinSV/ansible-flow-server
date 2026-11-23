@@ -40,7 +40,20 @@ Under the action, **Who may run it**: a person by login or a group by name, then
 it**. That grant gives the action and nothing else of the workspace: no flows, files,
 configurations, runs or search results, not even the workspace's name in the menu. **Take back**
 ends it at once. Operators of the flow and administrators may run it without a grant. The
-workspace's **Access** tab lists who may run each action.
+workspace's **Access** tab lists every action of the workspace and who may run it, and its
+**Who can do what** has an Actions column; a person's **What they reach** lists theirs.
+
+Someone with read and write on the workspace gives the action to people and groups who already
+have access to this workspace (a grant on it, on one of its flows, or on one of its actions,
+their own or a group's): the login box offers them. Anyone else, and a login or group that does
+not exist, gets the same answer ("No person … with access to this workspace"), so the form does
+not tell which logins the server has. An administrator gives it to anyone, for example someone's
+first action.
+
+Deleting the launch configuration ends the action and every grant of it: the question before it
+names the action, who can no longer run it and a run of it that still goes or is paused, and the
+[audit log](audit.md) records the action and each grant as ended, with why. Deleting a person or
+a group records the action grants that end with them the same way.
 
 An action never runs step by step: its runs go from start to end (a step-by-step run of the
 same configuration, launched from its **Launch** tab, says "Paused before ..." in this view too).
@@ -180,6 +193,7 @@ stops it at once; so do stopping the action and your account going.
 | `GET /api/v1/actions/runs/<run>` (and `/events`, live)                  | How a run of it goes, in words                        |
 | `GET`, `PUT`, `DELETE /api/v1/launch-configs/<id>/action`               | The action of a configuration: read, set, stop        |
 | `POST /api/v1/launch-configs/<id>/action/grants`, `DELETE …/<g>`        | Who may run it: `{"user": "mia"}` or `{"group": "…"}` |
+| `GET /api/v1/workspaces/<id>/actions`                                   | Every action of a workspace, with who may run it      |
 | `GET`, `POST /api/v1/launch-configs/<id>/action/tokens`, `DELETE …/<t>` | Signed links: list, make (`{"name": "…"}`), revoke    |
 
 An action's id is its launch configuration's id. Setting, granting, taking back and running are in

@@ -39,7 +39,23 @@ export interface Reach {
   approve: boolean;
   /** `project` is the project's key; `projectId` its id (AFS-152: the pages read its flows' titles). */
   flows: { project: string; projectId: string; file: string; level: Level | null }[];
+  /**
+   * AFS-206: the actions an action grant lets them run (their own or a group's): one access
+   * table says everything a person reaches (ADR-0036's grants are not levels, but are access).
+   */
+  actions: ReachedAction[];
   through: string[];
+}
+
+/** AFS-206: an action a person may run through an action grant, by its title. */
+export interface ReachedAction {
+  /** The action's id: its launch configuration's. */
+  config: string;
+  title: string;
+  /** The project's key, for the address of the configuration's Settings. */
+  projectKey: string;
+  /** Whose grant gave it: `user:eve`, `group:change-board`. */
+  through: string;
 }
 
 /** What one person reaches in a workspace: their row of its "who can do what", by its name. */
@@ -49,6 +65,11 @@ export type Reached = Reach & { workspace: WorkspaceName };
 export interface UserReach {
   admin: boolean;
   workspaces: Reached[];
+  /**
+   * AFS-206: an approve grant anywhere (on a workspace or a flow): who may decide approvals. Flows
+   * may name approvers too; those are not counted here.
+   */
+  approves?: boolean;
 }
 
 /** AFS-152: one's own access (GET /session/access), with who gives access: the administrators. */

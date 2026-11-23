@@ -234,14 +234,50 @@ for (const [name, config] of databases) {
           })
         ).status,
       ).toBe(403);
+      // AFS-206: rw names only people and groups who already reach the workspace; anyone else,
+      // and a login or group that does not exist, get one answer: no oracle of the server's people.
+      const refusals = [];
+      for (const body of [
+        { user: 'mia' },
+        { user: 'nosuchperson' },
+        { group: 'managers' },
+        { group: 'nosuchgroup' },
+      ]) {
+        const refused = await call(
+          'wanda',
+          'POST',
+          `/api/v1/launch-configs/${edge}/action/grants`,
+          body,
+        );
+        expect(refused.status, JSON.stringify(body)).toBe(404);
+        refusals.push(
+          String(refused.body.message).replace(/ (mia|nosuchperson|managers|nosuchgroup) /, ' X '),
+        );
+      }
+      expect(refusals[0]).toBe(refusals[1]);
+      expect(refusals[2]).toBe(refusals[3]);
+      expect(refusals[0]).not.toMatch(/mia|Mia/);
+      // An administrator gives them their first action here; then rw may name them.
       for (const [cfg, body] of [
         [edge, { user: 'mia' }],
         [edge, { group: 'managers' }],
-        [gated, { user: 'mia' }],
       ] as const)
         expect(
-          (await call('wanda', 'POST', `/api/v1/launch-configs/${cfg}/action/grants`, body)).status,
+          (await call('dana', 'POST', `/api/v1/launch-configs/${cfg}/action/grants`, body)).status,
         ).toBe(201);
+      expect(
+        (
+          await call('wanda', 'POST', `/api/v1/launch-configs/${gated}/action/grants`, {
+            user: 'mia',
+          })
+        ).status,
+      ).toBe(201);
+      // Whom rw may give it to: the workspace's people and groups, offered on the form.
+      const offered = (await call('wanda', 'GET', `/api/v1/launch-configs/${edge}/action`)).body
+        .people as { users: { login: string }[]; groups: { name: string }[] };
+      expect(offered.users.map((u) => u.login)).toContain('mia');
+      expect(offered.users.map((u) => u.login)).not.toContain('nobody');
+      expect(offered.groups.map((g) => g.name)).toEqual(['managers']);
       expect(
         (
           await call('wanda', 'POST', `/api/v1/launch-configs/${edge}/action/grants`, {
@@ -457,6 +493,39 @@ for (const [name, config] of databases) {
       expect(rows.some((r) => r.action === 'action.run' && r.result === 'refused')).toBe(true);
     });
 
+    it('one access table: actions in what a person reaches and every action of a workspace (AFS-206)', async () => {
+      const ids = Object.fromEntries(
+        (await db().selectFrom('user_account').select(['id', 'login']).execute()).map((u) => [
+          u.login,
+          u.id,
+        ]),
+      );
+      const mia = (await call('dana', 'GET', `/api/v1/users/${ids.mia}/access`)).body as {
+        workspaces: { workspace: { key: string }; level: unknown; actions: { title: string }[] }[];
+      };
+      expect(mia.workspaces).toEqual([
+        expect.objectContaining({
+          workspace: expect.objectContaining({ key: 'net' }),
+          level: null,
+          actions: [expect.objectContaining({ title: 'Gated change' })],
+        }),
+      ]);
+      const who = (await call('dana', 'GET', '/api/v1/workspaces/net/access')).body as unknown as {
+        user: { login: string };
+        actions: { title: string }[];
+      }[];
+      expect(who.find((w) => w.user.login === 'mia')?.actions.map((a) => a.title)).toEqual([
+        'Gated change',
+      ]);
+      const all = (await call('wanda', 'GET', '/api/v1/workspaces/net/actions'))
+        .body as unknown as {
+        title: string;
+        grants: unknown[];
+      }[];
+      expect(all.map((a) => a.title)).toEqual(expect.arrayContaining(['Gated change']));
+      expect((await call('rita', 'GET', '/api/v1/workspaces/net/actions')).status).toBe(403);
+    });
+
     it('a deleted configuration takes its action and grants with it', async () => {
       expect((await call('wanda', 'DELETE', `/api/v1/launch-configs/${gated}`)).status).toBe(204);
       expect(
@@ -469,6 +538,72 @@ for (const [name, config] of databases) {
       expect(
         await db().selectFrom('action_grant').select('id').where('config_id', '=', gated).execute(),
       ).toEqual([]);
+      // AFS-206: the log says the action ended and who lost it, and why.
+      const entries = await db()
+        .selectFrom('audit_entry')
+        .select(['action', 'object_type', 'object_name', 'detail_json'])
+        .where('object_id', '=', gated)
+        .orderBy('at')
+        .execute();
+      const detail = (action: string) =>
+        JSON.parse(entries.find((e) => e.action === action)?.detail_json ?? 'null');
+      expect(detail('launch-config.delete')).toMatchObject({
+        action: 'Gated change',
+        actionGrants: ['mia may run Gated change'],
+      });
+      expect(entries.find((e) => e.action === 'action.remove')).toMatchObject({
+        object_type: 'action',
+        object_name: 'Gated change',
+      });
+      expect(detail('action.remove')).toMatchObject({
+        why: 'the launch configuration was deleted',
+      });
+      expect(detail('action.grant-remove')).toEqual({
+        who: 'mia',
+        why: 'the launch configuration was deleted',
+      });
+    });
+
+    it('a deleted person takes their action grants with them, said in the log (AFS-206)', async () => {
+      const temp = await createUser(db(), {
+        login: 'temp',
+        name: 'Tem Porary',
+        password: PASSWORD,
+      });
+      expect(
+        (
+          await call('dana', 'POST', `/api/v1/launch-configs/${edge}/action/grants`, {
+            user: 'temp',
+          })
+        ).status,
+      ).toBe(201);
+      expect((await call('dana', 'DELETE', `/api/v1/users/${temp.id}`)).status).toBe(204);
+      const ended = await db()
+        .selectFrom('audit_entry')
+        .select(['object_name', 'detail_json'])
+        .where('action', '=', 'action.grant-remove')
+        .where('object_id', '=', edge)
+        .execute();
+      expect(ended.map((e) => JSON.parse(e.detail_json ?? '{}'))).toContainEqual({
+        who: 'Tem Porary',
+        why: 'the person was deleted',
+      });
+      const deleted = await db()
+        .selectFrom('audit_entry')
+        .select('detail_json')
+        .where('action', '=', 'user.delete')
+        .where('object_id', '=', temp.id)
+        .executeTakeFirst();
+      expect(JSON.parse(deleted?.detail_json ?? '{}').actionGrants).toEqual([
+        `Tem Porary may run ${SETTINGS.title}`,
+      ]);
+      // The grant's id is not in an entry: the person and the action are named.
+      const given = await db()
+        .selectFrom('audit_entry')
+        .select('detail_json')
+        .where('action', '=', 'action.grant')
+        .execute();
+      for (const g of given) expect(JSON.parse(g.detail_json ?? '{}').grant).toBeUndefined();
     });
   });
 }
