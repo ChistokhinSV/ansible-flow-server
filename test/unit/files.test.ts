@@ -196,6 +196,8 @@ describe('the files of a project', () => {
     expect(clash.json()).toMatchObject({
       error: 'conflict',
       files: ['roles/web/templates/web.conf.j2'],
+      // AFS-232: where the branch is now, where a change set without those files begins.
+      head: moved,
     });
     // A folder move over a file the branch changed clashes too.
     expect(
@@ -249,6 +251,17 @@ describe('the files of a project', () => {
       changes: [{ op: 'delete', path: 'roles' }],
     });
     expect(r.statusCode, r.body).toBe(201);
+    // AFS-232: saved without a message, more changes than the subject names: each in the body.
+    const four = await save(omar, {
+      branch: 'try/files',
+      changes: ['a', 'b', 'c', 'd'].map((n) => ({ op: 'write', path: `${n}.txt`, text: n })),
+    });
+    expect(four.statusCode, four.body).toBe(201);
+    const shown = (
+      await call(lina, 'GET', `/api/v1/projects/${project.id}/commits/${four.json().commit}`)
+    ).json();
+    expect(JSON.stringify(shown)).toContain('Add a.txt and 3 more changes');
+    expect(JSON.stringify(shown)).toContain('- Add d.txt');
     const there = (await files('try/files')).json();
     expect(there.files.some((f: { path: string }) => f.path.startsWith('roles/'))).toBe(false);
     // main is as it was.

@@ -177,6 +177,8 @@ export function RunList({
 function StateChoices({ value, onChange }: { value: string; onChange(state: string): void }) {
   const choices: [string, string][] = [
     ['', 'All'],
+    // AFS-232: what Home counts as still going: queued, or running and not paused.
+    ['going', 'Going'],
     ['running', 'Running'],
     ['waiting', 'Waiting'],
     // AFS-205: step-by-step runs paused before a step (Waiting has them too).
@@ -223,6 +225,7 @@ const places = async (): Promise<Place[]> =>
   );
 
 const STATES = [
+  'going',
   'running',
   'waiting',
   'paused',

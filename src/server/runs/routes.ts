@@ -394,7 +394,7 @@ export function registerRuns(
     Querystring: {
       project?: string;
       flow?: string;
-      state?: RunState | 'rejected' | 'paused';
+      state?: RunState | 'rejected' | 'paused' | 'going';
       config?: string;
       by?: string;
       q?: string;
@@ -413,7 +413,8 @@ export function registerRuns(
             flow: text(500, 1),
             // AFS-193: and rejected (a failed run decided against); failed leaves those out.
             // AFS-205: and paused (a step-by-step run paused before a step); waiting has them too.
-            state: { type: 'string', enum: [...STATES, 'rejected', 'paused'] },
+            // AFS-232: and going (queued, or running and not paused).
+            state: { type: 'string', enum: [...STATES, 'rejected', 'paused', 'going'] },
             // A launch configuration's id: its runs.
             config: text(64, 1),
             // A login: the runs that person asked for.

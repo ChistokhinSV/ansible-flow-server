@@ -50,7 +50,7 @@ const summaryOf = (c: Commit): CommitSummary => ({
 });
 
 /** A flow's title in its text, if it reads as a flow. */
-function titleOf(bytes: Buffer | undefined): string | undefined {
+export function titleOf(bytes: Buffer | undefined): string | undefined {
   if (!bytes) return undefined;
   try {
     const name = parseFlow(bytes.toString('utf8')).doc?.flow?.name;

@@ -56,7 +56,7 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 - **Filters:** `project` (its id), `flow` (the flow's file), `state` (`rejected`: failed because
   an approval was rejected or not decided in time; `failed` leaves those out; `paused`: a
   step-by-step run paused before a step, whose state is `running`; `waiting` has those too, as
-  both wait for a person), `config` (a launch
+  both wait for a person; `going`: queued, or running and not paused), `config` (a launch
   configuration's id), `by` (the login of who asked for the run; your own for your runs) and
   `q` (words in the flow's name or file, the configuration's name or a login, or `#12` for a
   run's number; the Runs page's **Find** box).
@@ -170,7 +170,8 @@ so facts and registered values carry on from step to step.
   the line and its buttons are above the canvas too.
 - **Paused, not running:** a paused run reads **paused** on its page, in the lists, on the
   flow's page and on Home ("Your run #12 of Hello is paused before Say hello"). The Runs page has
-  a **Paused** filter, and **Waiting** lists paused runs too.
+  a **Paused** filter, and **Waiting** lists paused runs too; **Going** lists the runs queued or
+  running and not paused (Home's "still go").
 - **Step** runs that step and pauses before the next one. **Continue** runs on and pauses only at
   a pause point. While a step runs the bar says "Running Say hello…" and offers **Pause**, which
   pauses before the next step. **Stop** ends the run before its next step; what ran is kept, and

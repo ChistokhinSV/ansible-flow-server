@@ -41,14 +41,14 @@ Carries Ansible Flow Designer 1.1.0-rc.3.
 - An action switched off, or one you may not run, says so with whom to ask and a way back to Actions, instead of a bare "No such action". Nobody is told to ask themselves.
 - **Copy link for NetBox and Zabbix** puts the object's name into the host input and its site into a site input by default, and warns when the page is open at an address only your machine reaches.
 - The Runs page points someone who may only run actions to Actions.
-- **Only hosts of group** offers the inventory's groups and refuses one the inventory does not have.
+- **Only hosts of group** offers every group of the configuration's inventory with its number of hosts, also before the action is saved, and refuses one the inventory does not have.
 - While a step runs, the bar says "Running Say hello…" and offers **Pause**; the focus stays on the button pressed.
 - A step-by-step run has one **Stop**, in its bar; stopping someone else's run asks first, naming whose it is.
 - A pause inside a subflow is named by its path ("Pre-checks › Read device status"), and a subflow stopped inside reads stopped.
 - Step times leave the pauses out ("ran 1 s, waited 31 s"); a time near a whole minute no longer reads "7 min 60 s".
 - A pause is said once in the run's output, in plain words, after the step before it.
 - Your own run that still goes stays in the flow page's **Latest runs** and on its canvas after others launched newer ones.
-- Home's counts of today's runs say they are everyone's, and each is a link to those runs on the Runs page.
+- Home's counts of today's runs say they are everyone's, and each is a link to those runs on the Runs page ("still go" to the runs going: the Runs page's **Going**, `state=going` in the API and MCP's `run_list`).
 - An upload over a file that is there says it replaces it ("Replace inventory.ini with an upload").
 - A Files save left without a message lists every change in the commit's body when its subject sums them up, so History shows them all.
 - History opens one commit at a time.
@@ -95,6 +95,8 @@ Carries Ansible Flow Designer 1.1.0-rc.3.
 - A refusal on a schedule stayed on the page after a later change was saved.
 - The History tab dropped `?commit=` unless it was the full 40-character hash: the 12 characters the pages show open the commit, also one older than the list shows, and a wrong one is said.
 - The clone help broke `-c http.sslBackend=openssl` across lines.
+- **Files**: after a save refused because the branch changed the same files, taking back those changes and making them again was refused the same way every time (only **Discard all** helped): once no change touches those files, the change set is made on the branch as it is now, and the file list shows it without a reload. The refusal names that commit (`head`).
+- The audit log's "gave access" entries name the workspace so it links in Detail, as "took back access" entries do; a grant on a flow names the flow by its title, as the Access tab does.
 
 ## 1.0.3 — Steps move again after Undo
 
