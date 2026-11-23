@@ -392,11 +392,102 @@ for (const [name, config] of databases) {
       expect((await list('april', '/api/v1/runs')).length).toBe(
         (await list('rita', '/api/v1/runs')).length,
       );
-      expect(await list('fiona', `/api/v1/projects/${core.id}/access`)).toMatchObject({
+      // AFS-206: a flow-only person learns of their flows only, not the others' files.
+      expect(await list('fiona', `/api/v1/projects/${core.id}/access`)).toEqual({
         admin: false,
         workspace: null,
-        flows: { [A]: 'operator', [B]: null },
+        approve: false,
+        flows: { [A]: 'operator' },
+        flowOnly: true,
       });
+      expect(await list('rita', `/api/v1/projects/${core.id}/access`)).toMatchObject({
+        flows: { [A]: 'ro', [B]: 'ro' },
+        flowOnly: false,
+      });
+    });
+
+    it('a flow-only person reaches nothing of the repository beyond their flows (AFS-206)', async () => {
+      const ask = async (who: Person, url: string, method = 'GET', payload?: object) =>
+        app.inject({
+          method: method as 'GET',
+          url,
+          headers: { authorization: `Bearer ${token[who]}` },
+          ...(payload ? { payload } : {}),
+        });
+      // A second project fiona has no flow of, and a draft of flow B.
+      const side = await createProject(db(), core.workspace, { key: 'side', name: 'Side' }, true);
+      const draft = await ask('dana', `/api/v1/projects/${core.id}/drafts?path=${B}`, 'POST');
+      expect(draft.statusCode).toBeLessThan(300);
+      try {
+        // Repository-wide routes: refused (403, as History), whatever the commit or file.
+        const commit = core.commit as string;
+        for (const url of [
+          `/api/v1/projects/${core.id}/pushes`,
+          `/api/v1/projects/${core.id}/commits`,
+          `/api/v1/projects/${core.id}/commits/${commit}`,
+          `/api/v1/projects/${core.id}/files`,
+          `/api/v1/projects/${core.id}/files/content?path=README.md&commit=${commit}`,
+          `/api/v1/projects/${core.id}/files/history?path=README.md&commit=${commit}`,
+          `/api/v1/projects/${core.id}/host-key`,
+          `/api/v1/projects/${core.id}/flows/history?path=${B}`,
+          `/api/v1/projects/${core.id}/commits?path=${B}`,
+        ]) {
+          const refused = await ask('fiona', url);
+          expect(refused.statusCode, url).toBe(403);
+          // rita (ro on the workspace) reads each.
+          expect((await ask('rita', url)).statusCode, url).toBeLessThan(500);
+        }
+        expect((await ask('rita', `/api/v1/projects/${core.id}/pushes`)).statusCode).toBe(200);
+        for (const url of ['/git/net/core.git/info/refs?service=git-upload-pack'])
+          expect([403, 404], url).toContain((await ask('fiona', url)).statusCode);
+        expect(
+          (await ask('fiona', `/api/v1/projects/${core.id}/vars`, 'POST', { commit, files: [] }))
+            .statusCode,
+        ).toBeGreaterThanOrEqual(400);
+
+        // Branches: the names (to launch a branch), not their newest commits' messages and authors.
+        const branches = (await ask('fiona', `/api/v1/projects/${core.id}/branches`)).json();
+        expect(branches.branches).toEqual(expect.arrayContaining(['try', 'main-again']));
+        expect(branches.details).toBeUndefined();
+        expect(JSON.stringify(branches)).not.toMatch(/subject|author|trying/);
+        expect(
+          (await ask('rita', `/api/v1/projects/${core.id}/branches`)).json().details,
+        ).toBeTruthy();
+
+        // The project: not its source, credential or the source's errors.
+        const project = (await ask('fiona', `/api/v1/projects/${core.id}`)).json();
+        expect(project.gitUrl).toBeUndefined();
+        expect(project.gitCredential).toBeUndefined();
+        expect(project.sync.error).toBeUndefined();
+        expect((await ask('rita', `/api/v1/projects/${core.id}`)).json().gitUrl).toBe(source.dir);
+        const listed = (await ask('fiona', '/api/v1/workspaces/net/projects')).json();
+        expect(listed.map((p: { key: string; gitUrl?: string }) => [p.key, p.gitUrl])).toEqual([
+          ['core', undefined],
+        ]);
+
+        // Counts: the projects she sees, not the workspace's.
+        const net = (await ask('fiona', '/api/v1/workspaces')).json();
+        expect(net.find((w: { key: string }) => w.key === 'net').projects).toBe(1);
+        expect((await ask('fiona', '/api/v1/workspaces/net')).json().projects).toBe(1);
+        expect((await ask('rita', '/api/v1/workspaces/net')).json().projects).toBe(2);
+
+        // Drafts and the project's flows: hers only.
+        const drafts = (await ask('fiona', `/api/v1/projects/${core.id}/drafts`)).json();
+        expect(drafts.map((d: { file: string }) => d.file)).not.toContain(B);
+        const ritas = (await ask('rita', `/api/v1/projects/${core.id}/drafts`)).json();
+        expect(ritas.map((d: { file: string }) => d.file)).toContain(B);
+        const access = (await ask('fiona', `/api/v1/projects/${core.id}/access`)).json();
+        expect(Object.keys(access.flows)).toEqual([A]);
+
+        // Search: nothing of flow B or the other project.
+        const hits = JSON.stringify((await ask('fiona', '/api/v1/search?q=side')).json());
+        expect(hits).not.toMatch(/"Side"/);
+        const flowHits = JSON.stringify((await ask('fiona', '/api/v1/search?q=hello')).json());
+        expect(flowHits).not.toContain(B);
+      } finally {
+        await ask('dana', `/api/v1/drafts/${draft.json().id}`, 'DELETE');
+        await db().deleteFrom('project').where('id', '=', side.id).execute();
+      }
     });
 
     it('administrators give, list and take back grants, and see who can do what', async () => {
@@ -623,12 +714,14 @@ for (const [name, config] of databases) {
         expect(gary.status).toBe(200);
         expect(gary.body).toEqual({
           admin: false,
+          approves: false,
           workspaces: [
             {
               workspace: { id: core.workspace, key: 'net', name: 'Network' },
               level: 'rw',
               approve: false,
               flows: [{ project: 'core', projectId: core.id, file: B, level: 'ro' }],
+              actions: [],
               through: expect.arrayContaining(['group:net-ops', 'user:gary']),
             },
           ],
@@ -648,10 +741,12 @@ for (const [name, config] of databases) {
         ]);
         expect((await get('dana', `/api/v1/users/${ids.nina}/access`)).body).toEqual({
           admin: false,
+          approves: false,
           workspaces: [],
         });
         expect((await get('dana', `/api/v1/users/${ids.dana}/access`)).body).toEqual({
           admin: true,
+          approves: true,
           workspaces: [],
         });
         expect((await get('dana', '/api/v1/users/nobody/access')).status).toBe(404);

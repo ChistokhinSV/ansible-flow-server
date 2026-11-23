@@ -842,6 +842,46 @@ describe('signed in', () => {
     expect(screen.queryByRole('button', { name: 'Stop editing' })).toBeNull();
   });
 
+  it('grants on some flows only: the project shows those flows and runs, no repository tab (AFS-206)', async () => {
+    const file = 'flows/os-upgrade.flow.yaml';
+    routes = {
+      ...signedInAs(omar),
+      'GET /workspaces/network/projects': () => ({ body: [{ ...edge, gitUrl: undefined }] }),
+      'GET /projects/p1/access': () => ({
+        body: {
+          admin: false,
+          workspace: null,
+          approve: false,
+          flows: { [file]: 'ro' },
+          flowOnly: true,
+        },
+      }),
+      'GET /projects/p1/flows': () => ({
+        body: { commit: edge.commit, flows: [{ file, key: 'os-upgrade', name: 'OS upgrade' }] },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/network/edge');
+    render(<App />);
+    await screen.findByText(/You see 1 flow of this project/);
+    const tabs = screen.getByRole('navigation', { name: 'Project' });
+    expect(
+      within(tabs)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Overview', 'Runs']);
+    navigate('/w/network/edge/branches');
+    await screen.findByText(/You see only the flows you were given here/);
+    expect(screen.queryByText('Try NTP pools')).toBeNull();
+    expect(calls.filter((c) => c.includes('/pushes'))).toEqual([]);
+  });
+
+  it('a workspace tab typed without its dash goes to the tab (AFS-206)', async () => {
+    routes = { ...signedInAs(dana) };
+    window.history.replaceState(null, '', '/w/network/access');
+    render(<App />);
+    await waitFor(() => expect(window.location.pathname).toBe('/w/network/-/access'));
+  });
+
   it('a hosted project that is empty says to push; a project that is not there says so', async () => {
     routes = {
       ...signedInAs(omar),

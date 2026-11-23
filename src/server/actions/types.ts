@@ -103,6 +103,22 @@ export interface WorkspaceActionGrant extends ActionGrant {
   action: { title: string; config: string; project: string; projectKey: string };
 }
 
+/** AFS-206: an action of a workspace as its Access tab lists it: with who may run it. */
+export interface WorkspaceAction {
+  /** The action's id: its launch configuration's. */
+  config: string;
+  title: string;
+  enabled: boolean;
+  configName: string;
+  /** The flow it runs (its file). */
+  file: string;
+  project: string;
+  projectKey: string;
+  projectName: string;
+  /** Who may run it through a grant; operators of the flow and administrators may too. */
+  grants: ActionGrant[];
+}
+
 /** A run of an action, as a card or the progress view says it. */
 export interface ActionRunLine {
   id: string;

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
 import { changedKeys } from '../../src/server/audit/changes';
 import { auditCommand, changes } from '../../src/server/audit/cli';
-import { AUDIT_KINDS } from '../../src/server/audit/kinds';
+import { AUDIT_ACTION_WORDS, AUDIT_KINDS } from '../../src/server/audit/kinds';
 import { ACTIONS } from '../../src/server/audit/routes';
 import {
   type AuditEntry,
@@ -120,6 +120,9 @@ for (const [name, config] of databases) {
       // AFS-141: the page's About filter offers every kind of action.
       for (const { action } of Object.values(ACTIONS))
         expect(Object.keys(AUDIT_KINDS), action).toContain(action.slice(0, action.indexOf('.')));
+      // AFS-206: and the page says each in words, not by its code.
+      for (const { action } of Object.values(ACTIONS))
+        expect(Object.keys(AUDIT_ACTION_WORDS), action).toContain(action);
     });
 
     it('records a sign-in, a refused one by the login tried, and never the password', async () => {

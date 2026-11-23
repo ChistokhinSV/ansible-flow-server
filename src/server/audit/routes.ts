@@ -387,6 +387,70 @@ async function grantsOf(
   return named;
 }
 
+/** AFS-206: an action grant that ends with what it was given on or to, in words. */
+interface EndedActionGrant {
+  /** The action's id: its launch configuration's. */
+  config: string;
+  title: string;
+  /** Who could run it: a person by their name, a group as "group x". */
+  who: string;
+}
+
+/**
+ * AFS-206: the action grants that end with a person, a group or an action (its configuration):
+ * deleting them ends those grants, and the log says each one ended, as for access grants.
+ */
+async function actionGrantsOf(
+  db: Kysely<Schema>,
+  of: { type: 'user' | 'group'; id: string } | { config: string },
+): Promise<EndedActionGrant[]> {
+  let query = db
+    .selectFrom('action_grant')
+    .innerJoin('launch_action', 'launch_action.config_id', 'action_grant.config_id')
+    .leftJoin('user_account', (j) =>
+      j
+        .onRef('user_account.id', '=', 'action_grant.principal_id')
+        .on('action_grant.principal_type', '=', 'user'),
+    )
+    .leftJoin('user_group', (j) =>
+      j
+        .onRef('user_group.id', '=', 'action_grant.principal_id')
+        .on('action_grant.principal_type', '=', 'group'),
+    )
+    .select([
+      'action_grant.config_id',
+      'action_grant.principal_type',
+      'launch_action.title',
+      'user_account.login',
+      'user_account.name as person',
+      'user_group.name as group_name',
+    ])
+    .orderBy('action_grant.created_at');
+  query =
+    'config' in of
+      ? query.where('action_grant.config_id', '=', of.config)
+      : query
+          .where('action_grant.principal_type', '=', of.type)
+          .where('action_grant.principal_id', '=', of.id);
+  const rows = await query.execute().catch(() => []);
+  return rows.map((r) => ({
+    config: r.config_id,
+    title: r.title,
+    who:
+      r.principal_type === 'user'
+        ? ((r.person || r.login) ?? '(gone)')
+        : `group ${r.group_name ?? '(gone)'}`,
+  }));
+}
+
+/** AFS-206: why grants ended with a change, in words, by the change. */
+const ENDED_WHY: Record<string, string> = {
+  'user.delete': 'the person was deleted',
+  'group.delete': 'the group was deleted',
+  'launch-config.delete': 'the launch configuration was deleted',
+  'action.remove': 'the action was removed',
+};
+
 /** The name a thing made goes by, from the reply that made it. */
 function nameInReply(reply: Record<string, unknown>): string | undefined {
   for (const key of ['login', 'key', 'name'])
@@ -437,6 +501,10 @@ declare module 'fastify' {
     auditDetail?: Record<string, string | boolean | string[]>;
     /** AFS-195: the grants a deleted person or group had: each ends with them. */
     auditGrants?: { id: string; name: string; workspace: string }[];
+    /** AFS-206: the action grants that end with a person, a group or an action. */
+    auditActionGrants?: EndedActionGrant[];
+    /** AFS-206: the action a deleted launch configuration was (its title). */
+    auditAction?: { config: string; title: string };
   }
 }
 
@@ -484,12 +552,24 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
         .catch(() => undefined);
       if (grant) request.auditDetail = { ...request.auditDetail, workspace: grant.workspace_id };
     }
-    if (spec.action === 'group.delete' || spec.action === 'user.delete')
-      request.auditGrants = await grantsOf(
-        db,
-        spec.action === 'user.delete' ? 'user' : 'group',
-        id,
-      );
+    if (spec.action === 'group.delete' || spec.action === 'user.delete') {
+      const type = spec.action === 'user.delete' ? 'user' : 'group';
+      request.auditGrants = await grantsOf(db, type, id);
+      request.auditActionGrants = await actionGrantsOf(db, { type, id });
+    }
+    // AFS-206: a configuration that is an action ends the action and who may run it with it.
+    if (spec.action === 'launch-config.delete' || spec.action === 'action.remove') {
+      const action = await db
+        .selectFrom('launch_action')
+        .select('title')
+        .where('config_id', '=', id)
+        .executeTakeFirst()
+        .catch(() => undefined);
+      if (action) {
+        request.auditAction = { config: id, title: action.title };
+        request.auditActionGrants = await actionGrantsOf(db, { config: id });
+      }
+    }
   });
 
   app.addHook('onSend', async (request, reply, payload) => {
@@ -603,6 +683,16 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       };
     const ended = result === 'ok' ? (request.auditGrants ?? []) : [];
     if (ended.length > 0) detail.grants = ended.map((g) => g.name);
+    // AFS-206: and the action grants, and the action a deleted configuration was.
+    const endedActions = result === 'ok' ? (request.auditActionGrants ?? []) : [];
+    if (endedActions.length > 0)
+      detail.actionGrants = endedActions.map((g) => `${g.who} may run ${g.title}`);
+    const endedAction =
+      result === 'ok' && spec.action === 'launch-config.delete' ? request.auditAction : undefined;
+    if (endedAction) detail.action = endedAction.title;
+    // AFS-206: an action set for the first time is named by its title, not its configuration's.
+    if (spec.action === 'action.set' && status < 400 && typeof answer.title === 'string')
+      object = { ...object, name: answer.title };
 
     try {
       const by = {
@@ -615,8 +705,7 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       await recordAudit(db, { ...by, action: spec.action, object, result, status, detail });
       // AFS-195: each grant that ended with the person or group, as if taken back on its own,
       // so the access grants filter shows when that access ended.
-      const why =
-        spec.action === 'user.delete' ? 'the person was deleted' : 'the group was deleted';
+      const why = ENDED_WHY[spec.action] ?? 'it ended';
       for (const grant of ended)
         await recordAudit(db, {
           ...by,
@@ -625,6 +714,26 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
           result,
           status,
           detail: { workspace: grant.workspace, why },
+        });
+      // AFS-206: an action that ended with its configuration, and each action grant that ended,
+      // as if removed and taken back on their own: the actions filter shows when access ended.
+      if (endedAction)
+        await recordAudit(db, {
+          ...by,
+          action: 'action.remove',
+          object: { type: 'action', id: endedAction.config, name: endedAction.title },
+          result,
+          status,
+          detail: { why },
+        });
+      for (const grant of endedActions)
+        await recordAudit(db, {
+          ...by,
+          action: 'action.grant-remove',
+          object: { type: 'action', id: grant.config, name: grant.title },
+          result,
+          status,
+          detail: { who: grant.who, why },
         });
     } catch (e) {
       // What was done is done; the missing entry is said loudly in the server's log.

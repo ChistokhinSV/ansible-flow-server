@@ -70,3 +70,16 @@ server decides either way. Administrators give and take grants on the workspace'
 `approve` now lets its holder see what it covers, as `ro` (flows, runs, launch configurations,
 credentials' names, clone): an approver must be able to look at what they decide. It never
 lowers another grant: a person with `rw` and `approve` keeps `rw`.
+
+## Amendment (2026-11-23, AFS-206): grants on some flows only
+
+Someone whose grants in a workspace are on some of its flows only (no level on the workspace)
+reaches those flows, their launch configurations, runs, drafts and each flow's own history, and
+nothing repository-wide: `GET /projects/:id/pushes` and `/host-key` need `ro` on the workspace
+(as `/commits`, `/files`); `/branches` answers them with the names only (a flow `rw` launches a
+branch), not each branch's newest commit (message, author); `/projects/:id/access` lists only
+their flows (and says `flowOnly`); `/projects/:id/drafts` only their flows' drafts; a project is
+shown to them without its source's address, credential or the source's error; a workspace's
+`projects` counts the projects they see. The pages show them a project's Overview and Runs only.
+A flow's own history (`/flows/history`, `/commits?path=`) stays theirs: the commits that changed
+their flow, whose messages may name other files.

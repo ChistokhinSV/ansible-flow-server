@@ -11,6 +11,7 @@
 //   POST   /api/v1/launch-configs/:id/action/grants
 //   DELETE /api/v1/launch-configs/:id/action/grants/:grant
 //   GET    /api/v1/workspaces/:id/action-grants    for the workspace's Access tab
+//   GET    /api/v1/workspaces/:id/actions          AFS-206: every action, with who may run it
 // AFS-176 (ADR-0037): links to actions from other systems.
 //   GET    /api/v1/actions/:id/link?<input>=<value>  what a link gives: ready to confirm, or a form
 //   GET|POST /api/v1/launch-configs/:id/action/tokens, DELETE …/tokens/:token   signed links
@@ -58,6 +59,8 @@ import {
   setAction,
   ungrantAction,
   workspaceActionGrants,
+  workspaceActions,
+  workspacePeople,
 } from './store';
 import {
   type Action,
@@ -821,6 +824,9 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       action: action ?? null,
       // Who may run it: for who may change it (people's names are theirs to know).
       ...(manage ? { grants: await actionGrants(db, place.config) } : {}),
+      // AFS-206: whom they may give it to: the people and groups of the workspace (anyone, for
+      // an administrator, who picks from the server's people on the form).
+      ...(manage ? { people: await workspacePeople(db, place.workspace) } : {}),
       // AFS-176: its signed links, by name (never the tokens).
       ...(manage && action ? { tokens: await actionTokens(db, place.config) } : {}),
       mayManage: manage,
@@ -909,10 +915,17 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
           'not_found',
           'This configuration is not an action: make it one first',
         );
-      const grant = await grantAction(db, place.config, request.body, me.login);
+      // AFS-206: who is not an administrator names people of this workspace only.
+      const grant = await grantAction(
+        db,
+        place.config,
+        request.body,
+        me.login,
+        me.admin ? undefined : place.workspace,
+      );
+      // AFS-206: the person or group in words; the grant's id is not for people to read.
       request.auditDetail = {
         who: `${grant.principal.type === 'group' ? 'group ' : ''}${grant.principal.name}`,
-        grant: grant.id,
       };
       return reply.code(201).send(grant);
     }),
@@ -936,7 +949,6 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       if (grant)
         request.auditDetail = {
           who: `${grant.principal.type === 'group' ? 'group ' : ''}${grant.principal.name}`,
-          grant: grant.id,
         };
       if (!(await ungrantAction(db, request.params.id, request.params.grant)))
         return reply.code(404).send({ error: 'not_found', message: 'No such grant' });
@@ -1019,4 +1031,12 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       return workspaceActionGrants(db, workspace.id);
     },
   );
+
+  app.get<WithId>('/api/v1/workspaces/:id/actions', { schema: ID }, async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const workspace = await getWorkspace(db, request.params.id);
+    if (!workspace)
+      return reply.code(404).send({ error: 'not_found', message: 'No such workspace' });
+    return workspaceActions(db, workspace.id);
+  });
 }

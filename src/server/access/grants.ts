@@ -20,6 +20,7 @@ import {
   LEVELS,
   type Level,
   type Reach,
+  type ReachedAction,
   type UserReach,
   type WorkspaceName,
 } from './types';
@@ -387,9 +388,96 @@ export async function deleteGrant(db: Db, id: string): Promise<boolean> {
   return Number(done.numDeletedRows) > 0;
 }
 
-/** Who can do what in a workspace: every user with a grant there (theirs or a group's). */
+/** AFS-206: an action grant with the action it gives and where. */
+interface ActionGrantRow {
+  config: string;
+  title: string;
+  projectKey: string;
+  workspace: string;
+  type: 'user' | 'group';
+  principal: string;
+  through: string;
+}
+
+/** AFS-206: the action grants of a workspace, or the ones that name these principals. */
+async function actionGrantRows(
+  db: Db,
+  of: { workspace: string } | { user: string; groups: string[] },
+): Promise<ActionGrantRow[]> {
+  let query = db
+    .selectFrom('action_grant')
+    .innerJoin('launch_action', 'launch_action.config_id', 'action_grant.config_id')
+    .innerJoin('launch_config', 'launch_config.id', 'action_grant.config_id')
+    .innerJoin('project', 'project.id', 'launch_config.project_id')
+    .leftJoin('user_account', (j) =>
+      j
+        .onRef('user_account.id', '=', 'action_grant.principal_id')
+        .on('action_grant.principal_type', '=', 'user'),
+    )
+    .leftJoin('user_group', (j) =>
+      j
+        .onRef('user_group.id', '=', 'action_grant.principal_id')
+        .on('action_grant.principal_type', '=', 'group'),
+    )
+    .select([
+      'action_grant.config_id',
+      'action_grant.principal_type',
+      'action_grant.principal_id',
+      'launch_action.title',
+      'project.key as project_key',
+      'project.workspace_id',
+      'user_account.login',
+      'user_group.name as group_name',
+    ])
+    .orderBy('launch_action.title');
+  if ('workspace' in of) query = query.where('project.workspace_id', '=', of.workspace);
+  else {
+    const { user, groups } = of;
+    query = query.where((eb) =>
+      eb.or([
+        eb.and([
+          eb('action_grant.principal_type', '=', 'user'),
+          eb('action_grant.principal_id', '=', user),
+        ]),
+        ...(groups.length
+          ? [
+              eb.and([
+                eb('action_grant.principal_type', '=', 'group'),
+                eb('action_grant.principal_id', 'in', groups),
+              ]),
+            ]
+          : []),
+      ]),
+    );
+  }
+  return (await query.execute()).map((r) => ({
+    config: r.config_id,
+    title: r.title,
+    projectKey: r.project_key,
+    workspace: r.workspace_id,
+    type: r.principal_type as 'user' | 'group',
+    principal: r.principal_id,
+    through: `${r.principal_type}:${(r.principal_type === 'user' ? r.login : r.group_name) ?? '(gone)'}`,
+  }));
+}
+
+/** AFS-206: the actions in these rows, once each, as a person's reach says them. */
+const reachedActions = (rows: ActionGrantRow[]): ReachedAction[] => [
+  ...new Map(
+    rows.map((r) => [
+      r.config,
+      { config: r.config, title: r.title, projectKey: r.projectKey, through: r.through },
+    ]),
+  ).values(),
+];
+
+/**
+ * Who can do what in a workspace: every user with a grant there (theirs or a group's), an access
+ * grant or (AFS-206) an action grant.
+ */
 export async function whoCan(db: Db, workspace: string) {
   const grants = await listGrants(db, workspace);
+  const actionRows = await actionGrantRows(db, { workspace });
   const users = await db
     .selectFrom('user_account')
     .select(['id', 'login', 'name', 'is_admin', 'disabled', 'service'])
@@ -402,9 +490,12 @@ export async function whoCan(db: Db, workspace: string) {
     const mine = grants.filter((g) =>
       g.principal.type === 'user' ? g.principal.id === user.id : groups.has(g.principal.id),
     );
-    if (!mine.length && user.is_admin !== 1) continue;
+    const myActions = actionRows.filter((r) =>
+      r.type === 'user' ? r.principal === user.id : groups.has(r.principal),
+    );
+    if (!mine.length && !myActions.length && user.is_admin !== 1) continue;
     const access = await Access.of(db, { id: user.id, admin: user.is_admin === 1 });
-    const { level, ...reached } = reachIn(access, workspace, mine);
+    const { level, ...reached } = reachIn(access, workspace, mine, myActions);
     out.push({
       user: { id: user.id, login: user.login, name: user.name },
       admin: user.is_admin === 1,
@@ -422,7 +513,12 @@ export async function whoCan(db: Db, workspace: string) {
  * groups') come out: the level on the workspace, the flows with a grant of their own, whether
  * they approve, and whose grants gave it.
  */
-function reachIn(access: Access, workspace: string, mine: Grant[]): Reach {
+function reachIn(
+  access: Access,
+  workspace: string,
+  mine: Grant[],
+  actions: ActionGrantRow[] = [],
+): Reach {
   const flows = [
     ...new Map(
       mine.filter((g) => g.flow).map((g) => [`${g.flow?.project}/${g.flow?.file}`, g.flow]),
@@ -437,7 +533,13 @@ function reachIn(access: Access, workspace: string, mine: Grant[]): Reach {
     level: access.onWorkspace(workspace) ?? null,
     approve: access.approves(workspace),
     flows,
-    through: [...new Set(mine.map((g) => `${g.principal.type}:${g.principal.name}`))],
+    actions: reachedActions(actions),
+    through: [
+      ...new Set([
+        ...mine.map((g) => `${g.principal.type}:${g.principal.name}`),
+        ...actions.map((a) => a.through),
+      ]),
+    ],
   };
 }
 
@@ -453,7 +555,7 @@ export async function reachOf(db: Db, userId: string): Promise<UserReach | undef
     .where('id', '=', userId)
     .executeTakeFirst();
   if (!user) return undefined;
-  if (user.is_admin === 1) return { admin: true, workspaces: [] };
+  if (user.is_admin === 1) return { admin: true, workspaces: [], approves: true };
   const groups = await db
     .selectFrom('group_member')
     .select('group_id')
@@ -465,10 +567,18 @@ export async function reachOf(db: Db, userId: string): Promise<UserReach | undef
       { type: 'group', ids: groups.map((g) => g.group_id) },
     ],
   });
+  const actionRows = await actionGrantRows(db, {
+    user: user.id,
+    groups: groups.map((g) => g.group_id),
+  });
   const access = await Access.of(db, { id: user.id, admin: false });
-  const names = await workspaceNames(db, [...new Set(grants.map((g) => g.workspace))]);
+  // AFS-206: a workspace where they may only run actions is one they reach too.
+  const names = await workspaceNames(db, [
+    ...new Set([...grants.map((g) => g.workspace), ...actionRows.map((a) => a.workspace)]),
+  ]);
   return {
     admin: false,
+    approves: grants.some((g) => g.level === 'approve'),
     workspaces: [...names.values()]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((workspace) => ({
@@ -477,6 +587,7 @@ export async function reachOf(db: Db, userId: string): Promise<UserReach | undef
           access,
           workspace.id,
           grants.filter((g) => g.workspace === workspace.id),
+          actionRows.filter((a) => a.workspace === workspace.id),
         ),
       })),
   };

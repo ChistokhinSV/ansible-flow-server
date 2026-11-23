@@ -14,6 +14,7 @@ import type {
   ActionReply,
   ActionSettings,
   ActionToken,
+  WorkspaceAction,
   WorkspaceActionGrant,
 } from './types';
 import { ACTION_SYSTEMS } from './types';
@@ -386,12 +387,116 @@ export async function workspaceActionGrants(
   });
 }
 
+/**
+ * AFS-206: the people and groups who already reach a workspace: a grant there (an access grant on
+ * it or on one of its flows, or an action grant on one of its actions), their own or a group's.
+ * Someone with rw on the workspace gives actions to these only; an administrator to anyone.
+ */
+export async function workspacePeople(
+  db: Db,
+  workspace: string,
+): Promise<{
+  users: { id: string; login: string; name: string }[];
+  groups: { id: string; name: string }[];
+}> {
+  const access = await db
+    .selectFrom('access_grant')
+    .select(['principal_type', 'principal_id'])
+    .where('workspace_id', '=', workspace)
+    .execute();
+  const actions = await db
+    .selectFrom('action_grant')
+    .innerJoin('launch_config', 'launch_config.id', 'action_grant.config_id')
+    .innerJoin('project', 'project.id', 'launch_config.project_id')
+    .select(['action_grant.principal_type', 'action_grant.principal_id'])
+    .where('project.workspace_id', '=', workspace)
+    .execute();
+  const rows = [...access, ...actions];
+  const groupIds = [
+    ...new Set(rows.filter((r) => r.principal_type === 'group').map((r) => r.principal_id)),
+  ];
+  const members = groupIds.length
+    ? await db
+        .selectFrom('group_member')
+        .select('user_id')
+        .where('group_id', 'in', groupIds)
+        .execute()
+    : [];
+  const userIds = [
+    ...new Set([
+      ...rows.filter((r) => r.principal_type === 'user').map((r) => r.principal_id),
+      ...members.map((m) => m.user_id),
+    ]),
+  ];
+  const users = userIds.length
+    ? await db
+        .selectFrom('user_account')
+        .select(['id', 'login', 'name'])
+        .where('id', 'in', userIds)
+        .where('is_admin', '=', 0)
+        .orderBy('login')
+        .execute()
+    : [];
+  const groups = groupIds.length
+    ? await db
+        .selectFrom('user_group')
+        .select(['id', 'name'])
+        .where('id', 'in', groupIds)
+        .orderBy('name')
+        .execute()
+    : [];
+  return { users, groups };
+}
+
+/**
+ * AFS-206: every action of a workspace, on or off, with who may run it through a grant: one access
+ * table lists them all, those nobody was given yet too (operators of the flow and administrators
+ * may run every one).
+ */
+export async function workspaceActions(db: Db, workspace: string): Promise<WorkspaceAction[]> {
+  const actions = await db
+    .selectFrom('launch_action')
+    .innerJoin('launch_config', 'launch_config.id', 'launch_action.config_id')
+    .innerJoin('project', 'project.id', 'launch_config.project_id')
+    .select([
+      'launch_action.config_id',
+      'launch_action.title',
+      'launch_action.enabled',
+      'launch_config.name as config_name',
+      'launch_config.flow_file',
+      'project.id as project_id',
+      'project.key as project_key',
+      'project.name as project_name',
+    ])
+    .where('project.workspace_id', '=', workspace)
+    .orderBy('launch_action.title')
+    .execute();
+  const grants = (await grantRows(db, { configs: actions.map((a) => a.config_id) })).map(grantOf);
+  return actions.map((a) => ({
+    config: a.config_id,
+    title: a.title,
+    enabled: a.enabled === 1,
+    configName: a.config_name,
+    file: a.flow_file,
+    project: a.project_id,
+    projectKey: a.project_key,
+    projectName: a.project_name,
+    grants: grants.filter((g) => g.config === a.config_id),
+  }));
+}
+
 /** Gives a user or a group "may run this action". A second for the same one is refused. */
 export async function grantAction(
   db: Db,
   config: string,
   input: { user?: string; group?: string },
   by: string,
+  /**
+   * AFS-206: for who is not an administrator, the workspace whose people they may name. Anyone
+   * else is refused with the answer an unknown name gets, so the grant tells nothing of the
+   * server's other logins and groups (which only administrators list).
+   */
+  among?: string,
 ): Promise<ActionGrant> {
   if (!!input.user === !!input.group)
     throw invalid('A grant is for a user or for a group: name one');
@@ -410,12 +515,26 @@ export async function grantAction(
           eb.or([eb('id', '=', input.group as string), eb('name', '=', input.group as string)]),
         )
         .executeTakeFirst();
+  const type = input.user ? 'user' : 'group';
+  if (among) {
+    const people = await workspacePeople(db, among);
+    const known = principal
+      ? type === 'user'
+        ? people.users.some((u) => u.id === principal.id)
+        : people.groups.some((g) => g.id === principal.id)
+      : false;
+    if (!known)
+      throw new ActionError(
+        'not_found',
+        `No ${type === 'user' ? 'person' : 'group'} ${input.user ?? input.group} with access to this workspace: name one who has, or ask an administrator to give it`,
+        type,
+      );
+  }
   if (!principal)
     throw new ActionError(
       'not_found',
       input.user ? `No user ${input.user}` : `No group ${input.group}`,
     );
-  const type = input.user ? 'user' : 'group';
   const same = await db
     .selectFrom('action_grant')
     .select('id')

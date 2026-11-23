@@ -1,7 +1,7 @@
 // The audit log: who did what, newest first, filtered, a page at
 // a time, and taken away as CSV or JSON with the same filter.
 import { type FormEvent, useEffect, useState } from 'react';
-import { AUDIT_KINDS as OBJECTS } from '../server/audit/kinds';
+import { AUDIT_ACTION_WORDS, AUDIT_KINDS as OBJECTS } from '../server/audit/kinds';
 import type { AuditRef } from '../server/audit/refs';
 import { type AuditEntry, type AuditFilter, api, auditExport } from './api';
 import { Link } from './router';
@@ -310,7 +310,12 @@ export function AuditPage() {
                     {e.ip && <div className="muted">{e.ip}</div>}
                   </td>
                   <td>
-                    <code>{e.action}</code>
+                    {/* AFS-206: in words; the code (what the filter takes) on hover. */}
+                    {AUDIT_ACTION_WORDS[e.action] ? (
+                      <span title={e.action}>{AUDIT_ACTION_WORDS[e.action]}</span>
+                    ) : (
+                      <code>{e.action}</code>
+                    )}
                   </td>
                   <td className="long">
                     {e.object.id ? (

@@ -768,13 +768,45 @@ function ConfigRuns({ config, me }: { config: LaunchConfig; me: User }) {
   );
 }
 
+/**
+ * AFS-206: what deleting a configuration ends, in the question: the action it is and who can no
+ * longer run it, and runs of it that still go (one paused step by step among them).
+ */
+async function deleteQuestion(config: LaunchConfig): Promise<string> {
+  const [info, runs] = await Promise.all([
+    api.configAction(config.id).catch(() => undefined),
+    api.runs({ config: config.id, limit: 20 }).catch(() => []),
+  ]);
+  const parts = [`Delete the launch configuration "${config.name}"?`];
+  if (info?.action) {
+    const who = (info.grants ?? []).map((g) =>
+      g.principal.type === 'group' ? `group ${g.principal.name}` : g.principal.name,
+    );
+    parts.push(
+      `It is the action "${info.action.title}": the action ends${who.length ? ` and ${who.join(', ')} can no longer run it` : ''}.`,
+    );
+  }
+  const going = runs.filter((r) => ['queued', 'running', 'waiting'].includes(r.state));
+  const paused = going.filter((r) => r.pausedBefore);
+  if (paused.length)
+    parts.push(
+      `${paused.length === 1 ? 'A run of it is' : `${paused.length} runs of it are`} paused step by step (before ${paused[0]?.pausedBefore}).`,
+    );
+  else if (going.length)
+    parts.push(
+      `${going.length === 1 ? 'A run of it still goes' : `${going.length} runs of it still go`}.`,
+    );
+  parts.push('Its runs stay.');
+  return parts.join(' ');
+}
+
 /** Deleting a configuration: at the end of its settings, asked about first. */
 function DeleteConfig({ config, to }: { config: LaunchConfig; to: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const remove = async () => {
     if (
-      !(await ask(`Delete the launch configuration "${config.name}"? Its runs stay.`, {
+      !(await ask(await deleteQuestion(config), {
         yes: 'Delete',
         danger: true,
       }))
@@ -1383,35 +1415,41 @@ export function LaunchConfigPage({
                 </Labelled>
                 {liveNow?.limited && <LimitWarning limited={liveNow.limited} />}
               </Fold>
-              <fieldset className="choices">
-                <legend>Mode</legend>
-                {(['check', 'real'] as const).map((m) => (
-                  <label key={m} className="inline">
+              {/* AFS-206: the mode and step by step are for who may launch; a reader checks the
+                  configuration as it is. */}
+              {mayLaunch && (
+                <>
+                  <fieldset className="choices">
+                    <legend>Mode</legend>
+                    {(['check', 'real'] as const).map((m) => (
+                      <label key={m} className="inline">
+                        <input
+                          type="radio"
+                          name="mode"
+                          value={m}
+                          checked={(mode ?? form.data?.mode ?? c.mode) === m}
+                          onChange={() => setMode(m)}
+                        />
+                        {/* AFS-143: one name, "check run", and both modes said in a few words. */}
+                        {m === 'check'
+                          ? 'Check: nothing is changed, approvals pass by themselves'
+                          : 'Real: the hosts are changed, approvals wait for a decision'}
+                      </label>
+                    ))}
+                  </fieldset>
+                  {/* AFS-177: a step-by-step run pauses before each step; its page has Step and Continue. */}
+                  <label className="inline launch-step">
                     <input
-                      type="radio"
-                      name="mode"
-                      value={m}
-                      checked={(mode ?? form.data?.mode ?? c.mode) === m}
-                      onChange={() => setMode(m)}
+                      type="checkbox"
+                      checked={stepped}
+                      data-launch-step
+                      onChange={(e) => setStepped(e.target.checked)}
                     />
-                    {/* AFS-143: one name, "check run", and both modes said in a few words. */}
-                    {m === 'check'
-                      ? 'Check: nothing is changed, approvals pass by themselves'
-                      : 'Real: the hosts are changed, approvals wait for a decision'}
+                    Step by step: pause before each step until someone says Step, Continue or Stop
+                    on the run's page
                   </label>
-                ))}
-              </fieldset>
-              {/* AFS-177: a step-by-step run pauses before each step; its page has Step and Continue. */}
-              <label className="inline launch-step">
-                <input
-                  type="checkbox"
-                  checked={stepped}
-                  data-launch-step
-                  onChange={(e) => setStepped(e.target.checked)}
-                />
-                Step by step: pause before each step until someone says Step, Continue or Stop on
-                the run's page
-              </label>
+                </>
+              )}
               {error &&
                 (flowErrors ? (
                   <FlowErrorsNote

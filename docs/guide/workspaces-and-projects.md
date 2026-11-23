@@ -89,6 +89,13 @@ curl ... -X POST https://flows.example.net:8443/api/v1/workspaces/network/projec
   tab. A new branch is what the flows, launch configurations and schedules that name no other
   branch run from then on.
 - **Deleting:** administrators delete a project at the bottom of its **Settings** tab, and a workspace at the bottom of its **Access** tab, after typing its key. A project goes with its launch configurations, their schedules, its run history and the server's copy of its repository (an external source stays as it is); it is refused while one of its runs goes. A workspace is refused while it still has projects or execution environments. Over the API: `DELETE /api/v1/projects/:id`, `DELETE /api/v1/workspaces/:id`.
+- **Who sees some flows only:** someone whose grants in a workspace are on some of its flows
+  sees, on the project's page, **Overview** and **Runs** with "You see 2 flows of this project"
+  under the title: those flows, their launch configurations and runs. Files, History, Branches
+  and Settings are for who has a level on the workspace; the workspace and Home count the
+  projects they see. See [Access levels](people-and-sign-in.md#access-levels).
+- **A workspace's tab by its name:** `/w/<workspace>/access` (and `environments`,
+  `credentials`) opens the tab, at `/w/<workspace>/-/access`, unless a project has that key.
 - The server needs the `git` program.
 
 ## Starting a hosted project from a sample or an archive

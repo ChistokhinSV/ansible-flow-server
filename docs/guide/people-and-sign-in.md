@@ -53,8 +53,10 @@ just user add dana --name "Dana Whitfield" --admin
 - `GET /users/:id/access` answers `{"admin", "workspaces"}`: a row for each workspace where a
   grant names the person or one of their groups, with the `workspace` (`id`, `key`, `name`),
   their `level` there, `approve`, the `flows` with a grant of their own (`project` key,
-  `projectId`, `file`, `level`), and `through` (whose grants gave it: `user:omar`,
-  `group:netops`). For an administrator it is `"admin": true` and no rows. `GET /session/access`
+  `projectId`, `file`, `level`), the `actions` an action grant lets them run (`config`, `title`,
+  `projectKey`, `through`), and `through` (whose grants gave it: `user:omar`, `group:netops`).
+  A workspace where they may only run actions has a row too. `approves` says whether they have
+  an approve grant anywhere. For an administrator it is `"admin": true` and no rows. `GET /session/access`
   is the same answer for whoever asks, about themself, with `administrators`: the names of the
   administrators, who give access. **My account** shows it under **Your access**. `GET /groups/:id/grants` lists the grants that name the group: each with the
   `workspace` (`id`, `key`, `name`), the `level`, and the `flow` when it is on one flow.
@@ -201,6 +203,14 @@ Administrators may do everything. Everyone else sees and does only what they are
 - **Of a person's own and their groups' grants, the highest counts.**
 - **Git is the workspace's:** clone needs `ro` on the workspace and push `rw` on it; a grant on
   one flow does not open the repository, which holds every flow.
+- **Grants on some flows only show those flows:** someone whose grants in a workspace are on some
+  of its flows (no level on the workspace) sees those flows, their launch configurations and
+  their runs, and a flow's own history. Nothing of the repository beyond them: not its files,
+  history, pushes, or the messages and authors of its branches' commits (the branch names stay,
+  to launch a branch), not the other flows or their drafts, not the source's address. Workspace
+  and Home count only the projects they see. A project's page shows them Overview and Runs, with
+  "You see 1 flow of this project" under the title. Read only on one flow sees the flow and its
+  runs; it does not clone.
 - **What a person may not see is not there for them:** lists leave it out, and asking for it
   answers 404 with the words a missing one gets ("No such run"). What they may see but not do answers 403.
 - **Tokens act as their owner,** narrowed further when read-only or made for one workspace.
@@ -208,6 +218,13 @@ Administrators may do everything. Everyone else sees and does only what they are
 - **The pages say the levels in words:** read only, operator, read and write, approver. Each
   workspace and every tab of a project says your own access there under its title, with the
   flows a grant of your own gives another level on, by their titles.
+- **Actions are access too:** a grant to run an action (see [Actions](actions.md)) is not a level,
+  but the workspace's Access tab, a person's **What they reach** and **Your access** on My account
+  list them: an Actions column, and an Actions table with every action of the workspace and who
+  may run it (operators of its flow and administrators may run every one).
+- **Ending access is in the audit log:** deleting a person or a group records each access grant
+  and each action grant that ends with them; deleting a launch configuration that is an action
+  records the action and each of its grants as ended, with why.
 
 Give and take grants on the workspace's page (Access), or:
 
@@ -224,7 +241,7 @@ curl --cookie cookies.txt -H 'content-type: application/json' \
 | `GET`, `POST /workspaces/:id/grants` | A workspace's grants; give one (`user` or `group`, `level`, optionally `project` and `flow`) | administrators |
 | `DELETE /grants/:id`                 | Take a grant back                                                                            | administrators |
 | `GET /workspaces/:id/access`         | Who can do what: every person with access, as their grants come out                          | administrators |
-| `GET /projects/:id/access`           | What you may do in a project: your level on it and on each flow                              | can see it     |
+| `GET /projects/:id/access`           | What you may do in a project: your level on it and on each flow you see; `flowOnly`          | can see it     |
 
 ## Service accounts
 

@@ -196,6 +196,8 @@ describe('People and groups', () => {
       'operator',
       // AFS-152: levels in words; a flow by its title when its project's list has one.
       'upgrade: read and write in core',
+      // AFS-206: the actions an action grant gives (none here).
+      '',
       'yes',
       'their own grant, group netops',
     ]);

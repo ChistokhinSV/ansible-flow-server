@@ -2,7 +2,14 @@
 // token is shown once, when it is made; the list shows its name, its last characters and what it
 // may do. The list comes first: making a token is behind a button (AFS-88).
 import { type ReactNode, useId, useState } from 'react';
-import { api, type NewToken, type TokenInfo, type Workspace as WorkspaceInfo } from './api';
+import { launchesAny } from './access';
+import {
+  api,
+  type NewToken,
+  type TokenInfo,
+  type UserReach,
+  type Workspace as WorkspaceInfo,
+} from './api';
 import { ask } from './confirm';
 import { Copyable, Field, Form, Loading, messageOf, Scroll, Time, useLoad, useRefresh } from './ui';
 
@@ -13,6 +20,7 @@ export function TokensPanel({
   intro,
   none,
   onChanged,
+  reach,
 }: {
   load: () => Promise<TokenInfo[]>;
   /** Absent: tokens are only seen and revoked here (another person makes their own). */
@@ -29,6 +37,12 @@ export function TokensPanel({
   none: string;
   /** A token was made or revoked: a page that counts them counts again. */
   onChanged?: () => void;
+  /**
+   * AFS-206: what the token's person reaches, so the form offers only what they may use: deciding
+   * approvals (an approve grant, or operator for their own runs), driving step-by-step runs
+   * (operator somewhere). Absent while unknown: everything is offered.
+   */
+  reach?: UserReach | undefined;
 }) {
   const list = useLoad(load, []);
   // AFS-139: Last used follows a token's use elsewhere (the API, an MCP client).
@@ -43,6 +57,10 @@ export function TokensPanel({
     mcpRunControl: false,
   };
   const [input, setInput] = useState(fresh);
+  // AFS-206: launching (operator) lets one drive one's own step-by-step runs and, where the
+  // workspace allows it, decide one's own runs' approvals.
+  const launches = !reach || launchesAny({ ...reach, administrators: [] });
+  const mayApprove = !reach || reach.admin || !!reach.approves || launches;
   const workspaceName = (id?: string) =>
     id ? (workspaces.data?.find((w) => w.id === id)?.name ?? 'a deleted workspace') : 'all';
   const [made, setMade] = useState<NewToken>();
@@ -206,29 +224,33 @@ export function TokensPanel({
               />
               Read only (can clone and read, cannot push or change anything)
             </label>
-            <label className="choice">
-              <input
-                type="checkbox"
-                checked={input.mcpApprovals && !input.readOnly}
-                disabled={input.readOnly}
-                onChange={(e) => setInput({ ...input, mcpApprovals: e.target.checked })}
-              />
-              An agent with this token may decide approvals over MCP (off: approvals stay with
-              people)
-              {input.readOnly ? ' · not for a read-only token' : ''}
-            </label>
+            {mayApprove && (
+              <label className="choice">
+                <input
+                  type="checkbox"
+                  checked={input.mcpApprovals && !input.readOnly}
+                  disabled={input.readOnly}
+                  onChange={(e) => setInput({ ...input, mcpApprovals: e.target.checked })}
+                />
+                An agent with this token may decide approvals over MCP (off: approvals stay with
+                people)
+                {input.readOnly ? ' · not for a read-only token' : ''}
+              </label>
+            )}
             {/* AFS-177: run_step, off unless asked for, as deciding approvals is. */}
-            <label className="choice">
-              <input
-                type="checkbox"
-                checked={input.mcpRunControl && !input.readOnly}
-                disabled={input.readOnly}
-                onChange={(e) => setInput({ ...input, mcpRunControl: e.target.checked })}
-              />
-              An agent with this token may drive step-by-step runs over MCP: Step, Continue, Pause,
-              Stop (off: people press them on the run's page)
-              {input.readOnly ? ' · not for a read-only token' : ''}
-            </label>
+            {launches && (
+              <label className="choice">
+                <input
+                  type="checkbox"
+                  checked={input.mcpRunControl && !input.readOnly}
+                  disabled={input.readOnly}
+                  onChange={(e) => setInput({ ...input, mcpRunControl: e.target.checked })}
+                />
+                An agent with this token may drive step-by-step runs over MCP: Step, Continue,
+                Pause, Stop (off: people press them on the run's page)
+                {input.readOnly ? ' · not for a read-only token' : ''}
+              </label>
+            )}
             <WorkspaceChoice
               value={input.workspace}
               workspaces={workspaces.data ?? []}
