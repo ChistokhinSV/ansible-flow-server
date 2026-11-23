@@ -18,7 +18,28 @@ export interface RunRecord {
   hosts?: { total: number; failed: number };
   /** AFS-193: a failed run whose approval was decided against. */
   decidedAgainst?: 'rejected' | 'timed out';
+  /** AFS-205: who launched it, and a step-by-step run's pause points and pause. */
+  requestedBy?: { login: string; name?: string };
+  step?: { every: boolean; points: string[] };
+  pausedBefore?: string;
 }
+
+/**
+ * AFS-205: the run the flow page shows on its canvas: your own run that still goes (one you
+ * left paused step by step, say), else the flow's newest.
+ */
+export function runToShow(
+  runs: readonly RunRecord[],
+  me: string | undefined,
+): RunRecord | undefined {
+  return (me && runs.find((r) => r.requestedBy?.login === me && going(r.state))) || runs[0];
+}
+
+/** AFS-205: who may go on from a pause of a run, for those who may not: its launcher or an operator. */
+export const whoGoesOn = (run: RunRecord): string | undefined =>
+  run.requestedBy
+    ? `${run.requestedBy.name || run.requestedBy.login} or an operator of this flow`
+    : undefined;
 /** AFS-139: a run that has not ended yet. */
 export const going = (state: string | undefined): boolean =>
   state === 'queued' || state === 'running' || state === 'waiting';

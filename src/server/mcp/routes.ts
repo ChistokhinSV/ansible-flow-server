@@ -172,9 +172,10 @@ export const SERVER_TOOLS: ServerTool[] = [
           'cancelled',
           'lost',
           'rejected',
+          'paused',
         ],
         description:
-          'rejected: failed because an approval was rejected or not decided in time; failed leaves those out',
+          'rejected: failed because an approval was rejected or not decided in time; failed leaves those out. paused: a step-by-step run paused before a step (its state is running); waiting has those too',
       },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       before: str('Where the last page ended: the next of its answer'),
@@ -445,6 +446,8 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
             ...(x.config ? { config: (x.config as { name: string }).name } : {}),
             state: x.state,
             mode: x.mode,
+            // AFS-205: a step-by-step run paused before a step: which.
+            ...(x.pausedBefore ? { pausedBefore: x.pausedBefore } : {}),
             by: (x.requestedBy as { login: string }).login,
             createdAt: x.createdAt,
             ...(x.endedAt ? { endedAt: x.endedAt } : {}),

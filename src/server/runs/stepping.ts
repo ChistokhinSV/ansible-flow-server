@@ -141,7 +141,13 @@ export function registerStepping(app: FastifyInstance, deps: StepRouteDeps): voi
           { by: me.login, run: run.id, number: run.number, command: command ?? 'points' },
           'Step-by-step run driven',
         );
-        return reply.code(202).send({ ...run, ...(command ? { sent: command } : {}) });
+        // AFS-205: Step, Continue and Stop answer the pause: the run is not paused any more
+        // (its record says so a moment later), so the reply does not say it is.
+        const { pausedBefore: _was, ...going } = run;
+        const answered = command === 'step' || command === 'continue' || command === 'stop';
+        return reply
+          .code(202)
+          .send({ ...(answered ? going : run), ...(command ? { sent: command } : {}) });
       }
       // Not going here: queued, waiting at an approval, or on another server of the group.
       if (command === 'stop' && (run.state === 'queued' || run.state === 'waiting')) {

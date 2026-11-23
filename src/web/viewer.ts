@@ -24,7 +24,16 @@ import { followFlow } from './viewerChanges';
 import { editDraft, openWebLink } from './viewerDraft';
 import { askName, askYes, chooseConfig, launcher } from './viewerLaunch';
 import { type PastFacts, showPast } from './viewerPast';
-import { going, pastRunOf, type RunRecord, runnerOf, stepTitle, stopQuestion } from './viewerRuns';
+import {
+  going,
+  pastRunOf,
+  type RunRecord,
+  runnerOf,
+  runToShow,
+  stepTitle,
+  stopQuestion,
+  whoGoesOn,
+} from './viewerRuns';
 import { filesAddress, flowInventory, openCodeIn, projectKeys, repoVars } from './viewerVars';
 
 const params = new URLSearchParams(window.location.search);
@@ -185,6 +194,8 @@ async function start(): Promise<void> {
   const stepping = operate && (!commit || !!runId);
   /** AFS-177: this person's pause points on the flow, kept by the server. */
   let points: string[] = [];
+  /** AFS-205: a run's page: the run's pause points (it is step by step), not this person's. */
+  let runPoints: string[] | undefined;
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
@@ -257,8 +268,11 @@ async function start(): Promise<void> {
       record = JSON.parse((event as MessageEvent).data) as RunRecord;
     });
     events.addEventListener('view', (event) => {
-      const view = JSON.parse((event as MessageEvent).data);
-      lastRunning = view?.summary?.running;
+      const seen = JSON.parse((event as MessageEvent).data);
+      lastRunning = seen?.summary?.running;
+      // AFS-205: a reader (who may not go on) is told who may.
+      const who = !stepping && record && seen?.step ? whoGoesOn(record) : undefined;
+      const view = who ? { ...seen, step: { ...seen.step, who } } : seen;
       void decidable(id, view).then((approvals) =>
         // Named by the server's run id, as the run list names it, so the canvas knows it there.
         send({
@@ -345,7 +359,9 @@ async function start(): Promise<void> {
    */
   const showLatest = async () => {
     await runs();
-    const latest = known[0];
+    // AFS-205: your own run that still goes before someone else's newer one.
+    const me = await get('/api/v1/session').catch(() => undefined);
+    const latest = runToShow(known, me?.ok ? (me.data?.login as string | undefined) : undefined);
     if (latest && !shown) showRun(latest.id, !going(latest.state));
   };
 
@@ -408,7 +424,21 @@ async function start(): Promise<void> {
               embed,
               ...(stepping ? { stepRuns: true } : {}),
             } as HostMessage);
-            if (stepping)
+            // AFS-205: on a run's page, the run's own pause points (as its launcher left them);
+            // on the flow's page, yours.
+            if (stepping && runId)
+              void get(`/api/v1/runs/${encodeURIComponent(runId)}`).then(
+                (reply) => {
+                  if (!reply.ok) return;
+                  if (reply.data?.step) {
+                    runPoints = (reply.data.step.points as string[] | undefined) ?? [];
+                    points = runPoints;
+                    send({ type: 'pausePoints', points });
+                  }
+                },
+                () => undefined,
+              );
+            else if (stepping)
               void get(
                 `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
               ).then(
@@ -474,6 +504,33 @@ async function start(): Promise<void> {
               ? points.filter((n) => n !== message.node)
               : [...points, message.node];
             send({ type: 'pausePoints', points });
+            // AFS-205: on a run's page they are the run's: sent to it, your own list stays.
+            if (runId && runPoints) {
+              void fetch(`/api/v1/runs/${encodeURIComponent(runId)}/step`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ points }),
+              }).then(
+                async (reply) => {
+                  if (reply.ok) return;
+                  const why = (await reply.json().catch(() => undefined))?.message;
+                  points = before;
+                  send({ type: 'pausePoints', points });
+                  send({
+                    type: 'notify',
+                    level: 'error',
+                    text: why ?? 'The pause point was not kept',
+                  });
+                },
+                () => {
+                  points = before;
+                  send({ type: 'pausePoints', points });
+                  send({ type: 'notify', level: 'error', text: 'The server does not answer' });
+                },
+              );
+              return;
+            }
             void fetch(
               `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
               {

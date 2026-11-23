@@ -213,6 +213,18 @@ describe('the API', () => {
     const stepped = await step('omar', run.id, { command: 'step' });
     expect(stepped.statusCode).toBe(202);
     expect(stepped.json()).toMatchObject({ id: run.id, sent: 'step' });
+    // AFS-205: the reply to Step does not say the run is paused (its record says so a moment
+    // later): the page's bar does not stay "Paused before".
+    await db().updateTable('run').set({ step_paused: 'Push' }).where('id', '=', run.id).execute();
+    driving.set(run.id, { paused: true, sent: ['step'] });
+    const again = await step('omar', run.id, { command: 'continue' });
+    expect(again.json().pausedBefore).toBeUndefined();
+    expect((await queue.get(run.id))?.pausedBefore).toBe('Push');
+    // ... and a paused run is listed as paused, and among the runs that wait.
+    expect((await queue.list({ state: 'paused' })).map((r) => r.id)).toEqual([run.id]);
+    expect((await queue.list({ state: 'waiting' })).map((r) => r.id)).toContain(run.id);
+    await db().updateTable('run').set({ step_paused: null }).where('id', '=', run.id).execute();
+    driving.set(run.id, { paused: true, sent: ['step'] });
     expect((await step('dana', run.id, { points: [PING] })).statusCode).toBe(202);
     // Pause does not fit a paused run.
     const pause = await step('dana', run.id, { command: 'pause' });
@@ -223,6 +235,7 @@ describe('the API', () => {
     expect(entries.map((e) => [e.actor?.login, e.result, e.detail?.command])).toEqual([
       ['dana', 'refused', 'pause'],
       ['dana', 'ok', 'points'],
+      ['omar', 'ok', 'continue'],
       ['omar', 'ok', 'step'],
       // Refused before the route reads the body: the entry has no command.
       ['rita', 'refused', undefined],
@@ -367,6 +380,7 @@ describe('the executor', () => {
    */
   const stepping = () => {
     const sent: string[] = [];
+    let points: string[] = [];
     let release: () => void = () => undefined;
     const answered = new Promise<void>((resolve) => {
       release = resolve;
@@ -389,9 +403,12 @@ describe('the executor', () => {
           release();
           return undefined;
         },
-        setPoints: async () => undefined,
+        setPoints: async (next) => {
+          points = next;
+          return undefined;
+        },
         paused: () => paused,
-        control: () => ({ v: 1, command: 'step', points: [], reply: null }),
+        control: () => ({ v: 1, command: 'step', points, reply: null }),
       };
       const done = hooks.started?.(async () => undefined, driver);
       const base = { id: request.id, mode: request.mode, startedAt: request.startedAt };
@@ -471,6 +488,22 @@ describe('the executor', () => {
     await ex.stop();
   });
 
+  it('AFS-205: who went on is in the output; pause points set while it goes are kept with whose', async () => {
+    await clear();
+    const fake = stepping();
+    const ex = executor(fake.runner);
+    const run = (await launch('omar', { step: { every: true } })).json();
+    await ex.start();
+    await until(async () => (await queue.get(run.id))?.pausedBefore === 'Read a few facts');
+    expect(await ex.drive(run.id, { points: [PING] }, 'dana')).toEqual({ paused: true });
+    expect((await queue.get(run.id))?.step).toMatchObject({ points: [PING], pointsBy: 'dana' });
+    expect(await ex.drive(run.id, { command: 'continue' }, 'omar')).toEqual({ paused: true });
+    await until(async () => (await queue.get(run.id))?.state === 'succeeded');
+    const output = readFileSync(ex.outputFile(run.id), 'utf8');
+    expect(output).toContain('Continue by omar');
+    await ex.stop();
+  });
+
   it('a server that stops while a run is paused ends it as stopped, not failed', async () => {
     await clear();
     const fake = stepping();
@@ -485,7 +518,8 @@ describe('the executor', () => {
       'Stopped: the server stopped while the run was paused before Read a few facts; a paused run cannot go on after a restart',
     );
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
-    expect(output).toContain('Paused before Read a few facts (1 host)');
+    // AFS-205: the pause is said once, by the run itself (its line), not again by the server.
+    expect(output).not.toContain('Paused before Read a few facts (1 host)');
     expect(output).toContain('Stopped: the server stopped while the run was paused');
     expect(output).not.toContain('Stopped on request');
   });
