@@ -367,6 +367,10 @@ function InputField({
 }) {
   const listId = useId();
   const known = field.targets && Array.isArray(groups) ? groups : [];
+  // AFS-205: the host list's help says what it is once ("The hosts the run starts on" is what the
+  // hint above says already); where the hosts go next is kept.
+  const told = field.targets ? origin?.replace(/^The hosts the run starts on(; |$)/, '') : origin;
+  const shownOrigin = told ? told.charAt(0).toUpperCase() + told.slice(1) : undefined;
   const suggest = known.length ? listSuggestions(value, known) : [];
   const chosen = new Set(listNames(value));
   const label = (
@@ -393,12 +397,12 @@ function InputField({
     <Labelled
       label={label}
       hint={
-        hint || origin ? (
+        hint || shownOrigin ? (
           <>
             {hint}
-            {origin && (
+            {shownOrigin && (
               <span className="input-origin" data-origin={field.name}>
-                {origin}
+                {shownOrigin}
               </span>
             )}
           </>
@@ -871,6 +875,20 @@ export function LaunchConfigPage({
   const [limit, setLimit] = useState<string | undefined>();
   /** AFS-177: run step by step: pause before each step until Step, Continue or Stop. */
   const [stepped, setStepped] = useState(false);
+  /** AFS-205: pause only at this person's pause points (not before every step). */
+  const [atPoints, setAtPoints] = useState(false);
+  /** AFS-205: how long a pause waits (minutes); empty: the server's longest. */
+  const [stepWait, setStepWait] = useState('');
+  // AFS-205: this person's pause points on the flow, read once step by step is chosen.
+  const stepFlow = config.data ? [config.data.project, config.data.flowFile] : undefined;
+  const myPoints = useLoad(
+    async () =>
+      stepped && stepFlow
+        ? ((await api.pausePoints(stepFlow[0] ?? '', stepFlow[1] ?? '').catch(() => undefined))
+            ?.points ?? [])
+        : [],
+    [stepped, stepFlow?.[0], stepFlow?.[1]],
+  );
   /** The commit and branch the form was read at: what the inputs are of. */
   const [at, setAt] = useState({ ref: '', commit: '' });
   // AFS-152: asked for once the configuration is there, so one not there is asked for once.
@@ -1096,9 +1114,15 @@ export function LaunchConfigPage({
         : '';
     if (real) {
       const where = limitText.trim() ? ` limited to ${limitText.trim()}` : '';
+      // AFS-205: and that it pauses, step by step.
+      const pauses = stepped
+        ? atPoints
+          ? ' It pauses at your pause points until you say Step or Continue.'
+          : ' It pauses before each step until you say Step or Continue.'
+        : '';
       if (
         !(await ask(
-          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.${skipped}`,
+          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.${pauses}${skipped}`,
           { yes: 'Run for real' },
         ))
       )
@@ -1114,9 +1138,21 @@ export function LaunchConfigPage({
       const points = stepped
         ? ((await api.pausePoints(c.project, c.flowFile).catch(() => undefined))?.points ?? [])
         : [];
+      const minutes = Number(stepWait);
       const run = await api.launch(c.id, {
         ...request(),
-        ...(stepped ? { step: { every: true, points } } : {}),
+        ...(stepped
+          ? {
+              step: {
+                // AFS-205: before each step, or only at the pause points (when there are some).
+                every: !(atPoints && points.length > 0),
+                points,
+                ...(stepWait.trim() && Number.isInteger(minutes) && minutes > 0
+                  ? { timeoutMinutes: minutes }
+                  : {}),
+              },
+            }
+          : {}),
       });
       release();
       navigate(`/runs/${run.id}`);
@@ -1445,9 +1481,50 @@ export function LaunchConfigPage({
                       data-launch-step
                       onChange={(e) => setStepped(e.target.checked)}
                     />
-                    Step by step: pause before each step until someone says Step, Continue or Stop
-                    on the run's page
+                    Step by step: pause until someone says Step, Continue or Stop on the run's page
                   </label>
+                  {/* AFS-205: what the API offers: where it pauses, and how long a pause waits. */}
+                  {stepped && (
+                    <fieldset className="choices launch-step-options" data-launch-step-options>
+                      <legend className="sr-only">Where it pauses</legend>
+                      <label className="inline">
+                        <input
+                          type="radio"
+                          name="step-where"
+                          checked={!atPoints}
+                          onChange={() => setAtPoints(false)}
+                        />
+                        Before each step
+                      </label>
+                      <label className="inline">
+                        <input
+                          type="radio"
+                          name="step-where"
+                          checked={atPoints}
+                          disabled={!myPoints.data?.length}
+                          onChange={() => setAtPoints(true)}
+                        />
+                        {myPoints.data?.length
+                          ? `Only at your ${myPoints.data.length} pause point${myPoints.data.length === 1 ? '' : 's'}`
+                          : 'Only at your pause points (none yet: add them on the flow, right-click a step)'}
+                      </label>
+                      <label className="inline launch-step-wait">
+                        A pause waits{' '}
+                        <input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          inputMode="numeric"
+                          placeholder="60"
+                          value={stepWait}
+                          onChange={(e) => setStepWait(e.target.value)}
+                          aria-label="Minutes a pause waits"
+                          data-launch-step-wait
+                        />{' '}
+                        minutes at most, then the run stops by itself
+                      </label>
+                    </fieldset>
+                  )}
                 </>
               )}
               {error &&

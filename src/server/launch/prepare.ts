@@ -83,6 +83,11 @@ export interface StepAsked {
   every: boolean;
   points: string[];
   timeoutS: number;
+  /**
+   * AFS-205: who set the pause points the run has now, when someone changed them while it went
+   * (their login); else they are the launcher's.
+   */
+  pointsBy?: string;
 }
 
 export interface LaunchForm {

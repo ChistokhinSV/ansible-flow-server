@@ -18,7 +18,7 @@ import { MissingProject } from './help';
 import { FlowHistory, flowAt } from './history';
 import { InsertFromLibrary, LibraryCopies } from './library';
 import { Link, navigate, useSearch } from './router';
-import { ACTIVE, RunWords } from './runs';
+import { ACTIVE, RunWords, shownState } from './runs';
 import { useSaveKey } from './saveKey';
 import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
@@ -104,10 +104,18 @@ export function FlowPage({
         : ([] as LaunchConfig[]),
     [project?.id, file],
   );
-  const runs = useLoad(
-    async () => (project ? api.runs({ project: project.id, flow: file, limit: 3 }) : ([] as Run[])),
-    [project?.id, file],
-  );
+  const runs = useLoad(async () => {
+    if (!project) return [] as Run[];
+    const [newest, mine] = await Promise.all([
+      api.runs({ project: project.id, flow: file, limit: 3 }),
+      // AFS-205: your own run that still goes (paused step by step, say) stays in the list
+      // after others launched newer ones.
+      api
+        .runs({ project: project.id, flow: file, by: me.login, state: 'running', limit: 1 })
+        .catch(() => [] as Run[]),
+    ]);
+    return latestRuns(newest, mine);
+  }, [project?.id, file, me.login]);
   // As on the project's page: rw on the flow adds a configuration for it.
   const mayAdd = exists && !!access && flowLevel(access, file) === 'rw';
   // AFS-109: copying and deleting the file is a change of the project's files (rw on the workspace).
@@ -592,7 +600,7 @@ export function FlowPage({
                   <span key={r.id}>
                     {i > 0 && ', '}
                     <Link to={`/runs/${r.id}`}>
-                      #{r.number} <RunWords state={r.state} against={r.decidedAgainst} />
+                      #{r.number} <RunWords state={shownState(r)} against={r.decidedAgainst} />
                     </Link>
                   </span>
                 ))}
@@ -851,6 +859,15 @@ export interface Activity {
 }
 
 /** AFS-186: the activity with one more entry: the same as the newest only counts once more. */
+/**
+ * AFS-205: the flow's latest runs: the newest three, and your own run that still goes when it is
+ * not among them (first: it is the one you came back for).
+ */
+export function latestRuns(newest: Run[], mine: Run[]): Run[] {
+  const yours = mine.find((r) => !newest.some((n) => n.id === r.id));
+  return yours ? [yours, ...newest] : newest;
+}
+
 export function addActivity(list: Activity[], next: Activity): Activity[] {
   const [first, ...rest] = list;
   if (first && first.by === next.by && first.what === next.what)

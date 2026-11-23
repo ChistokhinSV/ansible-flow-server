@@ -220,6 +220,26 @@ describe('home, your own runs at a gate (AFS-144)', () => {
   });
 });
 
+describe('home, a run paused step by step (AFS-205)', () => {
+  it('is counted as paused, not as going, and waits for you when it is yours', async () => {
+    const paused = { ...run(5, 'running'), pausedBefore: 'Push baseline', step: { every: true } };
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs?limit=100': () => ({ body: [paused, run(4, 'running', 'omar')] }),
+      'GET /approvals': () => ({ body: [] }),
+      'GET /workspaces': () => ({ body: [] }),
+    };
+    render(<App />);
+    const line = await screen.findByText(
+      (_, el) => el?.tagName === 'P' && !!el.textContent?.includes('paused step by step'),
+    );
+    expect(line.textContent).toBe(
+      '2 runs today: 0 went well, 1 still goes, 1 paused step by step. Your run #5 of Firewall firmware upgrade is paused before Push baseline: Step or Continue goes on.',
+    );
+    expect(within(line).getByRole('link', { name: '1 paused step by step' })).toBeTruthy();
+  });
+});
+
 describe('the sign-in page', () => {
   it('shows a picture with no words in it, and the card', async () => {
     routes = {

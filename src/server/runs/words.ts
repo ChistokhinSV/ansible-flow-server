@@ -29,6 +29,39 @@ export function titleOf(nodes: readonly Titled[], id: string | undefined): strin
   return undefined;
 }
 
+/**
+ * AFS-205: a step by its path from the top level: "Pre-checks › Read device status" for a step
+ * inside a subflow (a pause there says where it is); undefined when the flow does not have it.
+ */
+export function pathOf(nodes: readonly Titled[], id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  for (const n of nodes) {
+    if (n.id === id) return n.title || n.key;
+    const inner = pathOf(n.subflow?.nodes ?? [], id);
+    if (inner) return `${n.title || n.key} › ${inner}`;
+  }
+  return undefined;
+}
+
+/**
+ * AFS-205: a step-by-step run's own lines in its output, in the pages' words. The designer before
+ * 1.1.0 wrote "AFD: paused before [key] Title (2 host(s)); waiting for the driver"; later ones
+ * write the plain line themselves. Other lines are returned as they are.
+ */
+export function plainStepLine(text: string): string {
+  const paused =
+    /AFD: paused before (?:\[[^\]]*\]\s*)?(.*) \((\d+) host\(s\)\); waiting for the driver/.exec(
+      text,
+    );
+  if (paused) {
+    const n = Number(paused[2]);
+    return `Paused before ${paused[1]}: ${n === 1 ? '1 host waits' : `${n} hosts wait`} for Step, Continue or Stop`;
+  }
+  const timeout = /AFD: nobody answered within (\d+) s; the run stops/.exec(text);
+  if (timeout) return `Nobody answered the pause for ${timeout[1]} s: the run stops here`;
+  return text;
+}
+
 const list = (names: readonly string[]) =>
   names.length > 5
     ? `${names.slice(0, 5).join(', ')} and ${names.length - 5} more`

@@ -56,7 +56,15 @@ import { type Job, type Outcome, pausedGone, type RunQueue, type StepRecord } fr
 import { pullWithSignIn } from './registry';
 import { repositoryConfig } from './repoConfig';
 import { refusalFor, type Stepper } from './stepping';
-import { failedWhy, NO_HOSTS, noHostWhy, skippedTarget, titleOf } from './words';
+import {
+  failedWhy,
+  NO_HOSTS,
+  noHostWhy,
+  pathOf,
+  plainStepLine,
+  skippedTarget,
+  titleOf,
+} from './words';
 import { rootFromGenerated, Workdirs, writeGenerated } from './workdir';
 
 /** How often the worker says it still has a run. */
@@ -216,13 +224,28 @@ export function hide(text: string, secrets: readonly string[]): string {
   return out;
 }
 
+/** AFS-205: a step-by-step command as the run's output says who gave it. */
+const STEP_WORD: Record<Exclude<StepCommand, 'stop'>, string> = {
+  step: 'Step',
+  continue: 'Continue',
+  pause: 'Pause',
+};
+
 export class Executor implements Stepper {
   private readonly active = new Map<string, { abort(why: Stop): void; done: Promise<void> }>();
   /**
    * AFS-177: the drivers of the step-by-step runs going here (the designer's StepDriver), and who
    * sent Stop last (the run then says who stopped it).
    */
-  private readonly drivers = new Map<string, { driver: StepDriver; stopBy?: string }>();
+  private readonly drivers = new Map<
+    string,
+    {
+      driver: StepDriver;
+      stopBy?: string;
+      /** AFS-205: a line in the run's output (who said Step, Continue, Pause, Stop). */
+      say?: (text: string) => void;
+    }
+  >();
   private timer: NodeJS.Timeout | undefined;
   private filling = false;
   private stopping = false;
@@ -498,12 +521,21 @@ export class Executor implements Stepper {
     if (ask.points) {
       const failed = await going.driver.setPoints(ask.points);
       if (failed) return { error: failed, paused };
+      // AFS-205: kept with the run (its page says how many and whose), not only sent to it.
+      await this.deps.queue.keepControl(run, going.driver.control(), by).catch(() => undefined);
     }
     if (ask.command) {
       if (ask.command === 'stop') going.stopBy = by;
+      // AFS-205: the run's output says who went on, and how (Stop says it as the run ends): the
+      // name is read first, so the line comes before what the step prints.
+      const said =
+        ask.command !== 'stop' && going.say
+          ? `${STEP_WORD[ask.command]} by ${await this.deps.queue.personName(by).catch(() => by)}`
+          : undefined;
       const failed = await going.driver.send(ask.command);
       if (failed) return { error: failed, paused };
       this.deps.log.info({ run, by, command: ask.command }, 'Step-by-step run driven');
+      if (said) going.say?.(said);
     }
     return { paused };
   }
@@ -804,18 +836,20 @@ export class Executor implements Stepper {
       let agentFailure: string | undefined;
       /** Runs one playbook of the flow: the whole flow, or one of its segments (AFS-28). */
       /** AFS-177: a step-by-step run's pause, as the run goes: kept in its record and its output. */
-      const notePause = (node: string | undefined, hosts: number, view: RunView) => {
+      const notePause = (node: string | undefined, view: RunView) => {
         if (node === pausedAt?.node) return;
-        pausedAt = node ? { node, title: titleOf(steps, node) ?? node } : undefined;
-        void queue.setPaused(r.id, token, pausedAt?.title ?? null).catch(() => undefined);
-        if (!pausedAt) return;
+        // AFS-205: a step inside a subflow by its path ("Pre-checks › Read device status").
+        pausedAt = node ? { node, title: pathOf(steps, node) ?? node } : undefined;
+        // AFS-205: the record changes both ways (paused, and going on after Step or Continue),
+        // so the pages stop saying "Paused before" once it goes on.
+        void queue
+          .setPaused(r.id, token, pausedAt?.title ?? null)
+          .catch(() => undefined)
+          .then(() => this.deps.hub?.publish(r.id, { kind: 'state' }));
         // What the run did so far is in its record while it waits: a server that goes away
-        // leaves the run's page that much.
-        void queue.saveView(r.id, view).catch(() => undefined);
-        line(
-          `Paused before ${pausedAt.title} (${hosts} host${hosts === 1 ? '' : 's'}): Step, Continue or Stop goes on`,
-        );
-        this.deps.hub?.publish(r.id, { kind: 'state' });
+        // leaves the run's page that much. The run's own output says it paused (its line once,
+        // in order with the step before: AFS-205).
+        if (pausedAt) void queue.saveView(r.id, view).catch(() => undefined);
       };
       const runOnce = (
         runId: string,
@@ -863,12 +897,16 @@ export class Executor implements Stepper {
               if (v.summary?.running) lastRunning = v.summary.running;
               const view = shown(v);
               this.deps.hub?.publish(r.id, { kind: 'view', view });
-              if (stepRec) notePause(v.step?.paused?.node, v.step?.paused?.hosts.length ?? 0, view);
+              if (stepRec) notePause(v.step?.paused?.node, view);
             },
             // AFS-177: the run's driver, kept while its process goes; its last word is kept after.
             started: (_stop, driver) => {
               if (!driver) return undefined;
-              const going: { driver: StepDriver; stopBy?: string } = { driver };
+              const going: {
+                driver: StepDriver;
+                stopBy?: string;
+                say?: (text: string) => void;
+              } = { driver, say: line };
               this.drivers.set(r.id, going);
               return () => {
                 control = driver.control();
@@ -886,7 +924,8 @@ export class Executor implements Stepper {
               const said = (text: string) => {
                 const failure = AGENT_FAILURES.find((f) => text.includes(f));
                 if (failure) agentFailure = failure;
-                line(text);
+                // AFS-205: a pause's line in plain words (an older designer's in its own).
+                line(stepRec ? plainStepLine(text) : text);
               };
               return startProcess(
                 { ...spec, args: withLimit(rewriteMounts(spec.args, this.toHost), r.limit) },

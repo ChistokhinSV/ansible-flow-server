@@ -793,6 +793,131 @@ describe('a step-by-step run', () => {
   });
 });
 
+// AFS-205: the bar after Step ("Running X…" with Pause), its keys, the focus kept, one Stop that
+// asks when the run is someone else's, a reader told who may go on, and "paused" as the state.
+describe('AFS-205: the step bar', () => {
+  const stepping = {
+    ...run,
+    step: { every: true, points: [], timeoutS: 3600 },
+    pausedBefore: 'Read a few facts',
+  };
+  const paused = {
+    every: true,
+    points: [],
+    pauses: 1,
+    paused: {
+      id: 't-1',
+      node: '01M6GPM99KC9TX091MCH61REQV',
+      play: '[facts] Read a few facts',
+      hosts: ['fw-edge-01', 'fw-edge-02'],
+      since: Date.now() / 1000 + 5,
+      timeout: 60,
+    },
+  };
+  const barOf = async (text: RegExp) =>
+    (await screen.findByText(text)).closest('[data-step-bar]') as HTMLElement;
+
+  it('says the step that runs after Step, keeps the focus, and takes F10 and F8', async () => {
+    const sent: unknown[] = [];
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({ body: stepping }),
+      'GET /runs/r1/view': () => ({ body: { state: 'running', step: paused } }),
+      'POST /runs/r1/step': () => ({ status: 202, body: { ...stepping, pausedBefore: undefined } }),
+    };
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url.endsWith('/step')) sent.push(JSON.parse(String(init.body)));
+      return answer(url, init);
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    await screen.findByText('step by step');
+    const stream = FakeStream.last as FakeStream;
+    stream.emit('view', { state: 'running', step: paused });
+    // Never more than the timeout, though the run's clock is ahead; the hosts that wait.
+    const bar = await barOf(/^Paused before Read a few facts · 2 hosts · stops by itself in 60 s$/);
+    expect(bar.textContent).toContain('Waiting there: fw-edge-01, fw-edge-02.');
+    expect(bar.textContent).toContain('Keys: F10 Step, F8 Continue or Pause.');
+    // The header has no Stop of its own: the bar's is the one.
+    expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1);
+    expect(document.querySelector('.run-head .badge')?.textContent).toBe('paused');
+    const go = within(bar).getByRole('button', { name: 'Continue' });
+    go.focus();
+    fireEvent.click(go);
+    await waitFor(() => expect(sent).toEqual([{ command: 'continue' }]));
+    stream.emit('run', { ...stepping, pausedBefore: undefined });
+    stream.emit('view', {
+      state: 'running',
+      step: {
+        ...paused,
+        paused: undefined,
+        running: { node: 'n', play: '[facts] Read a few facts' },
+      },
+    });
+    await barOf(/^Running Read a few facts…$/);
+    // The same button, now Pause: the focus stayed on it.
+    const pause = within(bar).getByRole('button', { name: 'Pause' });
+    expect(pause).toBe(go);
+    expect(document.activeElement).toBe(pause);
+    expect(within(bar).getByRole('button', { name: 'Step' }).getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    fireEvent.keyDown(document.body, { key: 'F10' });
+    fireEvent.keyDown(document.body, { key: 'F8' });
+    await waitFor(() => expect(sent).toEqual([{ command: 'continue' }, { command: 'pause' }]));
+    stream.emit('view', { state: 'running', step: paused });
+    await barOf(/^Paused before Read a few facts/);
+    fireEvent.keyDown(document.body, { key: 'F10' });
+    await waitFor(() => expect(sent).toHaveLength(3));
+    expect(sent[2]).toEqual({ command: 'step' });
+  });
+
+  it("Stop of someone else's run asks, naming whose; a reader is told who may go on", async () => {
+    const sent: unknown[] = [];
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /projects/p1/access': () => ({
+        body: { admin: false, workspace: 'operator', flows: {} },
+      }),
+      'GET /runs/r1': () => ({
+        body: { ...stepping, requestedBy: { login: 'dana', name: 'Dana Whitfield' } },
+      }),
+      'GET /runs/r1/view': () => ({ body: { state: 'running', step: paused } }),
+      'POST /runs/r1/step': () => ({ status: 202, body: stepping }),
+    };
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url.endsWith('/step')) sent.push(JSON.parse(String(init.body)));
+      return answer(url, init);
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const bar = await barOf(/^Paused before Read a few facts/);
+    const asked: string[] = [];
+    vi.stubGlobal('confirm', (question: string) => {
+      asked.push(question);
+      return false;
+    });
+    fireEvent.click(await within(bar).findByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]).toContain("Stop Dana Whitfield's run #7?");
+    expect(sent).toEqual([]);
+
+    cleanup();
+    routes = {
+      ...routes,
+      'GET /projects/p1/access': () => ({ body: { admin: false, workspace: 'ro', flows: {} } }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const read = await barOf(/^Paused before Read a few facts/);
+    expect(read.textContent).toContain(
+      'Waiting for Dana Whitfield or an operator of this flow to go on.',
+    );
+  });
+});
+
 // AFS-185: what Stop asks of a real run, and when a stopped run says it stopped.
 describe('stop words', () => {
   it('names the run and what stopping it does where it is', () => {

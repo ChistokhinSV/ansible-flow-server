@@ -110,7 +110,15 @@ export function Home({ me }: { me: User }) {
   const waiting = todays.filter((r) => r.state === 'waiting').length;
   // AFS-147: every run of the day is counted somewhere: stopped and still going too.
   const stopped = todays.filter((r) => r.state === 'cancelled').length;
-  const going = todays.filter((r) => r.state === 'running' || r.state === 'queued').length;
+  // AFS-205: a step-by-step run paused before a step waits for someone, it does not go.
+  const paused = todays.filter((r) => r.state === 'running' && r.pausedBefore).length;
+  const going = todays.filter(
+    (r) => (r.state === 'running' && !r.pausedBefore) || r.state === 'queued',
+  ).length;
+  // AFS-205: your own paused runs (of any day): they wait for you.
+  const yourPaused = (runs.data ?? []).filter(
+    (r) => r.state === 'running' && r.pausedBefore && r.requestedBy.login === me.login,
+  );
   const counts = [
     `${well} went well`,
     failed ? `${failed} failed` : '',
@@ -137,6 +145,12 @@ export function Home({ me }: { me: User }) {
               </Link>
             </>
           ) : null}
+          {paused ? (
+            <>
+              {', '}
+              <Link to="/runs?state=paused">{paused} paused step by step</Link>
+            </>
+          ) : null}
           .
         </>
       ) : (
@@ -144,7 +158,25 @@ export function Home({ me }: { me: User }) {
       )}{' '}
       {mine.length
         ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
-        : 'Nothing waits for you.'}
+        : yourPaused.length
+          ? null
+          : 'Nothing waits for you.'}
+      {/* AFS-205: your run paused step by step waits for your Step or Continue. */}
+      {yourPaused.length > 0 && (
+        <>
+          {mine.length ? ' ' : ''}
+          <Link
+            to={
+              yourPaused.length === 1 ? `/runs/${yourPaused[0]?.id}` : '/runs?state=paused&mine=1'
+            }
+          >
+            {yourPaused.length === 1
+              ? `Your run #${yourPaused[0]?.number} of ${yourPaused[0]?.flow.name} is paused before ${yourPaused[0]?.pausedBefore}`
+              : `${yourPaused.length} runs of yours are paused step by step`}
+          </Link>
+          : Step or Continue goes on.
+        </>
+      )}
       {/* AFS-144: your own runs held at a gate for someone else are said too. */}
       {yours.length > 0 && (
         <>

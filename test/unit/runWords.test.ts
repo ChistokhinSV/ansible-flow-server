@@ -5,6 +5,8 @@ import {
   exitWords,
   failedWhy,
   noHostWhy,
+  pathOf,
+  plainStepLine,
   skippedTarget,
   stoppedBy,
   titleOf,
@@ -121,5 +123,28 @@ describe('Ansible exit codes in words (AFS-167)', () => {
       'Stopped by Dana Whitfield during Upgrade',
     );
     expect(stoppedBy('Stopped on request', undefined)).toBe('Stopped on request');
+  });
+});
+
+describe('AFS-205: step-by-step words', () => {
+  it('names a step inside a subflow by its path', () => {
+    expect(pathOf(nodes, 'n3')).toBe('Upgrade › reboot');
+    expect(pathOf(nodes, 'n1')).toBe('Pre-checks');
+    expect(pathOf(nodes, 'nx')).toBeUndefined();
+  });
+
+  it("says a pause once in plain words: an older designer's line is put in the pages' words", () => {
+    expect(
+      plainStepLine(
+        'AFD: paused before [facts] Read a few facts (1 host(s)); waiting for the driver',
+      ),
+    ).toBe('Paused before Read a few facts: 1 host waits for Step, Continue or Stop');
+    expect(plainStepLine('AFD: paused before [x] Push (3 host(s)); waiting for the driver')).toBe(
+      'Paused before Push: 3 hosts wait for Step, Continue or Stop',
+    );
+    expect(plainStepLine('[WARNING]: AFD: nobody answered within 60 s; the run stops')).toBe(
+      'Nobody answered the pause for 60 s: the run stops here',
+    );
+    expect(plainStepLine('TASK [ping] ****')).toBe('TASK [ping] ****');
   });
 });

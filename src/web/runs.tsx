@@ -38,6 +38,12 @@ import {
 import { stopQuestion } from './viewerRuns';
 
 export const ACTIVE = ['queued', 'running', 'waiting'];
+/**
+ * AFS-205: a run's state as the pages say it: a step-by-step run paused before a step is "paused"
+ * (the API says `running`, with `pausedBefore`), not "running".
+ */
+export const shownState = (run: { state: string; pausedBefore?: string | undefined }): string =>
+  run.state === 'running' && run.pausedBefore ? 'paused' : run.state;
 /** AFS-143: a person as the pages show people: by name (the login on hover). */
 export const personOf = (p: { login: string; name?: string | undefined }) => p.name || p.login;
 /** How many runs the list asks for at once. */
@@ -49,6 +55,8 @@ const LABEL: Record<string, string> = {
   queued: 'queued',
   running: 'running',
   waiting: 'waiting for a decision',
+  // AFS-205: a step-by-step run that waits for Step or Continue.
+  paused: 'paused',
   // AFS-143: the words of the lists (went well, stopped), on the badge too.
   succeeded: 'went well',
   failed: 'failed',
@@ -70,7 +78,7 @@ export function StateBadge({ state, against }: { state: string; against?: string
       ? 'ok'
       : ['failed', 'lost'].includes(state)
         ? 'bad'
-        : state === 'waiting'
+        : state === 'waiting' || state === 'paused'
           ? 'warn'
           : ACTIVE.includes(state)
             ? 'busy'
@@ -109,10 +117,26 @@ export function RunList({
           <li key={run.id}>
             <Link to={`/runs/${run.id}`}>
               <span className="c-state">
-                <RunWords state={run.state} against={run.decidedAgainst} />
+                <RunWords state={shownState(run)} against={run.decidedAgainst} />
               </span>
               <span className="title">
                 {run.flow.name} <span className="muted">#{run.number}</span>
+                {/* AFS-205: a step-by-step run is marked in the lists, as on its page. */}
+                {run.step && (
+                  <>
+                    {' '}
+                    <span
+                      className="badge"
+                      title={
+                        run.pausedBefore
+                          ? `Paused before ${run.pausedBefore}: it goes on when someone says Step or Continue`
+                          : 'Pauses before its steps until someone says Step or Continue'
+                      }
+                    >
+                      step by step
+                    </span>
+                  </>
+                )}
                 {run.dev && (
                   <>
                     {' '}
@@ -155,6 +179,8 @@ function StateChoices({ value, onChange }: { value: string; onChange(state: stri
     ['', 'All'],
     ['running', 'Running'],
     ['waiting', 'Waiting'],
+    // AFS-205: step-by-step runs paused before a step (Waiting has them too).
+    ['paused', 'Paused'],
     ['failed', 'Failed'],
     // AFS-193: a run whose approval was rejected (or not decided in time) is not a failure.
     ['rejected', 'Rejected'],
@@ -199,6 +225,7 @@ const places = async (): Promise<Place[]> =>
 const STATES = [
   'running',
   'waiting',
+  'paused',
   'failed',
   'rejected',
   'succeeded',
@@ -525,6 +552,8 @@ const WORDS: Record<string, [string, string]> = {
   queued: ['queued', 'muted'],
   running: ['running', 'busy-text'],
   waiting: ['waiting for a decision', 'warn-text'],
+  // AFS-205
+  paused: ['paused', 'warn-text'],
   succeeded: ['went well', 'ok-text'],
   failed: ['failed', 'bad-text'],
   cancelled: ['stopped', 'muted'],
@@ -539,7 +568,8 @@ function standing(run: Run): string {
   const from = run.startedAt ?? run.createdAt;
   switch (run.state) {
     case 'running':
-      return `for ${span(from)}`;
+      // AFS-205: "paused · before Push baseline", not how long it has gone.
+      return run.pausedBefore ? `before ${run.pausedBefore}` : `for ${span(from)}`;
     case 'succeeded':
       return `in ${span(from, run.endedAt)}`;
     case 'failed':
@@ -659,11 +689,14 @@ function hostLines(view: RunView, state: Run['state'], against?: string): HostLi
             // not in progress.
             state === 'waiting'
             ? { host, words: 'waiting for a decision', tone: 'muted' }
-            : going && view.state === 'running'
-              ? { host, words: 'in progress', tone: 'muted' }
-              : going
-                ? { host, words: 'waiting', tone: 'muted' }
-                : { host, words: 'went well', tone: 'ok-text' },
+            : // AFS-205: a host waiting at a step-by-step run's pause waits for Step or Continue.
+              going && view.step?.paused?.hosts.includes(host)
+              ? { host, words: 'waiting for Step or Continue', tone: 'muted' }
+              : going && view.state === 'running'
+                ? { host, words: 'in progress', tone: 'muted' }
+                : going
+                  ? { host, words: 'waiting', tone: 'muted' }
+                  : { host, words: 'went well', tone: 'ok-text' },
     );
   return [...problem.values(), ...rest];
 }
@@ -1178,6 +1211,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
   const why = lines.find((l) => l.why);
   const by = personOf(run.requestedBy);
+  // AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop.
+  const stepBar = !!run.step && going && run.state === 'running' && !!run.startedAt;
 
   return (
     <>
@@ -1217,7 +1252,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             <HelpLink page="runs.md" />
           </div>
           <p>
-            <StateBadge state={run.state} against={run.decidedAgainst} />
+            <StateBadge state={shownState(run)} against={run.decidedAgainst} />
             {standing(run) && ` ${standing(run)}`} · started by {by} ·{' '}
             {run.mode === 'real' ? 'real run' : 'check run'}
             {lines.length > 0 && (
@@ -1293,7 +1328,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           <Link to="/runs" className="run-link">
             All runs
           </Link>
-          {mayAct && going && (
+          {/* AFS-205: a step-by-step run going has its Stop in its bar (one Stop, which asks
+              when the run is someone else's). */}
+          {mayAct && going && !stepBar && (
             <button
               type="button"
               className="danger"
@@ -1316,12 +1353,14 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         </div>
       </header>
       {/* AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop. */}
-      {run.step && going && run.state === 'running' && run.startedAt && (
+      {stepBar && (
         <div className="run-below run-notes">
           <RunStepBar
             run={run}
             step={step ?? view?.step}
             mayDrive={mayAct}
+            launcher={by}
+            mine={run.requestedBy.login === me.login}
             onRun={setRun}
             onError={setError}
           />

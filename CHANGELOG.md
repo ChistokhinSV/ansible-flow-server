@@ -14,6 +14,12 @@ Carries Ansible Flow Designer 1.1.0-rc.1.
 - A paused run stops by itself after `AFS_RUN_STEP_TIMEOUT_MINUTES` (default 60); a launch may ask for less. A run paused when the server stops or restarts ends as stopped, saying why.
 - The API: `step` on `POST /api/v1/launch-configs/<id>/launch`, `POST /api/v1/runs/<id>/step`, and `/api/v1/projects/<id>/pause-points`. MCP: `step` on `run_launch`, and `run_step` for a token made to allow agents to drive step-by-step runs.
 - The workspace's **Access** tab lists every action of the workspace and who may run it, also those nobody was given yet, and **Who can do what** has an Actions column. A person's **What they reach** and **Your access** on My account list the actions they may run. `GET /api/v1/workspaces/<id>/actions`.
+- A paused run reads **paused** on its page, in the lists (with a **step by step** mark), on the flow's page and on Home, which says when your own run waits for you. The Runs page has a **Paused** filter; **Waiting** lists paused runs too (`state=paused` and `state=waiting` in the API, `paused` in MCP's `run_list`).
+- Keys while a step-by-step run shows its bar: **F10** Step, **F8** Continue or Pause, on the run's page and on the canvas.
+- Pause points on a read-only canvas: **Add Pause Point** on a step's menu, and a dot at a step's corner that shows on hover. On a run's page they are that run's, and the run says whose pause point it waits at.
+- The run's output says who said Step, Continue or Pause.
+- The **Launch** tab offers **Only at your pause points** and how long a pause waits; a real run's question says that it pauses.
+- Readers of a paused run are told who may go on.
 
 ### Changed
 
@@ -23,6 +29,12 @@ Carries Ansible Flow Designer 1.1.0-rc.1.
 - The audit log says what was done in words ("gave access", "took back an action"), with the code on hover; an action set up for the first time is named by its title; an action grant's entry names the person, not the grant's id.
 - A reader no longer sees the Check / Real choice and Step by step on a launch configuration's page; the token form offers deciding approvals and driving step-by-step runs only to people who can.
 - The Actions page has one intro, whether it is your Home or a page of the menu.
+- While a step runs, the bar says "Running Say hello…" and offers **Pause**; the focus stays on the button pressed.
+- A step-by-step run has one **Stop**, in its bar; stopping someone else's run asks first, naming whose it is.
+- A pause inside a subflow is named by its path ("Pre-checks › Read device status"), and a subflow stopped inside reads stopped.
+- Step times leave the pauses out ("ran 1 s, waited 31 s"); a time near a whole minute no longer reads "7 min 60 s".
+- A pause is said once in the run's output, in plain words, after the step before it.
+- Your own run that still goes stays in the flow page's **Latest runs** and on its canvas after others launched newer ones.
 
 ### Fixed
 
@@ -31,6 +43,11 @@ Carries Ansible Flow Designer 1.1.0-rc.1.
 - Someone with read and write on a workspace could learn whether any login or group existed on the server (and a person's full name) by giving an action to it. Anyone outside the workspace now gets the same answer as a name that does not exist.
 - Deleting a launch configuration that is an action, or a person or group with action grants, ended the action and its grants without a word in the audit log: each is now recorded as ended, with why.
 - `/w/<workspace>/access` (and `environments`, `credentials`) said Not found: it opens the workspace's tab.
+- **Step** and **Continue** on the canvas of a flow's page (toolbar and side panel) did nothing.
+- After **Step** or **Continue** the run's page kept saying "Paused before" until the run paused again, and a refusal stayed on the page after the run went on.
+- A paused step's Run tab said "0 hosts" while hosts waited there.
+- "Stops by itself in 61 s" with a 60 s timeout.
+- The **Launch** tab's **Step by step** box was smaller than the radios beside it and grey in the dark theme; the host list's help said what it is twice.
 
 ## 1.0.3 — Steps move again after Undo
 

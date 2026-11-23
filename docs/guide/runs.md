@@ -54,7 +54,9 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `POST /runs/:id/cancel`                                         | Stop it: at once when queued, else at the worker's next word  | `operator`   |
 
 - **Filters:** `project` (its id), `flow` (the flow's file), `state` (`rejected`: failed because
-  an approval was rejected or not decided in time; `failed` leaves those out), `config` (a launch
+  an approval was rejected or not decided in time; `failed` leaves those out; `paused`: a
+  step-by-step run paused before a step, whose state is `running`; `waiting` has those too, as
+  both wait for a person), `config` (a launch
   configuration's id), `by` (the login of who asked for the run; your own for your runs) and
   `q` (words in the flow's name or file, the configuration's name or a login, or `#12` for a
   run's number; the Runs page's **Find** box).
@@ -161,16 +163,39 @@ so facts and registered values carry on from step to step.
 
 - **Where it waits:** before a step that has hosts, all its hosts together. The run's page says
   so above the canvas: "Paused before Read the minimal facts · 2 hosts · stops by itself in
-  59 min", and the canvas rings the step with the number of hosts waiting. On a phone the line
-  and its buttons are above the canvas too.
+  59 min", with the hosts that wait there, how many pause points the run has, and, when it waits
+  at a pause point, whose ("Dana Whitfield's pause point"). A step inside a subflow is named by
+  its path: "Paused before Pre-checks › Read device status". The canvas rings the step with the
+  number of hosts waiting, and its Run tab lists them "waiting for Step or Continue". On a phone
+  the line and its buttons are above the canvas too.
+- **Paused, not running:** a paused run reads **paused** on its page, in the lists, on the
+  flow's page and on Home ("Your run #12 of Hello is paused before Say hello"). The Runs page has
+  a **Paused** filter, and **Waiting** lists paused runs too.
 - **Step** runs that step and pauses before the next one. **Continue** runs on and pauses only at
-  a pause point. **Pause** (while a step runs) pauses before the next step. **Stop** ends the run
-  before its next step; what ran is kept, and the run reads "Stopped by Dana Whitfield before
-  Say hello". **Stop** in the page's header does the same for a paused run; while a step runs it
-  cuts the step off, as for any run.
-- **Pause points:** a step's menu on the canvas sets or takes away a pause point. They are
-  yours, per flow, kept by the server (not in the flow file), and a step-by-step run you
-  launched gets the new ones at its next step.
+  a pause point. While a step runs the bar says "Running Say hello…" and offers **Pause**, which
+  pauses before the next step. **Stop** ends the run before its next step; what ran is kept, and
+  the run reads "Stopped by Dana Whitfield before Say hello". A step-by-step run has one Stop,
+  in its bar; stopping someone else's run asks first, naming whose it is.
+- **The same controls on the canvas:** on the flow's page, Step, Continue and Stop in the
+  canvas's toolbar and side panel drive the run shown, as the run's page does.
+- **Keys**, while the bar shows: **F10** Step, **F8** Continue (or Pause while a step runs), on
+  the run's page and on the canvas (when it has the focus). F5 is the browser's reload, so it is
+  not one of them; VS Code keeps its own (F10, F5, F6, Shift+F5). The focus stays on the button
+  pressed.
+- **Who went on** is in the run's output, under the pause line: "Continue by Omar Haddad". The
+  pause itself is said there once: "Paused before Say hello: 2 hosts wait for Step, Continue or
+  Stop".
+- **Step times** leave the pauses out: a step reads "ran 1 s, waited 31 s".
+- **Pause points:** a step's menu on the canvas (also on a read-only canvas) sets or takes away a
+  pause point, and so does the dot at a step's top left corner (it shows when the pointer is on
+  the step). On the flow's page they are yours, per flow, kept by the server (not in the flow
+  file), and a step-by-step run you launched gets the new ones at its next step. On a run's page
+  they are that run's: changed there, they go to the run, and the run says who set them.
+- **Launch tab:** with **Step by step** ticked, choose **Before each step** or **Only at your
+  pause points**, and how long a pause waits (at most the server's
+  `AFS_RUN_STEP_TIMEOUT_MINUTES`). A real run's question says that it pauses.
+- **Readers** (`ro`) see where the run waits and who may go on: "Waiting for Dana Whitfield or
+  an operator of this flow to go on".
 - **Who:** whoever may launch the flow may launch it step by step (`operator` on the flow).
   Step, Continue, Pause and Stop are for whoever may stop the run: `operator` on its flow (the
   person who launched it is one) and administrators. Each is in the audit log as `run.step`
@@ -197,8 +222,11 @@ so facts and registered values carry on from step to step.
 | `GET /projects/:id/pause-points?path=<flow>` | Your pause points on a flow                                                                              | `ro`       |
 | `PUT /projects/:id/pause-points?path=<flow>` | Keep them (`{"points": [...]}`); your step-by-step runs of the flow going now get them                   | `operator` |
 
-`GET /runs/:id` says `step` (what it was asked for) and `pausedBefore` (the step it waits at now);
-the run's view has the designer's `step` (the pause, its hosts, when it stops by itself).
+`GET /runs/:id` says `step` (what it was asked for, with the pause points it has now and, when
+someone changed them while it went, `pointsBy`) and `pausedBefore` (the step it waits at now, by
+its path); the run's view has the designer's `step` (the pause, its hosts, when it stops by
+itself, and the step running after Step or Continue). The answer to Step, Continue or Stop does
+not carry `pausedBefore`: the run goes on.
 
 ## Dev runs
 

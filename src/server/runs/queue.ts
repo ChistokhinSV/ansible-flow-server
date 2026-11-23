@@ -122,6 +122,13 @@ export interface StepRecord extends StepAsked {
   control?: { v: 1; command: 'step' | 'continue' | 'pause' | 'stop'; points: string[] };
 }
 
+/**
+ * AFS-205: a run shown as paused (a step-by-step run waiting before a step for Step or Continue):
+ * still `running` to the API, "paused" in the pages' words and filters.
+ */
+export const isPaused = (run: Pick<Run, 'state' | 'pausedBefore'>): boolean =>
+  run.state === 'running' && !!run.pausedBefore;
+
 /** AFS-177: why a run that was paused when its server went away ended (it cannot go on). */
 export const pausedGone = (title: string, how: 'restarted' | 'stopped' = 'restarted') =>
   `Stopped: the server ${how} while the run was paused before ${title}; a paused run cannot go on after a restart`;
@@ -149,9 +156,10 @@ export interface RunFilter {
   flow?: string;
   /**
    * AFS-193: `rejected` is a failed run whose approval was rejected or not decided in time;
-   * `failed` leaves those out.
+   * `failed` leaves those out. AFS-205: `paused` is a step-by-step run paused before a step (its
+   * state is `running`); `waiting` has those too: both wait for a person.
    */
-  state?: RunState | 'rejected';
+  state?: RunState | 'rejected' | 'paused';
   /** Runs of this launch configuration (its id). */
   config?: string;
   /** Runs this person asked for (their login). */
@@ -367,7 +375,16 @@ export class RunQueue {
       query = query
         .where('state', '=', 'failed')
         .where('id', filter.state === 'rejected' ? 'in' : 'not in', against);
-    } else if (filter.state) query = query.where('state', '=', filter.state);
+    } else if (filter.state === 'paused')
+      query = query.where('state', '=', 'running').where('step_paused', 'is not', null);
+    else if (filter.state === 'waiting')
+      query = query.where((eb) =>
+        eb.or([
+          eb('state', '=', 'waiting'),
+          eb.and([eb('state', '=', 'running'), eb('step_paused', 'is not', null)]),
+        ]),
+      );
+    else if (filter.state) query = query.where('state', '=', filter.state);
     if (filter.config) query = query.where('config_id', '=', filter.config);
     if (filter.by) query = query.where('requested_login', '=', filter.by);
     const words = filter.q?.trim().toLowerCase();
@@ -586,13 +603,18 @@ export class RunQueue {
     return row?.step_json ? (JSON.parse(row.step_json) as StepRecord) : undefined;
   }
 
-  /** AFS-177: what the driver said last, for the segment after an approval. */
-  async keepControl(id: string, control: StepRecord['control']): Promise<void> {
+  /**
+   * AFS-177: what the driver said last, for the segment after an approval. AFS-205: and who set
+   * the pause points it has now, when someone changed them.
+   */
+  async keepControl(id: string, control: StepRecord['control'], pointsBy?: string): Promise<void> {
     const step = await this.stepRecord(id);
     if (!step) return;
     await this.db
       .updateTable('run')
-      .set({ step_json: JSON.stringify({ ...step, control }) })
+      .set({
+        step_json: JSON.stringify({ ...step, control, ...(pointsBy ? { pointsBy } : {}) }),
+      })
       .where('id', '=', id)
       .execute();
   }
@@ -1039,7 +1061,13 @@ export function stoppedView(viewJson: string, by: string, at?: string): unknown 
 /** AFS-177: what a step-by-step run was asked for, from its record (its driver's word left out). */
 export function stepAsked(json: string): StepAsked {
   const s = JSON.parse(json) as StepRecord;
-  return { every: s.every, points: s.points ?? [], timeoutS: s.timeoutS };
+  // AFS-205: the pause points it has now (changed while it went), and whose they are.
+  return {
+    every: s.every,
+    points: s.control?.points ?? s.points ?? [],
+    timeoutS: s.timeoutS,
+    ...(s.pointsBy ? { pointsBy: s.pointsBy } : {}),
+  };
 }
 
 /** AFS-177: the view of a paused run whose server went away: ended as stopped, saying why. */
