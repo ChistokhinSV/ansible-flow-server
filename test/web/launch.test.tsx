@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, Run, User } from '../../src/web/api';
 import { App } from '../../src/web/app';
 import {
+  inventoryGuess,
   LaunchConfigPage,
   LaunchConfigsSection,
   type LaunchTab,
@@ -1053,5 +1054,143 @@ describe('suggestions for a list of names (AFS-99)', () => {
     expect(toggleName('', 'web')).toBe('web');
     expect(toggleName('db,  web', 'web')).toBe('db');
     expect(toggleName('db', 'web')).toBe('db, web');
+  });
+});
+
+describe('AFS-208: launching says what it is about', () => {
+  const facts = (count: number) => ({
+    body: {
+      groups: ['edge'],
+      groupHosts: { edge: { count, hosts: [] } },
+      facts: {
+        sources: ['inventory/hosts.yaml'],
+        count,
+        hosts: Array.from({ length: count }, (_, i) => `fw-edge-0${i + 1}`),
+        unknown: [],
+        uses: [],
+        prod: [],
+        vault: false,
+        environment: 'ee:1 (docker)',
+      },
+      environment: 'ee:1 (docker)',
+      commit: COMMIT,
+    },
+  });
+
+  it('What would run of a check goes when Real is ticked; the real question says how many hosts', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/facts': () => facts(2),
+      'POST /launch-configs/c1/check': () => ({
+        body: {
+          launch: {
+            config: 'c1',
+            project: 'p1',
+            commit: COMMIT,
+            ref: 'main',
+            flow,
+            mode: 'check',
+            inputs: { devices: ['fw-edge-01'], retries: 3 },
+            targets: ['fw-edge-01'],
+            credentials: ['k1'],
+          },
+          form,
+        },
+      }),
+    };
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    await screen.findByRole('group', { name: 'Groups for devices' });
+    fireEvent.click(screen.getByRole('button', { name: 'What would run' }));
+    expect(await screen.findByText('check (nothing is changed)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /^Real/ }));
+    expect(screen.queryByRole('heading', { name: 'What would run' })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Launch' }));
+    await waitFor(() => expect(questions).toHaveLength(1));
+    expect(questions[0]).toMatch(/^Run Firewall upgrade for real on 2 hosts\? It changes/);
+  });
+
+  it('settings saved read the inventory again on the Launch tab', async () => {
+    let now = config;
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1': () => ({ body: now }),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
+      'GET /workspaces/net/credentials': () => ({
+        body: [{ id: 'k1', name: 'lab key', kind: 'ssh_key' }],
+      }),
+      'GET /workspaces/net/environments': () => ({ body: [] }),
+      'POST /launch-configs/c1/facts': () => facts(now.inventory === 'inventory.ini' ? 3 : 1),
+      'PATCH /launch-configs/c1': (body) => {
+        now = { ...config, ...(body as object), updatedAt: '2026-11-13T11:00:00.000Z' };
+        return { body: now };
+      },
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const groups = await screen.findByRole('group', { name: 'Groups for devices' });
+    expect(within(groups).getByRole('button', { name: /edge/ }).textContent).toBe('edge · 1');
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+    fireEvent.change(await screen.findByLabelText(/^Inventory/), {
+      target: { value: 'inventory.ini' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect((await screen.findByRole('status')).textContent).toBe('Saved.');
+    fireEvent.click(screen.getByRole('link', { name: 'Launch' }));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('group', { name: 'Groups for devices' })).getByRole('button', {
+          name: /edge/,
+        }).textContent,
+      ).toBe('edge · 3'),
+    );
+  });
+
+  it('a new configuration starts with the only inventory of a repository without ansible.cfg', async () => {
+    routes = {
+      ...common(dana),
+      'GET /projects/p1/flows': () => ({ body: { flows: [{ ...flow, problems: [] }] } }),
+      'GET /workspaces/net/credentials': () => ({ body: [] }),
+      'GET /projects/p1/files': () => ({
+        body: {
+          branch: 'main',
+          files: [
+            { path: 'inventory.ini', size: 40 },
+            { path: 'flows/upgrade.flow.yaml', size: 900 },
+          ],
+        },
+      }),
+    };
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/new');
+    render(<App />);
+    const inventory = (await screen.findByLabelText(/^Inventory/)) as HTMLInputElement;
+    await waitFor(() => expect(inventory.value).toBe('inventory.ini'));
+    // Nobody typed it: leaving does not ask.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(questions).toEqual([]);
+  });
+
+  it('names the inventories when there are several, nothing with an ansible.cfg', () => {
+    expect(inventoryGuess(undefined)).toBeUndefined();
+    expect(inventoryGuess([{ path: 'ansible.cfg' }, { path: 'inventory.ini' }])).toBeUndefined();
+    expect(
+      inventoryGuess([
+        { path: 'hosts.yml' },
+        { path: 'inventory/lab.ini' },
+        { path: 'inventory/group_vars/all.yml' },
+        { path: 'roles/x/inventory.ini' },
+      ]),
+    ).toEqual(['hosts.yml', 'inventory/']);
+    expect(inventoryGuess([{ path: 'site.yml' }])).toEqual([]);
   });
 });

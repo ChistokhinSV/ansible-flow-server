@@ -3162,6 +3162,13 @@ ul.found > li {
 .bar > .search {
   margin-left: auto;
 }
+/* AFS-208: on a tablet or a phone, a page without breadcrumbs gives the row to the search box, not
+   an empty space before it. */
+@media (max-width: 860px) {
+  .bar-crumbs:empty + .search {
+    max-width: none;
+  }
+}
 @media (max-width: 640px) {
   /* The breadcrumbs take a line of their own above the search box: squeezed beside it they were
      a column one letter wide. */
@@ -3175,6 +3182,15 @@ ul.found > li {
   /* All the tabs are seen: they wrap instead of scrolling out of sight. */
   .tabs {
     flex-wrap: wrap;
+  }
+  /* AFS-208: tighter, so a project's six tabs fit one row at 390 px instead of leaving two on a
+     second. */
+  .tabs {
+    gap: 0;
+  }
+  .tabs a {
+    padding: 8px 6px;
+    font-size: 13px;
   }
   /* A date range wraps too when the row has no room for both dates. */
   .range {

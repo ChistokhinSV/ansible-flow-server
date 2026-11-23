@@ -193,6 +193,17 @@ export async function search(
         .orderBy('created_at', 'desc')
         .limit(RECENT_RUNS)
         .execute());
+  // AFS-208: a failed run a rejection (or no decision in time) ended says so, as its page does.
+  const failedIds = runs.filter((r) => r.state === 'failed').map((r) => r.id);
+  const against = new Map<string, string>();
+  if (failedIds.length)
+    for (const g of await db
+      .selectFrom('run_gate')
+      .select(['run_id', 'status'])
+      .where('run_id', 'in', failedIds)
+      .where('status', 'in', ['rejected', 'timed out'])
+      .execute())
+      against.set(g.run_id, g.status === 'rejected' ? 'rejected' : 'not decided in time');
   for (const r of runs) {
     const p = projectById.get(r.project_id);
     const ws = p && wsById.get(p.workspace);
@@ -204,7 +215,7 @@ export async function search(
         // AFS-139: named as the run lists name it; the time goes as a time, for the page to show.
         title: `${r.flow_name} #${r.number}`,
         // AFS-153: names, not keys, and the state in the words of the run pages.
-        detail: `${where(ws, p)} · ${stateWord(r.state)}`,
+        detail: `${where(ws, p)} · ${against.get(r.id) ?? stateWord(r.state)}`,
         to: `/runs/${enc(r.id)}`,
         at: r.created_at,
       },

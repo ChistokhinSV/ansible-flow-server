@@ -35,6 +35,7 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - Step times leave the pauses out ("ran 1 s, waited 31 s"); a time near a whole minute no longer reads "7 min 60 s".
 - A pause is said once in the run's output, in plain words, after the step before it.
 - Your own run that still goes stays in the flow page's **Latest runs** and on its canvas after others launched newer ones.
+- Home's counts of today's runs say they are everyone's, and each is a link to those runs on the Runs page.
 
 ### Fixed
 
@@ -48,6 +49,14 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - A paused step's Run tab said "0 hosts" while hosts waited there.
 - "Stops by itself in 61 s" with a 60 s timeout.
 - The **Launch** tab's **Step by step** box was smaller than the radios beside it and grey in the dark theme; the host list's help said what it is twice.
+- A run whose only host failed at a step (a role that cannot be found) said "went well" when Ansible ended with 0: it fails, "1 of 1 host failed at Apply motd role", and the host row says where it stopped.
+- A run a rejection ended reads **rejected** in Search, and the flow page's Run panel lists its steps under "Not approved", not as failed steps.
+- On the canvas of a run, a step no longer shows its authoring status as if it were a result (a green check on a step waiting for approval); a step without code says **TODO**.
+- **What would run** of a check goes away when **Real** is ticked, and a real run's question says how many hosts it reaches.
+- A host list that cannot be read is said once, at its field.
+- A new launch configuration of a repository without `ansible.cfg` starts with its only inventory (such as `inventory.ini`), or names those it has.
+- After the settings are saved (another inventory), the **Launch** tab reads the inventory again instead of keeping the old groups and target warning.
+- The Run dialog on the canvas no longer says what the host list is twice.
 
 ## 1.0.3 — Steps move again after Undo
 

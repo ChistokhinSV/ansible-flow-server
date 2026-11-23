@@ -84,11 +84,15 @@ describe('home', () => {
       (_, el) =>
         el?.tagName === 'P' &&
         el.textContent ===
-          '3 runs today: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
+          '3 runs today, by everyone: 1 went well, 1 failed, 1 waits for a decision. 1 approval is waiting for you.',
     );
     // AFS-147: the runs that wait are a link to them.
     expect(screen.getByRole('link', { name: '1 waits for a decision' }).getAttribute('href')).toBe(
       '/runs?state=waiting',
+    );
+    // AFS-208: the failed ones are a link to them too.
+    expect(screen.getByRole('link', { name: '1 failed' }).getAttribute('href')).toBe(
+      '/runs?state=failed',
     );
     // Only what this person may decide waits for them.
     const waiting = screen
@@ -234,7 +238,7 @@ describe('home, a run paused step by step (AFS-205)', () => {
       (_, el) => el?.tagName === 'P' && !!el.textContent?.includes('paused step by step'),
     );
     expect(line.textContent).toBe(
-      '2 runs today: 0 went well, 1 still goes, 1 paused step by step. Your run #5 of Firewall firmware upgrade is paused before Push baseline: Step or Continue goes on.',
+      '2 runs today, by everyone: 0 went well, 1 still goes, 1 paused step by step. Your run #5 of Firewall firmware upgrade is paused before Push baseline: Step or Continue goes on.',
     );
     expect(within(line).getByRole('link', { name: '1 paused step by step' })).toBeTruthy();
   });
