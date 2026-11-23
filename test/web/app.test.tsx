@@ -823,19 +823,19 @@ describe('signed in', () => {
     // AFS-165: Save asks for the commit's message.
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     type("What changed (the commit's message)", 'Safer pre-checks');
-    // AFS-136: with Mia here, Save names her first.
+    // AFS-136: with Mia here, Save names her first. AFS-209: in its own dialog, not a second one.
     const asked: string[] = [];
     window.confirm = (text?: string) => {
       asked.push(String(text));
       return true;
     };
-    fireEvent.click(
-      within(screen.getByRole('form', { name: 'Save the draft' })).getByRole('button', {
-        name: 'Save',
-      }),
+    const form = screen.getByRole('form', { name: 'Save the draft' });
+    expect(within(form).getByRole('note').textContent).toMatch(
+      /^Mia Ortega is editing this draft too: Save ends the draft for everyone/,
     );
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Upgrade: title')).toBeTruthy();
-    expect(asked[0]).toMatch(/^Mia Ortega is editing this draft too/);
+    expect(asked).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Save with these' }));
     expect((await screen.findByText(/Saved as/)).textContent).toBe('Saved as 41d7a0c93be2.');
     expect(saves).toBe(2);

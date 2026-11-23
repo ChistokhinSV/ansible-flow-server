@@ -152,6 +152,48 @@ export interface DraftSummary {
   changed: boolean;
   changes: (EditChange & { by: string[] })[];
   wires: number;
+  /**
+   * AFS-209: steps standing somewhere else than at the commit (a move is no change of a step's
+   * fields), with who moved them, the most first.
+   */
+  moves?: { steps: number; by: string[] };
+  /** AFS-209: the files Save adds with the flow (a sample's roles), by path. */
+  files?: string[];
+}
+
+/**
+ * AFS-209: where each step stands, by its id (the top level's layout, or its subflow's; '' for a
+ * step the canvas places itself).
+ */
+function positions(doc: FlowDocument): Map<string, string> {
+  const model = buildModel(doc);
+  const out = new Map<string, string>();
+  for (const [id, { level }] of model.nodes) {
+    const at =
+      level === ROOT ? doc.layout?.[id] : model.nodes.get(level)?.node.subflow?.layout?.[id];
+    out.set(id, at ? `${Math.round(at.x)},${Math.round(at.y)}` : '');
+  }
+  return out;
+}
+
+/** AFS-209: the steps standing somewhere else in `b` than in `a` (both have them). */
+function movedSteps(a: FlowDocument, b: FlowDocument): string[] {
+  const was = positions(a);
+  return [...positions(b)]
+    .filter(([id, at]) => was.has(id) && was.get(id) !== at)
+    .map(([id]) => id);
+}
+
+/** AFS-209: an edit of a discarded draft, kept to bring back with who made it. */
+interface KeptEdit {
+  revision: number;
+  user_id: string | null;
+  kind: FlowDraftEditTable['kind'];
+  before_text: string;
+  after_text: string;
+  files_json: string | null;
+  undone: number;
+  at: string;
 }
 
 /** AFS-149: one side's value of a clashing place, in short. */
@@ -184,8 +226,16 @@ export class Drafts {
       text: string;
       files: DraftFile[];
       at: number;
+      /** AFS-209: its edits, so it comes back with who made each (co-authors, Ctrl+Z). */
+      revision: number;
+      edits: KeptEdit[];
     }
   >();
+  /**
+   * AFS-209: drafts brought back (or merged into the flow's new draft), by the discarded one's id:
+   * a second Bring back (another tab, another person) opens that draft instead of failing.
+   */
+  private readonly restored = new Map<string, { id: string; at: number }>();
 
   constructor(private readonly deps: { db: Db; git: Git; sync: ProjectSync; log: Logger }) {}
 
@@ -772,9 +822,26 @@ export class Drafts {
       if (!row) throw new DraftError('not_found', 'No such draft');
       // AFS-186: what was discarded can be brought back for a while.
       const files = await this.files(id);
+      const edits = await this.deps.db
+        .selectFrom('flow_draft_edit')
+        .select([
+          'revision',
+          'user_id',
+          'kind',
+          'before_text',
+          'after_text',
+          'files_json',
+          'undone',
+          'at',
+        ])
+        .where('draft_id', '=', id)
+        .orderBy('revision')
+        .execute();
       const at = Date.now();
       for (const [key, d] of this.discarded)
         if (at - d.at > KEEP_DISCARDED_MS) this.discarded.delete(key);
+      for (const [key, d] of this.restored)
+        if (at - d.at > KEEP_DISCARDED_MS) this.restored.delete(key);
       this.discarded.set(id, {
         project: row.project_id,
         file: row.file,
@@ -782,6 +849,8 @@ export class Drafts {
         text: row.text,
         files,
         at,
+        revision: row.revision,
+        edits,
       });
       await this.drop(id);
     });
@@ -790,25 +859,32 @@ export class Drafts {
 
   /**
    * AFS-186: a draft discarded a moment ago, back as a new draft of the same flow at the same
-   * commit, with the text it had (one edit by the person bringing it back). Refused once the
-   * flow has a draft again, or after KEEP_DISCARDED_MS.
+   * commit, with the text it had. AFS-209: with its own edits (who made each: co-authors and Ctrl+Z
+   * stay theirs). When the flow has a new draft already (someone discarded and began again), the
+   * discarded edits are merged into it as one edit by the person bringing them back; where both
+   * changed the same place the new draft's value stays, and `kept` names those places. Brought
+   * back once, asked again (another tab, another person), it answers the draft it went to.
    */
-  async restore(id: string, by: Editor, of: { project: string; file: string }): Promise<Draft> {
+  async restore(
+    id: string,
+    by: Editor,
+    of: { project: string; file: string },
+  ): Promise<Draft & { merged?: boolean; kept?: string[] }> {
     const kept = this.discarded.get(id);
     if (
       !kept ||
       kept.project !== of.project ||
       kept.file !== of.file ||
       Date.now() - kept.at > KEEP_DISCARDED_MS
-    )
-      throw new DraftError('not_found', 'The discarded draft is no longer kept');
-    const there = await this.deps.db
-      .selectFrom('flow_draft')
-      .select('id')
-      .where('project_id', '=', kept.project)
-      .where('file', '=', kept.file)
-      .executeTakeFirst();
-    if (there) throw new DraftError('refused', 'The flow has a new draft already: open that one');
+    ) {
+      const went = this.restored.get(id);
+      const row = went ? await this.row(went.id) : undefined;
+      if (row && row.project_id === of.project && row.file === of.file) return this.view(row);
+      throw new DraftError(
+        'not_found',
+        `The discarded draft is no longer kept (it is kept for ${KEEP_DISCARDED_MS / 60_000} minutes)`,
+      );
+    }
     const base = await this.baseText({
       project_id: kept.project,
       base_commit: kept.baseCommit,
@@ -816,24 +892,40 @@ export class Drafts {
     });
     if (base === undefined)
       throw new DraftError('refused', 'The commit the draft began at is gone');
+    const there = await this.deps.db
+      .selectFrom('flow_draft')
+      .select('id')
+      .where('project_id', '=', kept.project)
+      .where('file', '=', kept.file)
+      .executeTakeFirst();
+    if (there) return this.mergeInto(there.id, id, kept, base, by);
     const at = now();
     const fresh = randomUUID();
-    await this.deps.db
-      .insertInto('flow_draft')
-      .values({
-        id: fresh,
-        project_id: kept.project,
-        file: kept.file,
-        base_commit: kept.baseCommit,
-        text: base,
-        revision: 0,
-        created_by: by.id,
-        created_at: at,
-        updated_at: at,
-      })
-      .execute();
+    await this.deps.db.transaction().execute(async (trx) => {
+      await trx
+        .insertInto('flow_draft')
+        .values({
+          id: fresh,
+          project_id: kept.project,
+          file: kept.file,
+          base_commit: kept.baseCommit,
+          text: kept.edits.length ? kept.text : base,
+          revision: kept.edits.length ? kept.revision : 0,
+          created_by: by.id,
+          created_at: at,
+          updated_at: at,
+        })
+        .execute();
+      if (kept.edits.length)
+        await trx
+          .insertInto('flow_draft_edit')
+          .values(kept.edits.map((e) => ({ ...e, id: randomUUID(), draft_id: fresh })))
+          .execute();
+    });
     this.discarded.delete(id);
-    if (kept.text !== base || kept.files.length)
+    this.restored.set(id, { id: fresh, at: Date.now() });
+    // Kept without edits (none were kept): its text comes back as one edit by this person.
+    if (!kept.edits.length && (kept.text !== base || kept.files.length))
       await this.one(fresh, () =>
         this.write(
           fresh,
@@ -845,6 +937,46 @@ export class Drafts {
         ),
       );
     return this.view((await this.row(fresh)) as NonNullable<Awaited<ReturnType<Drafts['row']>>>);
+  }
+
+  /** AFS-209: a discarded draft's edits, merged into the flow's new draft (see `restore`). */
+  private async mergeInto(
+    target: string,
+    id: string,
+    kept: { text: string; files: DraftFile[] },
+    base: string,
+    by: Editor,
+  ): Promise<Draft & { merged: boolean; kept?: string[] }> {
+    const clashes = await this.one(target, async () => {
+      const current = await this.text(target);
+      if (!current)
+        throw new DraftError('refused', 'The flow has a new draft already: open that one');
+      const [b, ours, theirs] = [base, current.text, kept.text].map((t) => parseFlow(t).doc);
+      if (!b || !ours || !theirs)
+        throw new DraftError('refused', 'The discarded draft cannot be merged into the new one');
+      // The new draft's side at each clash: what people did since is not written over.
+      const merged = mergeFlows(b, ours, theirs);
+      const text = writeMergedFlow(current.text, merged.doc);
+      if (text !== current.text || kept.files.length)
+        await this.write(
+          target,
+          by,
+          kept.files.length ? 'start' : 'command',
+          current,
+          text,
+          kept.files.length ? kept.files : undefined,
+        );
+      return merged.conflicts.map((c) => c.label);
+    });
+    this.discarded.delete(id);
+    this.restored.set(id, { id: target, at: Date.now() });
+    const row = await this.row(target);
+    if (!row) throw new DraftError('not_found', 'No such draft');
+    return {
+      ...(await this.view(row)),
+      merged: true,
+      ...(clashes.length ? { kept: clashes } : {}),
+    };
   }
 
   /** AFS-186: the flow at the draft's base commit, read once per commit and file. */
@@ -881,10 +1013,13 @@ export class Drafts {
     const row = await this.row(id);
     if (!row) return undefined;
     const base = await this.baseText(row);
-    const files = (await this.files(id)).length > 0;
+    const added = (await this.files(id)).map((f) => f.path);
+    const files = added.length > 0;
+    const withFiles = files ? { files: added } : {};
     const a = base === undefined ? undefined : parseFlow(base).doc;
     const b = parseFlow(row.text).doc;
-    if (!a || !b || row.text === base) return { changed: files, changes: [], wires: 0 };
+    if (!a || !b || row.text === base)
+      return { changed: files, changes: [], wires: 0, ...withFiles };
     const diff = diffFlows(a, b);
     // Who touched each step or note: the edits not taken back (an undo is not a change of its own).
     const edits = await this.deps.db
@@ -898,10 +1033,15 @@ export class Drafts {
       .execute();
     const who = new Map<string, Set<string>>();
     const flowBy = new Set<string>();
+    // AFS-209: the steps that stand elsewhere now, and which of them each person moved.
+    const moved = new Set(movedSteps(a, b));
+    const movers = new Map<string, Set<string>>();
     for (const e of edits) {
       const x = parseFlow(e.before_text).doc;
       const y = parseFlow(e.after_text).doc;
       if (!x || !y) continue;
+      for (const step of movedSteps(x, y))
+        if (moved.has(step)) movers.set(e.name, (movers.get(e.name) ?? new Set()).add(step));
       const d = diffFlows(x, y);
       for (const c of [...d.nodes, ...d.annotations]) {
         const set = who.get(c.id) ?? new Set<string>();
@@ -929,7 +1069,19 @@ export class Drafts {
         ? [{ kind: 'changed' as const, fields: diff.flow.map((f) => f.field), by: by() }]
         : []),
     ];
-    return { changed: true, changes, wires: diff.wires.length };
+    const moves = moved.size
+      ? {
+          steps: moved.size,
+          by: [...movers].sort((p, q) => q[1].size - p[1].size).map(([name]) => name),
+        }
+      : undefined;
+    return {
+      changed: true,
+      changes,
+      wires: diff.wires.length,
+      ...(moves ? { moves } : {}),
+      ...withFiles,
+    };
   }
 
   private async drop(id: string): Promise<void> {

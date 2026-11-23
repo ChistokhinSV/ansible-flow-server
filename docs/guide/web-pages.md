@@ -108,18 +108,22 @@ Code. Everyone who edits the same flow edits one shared draft:
   apply; when two people change the same field, the later one wins. A step's binding you have
   open follows what someone else changes in it: only the parameters you changed are yours. The
   canvas sits right under the flow's title and its buttons (**Save**, **Stop editing**,
-  **Discard**); **i** beside Full screen says which commit of which branch the draft is of. One
-  line beside the buttons says who is here and what happened last ("Mia Ortega changed Backup
-  (timeout), 3 times", a save or discard coming, what an import added); **N earlier** lists the
-  ones before, and **main moved** says what changed on the branch. Nothing over or above the
-  canvas moves it or covers it when someone comes, goes or saves.
+  **Discard**); **i** beside Full screen says which commit of which branch the draft is of. Beside
+  the buttons, who is here shows as chips of initials (the name on hover; a tab you closed leaves
+  at once) with what happened last ("Mia Ortega changed the timeout of Backup, 3 times");
+  **N earlier** lists the ones before (Escape or a click elsewhere closes it), and **main moved**
+  says what changed on the branch. What must be read whole (someone about to save or discard, an
+  error, what an import or a sample added) is a bar across the page over the canvas.
 - **Ctrl+Z takes back your own last edit**, says what it was (a step's fields, a note's text), and
   leaves the others' alone.
   When someone changed the same place after you, it is refused with what they changed.
   **Ctrl+Y** (or Ctrl+Shift+Z) brings back what Ctrl+Z took, one edit at a time, until you make a
   new edit; it is refused the same way when someone changed that place since.
 - **Save** (or Ctrl+S, on the page or in the canvas) opens a dialog: what the draft changes, place
-  by place, with who changed each, and the commit message made of it (type your own over it).
+  by place in the forms' words, with who changed each, the steps moved on the canvas and by whom,
+  and the files a sample adds, and the commit message made of it (whole changes, then "and N
+  more"). The dialog stays current while it is open, also with what others change meanwhile; the
+  message follows it until you type your own.
   Save then makes one commit on the project's branch, with that message, by you, and
   `Co-authored-by` for everyone else who edited; it then says the commit (a link to the flow at
   it) and the co-authors. While the draft changes nothing (no edit yet, or every edit taken
@@ -132,7 +136,7 @@ Code. Everyone who edits the same flow edits one shared draft:
   values as they are now. While you edit, the line says when the flow is changed or removed on
   the branch (a push from VS Code,
   another save; your own push says "You"), so nobody's work is saved over unknowingly. When
-  others are in the draft, or you have it open in another tab, **Save** says so first, and every
+  others are in the draft, or you have it open in another tab, the Save dialog says so, and every
   other page in the draft (your other tabs too) sends what is still being typed before the commit
   is made. While someone has **Save** open (is writing the commit message), the others see "Mia
   Ortega is about to save" in the line: saving ends the draft for everyone, so their editing
@@ -167,7 +171,10 @@ Code. Everyone who edits the same flow edits one shared draft:
   whose unsaved edits go; while it asks, the others in the draft see "… is about to discard the
   draft", and what they are typing goes into the draft before it is discarded. **Bring back**
   (beside "The draft is discarded", for you and the others) restores a discarded draft with
-  everyone's edits for 15 minutes, unless the flow has a new draft by then. A draft that changes
+  everyone's edits for 15 minutes, each still theirs (co-authors, Ctrl+Z). When someone began a
+  new draft meanwhile, the discarded edits are merged into it; where both changed the same place
+  the new draft's value stays, and the page names those places. A second Bring back opens the
+  draft they went to. A draft that changes
   nothing (nobody changed it, or every edit was taken back) is dropped when you stop editing it
   and nobody else is in it, and Discard drops it without asking. Runs take the flow
   from the branch, so a draft runs only once saved: while you edit, the canvas has no Run buttons

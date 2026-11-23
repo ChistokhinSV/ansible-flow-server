@@ -1007,6 +1007,10 @@ export interface DraftSummary {
     by: string[];
   }[];
   wires: number;
+  /** AFS-209: steps standing elsewhere than at the commit, and who moved them. */
+  moves?: { steps: number; by: string[] };
+  /** AFS-209: the files Save adds with the flow (a sample's roles). */
+  files?: string[];
 }
 
 export interface Draft {
@@ -1018,6 +1022,10 @@ export interface Draft {
   createdAt: string;
   updatedAt: string;
   editors: { id: string; login: string; name: string }[];
+  /** AFS-209: Bring back merged the discarded edits into the flow's new draft (this one). */
+  merged?: boolean;
+  /** AFS-209: where both changed the same place, the new draft's value stayed: those places. */
+  kept?: string[];
 }
 
 /** AFS-123: a commit as the History lists show it. */

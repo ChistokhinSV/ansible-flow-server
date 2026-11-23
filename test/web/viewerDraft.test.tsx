@@ -116,11 +116,24 @@ describe("the draft's frame", () => {
       editWords({
         changes: [{ step: 'Backup', kind: 'changed', fields: ['title', 'settings.timeout'] }],
       }),
-    ).toBe('changed Backup (title, timeout)');
+    ).toBe('changed the name and timeout of Backup');
     expect(editWords({ changes: [{ kind: 'changed', fields: ['goal'] }] })).toBe(
       "changed the flow's goal",
     );
     expect(editWords({ changes: [], wires: 1 })).toBe('changed the wires');
+    // AFS-209: the forms' words, not the file's field names; the wires changed with it are said.
+    expect(
+      editWords({
+        changes: [{ step: 'Backup config', kind: 'changed', fields: ['accepted'] }],
+        wires: 1,
+      }),
+    ).toBe('changed the accepted findings of Backup config and 1 wire');
+    expect(editWords({ changes: [{ kind: 'changed', fields: ['inputs', 'imported_from'] }] })).toBe(
+      "changed the flow's run inputs and import source",
+    );
+    expect(
+      editWords({ changes: [{ step: 'Rollback', kind: 'changed', fields: ['intent'] }] }),
+    ).toBe('changed the description of Rollback');
   });
 
   it('Ctrl+Z undoes; Ctrl+Shift+Z and Ctrl+Y redo, and say what came back (AFS-172)', async () => {

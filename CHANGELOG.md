@@ -38,6 +38,13 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 
 ### Fixed
 
+- **Bring back** after someone else discarded the draft and began a new one failed and the edits were lost: they are merged into the new draft (where both changed the same place, the new draft's value stays and the page names it). A second **Bring back**, in another tab or by someone else, opens the draft they went to; a brought-back draft keeps who made each edit (co-authors, Ctrl+Z).
+- Who is here while editing shows as chips with names on hover instead of a line cut to a few letters; someone about to save or discard, errors and what an import or sample added are a bar across the page, read whole.
+- The Save dialog stays current while it is open (others' edits and notes made meanwhile), lists the steps moved on the canvas and by whom (a draft of moves only is no longer empty) and the files a sample adds, and names fields as the forms do ("changed the description of Rollback", not "changed Rollback (intent)"); so do the activity line and the Undo note.
+- The commit message made of the changes no longer ends with "…": it names whole changes, then "and N more".
+- One Save asks once: who else is editing is said in the Save dialog, not in a second question.
+- The "N earlier" list closes on Escape and on a click elsewhere.
+- A tab closed while editing no longer counts as "your other tabs" for about a minute.
 - Someone with a grant on one flow could read every commit message and author of the project's repository through its Branches tab and `GET /api/v1/projects/<id>/pushes` and `/branches`, and the names of its other flows and their drafts. Pushes now need read only on the workspace; branches answer such a person with their names only; the project's access, drafts and the project itself show only what their flows need.
 - Workspaces and Home counted every project of a workspace for someone who sees only some of them.
 - Someone with read and write on a workspace could learn whether any login or group existed on the server (and a person's full name) by giving an action to it. Anyone outside the workspace now gets the same answer as a name that does not exist.

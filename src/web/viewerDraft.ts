@@ -6,6 +6,7 @@
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
 import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
+import { changeWords } from './draftWords';
 import { guide } from './guide';
 import { isSaveKey } from './saveKey';
 import { typingInField } from './typing';
@@ -68,30 +69,18 @@ export type DraftNotice =
  */
 export const GET_STARTED = guide('first-flow.md');
 
-/** AFS-149: a field's name as the activity line says it (`settings.timeout` -> timeout). */
-const fieldWord = (field: string) =>
-  (field.split('.').at(-1) ?? field).replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
-
 /**
- * AFS-149: what an edit did, in a few words: "removed Ping", "changed Ping (title, timeout)",
- * "changed the flow's goal". Names three places at most.
+ * AFS-149: what an edit did, in a few words: "removed Ping", "changed the name and timeout of
+ * Ping", "changed the flow's goal" (AFS-209: the forms' words, not the file's field names; a note
+ * by its first words). Names three places at most, and the wires it changed with them.
  */
 export function editWords(edit: { changes?: EditChange[]; wires?: number; steps?: string[] }) {
-  const parts = (edit.changes ?? []).map((c) => {
-    const fields = [...new Set(c.fields.map(fieldWord))].slice(0, 3);
-    // AFS-186: a note, by its first words.
-    if (c.note !== undefined) {
-      const words = c.note.length > 40 ? `${c.note.slice(0, 39)}…` : c.note;
-      return `${c.kind} the note “${words}”`;
-    }
-    if (!c.step) return `changed the flow's ${fields.join(', ') || 'settings'}`;
-    if (c.kind !== 'changed') return `${c.kind} ${c.step}`;
-    return fields.length ? `changed ${c.step} (${fields.join(', ')})` : `moved ${c.step}`;
-  });
+  const parts = (edit.changes ?? []).map((c) => changeWords(c));
   if (!parts.length && edit.steps?.length) parts.push(`changed ${edit.steps.join(', ')}`);
   if (!parts.length) return edit.wires ? 'changed the wires' : 'moved steps on the canvas';
   const named = parts.slice(0, 3).join('; ');
-  return parts.length > 3 ? `${named} and ${parts.length - 3} more` : named;
+  const wires = edit.wires ? ` and ${edit.wires} wire${edit.wires === 1 ? '' : 's'}` : '';
+  return parts.length > 3 ? `${named} and ${parts.length - 3} more${wires}` : `${named}${wires}`;
 }
 
 /** AFS-172: Ctrl+Z is undo; Ctrl+Shift+Z and Ctrl+Y are redo (⌘ on macOS). */
@@ -344,6 +333,12 @@ export function editDraft(options: {
   };
   here();
   const beat = setInterval(here, 20_000);
+  // AFS-209: the server forgets a tab whose stream ended; a stream that comes back says so again.
+  let streamed = false;
+  events.addEventListener('open', () => {
+    if (streamed) here();
+    streamed = true;
+  });
   function ended() {
     over = true;
     clearInterval(beat);

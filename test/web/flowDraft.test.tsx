@@ -170,6 +170,13 @@ describe("a flow's draft on its page (AFS-149)", () => {
     expect(line.textContent).toContain('Mia Ortega changed Backup (timeout), 2 times');
     fireEvent.click(within(line).getByRole('button', { name: '1 earlier' }));
     expect(within(line).getByRole('list').textContent).toContain('Mia Ortega removed a2 ping');
+    // AFS-209: it closes on Escape, and on a click elsewhere.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(within(line).queryByRole('list')).toBeNull();
+    fireEvent.click(within(line).getByRole('button', { name: '1 earlier' }));
+    expect(within(line).getByRole('list')).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(within(line).queryByRole('list')).toBeNull();
   });
 
   it('says "you" for a save made in another tab of the same person, with its commit', async () => {
@@ -254,9 +261,15 @@ describe("a flow's draft on its page (AFS-149)", () => {
         { login: 'mia', name: 'Mia Ortega', saving: true },
       ],
     });
-    expect(
-      (await screen.findByText(/Mia Ortega is about to save/)).closest('.page-head'),
-    ).toBeTruthy();
+    // AFS-209: read whole, in a bar across the page (not cut in the head); her chip says it too.
+    const coming = await screen.findByRole('alert');
+    expect(coming.textContent).toBe(
+      'Mia Ortega is about to save: your editing stops then; what you type is sent first.',
+    );
+    expect(coming.closest('.page-head')).toBeNull();
+    expect(document.querySelector('.draft-chip.warn')?.getAttribute('title')).toBe(
+      'Mia Ortega: about to save',
+    );
     tell({
       type: 'afs-draft-people',
       people: [
@@ -351,7 +364,7 @@ describe("a flow's draft on its page (AFS-149)", () => {
       fireEvent.keyDown(window, { key: 's', ctrlKey: true });
     });
     expect(screen.queryByRole('form', { name: 'Save the draft' })).toBeNull();
-    expect(screen.getByRole('region', { name: 'Editing together' }).textContent).toContain(
+    expect(screen.getByRole('status').textContent).toBe(
       'Nothing to save: the draft changes nothing yet.',
     );
     tell({ type: 'afs-draft-changed', changed: true });
@@ -376,11 +389,77 @@ describe("a flow's draft on its page (AFS-149)", () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const form = saveForm();
     expect(await within(form).findByText('added a2 ios_banner (Mia Ortega)')).toBeTruthy();
-    expect(within(form).getByText('changed Backup (title) (Dana Whitfield)')).toBeTruthy();
+    expect(within(form).getByText('changed the name of Backup (Dana Whitfield)')).toBeTruthy();
     const input = within(form).getByLabelText(
       "What changed (the commit's message)",
     ) as HTMLInputElement;
-    expect(input.value).toBe('Added a2 ios_banner; changed Backup (title)');
+    expect(input.value).toBe('Added a2 ios_banner; changed the name of Backup');
+  });
+
+  it('keeps the Save dialog current until typed in: moves, files, no "…" in the message (AFS-209)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let summary: unknown = {
+      changed: true,
+      changes: [],
+      wires: 0,
+      moves: { steps: 3, by: ['Mia Ortega'] },
+    };
+    routes = { ...base(), 'GET /drafts/d1/summary': () => ({ body: summary }) };
+    await editing();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const form = saveForm();
+    // A draft of moves only says so.
+    expect(await within(form).findByText('moved 3 steps on the canvas (Mia Ortega)')).toBeTruthy();
+    const input = within(form).getByLabelText(
+      "What changed (the commit's message)",
+    ) as HTMLInputElement;
+    expect(input.value).toBe('Moved 3 steps');
+    // Mia adds a note and a sample's role while the dialog is open: it says so, without reopening.
+    summary = {
+      changed: true,
+      changes: [
+        {
+          note: 'Why the rollback restores the backup first',
+          kind: 'added',
+          fields: [],
+          by: ['Mia Ortega'],
+        },
+        {
+          step: 'Pre-checks of the edge switches',
+          kind: 'changed',
+          fields: ['outputs'],
+          by: ['Mia Ortega'],
+        },
+        {
+          step: 'Backup the running configuration',
+          kind: 'added',
+          fields: [],
+          by: ['Dana Whitfield'],
+        },
+        { kind: 'changed', fields: ['imported_from'], by: ['Dana Whitfield'] },
+      ],
+      wires: 0,
+      files: ['roles/netops_backup/tasks/main.yml', 'roles/netops_backup/defaults/main.yml'],
+    };
+    tell({ type: 'afs-draft-edit', by: 'Mia Ortega', steps: [], what: 'added a note' });
+    expect(
+      await within(form).findByText('adds 2 files from the sample: roles/netops_backup'),
+    ).toBeTruthy();
+    expect(
+      within(form).getByText("changed the flow's import source (Dana Whitfield)"),
+    ).toBeTruthy();
+    // Whole changes only, then "and N more": git never gets a cut word or "…".
+    expect(input.value).toBe('Added a note and 4 more');
+    expect(input.value).not.toContain('…');
+    // Typed in, the message stays as typed while the list goes on.
+    fireEvent.change(input, { target: { value: 'Safer backup' } });
+    summary = { changed: true, changes: [], wires: 2 };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3500);
+    });
+    expect(await within(form).findByText('changed 2 wires')).toBeTruthy();
+    expect(input.value).toBe('Safer backup');
+    vi.useRealTimers();
   });
 
   it('offers to bring back a draft someone else discarded (AFS-186)', async () => {
@@ -394,5 +473,21 @@ describe("a flow's draft on its page (AFS-149)", () => {
     expect(bodies[restore]).toEqual([{ draft: 'd1' }]);
     const frame = screen.getByTitle(/on the designer/) as HTMLIFrameElement;
     expect(new URL(frame.src, window.location.origin).searchParams.get('draft')).toBe('d2');
+
+    // AFS-209: someone began a new draft meanwhile: the edits went into it, and the page says so.
+    routes[restore] = () => ({
+      body: { ...draft, id: 'd3', merged: true, kept: ['Ping: title'] },
+    });
+    tell({ type: 'afs-draft-gone', by: 'Mia Ortega' });
+    fireEvent.click(
+      within(await screen.findByText(/Mia Ortega discarded the draft/)).getByRole('button', {
+        name: 'Bring back',
+      }),
+    );
+    expect(
+      (await screen.findByText(/The discarded edits are in the flow's new draft/)).textContent,
+    ).toBe(
+      "The discarded edits are in the flow's new draft, except where it changed the same places (its values stay): Ping: title.",
+    );
   });
 });

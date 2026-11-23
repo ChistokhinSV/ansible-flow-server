@@ -678,9 +678,108 @@ describe('a draft that changes nothing, what a draft changes, and a discard (AFS
     const doc = (await call('mia', 'GET', `/drafts/${back.json.id}`)).json.snapshot.doc;
     const titleOf = (n: string) => doc.nodes.find((x: { id: string }) => x.id === n).title;
     expect([titleOf(PING), titleOf(HELLO)]).toEqual(['Mia was here', 'Typed by Mia']);
-    // Once only.
-    expect((await restore('omar')).status).toBe(404);
+    // AFS-209: once; asked again (another tab, another person), it answers the draft it became.
+    const again = await restore('omar');
+    expect(again.status).toBe(200);
+    expect(again.json.id).toBe(back.json.id);
     await call('mia', 'DELETE', `/drafts/${back.json.id}`);
+  });
+
+  it('brings a discarded draft back with who made each edit (AFS-209)', async () => {
+    const id = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('mia', 'POST', `/drafts/${id}/commands`, retitle(PING, 'Ping by Mia'));
+    await call('omar', 'POST', `/drafts/${id}/commands`, retitle(HELLO, 'Hello by Omar'));
+    await call('omar', 'DELETE', `/drafts/${id}`);
+    const back = await call('omar', 'POST', `/projects/${project.id}/drafts/restore?path=${FILE}`, {
+      draft: id,
+    });
+    expect(back.status).toBe(200);
+    // Both are editors again (co-authors on Save), not only the one who brought it back.
+    expect(back.json.editors.map((e: { login: string }) => e.login)).toEqual(['mia', 'omar']);
+    // Mia's own edit is hers to take back.
+    const undone = await call('mia', 'POST', `/drafts/${back.json.id}/undo`);
+    expect(undone.json.nothing).toBeUndefined();
+    const doc = (await call('mia', 'GET', `/drafts/${back.json.id}`)).json.snapshot.doc;
+    const titleOf = (n: string) => doc.nodes.find((x: { id: string }) => x.id === n).title;
+    expect(titleOf(PING)).not.toBe('Ping by Mia');
+    expect(titleOf(HELLO)).toBe('Hello by Omar');
+    await call('mia', 'DELETE', `/drafts/${back.json.id}`);
+  });
+
+  it('brings back into the new draft someone began after discarding: merged, not lost (AFS-209)', async () => {
+    const old = (await call('mia', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    await call('mia', 'POST', `/drafts/${old}/commands`, retitle(PING, 'Ping by Mia'));
+    await call('mia', 'POST', `/drafts/${old}/commands`, retitle(HELLO, 'Hello by Mia'));
+    // Omar discards and begins again at once, changing one of the same places.
+    await call('omar', 'DELETE', `/drafts/${old}`);
+    const fresh = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    expect(fresh).not.toBe(old);
+    await call('omar', 'POST', `/drafts/${fresh}/commands`, retitle(HELLO, 'Hello by Omar'));
+    // Mia's Bring back: her edits go into Omar's draft; his value stays where both changed.
+    const restore = (who: string) =>
+      call(who, 'POST', `/projects/${project.id}/drafts/restore?path=${FILE}`, { draft: old });
+    const back = await restore('mia');
+    expect(back.status).toBe(200);
+    expect(back.json).toMatchObject({ id: fresh, merged: true });
+    expect(back.json.kept).toHaveLength(1);
+    expect(back.json.kept[0]).toContain('title');
+    const doc = (await call('mia', 'GET', `/drafts/${fresh}`)).json.snapshot.doc;
+    const titleOf = (n: string) => doc.nodes.find((x: { id: string }) => x.id === n).title;
+    expect([titleOf(PING), titleOf(HELLO)]).toEqual(['Ping by Mia', 'Hello by Omar']);
+    // Mia is an editor of the new draft; a second Bring back opens it, nothing twice.
+    const summary = (await call('mia', 'GET', `/drafts/${fresh}/summary`)).json;
+    expect(summary.changes).toContainEqual(
+      expect.objectContaining({ step: 'Ping by Mia', by: ['Mia Ortega'] }),
+    );
+    const again = await restore('mia');
+    expect(again.json.id).toBe(fresh);
+    expect((await call('mia', 'GET', `/drafts/${fresh}`)).json.draft.revision).toBe(
+      back.json.revision,
+    );
+    await call('omar', 'DELETE', `/drafts/${fresh}`);
+  });
+
+  it('lists the steps moved on the canvas, by whom, and the files Save adds (AFS-209)', async () => {
+    const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    const move = (who: string, node: string, x: number) =>
+      call(who, 'POST', `/drafts/${id}/commands`, {
+        command: { kind: 'moveNodes', positions: { [node]: { x, y: 300 } } },
+      });
+    await move('mia', PING, 100);
+    await move('mia', HELLO, 400);
+    await move('omar', HELLO, 500);
+    const summary = (await call('omar', 'GET', `/drafts/${id}/summary`)).json;
+    // A move only: something to save, though no step's fields changed.
+    expect(summary).toMatchObject({
+      changed: true,
+      changes: [],
+      moves: { steps: 2, by: ['Mia Ortega', 'Omar Haddad'] },
+    });
+    expect(summary.files).toBeUndefined();
+    await call('omar', 'DELETE', `/drafts/${id}`);
+  });
+
+  it("forgets a tab whose stream ended: the others' pages stop counting it (AFS-209)", async () => {
+    const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    const tab = follow('mia', id, 'm9');
+    await tab.until(() => tab.events.some((e) => e.event === 'draft'));
+    await call('mia', 'POST', `/drafts/${id}/here`, { tab: 'm9' });
+    const seen = await call('omar', 'POST', `/drafts/${id}/here`, { tab: 'o9' });
+    expect(seen.json.people.map((p: { login: string }) => p.login)).toContain('mia');
+    await tab.close();
+    let people: { login: string }[] = [];
+    for (let i = 0; i < 40; i += 1) {
+      people = (await call('omar', 'POST', `/drafts/${id}/here`, { tab: 'o9' })).json.people;
+      if (!people.some((p) => p.login === 'mia')) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(people.map((p) => p.login)).toEqual(['omar']);
+    await call('omar', 'DELETE', `/drafts/${id}`);
   });
 });
 
