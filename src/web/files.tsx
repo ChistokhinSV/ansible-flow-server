@@ -836,6 +836,8 @@ export function FilesPage({
           },
         });
         listing.reload();
+        // AFS-232: and the header's commit and "looked at", as the server read them again.
+        found.reload();
       }
       setSaid({
         error: messageOf(e),

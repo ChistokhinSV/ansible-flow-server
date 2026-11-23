@@ -14,7 +14,7 @@ import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
-import { listPushes } from '../../src/server/projects/store';
+import { getProject, listPushes } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { grant } from './helpers/grant';
 
@@ -199,6 +199,8 @@ describe('the files of a project', () => {
       // AFS-232: where the branch is now, where a change set without those files begins.
       head: moved,
     });
+    // AFS-232: the project is read again at once: its header shows where the branch is now.
+    expect((await getProject(database.db, project.id))?.commit).toBe(moved);
     // A folder move over a file the branch changed clashes too.
     expect(
       (await save(omar, { base, changes: [{ op: 'move', from: 'roles/web', to: 'roles/www' }] }))
