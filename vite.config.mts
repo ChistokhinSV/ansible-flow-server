@@ -15,8 +15,11 @@ export default defineConfig({
     // Fonts stay files: the pages' policy loads fonts from this server only, not data: URLs.
     assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
     target: 'es2023',
-    // Two pages: the application, and the designer on a page of its own (viewer.ts).
-    rollupOptions: { input: ['src/web/index.html', 'src/web/viewer.html'] },
+    // Three pages: the application, the designer on a page of its own (viewer.ts), and the API
+    // reference (apidocs.ts, AFS-199: Scalar is loaded there only).
+    rollupOptions: {
+      input: ['src/web/index.html', 'src/web/viewer.html', 'src/web/apidocs.html'],
+    },
   },
   server: {
     port: 5180,

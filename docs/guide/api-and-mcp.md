@@ -5,8 +5,30 @@
 ## The API
 
 Everything the pages do goes through the REST API under `/api/v1`, and every address is in the
-server's OpenAPI 3.1 document, `GET /api/v1/openapi.json` (no sign-in needed). The page
-`/docs/api` shows it by subject: what each address does, who may call it, and what it takes.
+server's OpenAPI 3.1 document, `GET /api/v1/openapi.json` (no sign-in needed). It says what each
+address does, who may call it, what it takes and, for the main resources (runs, flows, launch
+configurations, schedules, actions, approvals, tokens, people, workspaces, projects), what it
+answers. Its server is `/`: a client sends to the address it read the document from, behind a
+TLS proxy too.
+
+### The API reference page
+
+**Help › API reference** (`/docs/api`) shows the document by subject, served by the server itself
+(nothing is loaded from the internet). Each address has its parameters, its body and its answers
+with their fields, and an example request (curl and other languages).
+
+**Test Request** sends a real request to this server:
+
+- as you, with the session of the pages: there is nothing to type;
+- or as an access token: pick **token** under **Authentication** and paste it. The token stays on
+  that page only, in memory: a reload forgets it, and it is never stored in the browser. A request
+  with a token is sent without the session, so the answer is the token's (a read-only token is
+  refused a change, a token for one workspace reaches only that workspace).
+- Anything but a read (POST, PUT, PATCH, DELETE) asks first, naming the method and the address:
+  **Send** sends it, **Cancel** does not. It is a real change, made and audited as you or the
+  token.
+
+The page follows the pages' theme. The document itself is behind **OpenAPI document**.
 
 ```sh
 curl -s https://flows.example.net:8443/api/v1/openapi.json | jq '.paths | keys | length'

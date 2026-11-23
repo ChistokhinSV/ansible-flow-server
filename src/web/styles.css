@@ -982,36 +982,20 @@ textarea {
   font-size: 1rem;
 }
 
-/* --- the API reference */
-.endpoints {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* --- the API reference (AFS-199): Scalar's page in a frame, as tall as the window leaves it */
+.api-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 5.75rem);
+  min-height: 420px;
 }
-.endpoint {
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--border);
-  overflow-wrap: anywhere;
-}
-.endpoint summary {
-  cursor: pointer;
-}
-.endpoint details > *:not(summary) {
-  margin-top: 0.5rem;
-}
-.method {
-  display: inline-block;
-  min-width: 4.2rem;
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-.method.delete {
-  color: var(--bad);
-}
-.method.get {
-  color: var(--ok);
+.api-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
 }
 
 /* --- approvals */
@@ -2798,10 +2782,6 @@ fieldset.name-chips {
   flex-wrap: nowrap;
   gap: 0.75rem;
   align-items: center;
-}
-/* AFS-101: an API row that does not open lines up with the ones that do (the disclosure mark). */
-.endpoint.plain {
-  padding-left: 1.05em;
 }
 /* AFS-101: the sign-in title breaks evenly, not leaving one word alone. */
 .entry-card h1 {

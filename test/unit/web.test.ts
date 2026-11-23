@@ -23,6 +23,7 @@ beforeAll(async () => {
   writeFileSync(join(web, 'assets', 'index-AbC123.js'), 'console.log("app")');
   writeFileSync(join(web, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   writeFileSync(join(web, 'viewer.html'), '<!doctype html><title>Flow</title>');
+  writeFileSync(join(web, 'apidocs.html'), '<!doctype html><title>API reference</title>');
   // A file beside the folder: nothing may reach it.
   writeFileSync(join(root, 'secret.txt'), 'not for anyone');
   database = openDatabase({ kind: 'sqlite', file: ':memory:' });
@@ -88,6 +89,30 @@ describe('the web application', () => {
     expect(policy).not.toContain('unsafe');
     expect(reply.headers['x-frame-options']).toBe('SAMEORIGIN');
     expect(reply.headers['cache-control']).toBe('no-cache');
+  });
+
+  it('the API reference alone may use inline styles; it is framed by this server only', async () => {
+    const reply = await get('/apidocs.html?theme=dark');
+    expect(reply.statusCode).toBe(200);
+    expect(reply.body).toContain('<title>API reference</title>');
+    const policy = String(reply.headers['content-security-policy']);
+    expect(policy.split('; ')).toEqual([
+      "default-src 'self'",
+      "img-src 'self' data:",
+      "font-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self'",
+      "connect-src 'self'",
+      "frame-ancestors 'self'",
+      "base-uri 'none'",
+      "form-action 'none'",
+    ]);
+    expect(reply.headers['x-frame-options']).toBe('SAMEORIGIN');
+    // The other pages keep the strict policy.
+    for (const url of ['/', '/docs/api', '/viewer.html'])
+      expect(String((await get(url)).headers['content-security-policy']), url).not.toContain(
+        'unsafe',
+      );
   });
 
   it('serves its files with their types; those named by their content are kept for good', async () => {

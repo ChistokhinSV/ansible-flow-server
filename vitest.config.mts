@@ -32,6 +32,8 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           include: ['test/unit/**/*.test.ts'],
+          // AFS-245: every route's answers checked against what the catalog says they are.
+          setupFiles: ['test/unit/setup.ts'],
           // AFS-70: a test here clones, pushes and syncs repositories, each a few git processes;
           // on Windows a process start alone can take a tenth of a second. The pages keep 5 s.
           testTimeout: 30_000,
