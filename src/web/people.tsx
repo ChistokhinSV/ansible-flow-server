@@ -835,6 +835,8 @@ function Members({ group, onSaved }: { group: Group; onSaved(g: Group): void }) 
 function NamedIn({ group }: { group: Group }) {
   const load = useLoad(() => api.groupGrants(group.id), [group.id]);
   const rows = load.data ?? [];
+  // AFS-207: the actions it lets its members run are access it gives too.
+  const actions = useLoad(() => api.groupActionGrants(group.id), [group.id]).data ?? [];
   // AFS-152: flows by their titles.
   const titles = useFlowTitles(rows.flatMap((r) => (r.flow ? [r.flow.project] : [])));
   return (
@@ -842,7 +844,27 @@ function NamedIn({ group }: { group: Group }) {
       <h2 id="named-in">Access this group gives</h2>
       <Loading state={load} />
       {load.data && rows.length === 0 && (
-        <p className="muted">No workspace gives this group a level.</p>
+        <p className="muted">
+          No workspace gives this group a level
+          {actions.length ? '; it may run the actions below' : ''}.
+        </p>
+      )}
+      {actions.length > 0 && (
+        <>
+          <h3>Actions its members may run</h3>
+          <ul className="list plain">
+            {actions.map((g) => (
+              <li key={g.id}>
+                <Link
+                  to={`/w/${g.action.workspaceKey ?? ''}/${g.action.projectKey}/launch/${g.action.config}/settings`}
+                >
+                  {g.action.title}
+                </Link>{' '}
+                <span className="muted">in {g.action.workspaceKey}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {rows.length > 0 && (
         <Scroll>

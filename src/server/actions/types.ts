@@ -62,6 +62,13 @@ export interface ActionInput {
   choices?: string[];
   /** AFS-176: a host list without choices: only the hosts of this inventory group. */
   group?: string;
+  /**
+   * AFS-207: a host list: the value the form starts with. None: it starts empty and the runner
+   * picks (never the configuration's value, which may be a whole group).
+   */
+  start?: string;
+  /** AFS-207: a host list: at most this many hosts (1: one host), a group counted by its hosts. */
+  max?: number;
 }
 
 /** An action's settings, as its configuration's Settings tab sets them. */
@@ -100,7 +107,14 @@ export interface ActionGrant {
 
 /** An action grant as the workspace's Access tab lists it: with the action's title. */
 export interface WorkspaceActionGrant extends ActionGrant {
-  action: { title: string; config: string; project: string; projectKey: string };
+  action: {
+    title: string;
+    config: string;
+    project: string;
+    projectKey: string;
+    /** AFS-207: on a group's page, which lists them across workspaces. */
+    workspaceKey?: string;
+  };
 }
 
 /** AFS-206: an action of a workspace as its Access tab lists it: with who may run it. */
@@ -154,7 +168,9 @@ export interface ActionField {
   hosts?: boolean;
   /** AFS-176: the inventory group its hosts are picked from. */
   group?: string;
-  /** The value it starts with (the configuration's). */
+  /** AFS-207: a host list takes at most this many hosts (1: one host). */
+  max?: number;
+  /** The value it starts with: the configuration's; a host list's, the action's own (AFS-207). */
   text: string;
 }
 
@@ -202,6 +218,8 @@ export interface ActionLink {
   reply?: string;
   /** Why the result does not go back, when the link tried to say where and could not. */
   replyNote?: string;
+  /** AFS-207: how many hosts each host list's value names (a group by its hosts), when known. */
+  counts?: Record<string, number>;
 }
 
 /** The inventory's names a host list of an action offers. */
@@ -212,6 +230,8 @@ export interface ActionHosts {
   dynamic?: boolean;
   /** AFS-176: the hosts of each group the action narrows a host list to. */
   inGroup?: Record<string, string[]>;
+  /** AFS-207: how many hosts each group offered has (its children's too). */
+  sizes?: Record<string, number>;
   /** Why there are no names to pick. */
   why?: string;
 }

@@ -12,6 +12,7 @@
 //   DELETE /api/v1/launch-configs/:id/action/grants/:grant
 //   GET    /api/v1/workspaces/:id/action-grants    for the workspace's Access tab
 //   GET    /api/v1/workspaces/:id/actions          AFS-206: every action, with who may run it
+//   GET    /api/v1/groups/:id/action-grants        AFS-207: the actions a group may run
 // AFS-176 (ADR-0037): links to actions from other systems.
 //   GET    /api/v1/actions/:id/link?<input>=<value>  what a link gives: ready to confirm, or a form
 //   GET|POST /api/v1/launch-configs/:id/action/tokens, DELETE …/tokens/:token   signed links
@@ -20,11 +21,12 @@
 import type { ServerResponse } from 'node:http';
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import type { RunView } from '@ansible-flow/core/protocol';
-import { parseInput } from '@ansible-flow/core/run/launch';
+import { inputText, parseInput } from '@ansible-flow/core/run/launch';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { type Access, accessOf, atLeast } from '../access/grants';
 import { decidersOf, gatesOf } from '../approvals/gates';
-import { inSession, signedIn } from '../auth/guards';
+import { changedKeys } from '../audit/changes';
+import { administrator, inSession, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
 import type { LaunchConfig } from '../launch/configs';
 import { flowAt, LaunchConfigs } from '../launch/configs';
@@ -48,7 +50,12 @@ import {
   getAction,
   grantAction,
   grantedActions,
+  groupActionGrants,
   groupHosts,
+  groupSizes,
+  hostProblem,
+  hostsOf,
+  type InventoryNames,
   looksLikeActionToken,
   mayRun,
   noteReply,
@@ -81,6 +88,8 @@ const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required
 const NO_ACTION = { error: 'not_found', message: 'No such action' };
 const NO_RUN = { error: 'not_found', message: 'No such run' };
 const LOOK_MS = 1000;
+/** AFS-207: the same person, action and values within this long is taken for the same press. */
+const TWIN_MS = 30_000;
 const KEEP_ALIVE_MS = 15_000;
 
 const SETTINGS = {
@@ -103,6 +112,9 @@ const SETTINGS = {
           help: text(200),
           choices: { type: 'array', maxItems: 50, items: text(200, 1) },
           group: text(200),
+          // AFS-207: a host list's start value, and how many hosts it takes.
+          start: text(2000),
+          max: { type: 'integer', minimum: 1, maximum: 1000 },
         },
       },
     },
@@ -143,8 +155,15 @@ export interface ActionDeps extends PrepareDeps {
   vars?: VarIndexes;
 }
 
-/** "Nora Brandt (who set up this action)", then the administrators: whom a runner asks. */
-async function whomToAsk(deps: ActionDeps, action: Action | undefined): Promise<string[]> {
+/**
+ * "Nora Brandt (who set up this action)", then the administrators: whom a runner asks. AFS-207:
+ * never the one who reads it (`viewer`, a login): Nora is not told to ask Nora.
+ */
+async function whomToAsk(
+  deps: ActionDeps,
+  action: Action | undefined,
+  viewer?: string,
+): Promise<string[]> {
   const admins = await deps.db
     .selectFrom('user_account')
     .select(['name', 'login'])
@@ -152,13 +171,26 @@ async function whomToAsk(deps: ActionDeps, action: Action | undefined): Promise<
     .where('disabled', '=', 0)
     .orderBy('name')
     .execute();
-  const ask = action?.owner ? [`${action.owner.name} (who set up this action)`] : [];
-  const names = admins.map((a) => a.name || a.login).filter((n) => n !== action?.owner?.name);
+  const owner = action?.owner && action.owner.login !== viewer ? action.owner : undefined;
+  const ask = owner ? [`${owner.name} (who set up this action)`] : [];
+  const names = admins
+    .filter((a) => a.login !== viewer)
+    .map((a) => a.name || a.login)
+    .filter((n) => n !== action?.owner?.name);
   if (names.length)
     ask.push(
       `${names.length === 1 ? 'the administrator' : 'the administrators'} ${names.slice(0, 3).join(', ')}${names.length > 3 ? ' and others' : ''}`,
     );
   return ask;
+}
+
+/** AFS-207: an action's form, starting with the values of one of its runs it still asks. */
+function againAddress(action: Action, run: Run): string {
+  const query = new URLSearchParams();
+  for (const a of action.asked)
+    if (a.name in run.inputs) query.set(a.name, inputText(run.inputs[a.name]));
+  const q = query.toString();
+  return `/actions/${action.id}${q ? `?${q}` : ''}`;
 }
 
 export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
@@ -188,11 +220,29 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       }
     };
 
-  /** Refuses as the catalog does: 404 for who may not see the workspace at all, else 403. */
-  const refuse = (reply: FastifyReply, access: Access | undefined, place?: ActionPlace) =>
+  /**
+   * Refuses as the catalog does: 404 for who may not see the workspace at all, else 403. AFS-207:
+   * the 403 says whom to ask.
+   */
+  const refuse = async (
+    reply: FastifyReply,
+    access: Access | undefined,
+    place: ActionPlace | undefined,
+    action: Action,
+    viewer: string,
+  ) =>
     !place || !access?.sees(place.workspace, place.project)
       ? reply.code(404).send(NO_ACTION)
-      : reply.code(403).send({ error: 'forbidden', message: 'You may not run this action' });
+      : reply.code(403).send({
+          error: 'forbidden',
+          message: `You may not run "${action.title}"${await askWords(action, viewer, ' to let you')}`,
+        });
+
+  /** AFS-207: ": ask Nora Brandt (who set up this action) or …<to>." for a refusal. */
+  const askWords = async (action: Action, viewer: string, to = '') => {
+    const ask = await whomToAsk(deps, action, viewer);
+    return ask.length ? `: ask ${ask.join(' or ')}${to}.` : '.';
+  };
 
   /** The action, its place and its configuration, when this person may run it now. */
   const runnable = async (request: FastifyRequest, reply: FastifyReply, id: string) => {
@@ -201,12 +251,26 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
     const access = await accessOf(db, request);
     const [action, place] = await Promise.all([getAction(db, id), placeOf(db, id)]);
     const scope = user.token?.workspace;
-    if (!access || !action?.enabled || !place || (scope && scope !== place.workspace)) {
+    if (!access || !action || !place || (scope && scope !== place.workspace)) {
       reply.code(404).send(NO_ACTION);
       return undefined;
     }
-    if (!mayRun(access, place, await grantedActions(db, user.id))) {
-      refuse(reply, access, place);
+    const may = mayRun(access, place, await grantedActions(db, user.id));
+    if (!action.enabled) {
+      // AFS-207: who may run it is told it is off for now; nobody else learns it is there.
+      reply.code(404).send(
+        may
+          ? {
+              error: 'not_found',
+              off: true,
+              message: `"${action.title}" is switched off for now: nobody can run it until it is turned on again${await askWords(action, user.login, ' when it will be')}`,
+            }
+          : NO_ACTION,
+      );
+      return undefined;
+    }
+    if (!may) {
+      await refuse(reply, access, place, action, user.login);
       return undefined;
     }
     const config = await configs.get(id);
@@ -266,7 +330,7 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
   type Got = NonNullable<Awaited<ReturnType<typeof runnable>>>;
 
   /** An action's form, the launch form's fields under it, and the commit it reads. */
-  const formFor = async ({ action, place, config, access }: Got) => {
+  const formFor = async ({ action, place, config, access, user }: Got) => {
     const prepared = await prepareLaunch(deps, { ...config, mode: action.mode }, {}, false);
     const launchForm = prepared.form;
     const fields = launchForm ? actionFields(action, launchForm.fields) : [];
@@ -312,7 +376,7 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       confirm: action.confirm,
       fields,
       happens,
-      ask: await whomToAsk(deps, action),
+      ask: await whomToAsk(deps, action, user.login),
       // Only what the runner cannot fix: an empty asked input is the form's to fill.
       ...(!launchForm || blocking
         ? {
@@ -331,22 +395,16 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
   };
 
   /**
-   * AFS-176: the hosts of each group the action narrows a host list to, read from the inventory
-   * at a commit. A group the inventory does not have: no hosts (nothing can be picked).
+   * AFS-207: the inventory a host list's value is checked against, read at a commit (AFS-176:
+   * a group narrows to its hosts). Undefined when it cannot be read.
    */
-  const groupsOf = async (
+  const inventoryOf = async (
     config: LaunchConfig,
     commit: string | undefined,
-    fields: readonly ActionField[],
-  ): Promise<Map<string, string[]> | undefined> => {
-    const wanted = [...new Set(fields.flatMap((f) => (f.group ? [f.group] : [])))];
-    if (!wanted.length) return new Map();
+  ): Promise<InventoryNames | undefined> => {
     if (!commit || !deps.vars) return undefined;
     try {
-      const index = await deps.vars.index(config.project, commit, {
-        inventory: config.inventory ?? '',
-      });
-      return new Map(wanted.map((g) => [g, groupHosts(index.groups, g) ?? []]));
+      return await deps.vars.index(config.project, commit, { inventory: config.inventory ?? '' });
     } catch {
       return undefined;
     }
@@ -356,7 +414,7 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
   const problemsOf = (
     fields: readonly ActionField[],
     values: Record<string, string>,
-    groups: Map<string, string[]> | undefined,
+    inventory: InventoryNames | undefined,
   ) => {
     const problems: { field: string; message: string }[] = [];
     for (const f of fields) {
@@ -372,13 +430,31 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
         problems.push({ field: f.name, message: `${f.label}: ${read.error}` });
         continue;
       }
-      if (f.group) {
-        const hosts = groups?.get(f.group);
-        const outside = hosts ? outsideGroup(f, value, hosts) : undefined;
-        if (outside) problems.push(outside);
-      }
+      if (f.type !== 'host_list' || !inventory) continue;
+      // A group the inventory does not have offers no hosts: every name is outside it.
+      const outside = f.group
+        ? outsideGroup(f, value, groupHosts(inventory.groups, f.group) ?? [])
+        : undefined;
+      const wrong = outside ?? hostProblem(f, value, inventory);
+      if (wrong) problems.push(wrong);
     }
     return problems;
+  };
+
+  /** AFS-207: how many hosts each host list's value names, when the inventory says. */
+  const countsOf = (
+    fields: readonly ActionField[],
+    values: Record<string, string>,
+    inventory: InventoryNames | undefined,
+  ): Record<string, number> | undefined => {
+    if (!inventory || inventory.dynamic) return undefined;
+    const counts: Record<string, number> = {};
+    for (const f of fields)
+      if (f.type === 'host_list' && values[f.name]?.trim()) {
+        const got = hostsOf(values[f.name] as string, inventory);
+        if (!got.patterns.length) counts[f.name] = got.hosts.length + got.unknown.length;
+      }
+    return counts;
   };
 
   app.get<WithId>('/api/v1/actions/:id', { schema: ID }, async (request, reply) => {
@@ -408,12 +484,15 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       }
       const unknown = Object.keys(given).find((n) => !fields.some((f) => f.name === n));
       if (unknown)
-        refused ??= `This link gives a value for ${unknown.slice(0, 60)}, which "${form.title}" does not ask: it runs with its own value. Ask whoever made the link to fix it.`;
+        refused ??= `This link gives a value for ${unknown.slice(0, 60)}, which "${form.title}" does not ask for. Ask whoever made the link to fix it.`;
       const values = Object.fromEntries(
         fields.map((f) => [f.name, (given[f.name] ?? f.text).trim()]),
       );
-      const groups = await groupsOf(got.config, commit, fields);
-      const problems = refused ? [] : problemsOf(fields, values, groups);
+      const inventory = fields.some((f) => f.type === 'host_list')
+        ? await inventoryOf(got.config, commit)
+        : undefined;
+      const problems = refused ? [] : problemsOf(fields, values, inventory);
+      const counts = countsOf(fields, values, inventory);
       const missing = fields.filter((f) => f.required && !values[f.name]).map((f) => f.name);
       let replyTo: string | undefined;
       let replyNote: string | undefined;
@@ -433,6 +512,7 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
         ...(refused ? { refused } : {}),
         ...(replyTo ? { reply: replyTo } : {}),
         ...(replyNote ? { replyNote } : {}),
+        ...(counts && Object.keys(counts).length ? { counts } : {}),
       };
       return link;
     },
@@ -457,9 +537,19 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       const narrowed = [
         ...new Set(action.asked.flatMap((a) => (a.group && !a.choices?.length ? [a.group] : []))),
       ];
+      // AFS-207: when every host list it asks is narrowed, the rest of the inventory is not its
+      // runners' to read.
+      const picked = action.asked.filter((a) =>
+        prepared.form?.fields.some(
+          (f) => f.name === a.name && f.type === 'host_list' && !a.choices?.length,
+        ),
+      );
+      const allNarrowed = picked.length > 0 && picked.every((a) => a.group);
+      const sizes = groupSizes(index.groups);
       return {
-        hosts: index.hosts,
-        groups,
+        hosts: allNarrowed ? [] : index.hosts,
+        groups: allNarrowed ? [] : groups,
+        sizes: allNarrowed ? Object.fromEntries(narrowed.map((g) => [g, sizes[g] ?? 0])) : sizes,
         ...(narrowed.length
           ? {
               inGroup: Object.fromEntries(
@@ -539,7 +629,63 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       return true;
     };
 
-    type RunBody = { inputs?: Record<string, string>; reply?: string; link?: boolean };
+    type RunBody = {
+      inputs?: Record<string, string>;
+      reply?: string;
+      link?: boolean;
+      again?: boolean;
+    };
+
+    /** JSON with its keys sorted: two inputs that say the same compare the same. */
+    const canonical = (value: unknown): string =>
+      JSON.stringify(value, (_, v: unknown) =>
+        v && typeof v === 'object' && !Array.isArray(v)
+          ? Object.fromEntries(
+              Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)),
+            )
+          : v,
+      );
+
+    /**
+     * AFS-207: the run this person started of this action with the same values a moment ago: a
+     * page opened again (browser Back to a link that runs as it opens, a second press) must not
+     * repeat a change on the devices. The same values for another object to tell (a second Zabbix
+     * problem) are another run.
+     */
+    const twinOf = async (
+      by: string,
+      config: string,
+      shown: Record<string, unknown>,
+      replyTo: string | undefined,
+    ) => {
+      const since = new Date(Date.now() - TWIN_MS).toISOString();
+      const rows = await db
+        .selectFrom('run')
+        .leftJoin('action_reply', 'action_reply.run_id', 'run.id')
+        .select([
+          'run.id',
+          'run.number',
+          'run.created_at',
+          'run.inputs_shown_json',
+          'action_reply.object',
+        ])
+        .where('run.requested_by', '=', by)
+        .where('run.config_id', '=', config)
+        .where('run.action_title', 'is not', null)
+        .where('run.created_at', '>=', since)
+        .orderBy('run.created_at', 'desc')
+        .limit(20)
+        .execute();
+      const same = canonical(shown);
+      return rows.find((r) => {
+        if ((r.object ?? undefined) !== replyTo) return false;
+        try {
+          return canonical(JSON.parse(r.inputs_shown_json)) === same;
+        } catch {
+          return false;
+        }
+      });
+    };
     app.post<WithId & { Body: RunBody }>(
       '/api/v1/actions/:id/run',
       {
@@ -557,6 +703,8 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
               // AFS-176: where the result goes back (a link's _reply), and that it came by a link.
               reply: text(200, 1),
               link: { type: 'boolean' },
+              // AFS-207: run again although the same values ran a moment ago.
+              again: { type: 'boolean' },
             },
           },
         },
@@ -591,18 +739,20 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
               message: `${label(name)} is needed`,
             })),
           });
-        // AFS-176: a host list narrowed to a group takes only that group's hosts.
-        if (fields.some((f) => f.group)) {
-          const groups = await groupsOf(config, at.form.commit, fields);
-          if (!groups)
+        // AFS-176: a host list narrowed to a group takes only that group's hosts. AFS-207: and
+        // only names of the inventory, as many hosts as the action takes.
+        if (fields.some((f) => f.type === 'host_list')) {
+          const inventory = await inventoryOf(config, at.form.commit);
+          if (!inventory && fields.some((f) => f.group || f.max))
             return reply.code(422).send({
               error: 'not_ready',
               message: 'The inventory cannot be read now: try again in a moment',
             });
-          const outside = problemsOf(fields, filled.texts, groups).find((p) =>
-            fields.some((f) => f.name === p.field && f.group),
+          const wrong = problemsOf(fields, filled.texts, inventory).filter((p) =>
+            fields.some((f) => f.name === p.field && f.type === 'host_list'),
           );
-          if (outside) return reply.code(400).send({ error: 'invalid', ...outside });
+          if (wrong[0])
+            return reply.code(400).send({ error: 'invalid', ...wrong[0], problems: wrong });
         }
         const system = action.reply?.system;
         const replyTo = request.body?.reply?.trim();
@@ -629,6 +779,22 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
             })),
           });
         const shown = withoutSecrets(prepared.launch, prepared.form.fields).inputs;
+        // AFS-207: a system with a signed link keeps its own count of what it started.
+        const twin =
+          signed || request.body?.again
+            ? undefined
+            : await twinOf(user.id, config.id, shown, replyTo && system ? replyTo : undefined);
+        if (twin) {
+          const seconds = Math.max(
+            1,
+            Math.round((Date.now() - Date.parse(twin.created_at)) / 1000),
+          );
+          return reply.code(409).send({
+            error: 'duplicate',
+            message: `You started "${action.title}" with the same values ${seconds} s ago (run #${twin.number})`,
+            run: { id: twin.id, number: twin.number, progress: `/actions/runs/${twin.id}` },
+          });
+        }
         const run = await queue.enqueue(
           { ...prepared.launch, action: action.title },
           shown,
@@ -685,9 +851,10 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       const action = await getAction(db, run.config.id);
       const runs = !!action && mayRun(access, place, await grantedActions(db, user.id));
       // AFS-176 (AFS-175's note): who may only run the action follows the runs they started;
-      // who sees the flow's runs (ro or more) follows them all.
+      // who sees the flow's runs (ro or more) follows them all. AFS-207: one's own runs stay
+      // one's own record after the grant is taken back, or the action or configuration is gone.
       const mine = run.requestedBy.id === user.id;
-      if ((scope && scope !== project.workspace) || (!seesRun && !(runs && mine))) {
+      if ((scope && scope !== project.workspace) || (!seesRun && !mine)) {
         reply.code(404).send(NO_RUN);
         return undefined;
       }
@@ -730,9 +897,10 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
         deciders,
         ...(action ? { action } : {}),
         startedBy: by?.name || by?.login || run.requestedBy.login,
-        ask: await whomToAsk(deps, action),
+        ask: await whomToAsk(deps, action, got.user.login),
         ...(got.seesRun ? { runPage: `/runs/${run.id}` } : {}),
-        ...(got.runs && action?.enabled ? { again: `/actions/${action.id}` } : {}),
+        // AFS-207: again with the same values (the form starts with them; nothing runs by itself).
+        ...(got.runs && action?.enabled ? { again: againAddress(action, run) } : {}),
       });
     };
 
@@ -852,6 +1020,22 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
           'asked',
         );
       const settings = checkSettings(request.body, prepared.form.fields);
+      // AFS-207: a group the inventory does not have would offer its runners nothing to pick.
+      const groups = [...new Set(settings.asked.flatMap((a) => (a.group ? [a.group] : [])))];
+      if (groups.length) {
+        const inventory = await inventoryOf(config, prepared.form.commit);
+        const missing = inventory && !inventory.dynamic && groups.find((g) => !inventory.groups[g]);
+        if (missing)
+          throw new ActionError(
+            'invalid',
+            `The inventory has no group ${missing.slice(0, 60)}${
+              inventory && Object.keys(groupSizes(inventory.groups)).length
+                ? `: its groups are ${Object.keys(groupSizes(inventory.groups)).slice(0, 8).join(', ')}`
+                : ''
+            }`,
+            'asked',
+          );
+      }
       // AFS-176: the result goes back with a credential of this workspace, of the system's kind.
       if (settings.reply) {
         const place = await placeOf(db, config.id);
@@ -875,7 +1059,8 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
         title: action.title,
         asked: action.asked.map((a) => a.name),
         mode: action.mode,
-        ...(before ? {} : { made: true }),
+        // AFS-207: the fields it really changed, not every field the form sent.
+        ...(before ? { changed: changedKeys(request.body, before, action) } : { made: true }),
       };
       return action;
     }),
@@ -1031,6 +1216,19 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       return workspaceActionGrants(db, workspace.id);
     },
   );
+
+  // AFS-207: a group's page says the actions it lets its members run.
+  app.get<WithId>('/api/v1/groups/:id/action-grants', { schema: ID }, async (request, reply) => {
+    if (!administrator(request, reply)) return reply;
+    const group = await db
+      .selectFrom('user_group')
+      .select('id')
+      .where('id', '=', request.params.id)
+      .executeTakeFirst();
+    return group
+      ? groupActionGrants(db, group.id)
+      : reply.code(404).send({ error: 'not_found', message: 'No such group' });
+  });
 
   app.get<WithId>('/api/v1/workspaces/:id/actions', { schema: ID }, async (request, reply) => {
     if (!signedIn(request, reply)) return reply;

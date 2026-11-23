@@ -157,6 +157,8 @@ export class ApiError extends Error {
       files?: string[];
       /** AFS-164: the errors of a flow that cannot run, with the step each is on. */
       errors?: FlowError[];
+      /** AFS-207: the run a refused action run would repeat (the same values a moment ago). */
+      run?: { id: string; number: number; progress: string };
     } = {},
   ) {
     super(message);
@@ -218,6 +220,7 @@ async function call<T>(
       ...(Array.isArray(data?.conflicts) ? { conflicts: data.conflicts } : {}),
       ...(Array.isArray(data?.files) ? { files: data.files } : {}),
       ...(Array.isArray(data?.errors) ? { errors: data.errors } : {}),
+      ...(typeof data?.run?.id === 'string' ? { run: data.run } : {}),
     },
   );
 }
@@ -747,11 +750,17 @@ export const api = {
     id: string,
     inputs: Record<string, string>,
     from?: { link: true; reply?: string | undefined },
+    /** AFS-207: run although the same values ran a moment ago. */
+    again?: boolean,
   ) =>
     call<{ id: string; number: number; state: string; progress: string }>(
       'POST',
       `/actions/${encodeURIComponent(id)}/run`,
-      { inputs, ...(from ? { link: true, ...(from.reply ? { reply: from.reply } : {}) } : {}) },
+      {
+        inputs,
+        ...(from ? { link: true, ...(from.reply ? { reply: from.reply } : {}) } : {}),
+        ...(again ? { again: true } : {}),
+      },
     ),
   /** AFS-176: what a link to an action gives (its query as the link has it). Nothing runs. */
   actionLink: (id: string, query: string) =>
@@ -838,6 +847,9 @@ export const api = {
   /** The grants that name a group, in every workspace (administrators). */
   groupGrants: (id: string) =>
     call<GroupGrant[]>('GET', `/groups/${encodeURIComponent(id)}/grants`),
+  /** AFS-207: the actions a group lets its members run. */
+  groupActionGrants: (id: string) =>
+    call<WorkspaceActionGrant[]>('GET', `/groups/${encodeURIComponent(id)}/action-grants`),
   users: () => call<User[]>('GET', '/users'),
   groups: () => call<Group[]>('GET', '/groups'),
 

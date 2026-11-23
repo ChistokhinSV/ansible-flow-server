@@ -2,6 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import { Access, accessOf } from '../access/grants';
+import { grantedActions } from '../actions/store';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { ProjectFlows } from '../projects/flows';
@@ -27,7 +28,14 @@ export function registerSearch(app: FastifyInstance, deps: { db: Kysely<Schema>;
       const access = (await accessOf(deps.db, request)) ?? (await Access.of(deps.db, me));
       // A token made for one workspace searches only there: it reaches nothing else.
       const scoped = me.token?.workspace;
-      return search({ db: deps.db, flows }, access, me.admin && !scoped, request.query.q, scoped);
+      return search(
+        { db: deps.db, flows },
+        access,
+        me.admin && !scoped,
+        request.query.q,
+        scoped,
+        await grantedActions(deps.db, me.id),
+      );
     },
   );
 }

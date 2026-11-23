@@ -29,10 +29,31 @@ const names = (text: string) =>
     .split(',')
     .map((n) => n.trim())
     .filter(Boolean);
-const toggle = (text: string, name: string) => {
+/** A chip pressed: in or out of the list; AFS-207: for a list of one host, it takes the place. */
+export const toggle = (text: string, name: string, one = false) => {
   const have = names(text);
-  return (have.includes(name) ? have.filter((n) => n !== name) : [...have, name]).join(', ');
+  if (have.includes(name)) return have.filter((n) => n !== name).join(', ');
+  return one ? name : [...have, name].join(', ');
 };
+
+/** AFS-207: what a host list takes, in words: "one host", "up to 3 hosts". */
+const takesWords = (max: number) => (max === 1 ? 'one host' : `up to ${max} hosts`);
+
+/** AFS-207: a host list's value with how many hosts it names, when it is more than its names. */
+export function valueWords(field: ActionField, value: string, count?: number): string {
+  if (!value) return '(none)';
+  if (field.type !== 'host_list' || count === undefined || count === names(value).length)
+    return value;
+  return `${value} (${count === 1 ? 'one host' : `${count} hosts`})`;
+}
+
+/** AFS-207: how many hosts a host list's value names, from the group sizes the form read. */
+function countOf(value: string, hosts: ActionHosts | undefined): number | undefined {
+  if (!hosts?.sizes || hosts.dynamic) return undefined;
+  let n = 0;
+  for (const name of names(value)) n += hosts.sizes[name] ?? 1;
+  return n;
+}
 
 /** The actions this person may run (empty for who has none). */
 export const useActions = () => useLoad(() => api.actions().catch(() => [] as ActionCard[]), []);
@@ -70,15 +91,33 @@ export function ActionsPage(_: { home?: boolean }) {
                   ) : (
                     'You have not run it yet'
                   )}
+                  {/* AFS-207: the one to flag is the one that changes things. */}
                   {a.mode === 'check' ? ' · a check, changes nothing' : ''}
                 </span>
+                {a.mode === 'real' && (
+                  <span className="real-mark">For real: it changes the machines it runs on</span>
+                )}
               </Link>
+              {/* AFS-207: one's last run opens from its card. */}
+              {a.lastRun && (
+                <Link to={progressAddress(a.lastRun.id)} className="card-run small">
+                  Your last run (#{a.lastRun.number})
+                </Link>
+              )}
             </li>
           ))}
         </ul>
       )}
     </>
   );
+}
+
+/** AFS-207: the hosts a host list offers to pick: groups with their size, then hosts. */
+interface Picks {
+  names: string[];
+  /** Hosts per group: a name with a size is a group. */
+  sizes?: Record<string, number>;
+  why?: string;
 }
 
 function ActionInput({
@@ -92,7 +131,7 @@ function ActionInput({
   value: string;
   onChange(value: string): void;
   problem?: string;
-  hosts?: { names: string[]; why?: string } | 'reading';
+  hosts?: Picks | 'reading';
 }) {
   const label = (
     <>
@@ -101,34 +140,45 @@ function ActionInput({
     </>
   );
   const many = field.type === 'host_list';
+  const one = field.max === 1;
   const picks = field.choices ?? (hosts && hosts !== 'reading' ? hosts.names : []);
+  const sizes = hosts && hosts !== 'reading' ? hosts.sizes : undefined;
+  // AFS-207: how many it takes, said with the help line.
+  const hint = [field.help, field.max ? `It takes ${takesWords(field.max)}.` : undefined]
+    .filter(Boolean)
+    .join(' ');
+  /** A chip: a group says it is one, and how many hosts it has. */
+  const chip = (n: string, extra?: { name: string }) => {
+    const on = names(value).includes(n);
+    const size = sizes?.[n];
+    return (
+      <button
+        key={n}
+        type="button"
+        {...extra}
+        className={`chip${on ? ' on' : ''}${size !== undefined ? ' group' : ''}`}
+        aria-pressed={on}
+        {...(size !== undefined
+          ? { 'aria-label': `${n}: group of ${size === 1 ? 'one host' : `${size} hosts`}` }
+          : {})}
+        onClick={() => onChange(toggle(value, n, one))}
+      >
+        {n}
+        {size !== undefined && <span className="chip-size"> · group of {size}</span>}
+      </button>
+    );
+  };
   if (many && field.choices?.length)
     return (
       <fieldset className={`field pick${problem ? ' invalid' : ''}`} aria-describedby={undefined}>
         <legend>{label}</legend>
-        <div className="name-chips">
-          {field.choices.map((c) => {
-            const on = names(value).includes(c);
-            return (
-              <button
-                key={c}
-                type="button"
-                name={field.name}
-                className={`chip${on ? ' on' : ''}`}
-                aria-pressed={on}
-                onClick={() => onChange(toggle(value, c))}
-              >
-                {c}
-              </button>
-            );
-          })}
-        </div>
-        {field.help && <small className="muted">{field.help}</small>}
+        <div className="name-chips">{field.choices.map((c) => chip(c, { name: field.name }))}</div>
+        {hint && <small className="muted">{hint}</small>}
         {problem && <small className="bad-text">{problem}</small>}
       </fieldset>
     );
   return (
-    <Labelled label={label} hint={field.help} problem={problem}>
+    <Labelled label={label} hint={hint || undefined} problem={problem}>
       {(props) =>
         field.choices?.length ? (
           <select
@@ -172,24 +222,13 @@ function ActionInput({
                   <small className="muted">Reading the names you can pick…</small>
                 ) : picks.length ? (
                   <fieldset className="name-chips" aria-label={`Pick for ${field.label}`}>
-                    <small className="muted">Pick:</small>
-                    {picks.map((n) => {
-                      const on = names(value).includes(n);
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          className={`chip${on ? ' on' : ''}`}
-                          aria-pressed={on}
-                          onClick={() => onChange(toggle(value, n))}
-                        >
-                          {n}
-                        </button>
-                      );
-                    })}
+                    <small className="muted">{one ? 'Pick one:' : 'Pick:'}</small>
+                    {picks.map((n) => chip(n))}
                   </fieldset>
                 ) : hosts?.why ? (
-                  <small className="muted">{hosts.why}. Separate names with commas.</small>
+                  <small className="muted">
+                    {hosts.why}. {one ? 'Type one name.' : 'Separate names with commas.'}
+                  </small>
                 ) : null}
               </div>
             )}
@@ -200,13 +239,50 @@ function ActionInput({
   );
 }
 
+/**
+ * AFS-207: an action that cannot be opened, said with a title, why, and the way back: a bare
+ * "No such action" left someone from a NetBox link stuck.
+ */
+export function ActionRefused({ message }: { message: string }) {
+  const bare = /^No such action\.?$/.test(message);
+  return (
+    <>
+      <PageHead title="This action cannot be run" help="actions.md" />
+      <section className="panel action-form" aria-label="Why">
+        <p className="notice warn" role="alert">
+          {bare
+            ? 'There is no such action for you: it was removed, or it is not yours to run. Whoever sent you here, or an administrator, can tell you which.'
+            : message}
+        </p>
+        <div className="actions">
+          <Link to="/actions" className="button">
+            Back to actions
+          </Link>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/** AFS-207: the values a page's address gives an action's form ("Run it again"), by name. */
+function valuesOfAddress(form: ActionFormData): Record<string, string> {
+  const query = new URLSearchParams(window.location.search);
+  return Object.fromEntries(
+    form.fields.flatMap((f) => {
+      const v = query.get(f.name);
+      return v === null ? [] : [[f.name, v]];
+    }),
+  );
+}
+
 export function ActionPage({ id }: { id: string }) {
   const form = useLoad(() => api.action(id), [id]);
+  if (form.error) return <ActionRefused message={form.error} />;
   if (!form.data) return <Loading state={form} />;
   return (
     <>
       <PageHead title={form.data.title} lead={form.data.summary} help="actions.md" />
-      <ActionFormView key={id} id={id} form={form.data} />
+      <ActionFormView key={id} id={id} form={form.data} start={valuesOfAddress(form.data)} />
     </>
   );
 }
@@ -215,7 +291,7 @@ export function ActionPage({ id }: { id: string }) {
 function picksFor(
   field: ActionField,
   hosts: { loading?: boolean; data?: ActionHosts | undefined },
-): { names: string[]; why?: string } | 'reading' {
+): Picks | 'reading' {
   if (hosts.loading) return 'reading';
   const data = hosts.data;
   if (!data) return { names: [], why: 'The names cannot be read now' };
@@ -227,8 +303,29 @@ function picksFor(
   }
   return {
     names: [...data.groups, ...data.hosts],
+    ...(data.sizes ? { sizes: data.sizes } : {}),
     ...(data.why ? { why: data.why } : {}),
   };
+}
+
+/**
+ * AFS-207: starts an action's run; when the same values ran a moment ago, asks whether to run
+ * again or open that run. Resolves with the progress page to open; throws the other refusals.
+ */
+export async function startAction(
+  id: string,
+  values: Record<string, string>,
+  from?: { link: true; reply?: string | undefined },
+): Promise<string> {
+  try {
+    return progressAddress((await api.runAction(id, values, from)).id);
+  } catch (e) {
+    const twin = e instanceof ApiError && e.code === 'duplicate' ? e.details.run : undefined;
+    if (!twin) throw e;
+    if (!(await ask(`${messageOf(e)}. Run it again?`, { yes: 'Run again', no: 'Open that run' })))
+      return progressAddress(twin.id);
+    return progressAddress((await api.runAction(id, values, from, true)).id);
+  }
 }
 
 /**
@@ -277,20 +374,49 @@ export function ActionFormView({
       return;
     }
     setProblems({});
-    if (f.confirm) {
-      const chosen = f.fields.map((x) => `${x.label}: ${values[x.name] || '(none)'}`).join('; ');
-      if (
-        !(await ask(`Run "${f.title}" now?${chosen ? ` ${chosen}.` : ''}`, {
-          yes: 'Run',
-          no: 'Not now',
-        }))
-      )
-        return;
-    }
     setBusy(true);
     try {
-      const done = await api.runAction(id, values, from);
-      navigate(progressAddress(done.id));
+      // AFS-207: the values are checked as the run would check them, before the confirm: a host
+      // outside the group or the inventory, more hosts than it takes. And how many hosts a
+      // group is, for the question.
+      let counts: Record<string, number> | undefined;
+      if (f.fields.some((x) => x.type === 'host_list')) {
+        const query = new URLSearchParams(
+          Object.entries(values).filter(([, v]) => v.trim()) as [string, string][],
+        ).toString();
+        const checked = await api.actionLink(id, query).catch(() => undefined);
+        const wrong = Object.fromEntries(
+          (checked?.problems ?? []).map((p) => [p.field, p.message]),
+        );
+        if (Object.keys(wrong).length) {
+          setProblems(wrong);
+          return;
+        }
+        counts =
+          checked?.counts ??
+          Object.fromEntries(
+            f.fields.flatMap((x) => {
+              const n =
+                x.type === 'host_list' ? countOf(values[x.name] ?? '', hosts.data) : undefined;
+              return n === undefined ? [] : [[x.name, n]];
+            }),
+          );
+      }
+      if (f.confirm) {
+        const chosen = f.fields
+          .map((x) => `${x.label}: ${valueWords(x, values[x.name] ?? '', counts?.[x.name])}`)
+          .join('; ');
+        // AFS-207: the question repeats whether it changes things.
+        const how = f.mode === 'real' ? 'for real' : 'as a check';
+        if (
+          !(await ask(`Run "${f.title}" ${how} now?${chosen ? ` ${chosen}.` : ''}`, {
+            yes: f.mode === 'real' ? 'Run for real' : 'Run the check',
+            no: 'Not now',
+          }))
+        )
+          return;
+      }
+      navigate(await startAction(id, values, from));
     } catch (e) {
       const field = e instanceof ApiError ? e.details.field : undefined;
       const each = e instanceof ApiError ? (e.details.problems ?? []) : [];
@@ -310,7 +436,7 @@ export function ActionFormView({
     <section className="panel action-form" aria-label="Run this action">
       {f.blocked ? (
         <p className="notice warn" role="status">
-          {f.blocked}. Ask {f.ask.join(' or ')}.
+          {f.blocked}.{f.ask.length ? ` Ask ${f.ask.join(' or ')}.` : ''}
         </p>
       ) : (
         <form className="form" noValidate onSubmit={run}>
@@ -364,7 +490,7 @@ export function ActionFormView({
         </form>
       )}
       <p className="muted small">
-        Questions about it: ask {f.ask.join(' or ')}.
+        {f.ask.length ? `Questions about it: ask ${f.ask.join(' or ')}.` : ''}
         {f.configPage && (
           <>
             {' '}
@@ -381,7 +507,8 @@ const STEP_MARK: Record<ActionProgress['steps'][number]['state'], string> = {
   running: 'Running',
   waiting: 'Waiting',
   failed: 'Failed',
-  'not run': 'Not run',
+  // AFS-207: a step the run did not get to.
+  'not run': 'Not reached',
   'to do': 'To do',
 };
 
@@ -421,6 +548,14 @@ export function ActionRunPage({ run }: { run: string }) {
         {new URLSearchParams(window.location.search).get('started') === 'link' && (
           <p className="notice ok">
             The link started {p.action.title} (run #{p.run.number}) as it opened, with the values
+            below.
+          </p>
+        )}
+        {/* AFS-207: the link opened again a moment later (Back, a second tab) started nothing. */}
+        {new URLSearchParams(window.location.search).get('started') === 'twin' && (
+          <p className="notice info">
+            The link was opened again with the same values: it did not start another run. This is
+            run #{p.run.number}, which it started a moment ago. To run it again, use Run it again
             below.
           </p>
         )}
@@ -464,7 +599,7 @@ export function ActionRunPage({ run }: { run: string }) {
         {p.failed && (
           <div className="notice error" role="alert">
             <p>{p.failed}.</p>
-            <p>Ask {p.ask.join(' or ')} what to do next.</p>
+            {p.ask.length > 0 && <p>Ask {p.ask.join(' or ')} what to do next.</p>}
           </div>
         )}
         {p.inputs.length > 0 && (
@@ -489,7 +624,9 @@ export function ActionRunPage({ run }: { run: string }) {
           <Link to="/actions">All actions</Link>
           {p.runPage && <Link to={p.runPage}>The full run page</Link>}
         </div>
-        {!p.failed && <p className="muted small">Questions about it: ask {p.ask.join(' or ')}.</p>}
+        {!p.failed && p.ask.length > 0 && (
+          <p className="muted small">Questions about it: ask {p.ask.join(' or ')}.</p>
+        )}
       </section>
     </>
   );
@@ -511,6 +648,10 @@ interface AskedRow {
   choices: string;
   /** AFS-176: a host list's inventory group. */
   group: string;
+  /** AFS-207: a host list's start value (empty: the runner picks). */
+  start: string;
+  /** AFS-207: how many hosts it takes: '' any, '1' one, else up to that many. */
+  max: string;
 }
 
 const NEW: ActionSettings = {
@@ -543,6 +684,11 @@ export function ConfigActionSection({
   const id = useId();
   const state = useLoad(() => api.configAction(config), [config]);
   const action = state.data?.action ?? undefined;
+  // AFS-207: the inventory's groups, for "Only hosts of group" (once it is an action).
+  const inventory = useLoad(
+    async () => (action?.id ? api.actionHosts(action.id).catch(() => undefined) : undefined),
+    [action?.id],
+  );
   const manage = !!state.data?.mayManage;
   const [editing, setEditing] = useState(false);
   const [settings, setSettings] = useState<ActionSettings>(NEW);
@@ -580,6 +726,8 @@ export function ConfigActionSection({
                 help: asked?.help ?? i.description ?? '',
                 choices: asked?.choices?.join(', ') ?? '',
                 group: asked?.group ?? '',
+                start: asked?.start ?? '',
+                max: asked?.max ? String(asked.max) : '',
               },
             ];
           }),
@@ -592,9 +740,17 @@ export function ConfigActionSection({
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
-    setBusy(true);
     setError(undefined);
+    // AFS-207: said here, in words, not as the server's "not the right kind of value".
+    if (settings.reply && !settings.reply.credential) {
+      setError(
+        `Choose a ${SYSTEM_WORDS[settings.reply.system]} token credential under Result back, or Tell nobody.`,
+      );
+      return;
+    }
+    setBusy(true);
     try {
+      const hostList = (n: string) => inputs.find((i) => i.name === n)?.type === 'host_list';
       const asked = Object.entries(rows)
         .filter(([, r]) => r.on)
         .map(([n, r]) => ({
@@ -603,6 +759,8 @@ export function ConfigActionSection({
           ...(r.help.trim() ? { help: r.help.trim() } : {}),
           ...(names(r.choices).length ? { choices: names(r.choices) } : {}),
           ...(r.group.trim() && !names(r.choices).length ? { group: r.group.trim() } : {}),
+          ...(hostList(n) && r.start.trim() ? { start: names(r.start).join(', ') } : {}),
+          ...(hostList(n) && Number(r.max) > 0 ? { max: Number(r.max) } : {}),
         }));
       await api.setConfigAction(config, { ...settings, asked });
       setSaved(action ? 'The action is changed.' : 'It is an action now.');
@@ -668,14 +826,17 @@ export function ConfigActionSection({
               {action.runOnOpen ? '; a link with every value runs as it opens' : ''}
             </dd>
           </div>
-          {action.asked.some((a) => a.group) && (
+          {action.asked.some((a) => a.group || a.max || a.start) && (
             <div>
-              <dt>Hosts from</dt>
+              <dt>Hosts</dt>
               <dd>
                 {action.asked
-                  .filter((a) => a.group)
-                  .map((a) => `${a.label}: group ${a.group}`)
-                  .join(', ')}
+                  .filter((a) => a.group || a.max || a.start)
+                  .map(
+                    (a) =>
+                      `${a.label}: ${a.max ? takesWords(a.max) : 'any number of hosts'}${a.group ? ` of group ${a.group}` : ''}, ${a.start ? `starts with ${a.start}` : 'starts empty'}`,
+                  )
+                  .join('; ')}
               </dd>
             </div>
           )}
@@ -696,7 +857,8 @@ export function ConfigActionSection({
           <div>
             <dt>Its page</dt>
             <dd>
-              <a href={actionAddress(action.id)}>{actionAddress(action.id)}</a>
+              {/* AFS-207: a name, not the raw address. */}
+              <Link to={actionAddress(action.id)}>Open the form its runners see</Link>
             </dd>
           </div>
         </dl>
@@ -799,12 +961,73 @@ export function ConfigActionSection({
                             hint="An inventory group: the form offers only its hosts, and takes no others. Empty: any."
                           >
                             {(props) => (
+                              <>
+                                <input
+                                  {...props}
+                                  maxLength={200}
+                                  spellCheck={false}
+                                  list={`${id}-groups`}
+                                  value={r.group}
+                                  onChange={(e) => set({ group: e.target.value })}
+                                />
+                                {/* AFS-207: the inventory's groups, offered as one types. */}
+                                <datalist id={`${id}-groups`}>
+                                  {Object.entries(inventory.data?.sizes ?? {}).map(([g, n]) => (
+                                    <option key={g} value={g}>
+                                      {`${n} ${n === 1 ? 'host' : 'hosts'}`}
+                                    </option>
+                                  ))}
+                                </datalist>
+                              </>
+                            )}
+                          </Labelled>
+                        )}
+                        {i.type === 'host_list' && (
+                          <Labelled
+                            label="How many hosts"
+                            hint="A group counts by its hosts: with one host, a group of four is refused."
+                          >
+                            {(props) => (
+                              <select
+                                {...props}
+                                value={r.max === '' || r.max === '1' ? r.max : 'n'}
+                                onChange={(e) =>
+                                  set({ max: e.target.value === 'n' ? '5' : e.target.value })
+                                }
+                              >
+                                <option value="">any number</option>
+                                <option value="1">one host</option>
+                                <option value="n">up to a number</option>
+                              </select>
+                            )}
+                          </Labelled>
+                        )}
+                        {i.type === 'host_list' && r.max !== '' && r.max !== '1' && (
+                          <Labelled label="Up to">
+                            {(props) => (
                               <input
                                 {...props}
-                                maxLength={200}
+                                type="number"
+                                min={2}
+                                max={1000}
+                                value={r.max}
+                                onChange={(e) => set({ max: e.target.value })}
+                              />
+                            )}
+                          </Labelled>
+                        )}
+                        {i.type === 'host_list' && (
+                          <Labelled
+                            label="Starts with"
+                            hint="Empty (best): the runner picks. Never the configuration's value."
+                          >
+                            {(props) => (
+                              <input
+                                {...props}
+                                maxLength={2000}
                                 spellCheck={false}
-                                value={r.group}
-                                onChange={(e) => set({ group: e.target.value })}
+                                value={r.start}
+                                onChange={(e) => set({ start: e.target.value })}
                               />
                             )}
                           </Labelled>
@@ -904,6 +1127,7 @@ export function ConfigActionSection({
         <ActionLinks
           config={config}
           action={action}
+          types={Object.fromEntries(inputs.map((i) => [i.name, i.type]))}
           tokens={state.data.tokens ?? []}
           onChange={state.reload}
         />

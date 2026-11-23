@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGrant } from '../../src/server/access/grants';
-import { fillAction } from '../../src/server/actions/store';
+import { progressOf } from '../../src/server/actions/progress';
+import { fillAction, hostProblem, hostsOf } from '../../src/server/actions/store';
 import { buildApp } from '../../src/server/app';
 import { openGate } from '../../src/server/approvals/gates';
 import { createToken } from '../../src/server/auth/tokens';
@@ -70,6 +71,114 @@ describe('filling an action (the seam AFS-176 links use)', () => {
       field: 'devices',
       error: expect.stringContaining('not one of the choices'),
     });
+  });
+});
+
+describe('host lists of an action (AFS-207)', () => {
+  const inventory = {
+    hosts: ['sw-core-01', 'sw-edge-01', 'sw-edge-02', 'sw-edge-03', 'sw-edge-04'],
+    groups: {
+      edge: { parents: [], hosts: ['sw-edge-01', 'sw-edge-02'] },
+      edge_south: { parents: ['edge'], hosts: ['sw-edge-03', 'sw-edge-04'] },
+      core: { parents: [], hosts: ['sw-core-01'] },
+    },
+  };
+  const one = { name: 'devices', label: 'Switch', max: 1 };
+  it('a group counts by its hosts, its children too; a name the inventory lacks is said', () => {
+    expect(hostsOf('edge', inventory).hosts).toHaveLength(4);
+    expect(hostsOf('core, sw-core-01, localhost', inventory).hosts).toEqual([
+      'localhost',
+      'sw-core-01',
+    ]);
+    expect(hostProblem(one, 'sw-edge-02', inventory)).toBeUndefined();
+    expect(hostProblem(one, 'edge', inventory)?.message).toMatch(
+      /^Switch: edge is 4 hosts \(sw-edge-01, .*\): this action takes one host/,
+    );
+    expect(hostProblem({ ...one, max: 2 }, 'sw-edge-01, core', inventory)).toBeUndefined();
+    expect(hostProblem(one, 'sw-edge-*', inventory)?.message).toMatch(/not a pattern/);
+    expect(hostProblem({ name: 'devices', label: 'Switch' }, 'nosuchhost', inventory)).toEqual({
+      field: 'devices',
+      message: 'Switch: nosuchhost is not a host or group of the inventory',
+    });
+    // A dynamic inventory finds its hosts when it runs: an unknown name may be one.
+    expect(
+      hostProblem({ name: 'devices', label: 'Switch' }, 'nosuchhost', {
+        ...inventory,
+        dynamic: true,
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe('the progress of an action run in words (AFS-207)', () => {
+  const node = (id: string, type: string, title: string) => ({ id, key: id, type, title });
+  const doc = {
+    nodes: [
+      node('s', 'start', 'Start'),
+      node('a', 'task', 'Back up'),
+      node('b', 'task', 'Apply'),
+      node('rb', 'task', 'Rollback'),
+      node('e', 'end', 'End'),
+    ],
+    edges: [
+      { from: { node: 's', port: 'ok_hosts' }, to: { node: 'a', port: 'in' } },
+      { from: { node: 'a', port: 'ok' }, to: { node: 'b', port: 'in' } },
+      { from: { node: 'b', port: 'ok' }, to: { node: 'e', port: 'in' } },
+      { from: { node: 'b', port: 'failed' }, to: { node: 'rb', port: 'in' } },
+    ],
+  };
+  const of = (state: string, nodes: Record<string, Record<string, string[]>>) =>
+    progressOf({
+      run: {
+        id: 'r1',
+        number: 1,
+        state,
+        mode: 'real',
+        inputs: {},
+        createdAt: new Date().toISOString(),
+        flow: { name: 'Edge', file: 'edge.flow.yaml' },
+        config: { id: 'c1', name: 'Edge' },
+      } as never,
+      doc: doc as never,
+      view: {
+        rc: state === 'failed' ? 2 : 0,
+        summary: {
+          nodes,
+          outcome: {},
+          failures: [],
+          unreachable: [],
+          hosts: [],
+          stoppedEarly: false,
+          // Every play starts, with or without hosts.
+          timings: { a: { start: 1, end: 2 }, b: { start: 2, end: 3 }, rb: { start: 3, end: 4 } },
+        },
+      } as never,
+      gates: [],
+      deciders: [],
+      startedBy: 'Mia',
+      ask: [],
+    });
+  it('a run where no host ran has done nothing: no step done, the bar not full', () => {
+    const p = of('failed', { a: {}, b: {}, rb: {} });
+    expect(p.steps.map((s) => [s.title, s.state])).toEqual([
+      ['Back up', 'not run'],
+      ['Apply', 'not run'],
+    ]);
+    expect([p.done, p.total]).toEqual([0, 2]);
+  });
+  it('a rollback no host was sent to is not shown, nor counted', () => {
+    const p = of('succeeded', { a: { ok: ['sw1'] }, b: { ok: ['sw1'] }, rb: { ok: [] } });
+    expect(p.steps.map((s) => [s.title, s.state])).toEqual([
+      ['Back up', 'done'],
+      ['Apply', 'done'],
+    ]);
+    expect([p.done, p.total]).toEqual([2, 2]);
+    const failed = of('failed', {
+      a: { ok: ['sw1'] },
+      b: { failed: ['sw1'] },
+      rb: { ok: ['sw1'] },
+    });
+    expect(failed.steps.map((s) => s.title)).toContain('Rollback');
   });
 });
 
@@ -313,13 +422,28 @@ for (const [name, config] of databases) {
         /as a check.*Check the host answers/,
       );
       expect(form.body.configPage).toBeUndefined();
-      expect((await call('rita', 'GET', `/api/v1/actions/${edge}`)).status).toBe(403);
+      // AFS-207: a refusal says whom to ask.
+      const refused = await call('rita', 'GET', `/api/v1/actions/${edge}`);
+      expect(refused.status).toBe(403);
+      expect(refused.body.message).toMatch(/^You may not run "Restart the edge switch": ask wanda/);
       expect((await call('nobody', 'GET', `/api/v1/actions/${edge}`)).status).toBe(404);
       expect((await call('nobody', 'GET', '/api/v1/actions')).body).toEqual([]);
       // The group's grant, and operator on the flow.
       expect((await call('gail', 'GET', `/api/v1/actions/${edge}`)).status).toBe(200);
       expect((await call('otto', 'GET', `/api/v1/actions/${edge}`)).status).toBe(200);
       expect((await call('mia', 'GET', `/api/v1/actions/${other}`)).status).toBe(404);
+      // AFS-207: search finds the actions one may run, and only those.
+      const found = (q: string, who: Person) =>
+        call(who, 'GET', `/api/v1/search?q=${q}`).then((r) =>
+          (r.body as unknown as { kind: string; title: string; to: string }[]).filter(
+            (h) => h.kind === 'action',
+          ),
+        );
+      expect(await found('restart edge', 'mia')).toEqual([
+        expect.objectContaining({ title: 'Restart the edge switch', to: `/actions/${edge}` }),
+      ]);
+      expect(await found('restart edge', 'rita')).toEqual([]);
+      expect(await found('restart edge', 'nobody')).toEqual([]);
       const hosts = await call('mia', 'GET', `/api/v1/actions/${edge}/hosts`);
       expect(hosts.body).toMatchObject({
         hosts: ['sw-core-01', 'sw-edge-01', 'sw-edge-02'],
@@ -393,7 +517,8 @@ for (const [name, config] of databases) {
         action: { id: edge, title: SETTINGS.title },
         headline: expect.stringMatching(/^Waiting to start/),
         inputs: [{ label: 'Switch', value: 'sw-edge-02' }],
-        again: `/actions/${edge}`,
+        // AFS-207: again with the same values.
+        again: `/actions/${edge}?devices=sw-edge-02`,
       });
       expect(mine.body.runPage).toBeUndefined();
       expect((mine.body.steps as { title: string }[]).map((s) => s.title)).toEqual([
@@ -442,6 +567,111 @@ for (const [name, config] of databases) {
       expect(decide.status).toBe(404);
     });
 
+    it('AFS-207: a host list starts empty, takes one host of its group; the same press twice runs once', async () => {
+      const ONE = {
+        title: 'Baseline one edge switch',
+        summary: 'Puts the standard settings on one edge switch.',
+        asked: [{ name: 'devices', label: 'Switch', group: 'edgex', max: 1 }],
+        mode: 'real',
+        confirm: true,
+      };
+      const typo = await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, ONE);
+      expect(typo.status).toBe(400);
+      expect(typo.body.message).toMatch(/^The inventory has no group edgex: its groups are/);
+      expect(
+        (
+          await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, {
+            ...ONE,
+            asked: [{ name: 'devices', label: 'Switch', group: 'edge', max: 1 }],
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await call('dana', 'POST', `/api/v1/launch-configs/${other}/action/grants`, {
+            user: 'mia',
+          })
+        ).status,
+      ).toBe(201);
+      // The configuration's value (sw-edge-01) is not where the form starts.
+      const form = await call('mia', 'GET', `/api/v1/actions/${other}`);
+      expect(form.body.fields).toEqual([
+        expect.objectContaining({
+          name: 'devices',
+          text: '',
+          max: 1,
+          group: 'edge',
+          required: true,
+        }),
+      ]);
+      const hosts = await call('mia', 'GET', `/api/v1/actions/${other}/hosts`);
+      expect(hosts.body).toMatchObject({
+        hosts: [],
+        groups: [],
+        inGroup: { edge: ['sw-edge-01', 'sw-edge-02'] },
+        sizes: { edge: 2 },
+      });
+      const group = await call('mia', 'GET', `/api/v1/actions/${other}/link?devices=edge`);
+      expect(group.body.ready).toBe(false);
+      expect((group.body.problems as { message: string }[])[0]?.message).toMatch(
+        /Switch: edge is 2 hosts .*one host/,
+      );
+      const right = await call('mia', 'GET', `/api/v1/actions/${other}/link?devices=sw-edge-01`);
+      expect(right.body).toMatchObject({ ready: true, counts: { devices: 1 } });
+      const all = await call('mia', 'POST', `/api/v1/actions/${other}/run`, {
+        inputs: { devices: 'edge' },
+      });
+      expect(all.status).toBe(400);
+      expect(all.body.field).toBe('devices');
+      // Once; the same values again a moment later (Back to a link that runs as it opens) start
+      // nothing and name that run; said to run again, it does.
+      const first = await call('mia', 'POST', `/api/v1/actions/${other}/run`, {
+        inputs: { devices: 'sw-edge-01' },
+        link: true,
+      });
+      expect(first.status).toBe(201);
+      const twice = await call('mia', 'POST', `/api/v1/actions/${other}/run`, {
+        inputs: { devices: 'sw-edge-01' },
+        link: true,
+      });
+      expect(twice.status).toBe(409);
+      expect(twice.body).toMatchObject({ error: 'duplicate', run: { id: first.body.id } });
+      expect(
+        (
+          await call('mia', 'POST', `/api/v1/actions/${other}/run`, {
+            inputs: { devices: 'sw-edge-02' },
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (
+          await call('mia', 'POST', `/api/v1/actions/${other}/run`, {
+            inputs: { devices: 'sw-edge-01' },
+            again: true,
+          })
+        ).status,
+      ).toBe(201);
+      // What really changed, for the audit log.
+      expect(
+        (
+          await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, {
+            ...ONE,
+            asked: [{ name: 'devices', label: 'Switch', group: 'edge', max: 1 }],
+            runOnOpen: true,
+          })
+        ).status,
+      ).toBe(200);
+      const set = await db()
+        .selectFrom('audit_entry')
+        .select('detail_json')
+        .where('action', '=', 'action.set')
+        .where('object_id', '=', other)
+        .orderBy('at', 'desc')
+        .executeTakeFirst();
+      expect(JSON.parse(set?.detail_json ?? '{}').changed).toEqual(['runOnOpen']);
+      await call('wanda', 'DELETE', `/api/v1/launch-configs/${other}/action`);
+    });
+
     it('turned off, the action is gone for its runners; its grants stay', async () => {
       expect(
         (
@@ -451,7 +681,13 @@ for (const [name, config] of databases) {
           })
         ).status,
       ).toBe(200);
-      expect((await call('mia', 'GET', `/api/v1/actions/${edge}`)).status).toBe(404);
+      // AFS-207: who may run it is told it is off, and whom to ask; nobody else learns of it.
+      const off = await call('mia', 'GET', `/api/v1/actions/${edge}`);
+      expect(off.status).toBe(404);
+      expect(off.body.message).toMatch(/is switched off for now.*ask wanda/);
+      expect((await call('nobody', 'GET', `/api/v1/actions/${edge}`)).body.message).toBe(
+        'No such action',
+      );
       expect(
         (
           await call('mia', 'POST', `/api/v1/actions/${edge}/run`, {
@@ -472,6 +708,10 @@ for (const [name, config] of databases) {
           .status,
       ).toBe(204);
       expect((await call('mia', 'GET', `/api/v1/actions/${edge}`)).status).toBe(404);
+      // AFS-207: the runs she started stay hers to read; no Run it again.
+      const own = await call('mia', 'GET', `/api/v1/actions/runs/${run}`);
+      expect(own.status).toBe(200);
+      expect(own.body.again).toBeUndefined();
     });
 
     it('the audit log says who set, gave, took back and ran actions', async () => {

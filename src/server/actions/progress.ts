@@ -110,10 +110,24 @@ export function progressOf(p: ProgressInput): ActionProgress {
   const ran = new Set<string>();
   const failedAt = new Set<string>();
   if (doc && summary) {
-    for (const id of [...Object.keys(summary.nodes), ...Object.keys(summary.timings ?? {})]) {
-      const top = topOf(doc, id);
-      if (top) ran.add(top);
-    }
+    // AFS-207: a step ran when a host went through it (or had a problem in it). Its play alone
+    // is not enough: every play of the playbook starts, with no host when none was sent there
+    // (a rollback not needed, every step after a run whose hosts all dropped out).
+    const withHosts = (ports: Record<string, string[]> | undefined) =>
+      Object.values(ports ?? {}).some((hosts) => hosts.length > 0);
+    for (const [id, ports] of [
+      ...Object.entries(summary.nodes),
+      ...Object.entries(summary.exits ?? {}),
+    ])
+      if (withHosts(ports)) {
+        const top = topOf(doc, id);
+        if (top) ran.add(top);
+      }
+    for (const [id, hosts] of Object.entries(summary.problems ?? {}))
+      if (Object.keys(hosts).length) {
+        const top = topOf(doc, id);
+        if (top) ran.add(top);
+      }
     const lost = new Set([
       ...Object.keys(summary.outcome),
       ...summary.failures.map((f) => f.host),
@@ -154,7 +168,9 @@ export function progressOf(p: ProgressInput): ActionProgress {
   // A run that went well and did not say each step (an old view): its way is done.
   if (run.state === 'succeeded' && !summary)
     for (const s of steps) if (s.state === 'not run') s.state = 'done';
-  const counted = ended ? steps.filter((s) => s.state !== 'not run') : steps;
+  // A run that went well counts the steps its way took (a branch not taken is not owed); any
+  // other that ended counts what it did not reach too, so its bar is not full (AFS-207).
+  const counted = run.state === 'succeeded' ? steps.filter((s) => s.state !== 'not run') : steps;
   const done = steps.filter((s) => s.state === 'done').length;
   const total = counted.length;
 

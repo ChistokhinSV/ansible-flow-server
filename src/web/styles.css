@@ -3831,6 +3831,34 @@ fieldset.field.pick legend {
 .progress > .actions {
   margin-top: 1rem;
 }
+/* AFS-207: a real action is flagged on its card; one's last run opens from under it. */
+.action-cards .real-mark {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--warn-badge);
+  color: var(--warn-fg);
+  font-size: 0.8rem;
+}
+.action-cards .card-run {
+  display: inline-block;
+  margin: -0.4rem 0 0.5rem 4px;
+}
+.name-chips .chip .chip-size {
+  color: var(--muted);
+  font-size: 0.8em;
+}
+/* AFS-207: Back to actions / Not now line up with the buttons, apart from What will happen. */
+.panel.action-form .actions {
+  align-items: center;
+  margin-top: 0.75rem;
+}
+.copy-link .inline-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
 
 /* --- AFS-176: links to actions: the confirm page, Copy link, signed links */
 .confirm-link .lead {

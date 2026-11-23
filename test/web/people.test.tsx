@@ -371,6 +371,25 @@ describe('People and groups', () => {
           },
         ],
       }),
+      // AFS-207: the actions it lets its members run.
+      'GET /groups/g1/action-grants': () => ({
+        body: [
+          {
+            id: 'ag1',
+            config: 'c1',
+            principal: { type: 'group', id: 'g1', name: 'netops' },
+            createdAt: '2026-11-03T09:00:00.000Z',
+            createdBy: 'dana',
+            action: {
+              title: 'Restart an edge switch',
+              config: 'c1',
+              project: 'p1',
+              projectKey: 'core',
+              workspaceKey: 'ops',
+            },
+          },
+        ],
+      }),
       'PUT /groups/g1/members': (body) => {
         const ids = (body as { users: string[] }).users;
         g = {
@@ -413,6 +432,11 @@ describe('People and groups', () => {
       'upgrade in core',
     ]);
     expect(asked.some((a) => a.key.startsWith('GET /workspaces/'))).toBe(false);
+    expect(
+      (await within(named).findByRole('link', { name: 'Restart an edge switch' })).getAttribute(
+        'href',
+      ),
+    ).toBe('/w/ops/core/launch/c1/settings');
 
     fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'net-ops' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

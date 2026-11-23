@@ -5,8 +5,15 @@
 // makes that POST itself, and says so). And on the action's Settings: Copy link for NetBox and
 // Zabbix, and signed links for systems with no person.
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
-import { ActionFormView, actionAddress, progressAddress } from './actions';
-import { type Action, type ActionLink, type ActionToken, api } from './api';
+import {
+  ActionFormView,
+  ActionRefused,
+  actionAddress,
+  progressAddress,
+  startAction,
+  valueWords,
+} from './actions';
+import { type Action, type ActionLink, type ActionToken, ApiError, api } from './api';
 import { ask } from './confirm';
 import { Link, navigate } from './router';
 import { Labelled, Loading, messageOf, PageHead, Time, useLoad } from './ui';
@@ -40,9 +47,21 @@ export function ActionLinkPage({ id }: { id: string }) {
     if (!l || busy) return;
     setBusy(true);
     setError(undefined);
+    const from = { link: true as const, reply: l.reply };
     try {
-      const done = await api.runAction(id, l.values, { link: true, reply: l.reply });
-      navigate(`${progressAddress(done.id)}${onOpen ? '?started=link' : ''}`);
+      if (onOpen) {
+        // AFS-207: the link's page gives its place in the history to the run it started, so
+        // Back does not open it again; opened again all the same (from the history, a second
+        // tab), the same values a moment ago open that run, not another.
+        try {
+          const done = await api.runAction(id, l.values, from);
+          navigate(`${progressAddress(done.id)}?started=link`, { replace: true });
+        } catch (e) {
+          const twin = e instanceof ApiError && e.code === 'duplicate' ? e.details.run : undefined;
+          if (!twin) throw e;
+          navigate(`${progressAddress(twin.id)}?started=twin`, { replace: true });
+        }
+      } else navigate(await startAction(id, l.values, from));
     } catch (e) {
       setError(messageOf(e));
     } finally {
@@ -58,6 +77,7 @@ export function ActionLinkPage({ id }: { id: string }) {
     }
   }, [l]);
 
+  if (link.error) return <ActionRefused message={link.error} />;
   if (!l) return <Loading state={link} />;
   const f = l.form;
   const head = <PageHead title={f.title} lead={f.summary} help="actions.md" />;
@@ -97,9 +117,12 @@ export function ActionLinkPage({ id }: { id: string }) {
         {head}
         {!change && !f.blocked && (
           <p className="notice info" role="status">
-            {l.missing.length || l.problems.length
-              ? 'The link gives some of what this action needs: fill in the rest, then Run.'
-              : 'Fill in what it asks, then Run.'}
+            {/* AFS-207: a wrong value is said as one, not as one missing. */}
+            {l.problems.length
+              ? `The link gives ${l.problems.length === 1 ? 'a value' : 'values'} this action does not take: pick again below, then Run.`
+              : l.missing.length
+                ? 'The link gives some of what this action needs: fill in the rest, then Run.'
+                : 'Fill in what it asks, then Run.'}
           </p>
         )}
         {notes}
@@ -129,7 +152,13 @@ export function ActionLinkPage({ id }: { id: string }) {
           {f.fields.map((x) => (
             <div key={x.name}>
               <dt>{x.label}</dt>
-              <dd>{l.values[x.name] || <span className="muted">(none)</span>}</dd>
+              <dd>
+                {l.values[x.name] ? (
+                  valueWords(x, l.values[x.name] ?? '', l.counts?.[x.name])
+                ) : (
+                  <span className="muted">(none)</span>
+                )}
+              </dd>
             </div>
           ))}
         </dl>
@@ -158,7 +187,9 @@ export function ActionLinkPage({ id }: { id: string }) {
           )}
           <Link to="/actions">Not now</Link>
         </div>
-        <p className="muted small">Questions about it: ask {f.ask.join(' or ')}.</p>
+        {f.ask.length > 0 && (
+          <p className="muted small">Questions about it: ask {f.ask.join(' or ')}.</p>
+        )}
       </section>
     </>
   );
@@ -296,38 +327,55 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
 }
 
 /** AFS-176: Copy link for NetBox / Zabbix, and the action's signed links. */
+/**
+ * AFS-207: what a link carries into each asked input by default: the object's name into the host
+ * list (the first, when the flow's types are not known), its site into an input named so, its
+ * address into one named so; the rest is left for the person.
+ */
+export function linkDefaults(
+  asked: readonly { name: string; label: string }[],
+  types: Record<string, string | undefined>,
+  to: 'netbox' | 'zabbix',
+): Record<string, string> {
+  const hostLists = asked.filter((a) => types[a.name] === 'host_list');
+  const named = hostLists[0]?.name ?? (Object.keys(types).length ? undefined : asked[0]?.name);
+  const netbox = to === 'netbox';
+  return Object.fromEntries(
+    asked.map((a) => {
+      const words = `${a.name} ${a.label}`;
+      if (a.name === named) return [a.name, netbox ? 'object.name' : '{HOST.HOST}'];
+      if (hostLists.some((h) => h.name === a.name)) return [a.name, ''];
+      if (netbox && /site/i.test(words)) return [a.name, 'object.site.name'];
+      if (/\bip\b|ip_|_ip|addr/i.test(words))
+        return [a.name, netbox ? 'object.primary_ip4.address.ip' : '{HOST.IP}'];
+      return [a.name, ''];
+    }),
+  );
+}
+
+/** AFS-207: an address only this machine reaches: a link made with it works nowhere else. */
+const localOnly = (host: string) =>
+  /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|::1)$/i.test(host) || host.endsWith('.localhost');
+
 export function ActionLinks({
   config,
   action,
   tokens,
   onChange,
+  types = {},
 }: {
   config: string;
   action: Action;
   tokens: ActionToken[];
   onChange(): void;
+  /** AFS-207: the flow's input types by name: a host list gets the object's name. */
+  types?: Record<string, string | undefined>;
 }) {
   const id = useId();
   const [system, setSystem] = useState<'netbox' | 'zabbix'>('netbox');
   const [scope, setScope] = useState<'host' | 'problem'>('host');
   const [objectType, setObjectType] = useState('dcim.device');
-  const defaults = (to: 'netbox' | 'zabbix') =>
-    Object.fromEntries(
-      action.asked.map((a, i) => [
-        a.name,
-        to === 'netbox'
-          ? i === 0
-            ? 'object.name'
-            : /ip|addr/i.test(a.name)
-              ? 'object.primary_ip4.address.ip'
-              : ''
-          : i === 0
-            ? '{HOST.HOST}'
-            : /ip|addr/i.test(a.name)
-              ? '{HOST.IP}'
-              : '',
-      ]),
-    );
+  const defaults = (to: 'netbox' | 'zabbix') => linkDefaults(action.asked, types, to);
   const [picks, setPicks] = useState<Record<string, string>>(() => defaults('netbox'));
   const origin = window.location.origin;
   const made = linkTemplate(origin, action, system, picks, { objectType, scope });
@@ -349,7 +397,7 @@ export function ActionLinks({
       </p>
       <fieldset className="choices copy-link" aria-labelledby={`${id}-links`}>
         <legend>Copy link for</legend>
-        <div className="pair">
+        <div className="inline-choices">
           {(['netbox', 'zabbix'] as const).map((s) => (
             <label key={s} className="inline">
               <input
@@ -410,6 +458,13 @@ export function ActionLinks({
           </div>
         ))}
         <h4>The link</h4>
+        {localOnly(window.location.hostname) && (
+          <p className="notice warn">
+            This page is open at {window.location.host}, which only this machine reaches: a link
+            made here does not open from {SYSTEM_WORDS[system]}. Open the server at the address its
+            users reach, then copy the link.
+          </p>
+        )}
         <CopyBlock text={made.url} label="the link" />
         {made.netbox && (
           <>
@@ -527,6 +582,8 @@ function SignedLinks({
                     return;
                   try {
                     await api.revokeActionToken(config, t.id);
+                    // AFS-207: a revoked token is not left on the page.
+                    setMade(undefined);
                     setNote({ ok: true, text: `Revoked ${t.name}.` });
                   } catch (e) {
                     setNote({ ok: false, text: messageOf(e) });
