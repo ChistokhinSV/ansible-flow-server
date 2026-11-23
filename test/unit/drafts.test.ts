@@ -260,7 +260,7 @@ describe('editing a flow together', () => {
     const refused = await call('mia', 'POST', `/drafts/${opened}/save`, {});
     expect(refused.status).toBe(409);
     expect(refused.json.conflicts.map((c: { label: string }) => c.label)).toEqual([
-      'Say hi: title',
+      'Say hi: Title',
     ]);
     const forced = await call('mia', 'POST', `/drafts/${opened}/save`, { force: true });
     expect(forced.status).toBe(200);
@@ -731,7 +731,7 @@ describe('a draft that changes nothing, what a draft changes, and a discard (AFS
     expect(back.status).toBe(200);
     expect(back.json).toMatchObject({ id: fresh, merged: true });
     expect(back.json.kept).toHaveLength(1);
-    expect(back.json.kept[0]).toContain('title');
+    expect(back.json.kept[0]).toContain('Title');
     const doc = (await call('mia', 'GET', `/drafts/${fresh}`)).json.snapshot.doc;
     const titleOf = (n: string) => doc.nodes.find((x: { id: string }) => x.id === n).title;
     expect([titleOf(PING), titleOf(HELLO)]).toEqual(['Ping by Mia', 'Hello by Omar']);

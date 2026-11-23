@@ -816,7 +816,8 @@ describe('AFS-205: the step bar', () => {
       node: '01M6GPM99KC9TX091MCH61REQV',
       play: '[facts] Read a few facts',
       hosts: ['fw-edge-01', 'fw-edge-02'],
-      since: Date.now() / 1000 + 5,
+      // An hour ahead, so a slow test file still reads the full timeout (never more than it).
+      since: Date.now() / 1000 + 3600,
       timeout: 60,
     },
   };
