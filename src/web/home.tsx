@@ -1,7 +1,7 @@
 // Home (AFS-64): who is here, what waits for them, the latest runs, and the workspaces. Plain
 // sentences and short lists; the only tinted thing is the first approval that waits.
 // AFS-85: and what this person launched lately, one step from launching it again.
-import { useEffect } from 'react';
+import { Fragment, type ReactNode, useEffect } from 'react';
 import { launchesAny, useMyAccess } from './access';
 import { api, type Run, type User, type Workspace } from './api';
 import { launchAddress } from './launch';
@@ -119,13 +119,37 @@ export function Home({ me }: { me: User }) {
   const yourPaused = (runs.data ?? []).filter(
     (r) => r.state === 'running' && r.pausedBefore && r.requestedBy.login === me.login,
   );
-  const counts = [
-    `${well} went well`,
-    failed ? `${failed} failed` : '',
-    rejected ? `${rejected} rejected` : '',
-    stopped ? `${stopped} stopped` : '',
-    going ? `${going} still ${going === 1 ? 'goes' : 'go'}` : '',
-  ].filter(Boolean);
+  // AFS-208: each count is a link to those runs, as the runs that wait are.
+  const counts: [string, ReactNode][] = [
+    ['well', <Link key="well" to="/runs?state=succeeded">{`${well} went well`}</Link>],
+    ...(failed
+      ? [
+          ['failed', <Link key="failed" to="/runs?state=failed">{`${failed} failed`}</Link>] as [
+            string,
+            ReactNode,
+          ],
+        ]
+      : []),
+    ...(rejected
+      ? [
+          [
+            'rejected',
+            <Link key="rejected" to="/runs?state=rejected">{`${rejected} rejected`}</Link>,
+          ] as [string, ReactNode],
+        ]
+      : []),
+    ...(stopped
+      ? [
+          [
+            'stopped',
+            <Link key="stopped" to="/runs?state=cancelled">{`${stopped} stopped`}</Link>,
+          ] as [string, ReactNode],
+        ]
+      : []),
+    ...(going
+      ? [['going', `${going} still ${going === 1 ? 'goes' : 'go'}`] as [string, ReactNode]]
+      : []),
+  ];
   // AFS-146: whose decision your own held run waits for, when it is one run.
   const heldFor =
     yours.length === 1
@@ -135,7 +159,14 @@ export function Home({ me }: { me: User }) {
     <>
       {todays.length ? (
         <>
-          {plural(todays.length, 'run', 'runs')} today: {counts.join(', ')}
+          {/* AFS-208: everyone's runs you may see, not only yours. */}
+          {plural(todays.length, 'run', 'runs')} today, by everyone:{' '}
+          {counts.map(([k, c], i) => (
+            <Fragment key={k}>
+              {i ? ', ' : ''}
+              {c}
+            </Fragment>
+          ))}
           {waiting ? (
             <>
               {', '}

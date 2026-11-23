@@ -13,9 +13,13 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { optionA } from '@ansible-flow/core/engine/optionA';
+import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import type { RunView } from '@ansible-flow/core/protocol';
+import { summarizeRun } from '@ansible-flow/core/run/events';
 import type { RunFlowHooks, RunFlowRequest } from '@ansible-flow/node/run/runFlow';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { LaunchConfigs } from '../../src/server/launch/configs';
@@ -505,6 +509,43 @@ describe('a run', () => {
     expect(await queue.get(notStarted.id)).toMatchObject({
       state: 'failed',
       error: 'The run could not be started',
+    });
+  });
+
+  it('fails when its only host failed at a step although Ansible ended with 0 (AFS-208)', async () => {
+    // A role a step includes is not found: the step's rescue routes the host to its open
+    // failed_hosts port, but Ansible keeps the host failed, runs no later play on it (so the
+    // outcome play never fails it) and ends with 0. The designer's summary of those events.
+    const doc = parseYaml(HELLO) as FlowDocument;
+    const { routes } = optionA.generate(doc, { source: 'hello.flow.yaml' });
+    const facts = doc.nodes.find((n) => n.key === 'facts');
+    const group = Object.entries(routes).find(
+      ([, r]) => r.node === facts?.id && r.port === 'failed_hosts',
+    )?.[0];
+    expect(group && routes[group]?.fails).toBeTruthy();
+    const event = (e: Record<string, unknown>) => JSON.stringify({ ts: 1, ...e });
+    const events = [
+      event({ event: 'play', name: '[facts] Read a few facts', node: facts?.id }),
+      event({
+        event: 'result',
+        status: 'failed',
+        host: 'fw-edge-01',
+        task: '[facts] Apply role',
+        node: facts?.id,
+        msg: "The role 'motd' was not found",
+      }),
+      event({ event: 'result', status: 'ok', host: 'fw-edge-01', node: facts?.id, group }),
+      event({ event: 'stats' }),
+    ].join('\n');
+    const { ex } = executor(async () => ({ rc: 0, summary: summarizeRun(events, routes) }));
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect(await queue.get(run.id)).toMatchObject({
+      state: 'failed',
+      error: '1 of 1 host failed at Read a few facts',
+      hosts: { total: 1, failed: 1 },
     });
   });
 

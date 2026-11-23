@@ -933,6 +933,16 @@ export function LaunchConfigPage({
    * after they change), so a target it does not have is said at its field before Launch.
    */
   const [live, setLive] = useState<{ key: string; reply: FactsReply }>();
+  // AFS-208: settings saved (another inventory, image or limit): what the inventory said is of the
+  // old settings, so the groups and the targets' warning are read again.
+  const changedAt = config.data?.updatedAt;
+  const [readAt, setReadAt] = useState(changedAt);
+  if (changedAt !== readAt) {
+    setReadAt(changedAt);
+    setGroups(undefined);
+    setGroupCounts(undefined);
+    setLive(undefined);
+  }
   const configId = config.data?.id;
   const flowFile = config.data?.flowFile;
   const formFields = form.data?.fields;
@@ -1114,6 +1124,9 @@ export function LaunchConfigPage({
         : '';
     if (real) {
       const where = limitText.trim() ? ` limited to ${limitText.trim()}` : '';
+      // AFS-208: and on how many hosts, when the inventory said.
+      const count = none ? undefined : (facts?.limited?.count ?? facts?.facts?.count);
+      const on = count ? ` on ${count} ${count === 1 ? 'host' : 'hosts'}` : '';
       // AFS-205: and that it pauses, step by step.
       const pauses = stepped
         ? atPoints
@@ -1122,7 +1135,7 @@ export function LaunchConfigPage({
         : '';
       if (
         !(await ask(
-          `Run ${form.data?.flow.name ?? c.name} for real${where}? It changes the hosts it reaches.${pauses}${skipped}`,
+          `Run ${form.data?.flow.name ?? c.name} for real${on}${where}? It changes the hosts it reaches.${pauses}${skipped}`,
           { yes: 'Run for real' },
         ))
       )
@@ -1359,7 +1372,7 @@ export function LaunchConfigPage({
                   groups={groups}
                   {...(form.data?.origins?.[f.name] ? { origin: form.data.origins[f.name] } : {})}
                   {...(groupCounts ? { counts: groupCounts } : {})}
-                  {...(f.targets && liveNow
+                  {...(f.targets && liveNow && !problemOf(f.name)
                     ? { warning: <TargetsWarning reply={liveNow} name={f.name} /> }
                     : {})}
                 />
@@ -1592,7 +1605,7 @@ export function LaunchConfigPage({
               )}
             </form>
           </section>
-          {result && (
+          {result && result.launch.mode === (mode ?? form.data?.mode ?? c.mode) && (
             <WouldRun
               launch={result.launch}
               form={result.form}
@@ -1607,6 +1620,22 @@ export function LaunchConfigPage({
       )}
     </>
   );
+}
+
+/**
+ * AFS-208: the repository's inventories at its top (inventory.ini, hosts.yml, an inventory/ folder)
+ * when it has no ansible.cfg to name one; undefined when it has one, or before the files are read.
+ */
+export function inventoryGuess(
+  files: readonly { path: string }[] | undefined,
+): string[] | undefined {
+  if (!files || files.some((f) => f.path === 'ansible.cfg')) return undefined;
+  const found = new Set<string>();
+  for (const { path } of files) {
+    if (/^(inventory|hosts)(\.(ini|ya?ml))?$/.test(path)) found.add(path);
+    else if (path.startsWith('inventory/')) found.add('inventory/');
+  }
+  return [...found].sort();
 }
 
 /**
@@ -1678,6 +1707,22 @@ function ConfigForm({
   const holds = JSON.stringify([input, tellWhen, tellTo]);
   const [kept, setKept] = useState(holds);
   const release = useUnsaved(holds !== kept);
+  // AFS-208: without an ansible.cfg nothing names the inventory: a new configuration starts with
+  // the repository's only inventory, or the hint names those there are.
+  const repoFiles = useLoad(
+    async () => (existing ? undefined : (await api.files(pid)).files),
+    [pid, !!existing],
+  );
+  const inventories = inventoryGuess(repoFiles.data);
+  const onlyInventory = inventories?.length === 1 ? inventories[0] : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when the files are read
+  useEffect(() => {
+    if (!onlyInventory || input.inventory) return;
+    const next = { ...input, inventory: onlyInventory };
+    setInput(next);
+    // Not typed by anyone: leaving the form does not ask about it.
+    if (holds === kept) setKept(JSON.stringify([next, tellWhen, tellTo]));
+  }, [onlyInventory]);
   // AFS-94: the image is asked for only when "an image by name" is what runs get.
   const [byImage, setByImage] = useState(!existing?.environment && !!existing?.eeImage);
   const set = (key: keyof LaunchConfigInput, value: unknown) => {
@@ -1909,7 +1954,13 @@ function ConfigForm({
       <div className="pair">
         <Labelled
           label="Inventory"
-          hint="A file or folder of the repository; empty: what its ansible.cfg names."
+          hint={
+            inventories && inventories.length !== 1 && !input.inventory
+              ? inventories.length
+                ? `A file or folder of the repository. It has no ansible.cfg to name one: ${inventories.join(', ')}?`
+                : 'A file or folder of the repository. It has no ansible.cfg to name one, so name it here.'
+              : 'A file or folder of the repository; empty: what its ansible.cfg names.'
+          }
           problem={at('inventory')}
         >
           {(props) => (

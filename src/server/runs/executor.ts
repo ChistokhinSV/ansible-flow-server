@@ -79,6 +79,10 @@ const ERROR_LINE =
   /^(\[?error\]?|\[?fatal\]?|docker:|podman:|Error response)|\b(no such host|not found|denied|unauthorized|manifest unknown)\b/i;
 /** A finished view in which no host did anything. */
 const noHostRan = (view: RunView) => view.summary !== undefined && view.summary.hosts.length === 0;
+/** AFS-208: hosts of the run failed (by the outcome play, or lost without a route). */
+const hostsFailed = (view: RunView) =>
+  !!view.summary &&
+  (Object.keys(view.summary.outcome).length > 0 || view.summary.failures.length > 0);
 
 /** How often it looks for queued runs. */
 const POLL_MS = 2_000;
@@ -972,6 +976,10 @@ export class Executor implements Stepper {
         // AFS-132: a run that reached no host did nothing: not a success.
         if (view.state === 'done' && view.rc === 0 && !view.error && whole && noHostRan(view))
           return await finish('failed', noHostWhy({ ...r, skipped: [...skipped] }), view);
+        // AFS-208: Ansible can end with 0 although a host failed (an include error a rescue routed
+        // to an open port keeps the host out of the outcome play): the hosts say how it went.
+        if (view.state === 'done' && view.rc === 0 && !view.error && hostsFailed(view))
+          return await finish('failed', failedWhy(view, steps, undefined), view);
         // Without events nothing says what the flow did: that is not a success, whatever the code.
         if (view.state === 'done' && view.rc === 0 && !view.error)
           return await finish('succeeded', undefined, view);

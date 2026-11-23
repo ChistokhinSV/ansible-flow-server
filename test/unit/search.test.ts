@@ -254,5 +254,36 @@ for (const [name, config] of databases) {
       expect(await find('dana', '../')).toEqual([]);
       expect(await find('dana', "' or 1=1 --")).toEqual([]);
     });
+
+    it('a run a rejection ended reads rejected, as its page says (AFS-208)', async () => {
+      const run = await db()
+        .selectFrom('run')
+        .select('id')
+        .where('number', '=', runNumber)
+        .executeTakeFirstOrThrow();
+      await db().updateTable('run').set({ state: 'failed' }).where('id', '=', run.id).execute();
+      const hit = async () => (await find('rita', `#${runNumber}`))[0]?.detail;
+      expect(await hit()).toBe('Network / Edge routers · failed');
+      await db()
+        .insertInto('run_gate')
+        .values({
+          id: 'gate-1',
+          run_id: run.id,
+          node_id: '01M6GPM95RHBYFR7H44Z8GD2HB',
+          node_key: 'ask',
+          title: 'Change approval',
+          segment: 'start',
+          status: 'rejected',
+          carried_json: '{}',
+          deadline: null,
+          approval_json: null,
+          decided_by: 'dana',
+          decided_at: new Date().toISOString(),
+          comment: 'Not in this window',
+          created_at: new Date().toISOString(),
+        })
+        .execute();
+      expect(await hit()).toBe('Network / Edge routers · rejected');
+    });
   });
 }
