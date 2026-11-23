@@ -4,11 +4,13 @@
 //   Workspaces and projects: by key and name.
 //   Flows: by name, key and file, at each visible project's commit (the cached flow list).
 //   Launch configurations: by name and flow file.
+//   Actions (AFS-207): by title and sentence, those the person may run (a grant is enough).
 //   Runs: by number (`12`, `#12`, `run 12`), and the newest runs by flow and configuration name.
 //   Execution environments: by name.
 //   People (login, name, email) and groups (name).
 import type { Kysely } from 'kysely';
 import type { Access } from '../access/grants';
+import { enabledActions, mayRun } from '../actions/store';
 import { listGroups, listUsers } from '../auth/users';
 import type { Schema } from '../db/schema';
 import type { ProjectFlows } from '../projects/flows';
@@ -67,6 +69,7 @@ const ORDER: Record<SearchKind, number> = {
   flow: 0,
   project: 1,
   'launch-config': 2,
+  action: 2,
   run: 3,
   workspace: 4,
   environment: 5,
@@ -86,6 +89,8 @@ export async function search(
   question: string,
   /** A token made for one workspace: only that workspace. */
   onlyWorkspace?: string,
+  /** AFS-207: the actions the person has a grant on (an action-only person sees nothing else). */
+  granted: ReadonlySet<string> = new Set(),
 ): Promise<SearchHit[]> {
   const { db } = deps;
   const q = question.trim();
@@ -158,6 +163,21 @@ export async function search(
         to: `/w/${enc(ws.key)}/${enc(p.key)}/launch/${enc(c.id)}`,
       },
       score(q, [c.name, c.flow_file]),
+    );
+  }
+
+  // AFS-207: actions, for whoever may run them: their form.
+  for (const a of await enabledActions(db)) {
+    if (onlyWorkspace && a.place.workspace !== onlyWorkspace) continue;
+    if (!mayRun(access, a.place, granted)) continue;
+    add(
+      {
+        kind: 'action',
+        title: a.title,
+        detail: `${a.place.workspaceName} · ${a.mode === 'real' ? 'action, for real' : 'action, a check'}`,
+        to: `/actions/${enc(a.id)}`,
+      },
+      score(q, [a.title, a.summary]),
     );
   }
 

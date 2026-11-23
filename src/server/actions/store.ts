@@ -217,12 +217,44 @@ export function checkSettings(
       if (field.type === 'host_list' && choices.some((c) => /[\s,]/.test(c)))
         throw invalid(`A choice of ${a.name} is one host or group name`, 'asked');
     }
+    // AFS-207: a host list's own start value and how many hosts it takes.
+    let start: string | undefined;
+    let max: number | undefined;
+    if (a.start?.trim()) {
+      if (field.type !== 'host_list')
+        throw invalid(
+          `${a.name} is not a host list: it starts with the configuration's value`,
+          'asked',
+        );
+      const picked = names(text(a.start, `The start value of ${a.name}`, 2000));
+      const outside = choices && picked.find((n) => !choices?.includes(n));
+      if (outside)
+        throw invalid(
+          `The start value of ${a.name}: ${outside.slice(0, 60)} is not one of its choices`,
+          'asked',
+        );
+      start = picked.join(', ');
+    }
+    if (a.max !== undefined && a.max !== null) {
+      if (field.type !== 'host_list')
+        throw invalid(`${a.name} is not a host list: it takes no number of hosts`, 'asked');
+      if (!Number.isInteger(a.max) || a.max < 1 || a.max > 1000)
+        throw invalid(`The number of hosts of ${a.name} is a whole number from 1 to 1000`, 'asked');
+      max = a.max;
+      if (start && names(start).length > max)
+        throw invalid(
+          `The start value of ${a.name} names more than ${max === 1 ? 'one host' : `${max} hosts`}`,
+          'asked',
+        );
+    }
     return {
       name: a.name,
       label,
       ...(help ? { help } : {}),
       ...(choices ? { choices } : {}),
       ...(group ? { group } : {}),
+      ...(start ? { start } : {}),
+      ...(max ? { max } : {}),
     };
   });
   let reply: ActionReply | null = null;
@@ -485,6 +517,49 @@ export async function workspaceActions(db: Db, workspace: string): Promise<Works
   }));
 }
 
+/** AFS-207: the actions a group may run, in every workspace: for the group's page. */
+export async function groupActionGrants(db: Db, group: string): Promise<WorkspaceActionGrant[]> {
+  const rows = await grantRows(db, {});
+  const mine = rows.filter((r) => r.principal_type === 'group' && r.principal_id === group);
+  if (!mine.length) return [];
+  const actions = await db
+    .selectFrom('launch_action')
+    .innerJoin('launch_config', 'launch_config.id', 'launch_action.config_id')
+    .innerJoin('project', 'project.id', 'launch_config.project_id')
+    .innerJoin('workspace', 'workspace.id', 'project.workspace_id')
+    .select([
+      'launch_action.config_id',
+      'launch_action.title',
+      'project.id as project_id',
+      'project.key as project_key',
+      'workspace.key as workspace_key',
+    ])
+    .where(
+      'launch_action.config_id',
+      'in',
+      mine.map((r) => r.config_id),
+    )
+    .execute();
+  const byConfig = new Map(actions.map((a) => [a.config_id, a]));
+  return mine.flatMap((r) => {
+    const a = byConfig.get(r.config_id);
+    return a
+      ? [
+          {
+            ...grantOf(r),
+            action: {
+              title: a.title,
+              config: a.config_id,
+              project: a.project_id,
+              projectKey: a.project_key,
+              workspaceKey: a.workspace_key,
+            },
+          },
+        ]
+      : [];
+  });
+}
+
 /** Gives a user or a group "may run this action". A second for the same one is refused. */
 export async function grantAction(
   db: Db,
@@ -628,9 +703,28 @@ const names = (text: string) =>
  */
 export function actionFields(action: Action, fields: readonly LaunchField[]): ActionField[] {
   const byName = new Map(fields.map((f) => [f.name, f]));
-  return action.asked.flatMap((a) => {
+  return action.asked.flatMap((a): ActionField[] => {
     const f = byName.get(a.name);
     if (!f || f.secret) return [];
+    // AFS-207: a host list starts with the action's own value, else empty: the configuration's
+    // (a whole group, often) would run on all of it with one press of Run. The runner picks.
+    if (f.type === 'host_list') {
+      const start = names(a.start ?? '').filter((n) => !a.choices?.length || a.choices.includes(n));
+      return [
+        {
+          name: a.name,
+          label: a.label,
+          ...(a.help ? { help: a.help } : {}),
+          type: f.type,
+          // Asked hosts are always picked: none would run on whatever the flow defaults to.
+          required: true,
+          ...(a.choices?.length ? { choices: a.choices } : { hosts: true }),
+          ...(a.group && !a.choices?.length ? { group: a.group } : {}),
+          ...(a.max ? { max: a.max } : {}),
+          text: start.join(', '),
+        },
+      ];
+    }
     return [
       {
         name: a.name,
@@ -639,18 +733,8 @@ export function actionFields(action: Action, fields: readonly LaunchField[]): Ac
         ...(f.type ? { type: f.type } : {}),
         required: f.required,
         ...(a.choices?.length ? { choices: a.choices } : {}),
-        ...(f.type === 'host_list' && !a.choices?.length ? { hosts: true } : {}),
-        ...(a.group && f.type === 'host_list' && !a.choices?.length ? { group: a.group } : {}),
         // A start value outside the choices is not offered: the runner picks one.
-        text: a.choices?.length
-          ? f.type === 'host_list'
-            ? names(f.text)
-                .filter((n) => a.choices?.includes(n))
-                .join(', ')
-            : a.choices.includes(f.text.trim())
-              ? f.text.trim()
-              : ''
-          : f.text,
+        text: a.choices?.length ? (a.choices.includes(f.text.trim()) ? f.text.trim() : '') : f.text,
       },
     ];
   });
@@ -711,6 +795,83 @@ export function groupHosts(
   };
   walk(group);
   return [...found].sort();
+}
+
+/** AFS-207: the inventory a host list is checked against: its hosts and groups. */
+export interface InventoryNames {
+  hosts: readonly string[];
+  groups: Record<string, { parents: string[]; hosts: string[] }>;
+  /** Some source finds its hosts when it runs: a name not written in the files may be one. */
+  dynamic?: boolean;
+  /** Not every file was read. */
+  cut?: string;
+}
+
+/** Ansible knows these without an inventory. */
+const IMPLICIT = new Set(['localhost', '127.0.0.1', '::1']);
+/** A host pattern (sw-*, edge:&prod, !core), not a name: what it names is known when it runs. */
+const PATTERN = /[*?:!&~[\]]/;
+
+/**
+ * AFS-207: the hosts a host list's value names: a group by its hosts (its children's too), "all"
+ * by every host. Names the inventory does not have, and patterns, apart.
+ */
+export function hostsOf(
+  text: string,
+  inventory: InventoryNames,
+): { hosts: string[]; unknown: string[]; patterns: string[] } {
+  const hosts = new Set<string>();
+  const unknown: string[] = [];
+  const patterns: string[] = [];
+  for (const n of names(text)) {
+    if (n === 'all') for (const h of inventory.hosts) hosts.add(h);
+    else if (inventory.groups[n])
+      for (const h of groupHosts(inventory.groups, n) ?? []) hosts.add(h);
+    else if (inventory.hosts.includes(n) || IMPLICIT.has(n)) hosts.add(n);
+    else if (PATTERN.test(n)) patterns.push(n);
+    else unknown.push(n);
+  }
+  return { hosts: [...hosts].sort(), unknown, patterns };
+}
+
+const hostWords = (n: number) => (n === 1 ? 'one host' : `${n} hosts`);
+
+/**
+ * AFS-207: what is wrong with a host list's value against the inventory: a name it does not have
+ * (a static inventory read in full only), more hosts than the action takes (a group counted by
+ * its hosts). Undefined when it is right.
+ */
+export function hostProblem(
+  field: Pick<ActionField, 'name' | 'label' | 'max' | 'choices'>,
+  text: string,
+  inventory: InventoryNames,
+): { field: string; message: string } | undefined {
+  const got = hostsOf(text, inventory);
+  const at = (message: string) => ({ field: field.name, message: `${field.label}: ${message}` });
+  const unknown = got.unknown[0];
+  if (!field.choices?.length && !inventory.dynamic && !inventory.cut && unknown !== undefined)
+    return at(`${unknown.slice(0, 60)} is not a host or group of the inventory`);
+  if (!field.max) return undefined;
+  const pattern = got.patterns[0];
+  if (pattern !== undefined)
+    return at(
+      `name ${field.max === 1 ? 'the host' : 'the hosts'}, not a pattern (${pattern.slice(0, 60)})`,
+    );
+  const count = got.hosts.length + got.unknown.length;
+  if (count <= field.max) return undefined;
+  const shown = got.hosts.slice(0, 4).join(', ') + (got.hosts.length > 4 ? ', …' : '');
+  return at(
+    `${text.trim().slice(0, 60)} is ${hostWords(count)}${shown ? ` (${shown})` : ''}: this action takes ${field.max === 1 ? 'one host. Pick one' : `at most ${field.max} hosts`}`,
+  );
+}
+
+/** AFS-207: how many hosts each group of the inventory has (its children's too). */
+export function groupSizes(groups: InventoryNames['groups']): Record<string, number> {
+  return Object.fromEntries(
+    Object.keys(groups)
+      .filter((g) => g !== 'all' && g !== 'ungrouped')
+      .map((g) => [g, groupHosts(groups, g)?.length ?? 0]),
+  );
 }
 
 /**

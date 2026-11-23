@@ -432,11 +432,23 @@ export function RunsPage({ me }: { me: User }) {
   const groups = where.data?.filter((w) => w.projects.length) ?? [];
   // AFS-194: someone who reaches no project sees no run: no choices to narrow nothing with.
   const nowhere = !me.admin && !!where.data && groups.length === 0;
+  // AFS-207: someone who may only run actions finds their runs on Actions, not here.
+  const actionRuns = useLoad(
+    async () => (nowhere ? api.actions().catch(() => []) : []),
+    [nowhere],
+  ).data?.some((a) => a.lastRun);
 
   return (
     <>
       <PageHead help="runs.md" title="Runs" lead="Every run you may see, the newest first." />
-      {nowhere && (
+      {nowhere && actionRuns && (
+        <p className="empty">
+          The runs you started of an action are on <Link to="/actions">Actions</Link>: each action's
+          card opens your last run of it. This page lists the runs of projects shared with you, and
+          none is yet.
+        </p>
+      )}
+      {nowhere && !actionRuns && (
         <p className="empty">
           No project is shared with you yet, so there is no run to see. An administrator gives
           access on a workspace's Access tab.

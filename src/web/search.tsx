@@ -55,6 +55,7 @@ const KIND_LABEL: Record<string, string> = {
   project: 'project',
   flow: 'flow',
   'launch-config': 'launch configuration',
+  action: 'action',
   run: 'run',
   environment: 'environment',
   user: 'person',

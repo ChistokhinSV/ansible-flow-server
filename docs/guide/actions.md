@@ -17,11 +17,16 @@ administrator, or someone with **read and write** on the workspace):
 - **What it asks**: tick the inputs a runner chooses, each with a **label** ("Switch", not
   `devices`) and a **help line**. **Choices** (names separated by commas) limit it to those values;
   a host list without choices offers the inventory's hosts and groups by name; **Only hosts of
-  group** narrows it to one inventory group (its hosts and its child groups' hosts are offered, no
-  other name is taken). Every input not
-  ticked runs with the configuration's value, and a runner cannot change it: the server refuses a
-  value for an input the action does not ask. Secret-looking inputs are never asked: give them
-  with a credential.
+  group** narrows it to one inventory group (offered as you type; a group the inventory does not
+  have is refused when you save; its hosts and its child groups' hosts are offered, no other name
+  is taken). Every input not ticked runs with the configuration's value, and a runner cannot
+  change it: the server refuses a value for an input the action does not ask. Secret-looking
+  inputs are never asked: give them with a credential.
+- A host list it asks **starts empty**: the runner picks (the configuration's value, often a whole
+  group, is never where the form starts). **Starts with** gives it a start value of your own.
+  **How many hosts**: _any number_, _one host_, or _up to a number_. A group counts by its hosts:
+  with _one host_, `edge` (four switches) is refused at the field before anything runs. A name
+  the inventory does not have is refused too (unless the inventory finds its hosts when it runs).
 - **It runs** as a check or for real: the action decides, not the runner.
 - **Run asks to confirm first**: the runner sees what they chose and answers **Run** or **Not
   now**.
@@ -70,7 +75,16 @@ and Help.
 
 An action opens its form: the values it asks, **What will happen** (check or real, the steps it
 goes through by title, the approvals it waits at and who decides them; the values the action keeps
-fixed are not listed: whoever set it up answers for them), and **Run**. A value that is missing or not one of the choices is said at its field.
+fixed are not listed: whoever set it up answers for them), and **Run**. A value that is missing,
+not one of the choices, not in the group or the inventory, or more hosts than the action takes is
+said at its field when you press **Run**, before the question. The host picker marks a group with
+its size ("edge · group of 4"); for a one-host input a pick replaces the last one. The question
+says whether it runs for real, and a group by its number of hosts ("Switch: edge (4 hosts)").
+
+The same values as your run of a moment ago (30 seconds) are not run twice by accident: the page
+asks **Run again** or **Open that run**. A card on **Actions** marks an action that runs for real
+and opens your last run of it; an action switched off, or one you may not run, says so with whom
+to ask and **Back to actions**. **Search** finds the actions you may run.
 
 ![An action's form on a phone](images/action-form.png)
 
@@ -83,14 +97,18 @@ others started:
 
 - where it is in one sentence: waiting to start, running step 2 of 3, waiting for approval at
   _Approve the change_ by _change-board_, done, failed;
-- the steps by title, each done, running, waiting, failed or to do, and how many of how many are
-  done;
+- the steps by title, each done, running, waiting, failed, to do, or not reached, and how many of
+  how many are done; a step counts as done only when a host went through it. A rollback or other
+  step off the way a good run goes shows only when hosts were sent to it;
 - when it failed, why in words (which step, how many hosts, or who rejected it and their comment)
-  and whom to ask: the action's owner, then the administrators;
+  and whom to ask: the action's owner, then the administrators (never yourself);
 - the values it was asked for, by their labels.
 
 Who may see the run itself (read only on the flow) also gets **The full run page**, with the
-canvas and the output. **Run it again** opens the form again once the run ended.
+canvas and the output. **Run it again** opens the form again once the run ended, with the
+values of this run in. The runs you started stay yours to open after the action is taken back
+from you, switched off or deleted; the **Runs** page points someone who may only run actions to
+**Actions**.
 
 ![A run of an action, step by step](images/action-progress.png)
 
@@ -109,7 +127,9 @@ A link opens an action with values from the object it is on:
   it.
 - Opening a link never runs anything: **Run** does, from the page. With **A link that gives every
   value runs as it opens**, the page itself starts the run as it opens, once, and the progress
-  says the link started it.
+  says the link started it. The progress takes the link's place in the browser's history, so
+  **Back** does not open the link again; opened again with the same values within 30 seconds
+  (another tab, the history), it opens that run and says it started nothing.
 - Not signed in: the sign-in page opens at the link, and after signing in (password, directory or
   your organisation's sign-in) you are back on it. Your own access decides: you may run the
   action, or are an operator of its flow, or an administrator.
@@ -119,8 +139,10 @@ A link opens an action with values from the object it is on:
 On the configuration's **Settings**, under the action, **Links from NetBox and Zabbix**: pick
 NetBox or Zabbix, then for each input where its value comes from (a device's name, its primary
 IPv4 address, its site; a Zabbix host's name, IP, or what the person types), or leave it out (the
-person fills it in). The page gives the link, and what to paste in NetBox or Zabbix. The server's
-address in it is the address you have the page open at.
+person fills it in). By default the object's name goes to the host list, its site to an input
+named site, its address to one named so. The page gives the link, and what to paste in NetBox or
+Zabbix. The server's address in it is the address you have the page open at: a warning says when
+that is one only your machine reaches (localhost).
 
 **NetBox** (checked with NetBox 4.7):
 
@@ -190,6 +212,7 @@ stops it at once; so do stopping the action and your account going.
 | `GET /api/v1/actions/<id>/hosts`                                        | The inventory's hosts and groups for a host list      |
 | `GET /api/v1/actions/<id>/link?<input>=<value>`                         | What a link gives: ready to confirm, or what is left  |
 | `POST /api/v1/actions/<id>/run`                                         | `{"inputs": {"devices": "sw-edge-02"}}`: run it       |
+| `GET /api/v1/groups/<id>/action-grants`                                 | The actions a group lets its members run (admins)     |
 | `GET /api/v1/actions/runs/<run>` (and `/events`, live)                  | How a run of it goes, in words                        |
 | `GET`, `PUT`, `DELETE /api/v1/launch-configs/<id>/action`               | The action of a configuration: read, set, stop        |
 | `POST /api/v1/launch-configs/<id>/action/grants`, `DELETE …/<g>`        | Who may run it: `{"user": "mia"}` or `{"group": "…"}` |
@@ -200,3 +223,8 @@ An action's id is its launch configuration's id. Setting, granting, taking back 
 the [audit log](audit.md) (`action.set`, `action.remove`, `action.grant`, `action.grant-remove`,
 `action.run`, and for signed links `action.link-create`, `action.link-revoke`; a run from a link
 says `via: link` or `via: signed link`).
+
+A run with the same values as your run of the same action in the last 30 seconds (and the same
+`reply`) is refused with 409 `duplicate` and that run (`run: {id, number, progress}`); send
+`"again": true` to run it all the same. A signed link is not held back so. An asked input of
+the settings takes `start` (a host list's start value) and `max` (how many hosts, 1 to 1000).

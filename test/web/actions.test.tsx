@@ -177,7 +177,7 @@ describe('actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(confirm.mock.calls[0]?.[0]).toMatch(
-      /Run "Restart the edge switch" now\? Switch: sw-edge-02/,
+      /Run "Restart the edge switch" for real now\? Switch: sw-edge-02/,
     );
     await waitFor(() =>
       expect(asked.find((a) => a.key === 'POST /actions/c1/run')?.body).toEqual({
@@ -186,6 +186,86 @@ describe('actions', () => {
     );
     expect(await screen.findByText('Running step 2 of 2: Check it answers.')).toBeTruthy();
     expect(window.location.pathname).toBe('/actions/runs/r1');
+  });
+
+  it('AFS-207: a group is checked before the confirm; one host replaces another', async () => {
+    const confirm = vi.fn((_question: string) => true);
+    vi.stubGlobal('confirm', confirm);
+    const one = {
+      ...form,
+      fields: [
+        {
+          name: 'devices',
+          label: 'Switch',
+          type: 'host_list',
+          required: true,
+          hosts: true,
+          max: 1,
+          text: '',
+        },
+      ],
+    };
+    routes = {
+      ...actionOnly(),
+      'GET /actions/c1': () => ({ body: one }),
+      'GET /actions/c1/hosts': () => ({
+        body: { hosts: ['sw-edge-01', 'sw-edge-02'], groups: ['edge'], sizes: { edge: 2 } },
+      }),
+      'GET /actions/c1/link?devices=edge': () => ({
+        body: {
+          form: one,
+          values: { devices: 'edge' },
+          given: ['devices'],
+          missing: [],
+          problems: [
+            {
+              field: 'devices',
+              message:
+                'Switch: edge is 2 hosts (sw-edge-01, sw-edge-02): this action takes one host. Pick one',
+            },
+          ],
+          ready: false,
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/actions/c1');
+    render(<App />);
+    expect(await screen.findByText(/It takes one host\./)).toBeTruthy();
+    // A group says it is one, and its size.
+    const group = await screen.findByRole('button', { name: 'edge: group of 2 hosts' });
+    fireEvent.click(screen.getByRole('button', { name: 'sw-edge-01' }));
+    fireEvent.click(screen.getByRole('button', { name: 'sw-edge-02' }));
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('sw-edge-02');
+    fireEvent.click(group);
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(await screen.findByText(/edge is 2 hosts/)).toBeTruthy();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(asked.some((a) => a.key === 'POST /actions/c1/run')).toBe(false);
+  });
+
+  it('AFS-207: the same values a moment ago: asked, and No opens that run', async () => {
+    vi.stubGlobal('confirm', () => false);
+    routes = {
+      ...actionOnly(),
+      'GET /actions/c1': () => ({
+        body: { ...form, confirm: false, fields: [{ ...form.fields[0], text: 'sw-edge-01' }] },
+      }),
+      'POST /actions/c1/run': () => ({
+        status: 409,
+        body: {
+          error: 'duplicate',
+          message: 'You started "Restart the edge switch" with the same values 5 s ago (run #12)',
+          run: { id: 'r1', number: 12, progress: '/actions/runs/r1' },
+        },
+      }),
+      'GET /actions/runs/r1': () => ({ body: progress() }),
+    };
+    window.history.replaceState(null, '', '/actions/c1');
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Run' }));
+    expect(await screen.findByText('Running step 2 of 2: Check it answers.')).toBeTruthy();
+    expect(window.location.pathname).toBe('/actions/runs/r1');
+    expect(asked.filter((a) => a.key === 'POST /actions/c1/run')).toHaveLength(1);
   });
 
   it('a refusal about a field is said at it', async () => {

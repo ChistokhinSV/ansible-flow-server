@@ -20,6 +20,11 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - The run's output says who said Step, Continue or Pause.
 - The **Launch** tab offers **Only at your pause points** and how long a pause waits; a real run's question says that it pauses.
 - Readers of a paused run are told who may go on.
+- An action's host input can take **one host** or **up to a number** of hosts; a group counts by its hosts, so a "one switch" action refuses a group of four. **Starts with** gives a host input a start value of its own.
+- An action's form checks its values before the question: a host outside its group or the inventory, or more hosts than it takes, is said at the field. The host picker marks groups with their size, and the question says a group's number of hosts and whether it runs for real.
+- Running an action with the same values as your run of a moment ago asks **Run again** or **Open that run**; the API answers 409 `duplicate` unless `again` is sent.
+- **Search** finds the actions you may run. A group's page lists the actions its members may run (`GET /api/v1/groups/<id>/action-grants`).
+- An action card marks an action that runs for real and opens your last run of it; **Run it again** starts with that run's values.
 
 ### Changed
 
@@ -29,6 +34,11 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - The audit log says what was done in words ("gave access", "took back an action"), with the code on hover; an action set up for the first time is named by its title; an action grant's entry names the person, not the grant's id.
 - A reader no longer sees the Check / Real choice and Step by step on a launch configuration's page; the token form offers deciding approvals and driving step-by-step runs only to people who can.
 - The Actions page has one intro, whether it is your Home or a page of the menu.
+- A host input of an action starts empty (the runner picks) instead of with the launch configuration's value, which could be a whole group.
+- An action switched off, or one you may not run, says so with whom to ask and a way back to Actions, instead of a bare "No such action". Nobody is told to ask themselves.
+- **Copy link for NetBox and Zabbix** puts the object's name into the host input and its site into a site input by default, and warns when the page is open at an address only your machine reaches.
+- The Runs page points someone who may only run actions to Actions.
+- **Only hosts of group** offers the inventory's groups and refuses one the inventory does not have.
 - While a step runs, the bar says "Running Say hello…" and offers **Pause**; the focus stays on the button pressed.
 - A step-by-step run has one **Stop**, in its bar; stopping someone else's run asks first, naming whose it is.
 - A pause inside a subflow is named by its path ("Pre-checks › Read device status"), and a subflow stopped inside reads stopped.
@@ -48,6 +58,15 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - A paused step's Run tab said "0 hosts" while hosts waited there.
 - "Stops by itself in 61 s" with a 60 s timeout.
 - The **Launch** tab's **Step by step** box was smaller than the radios beside it and grey in the dark theme; the host list's help said what it is twice.
+- Browser **Back** after a link that runs its action as it opens started the action again.
+- An action run's progress said **Done** for steps no host reached (a run where no host ran showed every step done and a full bar; a rollback not needed showed as done).
+- Someone who started a run of an action could not open it any more after the action was taken back from them or its configuration was deleted.
+- Saving an action that tells NetBox or Zabbix without a credential said "Reply is not the right kind of value"; it now asks to choose a token credential.
+- A link with a value that is not among an action's choices said the link gives only some of what it needs.
+- The audit log listed every field of an action as changed when one changed.
+- A revoked signed link's token stayed on the page.
+- `GET /api/v1/actions/<id>/hosts` gave the whole inventory for an action whose host inputs are narrowed to a group.
+- On a phone, **Back to actions** and **Not now** now line up with the buttons; the NetBox and Zabbix choice sits on one line; an action's page is named in its settings instead of by its address.
 
 ## 1.0.3 — Steps move again after Undo
 

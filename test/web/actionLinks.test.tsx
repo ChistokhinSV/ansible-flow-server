@@ -4,7 +4,7 @@
 // once and says so; sign-in keeps the link; and the Settings make the NetBox and Zabbix links.
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { linkTemplate, netboxValue } from '../../src/web/actionLinks';
+import { linkDefaults, linkTemplate, netboxValue } from '../../src/web/actionLinks';
 import { ConfigActionSection } from '../../src/web/actions';
 import { App } from '../../src/web/app';
 
@@ -179,6 +179,61 @@ describe('a link to an action', () => {
     expect(runs()).toHaveLength(1);
   });
 
+  it('AFS-207: run on open takes the link page out of the history; opened again, it opens that run', async () => {
+    routes = {
+      ...base(),
+      [`GET /actions/c1/link${QUERY}`]: () => ({
+        body: link({ form: { ...form, runOnOpen: true } }),
+      }),
+    };
+    window.history.replaceState(null, '', '/actions');
+    window.history.pushState(null, '', `/a/c1${QUERY}`);
+    const length = window.history.length;
+    render(<App />);
+    expect(await screen.findByText(/The link started/)).toBeTruthy();
+    // Replaced, not pushed: Back goes where the person came from, not to the link.
+    expect(window.history.length).toBe(length);
+    cleanup();
+
+    // Opened again (Back in another tab, the history): the server names the run of a moment ago.
+    routes = {
+      ...routes,
+      'POST /actions/c1/run': () => ({
+        status: 409,
+        body: {
+          error: 'duplicate',
+          message:
+            'You started "Provision the load balancer" with the same values 4 s ago (run #3)',
+          run: { id: 'r1', number: 3, progress: '/actions/runs/r1' },
+        },
+      }),
+    };
+    window.history.replaceState(null, '', `/a/c1${QUERY}`);
+    render(<App />);
+    expect(await screen.findByText(/it did not start another run/)).toBeTruthy();
+    expect(window.location.pathname).toBe('/actions/runs/r1');
+  });
+
+  it("AFS-207: an action that is off or not one's own says so, with the way back", async () => {
+    routes = {
+      ...base(),
+      [`GET /actions/c1/link${QUERY}`]: () => ({
+        status: 404,
+        body: {
+          error: 'not_found',
+          message: '"Provision" is switched off for now: ask Wanda Rossi when it will be.',
+        },
+      }),
+    };
+    window.history.replaceState(null, '', `/a/c1${QUERY}`);
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'This action cannot be run' })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/switched off.*Wanda Rossi/);
+    expect(screen.getByRole('link', { name: 'Back to actions' }).getAttribute('href')).toBe(
+      '/actions',
+    );
+  });
+
   it('signed out: the sign-in page keeps the link, a provider comes back to it', async () => {
     routes = {
       'GET /session': () => ({ status: 204 }),
@@ -212,6 +267,25 @@ describe('Copy link for NetBox and Zabbix', () => {
     reply: { system: 'netbox' as const, credential: 'k1', when: 'ended' as const },
     updatedAt: '',
   };
+  it("AFS-207: by default the object's name goes to the host list, its site to a site", () => {
+    const asked = [
+      { name: 'site', label: 'Site' },
+      { name: 'devices', label: 'Switch' },
+      { name: 'note', label: 'Why' },
+    ];
+    const types = { site: 'string', devices: 'host_list', note: 'string' };
+    expect(linkDefaults(asked, types, 'netbox')).toEqual({
+      site: 'object.site.name',
+      devices: 'object.name',
+      note: '',
+    });
+    expect(linkDefaults(asked, types, 'zabbix')).toEqual({
+      site: '',
+      devices: '{HOST.HOST}',
+      note: '',
+    });
+  });
+
   it('makes the NetBox link with Jinja and the Zabbix script with macros', () => {
     expect(netboxValue('object.name')).toBe('{{ object.name|string|urlencode }}');
     expect(netboxValue('object.primary_ip4.address.ip')).toBe(

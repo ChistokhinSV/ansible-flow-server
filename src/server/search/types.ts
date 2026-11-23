@@ -5,6 +5,8 @@ export type SearchKind =
   | 'project'
   | 'flow'
   | 'launch-config'
+  // AFS-207: an action one may run.
+  | 'action'
   | 'run'
   | 'environment'
   | 'user'

@@ -177,6 +177,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('The grants that name a group, in every workspace: workspace, level, the flow when on one'),
+  'GET /api/v1/groups/:id/action-grants': S(
+    'People',
+    'administrators',
+    'server',
+  )('AFS-207: the actions a group lets its members run, in every workspace'),
 
   'GET /api/v1/workspaces': S('Workspaces', 'signed in', 'server')('Workspaces'),
   'POST /api/v1/workspaces': S('Workspaces', 'administrators', 'server')('Add a workspace'),
