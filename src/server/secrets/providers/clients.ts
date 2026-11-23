@@ -317,7 +317,11 @@ function ccp(conn: Connection, caller: Caller): Client {
       const account = jsonOf<Record<string, unknown>>(who, answer);
       const field = ref.field || 'Content';
       if (account[field] === undefined || account[field] === null)
-        throw new SecretReadError('not_found', 'CyberArk CCP has the account but not the field asked for', 200);
+        throw new SecretReadError(
+          'not_found',
+          'CyberArk CCP has the account but not the field asked for',
+          200,
+        );
       return asText(account[field]);
     },
     async test() {
@@ -333,10 +337,14 @@ function ccp(conn: Connection, caller: Caller): Client {
 // --- AWS Secrets Manager (SigV4)
 
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
-const hmac = (key: string | Buffer, s: string) => createHmac('sha256', key).update(s, 'utf8').digest();
+const hmac = (key: string | Buffer, s: string) =>
+  createHmac('sha256', key).update(s, 'utf8').digest();
 /** RFC 3986 encoding, as SigV4 asks for. */
 const enc = (s: string) =>
-  encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  encodeURIComponent(s).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 
 export interface SigV4Request {
   method: string;
@@ -414,7 +422,12 @@ function aws(conn: Connection, caller: Caller): Client {
   const s = conn.settings;
   const who = `AWS Secrets Manager "${conn.name}"`;
   const region = s.region ?? '';
-  const signed = async (service: string, url: string, headers: Record<string, string>, body: string) => {
+  const signed = async (
+    service: string,
+    url: string,
+    headers: Record<string, string>,
+    body: string,
+  ) => {
     const all = sigv4({
       method: 'POST',
       url,
@@ -453,7 +466,9 @@ function aws(conn: Connection, caller: Caller): Client {
   };
   return {
     async read(ref) {
-      const url = s.address ? `${base(s.address)}/` : `https://secretsmanager.${region}.amazonaws.com/`;
+      const url = s.address
+        ? `${base(s.address)}/`
+        : `https://secretsmanager.${region}.amazonaws.com/`;
       const body = JSON.stringify({
         SecretId: ref.secretId,
         ...(ref.versionStage ? { VersionStage: ref.versionStage } : {}),
@@ -479,7 +494,8 @@ function aws(conn: Connection, caller: Caller): Client {
         throw failure(answer, type);
       }
       const out = jsonOf<{ SecretString?: string; SecretBinary?: string }>(who, answer);
-      const text = out.SecretString ?? Buffer.from(out.SecretBinary ?? '', 'base64').toString('utf8');
+      const text =
+        out.SecretString ?? Buffer.from(out.SecretBinary ?? '', 'base64').toString('utf8');
       if (!ref.jsonKey) return text;
       let parsed: unknown;
       try {

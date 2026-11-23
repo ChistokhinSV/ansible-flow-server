@@ -116,7 +116,9 @@ export function call(url: string, options: CallOptions): Promise<Answer> {
           if (size > MAX_ANSWER) {
             req.destroy();
             done(() =>
-              reject(new SecretReadError('bad_answer', `${who} sent an answer too long for a secret`)),
+              reject(
+                new SecretReadError('bad_answer', `${who} sent an answer too long for a secret`),
+              ),
             );
             return;
           }
@@ -128,7 +130,9 @@ export function call(url: string, options: CallOptions): Promise<Answer> {
           ),
         );
         res.on('error', (e) =>
-          done(() => reject(new SecretReadError('unreachable', `${who} broke off its answer`, 0, e.message))),
+          done(() =>
+            reject(new SecretReadError('unreachable', `${who} broke off its answer`, 0, e.message)),
+          ),
         );
       },
     );

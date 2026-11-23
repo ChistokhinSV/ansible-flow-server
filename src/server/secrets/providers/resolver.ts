@@ -7,7 +7,7 @@ import type { Kysely } from 'kysely';
 import { recordAudit } from '../../audit/store';
 import type { Schema } from '../../db/schema';
 import type { MasterKey } from '../masterKey';
-import { type Caller, type Client, clientOf, type Connection } from './clients';
+import { type Caller, type Client, type Connection, clientOf } from './clients';
 import { SecretReadError } from './http';
 import { connectionOf } from './store';
 import { PROVIDER_KIND_NAME, refProblem, type SecretRef } from './types';
@@ -53,7 +53,10 @@ export function jsonLeaves(text: string): string[] {
 }
 
 export class SecretResolver {
-  private readonly clients = new Map<string, Promise<{ conn: Connection & { id: string; workspaces: string[] }; client: Client }>>();
+  private readonly clients = new Map<
+    string,
+    Promise<{ conn: Connection & { id: string; workspaces: string[] }; client: Client }>
+  >();
   private readonly cache = new Map<string, Promise<string>>();
   private readonly read: string[] = [];
 
@@ -68,7 +71,10 @@ export class SecretResolver {
     if (!found) {
       found = connectionOf(this.db, this.key, providerKey).then((conn) => {
         if (!conn)
-          throw new SecretReadError('not_allowed', `there is no secret provider "${providerKey}" any more`);
+          throw new SecretReadError(
+            'not_allowed',
+            `there is no secret provider "${providerKey}" any more`,
+          );
         return { conn, client: clientOf(conn, this.options.caller) };
       });
       this.clients.set(providerKey, found);
@@ -99,7 +105,10 @@ export class SecretResolver {
 
   private async fetch(credential: ReadFor, field: string, ref: SecretRef): Promise<string> {
     const said = `the credential "${credential.name}" (${field})`;
-    let provider: { key: string; name: string; id?: string } = { key: ref.provider, name: ref.provider };
+    let provider: { key: string; name: string; id?: string } = {
+      key: ref.provider,
+      name: ref.provider,
+    };
     try {
       const { conn, client } = await this.clientFor(ref.provider);
       provider = { key: conn.key, name: conn.name, id: conn.id };
@@ -115,7 +124,11 @@ export class SecretResolver {
           `its reference to ${PROVIDER_KIND_NAME[conn.kind]} is not complete (${problem})`,
         );
       const value = await client.read(ref);
-      if (!value) throw new SecretReadError('not_found', `${PROVIDER_KIND_NAME[conn.kind]} gave an empty value`);
+      if (!value)
+        throw new SecretReadError(
+          'not_found',
+          `${PROVIDER_KIND_NAME[conn.kind]} gave an empty value`,
+        );
       this.read.push(value);
       await this.audit(credential, provider, 'ok');
       return value;
@@ -123,7 +136,12 @@ export class SecretResolver {
       const err =
         e instanceof SecretReadError
           ? e
-          : new SecretReadError('unreachable', 'the secret provider could not be asked', 0, String(e));
+          : new SecretReadError(
+              'unreachable',
+              'the secret provider could not be asked',
+              0,
+              String(e),
+            );
       this.options.log?.warn(
         {
           ...(this.options.run ? { run: this.options.run.id } : {}),
@@ -138,7 +156,12 @@ export class SecretResolver {
         'A secret could not be read from its provider',
       );
       await this.audit(credential, provider, err.code);
-      throw new SecretReadError(err.code, `Cannot read ${said}: ${err.message}`, err.status, err.detail);
+      throw new SecretReadError(
+        err.code,
+        `Cannot read ${said}: ${err.message}`,
+        err.status,
+        err.detail,
+      );
     }
   }
 
@@ -154,7 +177,11 @@ export class SecretResolver {
       actor: null,
       source: 'server',
       action: 'secret-provider.read',
-      object: { type: 'secret-provider', ...(provider.id ? { id: provider.id } : {}), name: provider.name },
+      object: {
+        type: 'secret-provider',
+        ...(provider.id ? { id: provider.id } : {}),
+        name: provider.name,
+      },
       result: outcome === 'ok' ? 'ok' : 'failed',
       detail: { run: run.id, runNumber: run.number, credential: credential.name, outcome },
     }).catch(() => undefined);

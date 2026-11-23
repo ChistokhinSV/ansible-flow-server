@@ -11,6 +11,8 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { optionA } from '@ansible-flow/core/engine/optionA';
@@ -27,7 +29,12 @@ import { LaunchConfigs } from '../../src/server/launch/configs';
 import { prepareLaunch, withoutSecrets } from '../../src/server/launch/prepare';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
-import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
+import {
+  createProject,
+  createWorkspace,
+  getProject,
+  type Project,
+} from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { registrySignIn, runCredentials } from '../../src/server/runs/credentials';
 import { Executor, type ExecutorOptions, usernsOptions } from '../../src/server/runs/executor';
@@ -36,6 +43,7 @@ import { registryOf } from '../../src/server/runs/registry';
 import { rootFromGenerated, writeGenerated } from '../../src/server/runs/workdir';
 import { createCredential } from '../../src/server/secrets/credentials';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
+import { createSecretProvider } from '../../src/server/secrets/providers/store';
 import { type TestRepo, testRepo } from './helpers/repo';
 
 const bytes = newKey();
@@ -717,6 +725,85 @@ describe('a run', () => {
     expect((await queue.get(run.id))?.error).toMatch(/^The flow has errors/);
     source.commit({ 'flows/hello.flow.yaml': HELLO }, 'Fixed');
     await sync.sync(project.id);
+  });
+
+  it('AFS-241: reads secrets from a provider as it starts, hides them, and fails before Ansible when it cannot', async () => {
+    const VALUE = 'provider-S3CR3T-value';
+    const server = createServer((req, res) => {
+      if (req.url?.startsWith('/authn/')) res.writeHead(200).end('dG9rZW4=');
+      else if (req.url === '/secrets/corp/variable/net%2Fswitches') res.writeHead(200).end(VALUE);
+      else res.writeHead(404).end('Variable corp:variable:net/elsewhere not found');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const workspace = project.workspace;
+    await createSecretProvider(database.db, key, {
+      key: 'conjur-run',
+      name: 'Conjur',
+      kind: 'conjur',
+      settings: { address, account: 'corp', login: 'host/afs', timeoutS: 3 },
+      secret: { apiKey: 'api-key-fictional' },
+      workspaces: [workspace],
+    });
+    const login = (name: string, variable: string) =>
+      createCredential(database.db, key, workspace, {
+        name,
+        kind: 'login',
+        fields: { username: 'netops' },
+        secret: {},
+        refs: { password: { provider: 'conjur-run', variable } },
+      }).then((c) => c.id);
+    const good = await login('from conjur', 'net/switches');
+    const broken = await login('from conjur, gone', 'net/elsewhere');
+    const commit = (await getProject(database.db, project.id))?.commit as string;
+    const enqueue = (credential: string) =>
+      queue.enqueue(
+        {
+          config,
+          project: project.id,
+          commit,
+          ref: 'main',
+          flow: { file: 'flows/hello.flow.yaml', key: 'hello', name: 'Hello', version: 1 },
+          mode: 'check',
+          inputs: {},
+          targets: [],
+          credentials: [credential],
+        },
+        {},
+        { id: 'u1', login: 'dana' },
+      );
+    try {
+      const { ex, seen } = executor(async (_request, hooks) => {
+        hooks.log?.(`a task said ${VALUE}`);
+        return { rc: 0 };
+      });
+      const run = await enqueue(good);
+      await ex.start();
+      await ended(run.id);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.request.inputs).toMatchObject({
+        ansible_password: VALUE,
+        afs_external_secrets: [VALUE],
+      });
+      const output = readFileSync(ex.outputFile(run.id), 'utf8');
+      expect(output).toContain(
+        'login "from conjur" as netops, password from CyberArk Conjur "Conjur"',
+      );
+      expect(output).not.toContain(VALUE);
+
+      const failing = await enqueue(broken);
+      await ended(failing.id);
+      await ex.stop();
+      // The run never reached Ansible; its words say no path.
+      expect(seen).toHaveLength(1);
+      expect(await queue.get(failing.id)).toMatchObject({
+        state: 'failed',
+        error:
+          'Cannot read the credential "from conjur, gone" (password): CyberArk Conjur has no such variable, or "Conjur" may not read it (404)',
+      });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   it('a key with a passphrase goes into an ssh-agent, the passphrase in no argument or file (AFS-66)', async () => {

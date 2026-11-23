@@ -155,7 +155,10 @@ export function registerSecretProviders(
     '/api/v1/admin/secret-providers/:id',
     {
       bodyLimit: BODY_LIMIT,
-      schema: { ...ID, body: { type: 'object', additionalProperties: false, properties: PROVIDER } },
+      schema: {
+        ...ID,
+        body: { type: 'object', additionalProperties: false, properties: PROVIDER },
+      },
     },
     answering(async (request, reply) => {
       const me = inSession(request, reply, true);

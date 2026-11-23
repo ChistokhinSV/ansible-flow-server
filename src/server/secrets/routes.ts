@@ -162,7 +162,11 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
       if (!me) return reply;
       const before = await getCredential(db, request.params.id);
       const changed = (
-        await shownRefs(db, [await updateCredential(db, key, request.params.id, request.body)], true)
+        await shownRefs(
+          db,
+          [await updateCredential(db, key, request.params.id, request.body)],
+          true,
+        )
       )[0] as NonNullable<Awaited<ReturnType<typeof getCredential>>>;
       // AFS-153: the fields whose values changed; a secret sent is a new secret (it is never
       // read back to compare).

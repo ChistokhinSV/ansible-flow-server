@@ -538,7 +538,10 @@ export async function testRef(
     };
   } catch (e) {
     if (e instanceof SecretReadError)
-      return { ok: false, message: e.message.split('Cannot read the credential "tested" (test): ').join('') };
+      return {
+        ok: false,
+        message: e.message.split('Cannot read the credential "tested" (test): ').join(''),
+      };
     throw e;
   } finally {
     await resolver.close();

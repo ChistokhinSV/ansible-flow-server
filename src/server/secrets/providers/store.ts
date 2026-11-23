@@ -15,9 +15,9 @@ import {
   type ProviderKind,
   type ProviderSettings,
   SECRETS,
+  SETTINGS,
   type SecretProvider,
   type SecretProviderInput,
-  SETTINGS,
 } from './types';
 
 type Db = Kysely<Schema>;
@@ -76,7 +76,10 @@ function checkedSettings(kind: ProviderKind, settings: ProviderSettings): Provid
   for (const [name, value] of Object.entries(settings ?? {})) {
     if (value === undefined || value === null || value === '') continue;
     if (!allowed.includes(name as keyof ProviderSettings))
-      throw invalid(name, `A ${PROVIDER_KIND_NAME[kind]} provider has no setting "${name.slice(0, 40)}"`);
+      throw invalid(
+        name,
+        `A ${PROVIDER_KIND_NAME[kind]} provider has no setting "${name.slice(0, 40)}"`,
+      );
     if (name === 'timeoutS') {
       if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 120)
         throw invalid(name, 'The timeout is 1 to 120 seconds');
@@ -96,7 +99,10 @@ function checkedSettings(kind: ProviderKind, settings: ProviderSettings): Provid
     out.address = out.address.replace(/\/+$/, '');
   }
   if (out.ca && !isPem(out.ca, 'CERTIFICATE'))
-    throw invalid('ca', 'The certificate authority is a PEM certificate (-----BEGIN CERTIFICATE-----)');
+    throw invalid(
+      'ca',
+      'The certificate authority is a PEM certificate (-----BEGIN CERTIFICATE-----)',
+    );
   if (out.clientCert && !isPem(out.clientCert, 'CERTIFICATE'))
     throw invalid('clientCert', 'The client certificate is a PEM certificate');
   switch (kind) {
@@ -155,7 +161,9 @@ function missingSecret(
     case 'conjur':
       return need('apiKey', "The host's API key is needed");
     case 'ccp':
-      return settings.clientCert ? need('clientKey', "The client certificate's key is needed") : undefined;
+      return settings.clientCert
+        ? need('clientKey', "The client certificate's key is needed")
+        : undefined;
     case 'aws':
       return (
         need('accessKeyId', 'The access key id is needed') ??
@@ -179,7 +187,10 @@ export async function listSecretProviders(db: Db): Promise<SecretProvider[]> {
   return rows.map(providerOf);
 }
 
-export async function getSecretProvider(db: Db, idOrKey: string): Promise<SecretProvider | undefined> {
+export async function getSecretProvider(
+  db: Db,
+  idOrKey: string,
+): Promise<SecretProvider | undefined> {
   const r = await db
     .selectFrom('secret_provider')
     .selectAll()
@@ -233,9 +244,9 @@ export async function providerUses(
     .execute();
   return rows
     .filter((r) =>
-      Object.values(JSON.parse(r.refs_json as string) as Record<string, { provider?: string }>).some(
-        (ref) => ref.provider === providerKey,
-      ),
+      Object.values(
+        JSON.parse(r.refs_json as string) as Record<string, { provider?: string }>,
+      ).some((ref) => ref.provider === providerKey),
     )
     .map((r) => ({ id: r.id, name: r.name, workspace: r.workspace_id, workspaceKey: r.key }));
 }
@@ -250,7 +261,10 @@ export async function createSecretProvider(
   if (!input.name?.trim() || input.name.trim().length > 100)
     throw invalid('name', 'A name of 1 to 100 characters is needed');
   if (!PROVIDER_KINDS.includes(input.kind))
-    throw invalid('kind', `There is no kind ${input.kind}: use one of ${PROVIDER_KINDS.join(', ')}`);
+    throw invalid(
+      'kind',
+      `There is no kind ${input.kind}: use one of ${PROVIDER_KINDS.join(', ')}`,
+    );
   const settings = checkedSettings(input.kind, input.settings);
   const secret = checkedSecret(input.kind, input.secret ?? {});
   const missing = missingSecret(input.kind, settings, Object.keys(secret));
@@ -277,7 +291,11 @@ export async function createSecretProvider(
     .onConflict((c) => c.column('key').doNothing())
     .executeTakeFirst();
   if (!done.numInsertedOrUpdatedRows)
-    throw new ProviderStoreError('taken', `A secret provider with the key ${input.key} is there`, 'key');
+    throw new ProviderStoreError(
+      'taken',
+      `A secret provider with the key ${input.key} is there`,
+      'key',
+    );
   return (await getSecretProvider(db, id)) as SecretProvider;
 }
 
@@ -287,7 +305,11 @@ export async function updateSecretProvider(
   id: string,
   input: Partial<SecretProviderInput>,
 ): Promise<SecretProvider> {
-  const r = await db.selectFrom('secret_provider').selectAll().where('id', '=', id).executeTakeFirst();
+  const r = await db
+    .selectFrom('secret_provider')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
   if (!r) throw new ProviderStoreError('not_found', 'No such secret provider');
   const before = providerOf(r);
   if (input.kind !== undefined && input.kind !== before.kind)
@@ -340,7 +362,11 @@ export async function updateSecretProvider(
     await db.updateTable('secret_provider').set(set).where('id', '=', id).execute();
   } catch (e) {
     if (/unique|duplicate/i.test((e as Error).message))
-      throw new ProviderStoreError('taken', `A secret provider with the key ${input.key} is there`, 'key');
+      throw new ProviderStoreError(
+        'taken',
+        `A secret provider with the key ${input.key} is there`,
+        'key',
+      );
     throw e;
   }
   return (await getSecretProvider(db, id)) as SecretProvider;

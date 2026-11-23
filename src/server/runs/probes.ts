@@ -137,7 +137,9 @@ export class InventoryProbes {
     const id = `probe-${Date.now().toString(36)}-${(this.next++).toString(36)}`;
     // AFS-241: what credentials take from secret providers is read once for the probe, then the
     // sign-ins are given back (the values stay only in the probe's environment).
-    const resolver = new SecretResolver(this.options.db, this.options.key, { log: this.options.log });
+    const resolver = new SecretResolver(this.options.db, this.options.key, {
+      log: this.options.log,
+    });
     let vars: Awaited<ReturnType<typeof inventoryEnv>>;
     try {
       const signIn = await registrySignIn(

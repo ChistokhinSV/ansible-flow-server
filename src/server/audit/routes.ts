@@ -350,7 +350,11 @@ async function nameOf(
       );
     case 'secret-provider':
       return one(
-        db.selectFrom('secret_provider').select('name as n').where('id', '=', id).executeTakeFirst(),
+        db
+          .selectFrom('secret_provider')
+          .select('name as n')
+          .where('id', '=', id)
+          .executeTakeFirst(),
       );
     case 'ldap-directory':
       return one(
