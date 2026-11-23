@@ -2,7 +2,7 @@
 
 All notable changes to Ansible Flow Server.
 
-## Unreleased
+## 1.0.3 — Steps move again after Undo
 
 Carries Ansible Flow Designer 1.0.3.
 
