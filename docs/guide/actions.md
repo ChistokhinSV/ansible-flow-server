@@ -17,9 +17,10 @@ administrator, or someone with **read and write** on the workspace):
 - **What it asks**: tick the inputs a runner chooses, each with a **label** ("Switch", not
   `devices`) and a **help line**. **Choices** (names separated by commas) limit it to those values;
   a host list without choices offers the inventory's hosts and groups by name; **Only hosts of
-  group** narrows it to one inventory group (offered as you type; a group the inventory does not
-  have is refused when you save; its hosts and its child groups' hosts are offered, no other name
-  is taken). Every input not ticked runs with the configuration's value, and a runner cannot
+  group** narrows it to one inventory group (every group of the configuration's inventory is
+  offered as you type, with its number of hosts, also before the action is saved; a group the
+  inventory does not have is refused when you save; its hosts and its child groups' hosts are
+  offered, no other name is taken). Every input not ticked runs with the configuration's value, and a runner cannot
   change it: the server refuses a value for an input the action does not ask. Secret-looking
   inputs are never asked: give them with a credential.
 - A host list it asks **starts empty**: the runner picks (the configuration's value, often a whole

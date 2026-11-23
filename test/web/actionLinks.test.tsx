@@ -353,4 +353,52 @@ describe('Copy link for NetBox and Zabbix', () => {
       expect(asked.some((a) => a.key === 'DELETE /launch-configs/c1/action/tokens/t0')).toBe(true),
     );
   });
+
+  it("AFS-232: Only hosts of group offers every group of the configuration's inventory, before the action is saved", async () => {
+    routes = {
+      'GET /launch-configs/c1/action': () => ({
+        body: { action: null, grants: [], tokens: [], mayManage: true },
+      }),
+      'GET /workspaces/net/credentials': () => ({ body: [] }),
+      'POST /launch-configs/c1/facts': () => ({
+        body: {
+          commit: 'a'.repeat(40),
+          environment: 'ee',
+          groups: ['all', 'core', 'edge', 'ungrouped'],
+          groupHosts: {
+            all: { count: 5, hosts: [] },
+            core: { count: 1, hosts: ['core1'] },
+            edge: { count: 4, hosts: ['e1', 'e2', 'e3', 'e4'] },
+          },
+        },
+      }),
+    };
+    render(
+      <ConfigActionSection
+        config="c1"
+        name="Provision"
+        inputs={[{ name: 'device', type: 'host_list' } as never]}
+        workspace="net"
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Make it an action' }));
+    const ask = screen.getByRole('checkbox', { name: /Ask for/ }) as HTMLInputElement;
+    if (!ask.checked) fireEvent.click(ask);
+    const field = await screen.findByRole('combobox', { name: /Only hosts of group/ });
+    const list = document.getElementById(field.getAttribute('list') ?? '');
+    await waitFor(() =>
+      expect(
+        [...(list?.querySelectorAll('option') ?? [])].map((o) => [o.value, o.textContent]),
+      ).toEqual([
+        ['core', '1 host'],
+        ['edge', '4 hosts'],
+      ]),
+    );
+    // Asked for the groups with no values typed; not the saved action's (narrowed) hosts.
+    expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')[0]?.body).toEqual({
+      inputs: {},
+      groups: true,
+    });
+    expect(asked.some((a) => a.key.includes('/hosts'))).toBe(false);
+  });
 });

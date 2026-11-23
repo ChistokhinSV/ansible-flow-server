@@ -27,10 +27,15 @@ const FLOW = /\.flow\.ya?ml$/;
 /** Text the page edits; a bigger file is downloaded (the server takes 1 MB per edited file). */
 const EDIT_MAX = 1024 * 1024;
 
-interface ChangeSet {
+export interface ChangeSet {
   /** The commit of the branch when the first change was made. */
   base?: string;
   changes: FileChange[];
+  /**
+   * AFS-232: the files a Save was refused over (the branch changed them since `base`) and the
+   * branch's commit then. Once no change touches them, the change set begins at `head`.
+   */
+  conflict?: { files: string[]; head?: string };
 }
 
 /** A file as the page shows it: where it is now, its size, and what the change set did to it. */
@@ -143,6 +148,27 @@ export function addChange(
   return changes.map((x) =>
     x.op === 'write' && within(x.path, path) ? { ...x, path: to + x.path.slice(path.length) } : x,
   );
+}
+
+/** AFS-232: whether a change writes, moves or deletes `file` (or a folder it is in). */
+function touchesFile(c: FileChange, file: string): boolean {
+  const paths = c.op === 'move' ? [c.from, c.to] : [c.path];
+  return paths.some((p) => within(file, p.replace(/\/+$/, '')));
+}
+
+/**
+ * AFS-232: the change set without its change at `index`. When the changes left touch none of the
+ * files a Save was refused over, it begins at the branch's commit of that refusal: they are made
+ * on the branch as it is now (the old beginning refused them again however often they were
+ * redone). With no change left it begins anew at the next change.
+ */
+export function takeBack(set: ChangeSet, index: number): ChangeSet {
+  const changes = set.changes.filter((_, j) => j !== index);
+  if (!changes.length) return { changes: [] };
+  const { conflict, ...rest } = set;
+  if (!conflict || changes.some((c) => conflict.files.some((f) => touchesFile(c, f))))
+    return { ...set, changes };
+  return { ...rest, ...(conflict.head ? { base: conflict.head } : {}), changes };
 }
 
 /** AFS-192: the text of uploaded bytes, when they are UTF-8 text small enough to show. */
@@ -752,8 +778,9 @@ export function FilesPage({
       const done = await api.saveFiles(id, {
         branch,
         ...(set.base ? { base: set.base } : {}),
-        // AFS-140: the message is what the placeholder showed when none is typed.
-        message: message.trim() || defaultMessage(set.changes, existed),
+        // AFS-232: no message when none is typed: the server writes the placeholder's words as the
+        // subject and lists every change in the body (sending the placeholder read as typed).
+        ...(message.trim() ? { message: message.trim() } : {}),
         ...(canFollow && repoint ? { repoint: true } : {}),
         // AFS-150: an archive replaces files that are there only once the person said it may.
         changes: replace
@@ -798,6 +825,18 @@ export function FilesPage({
       listing.reload();
       found.reload();
     } catch (e) {
+      // AFS-232: the files main changed are kept with the change set (a reload keeps them too),
+      // and the list shows the branch as it is now, where the changes are made again.
+      if (e instanceof ApiError && e.code === 'conflict' && e.details.files) {
+        update({
+          ...set,
+          conflict: {
+            files: e.details.files,
+            ...(e.details.head ? { head: e.details.head } : {}),
+          },
+        });
+        listing.reload();
+      }
       setSaid({
         error: messageOf(e),
         ...(e instanceof ApiError && e.details.files ? { files: e.details.files } : {}),
@@ -1218,7 +1257,9 @@ export function FilesPage({
                   aria-label={`Take back: ${describe(c, existed)}`}
                   onClick={() => {
                     setSaid(undefined);
-                    update({ ...set, changes: set.changes.filter((_, j) => j !== i) });
+                    update(takeBack(set, i));
+                    // AFS-232: after a refused Save, the files as the branch has them now.
+                    if (set.conflict) listing.reload();
                   }}
                 >
                   Take back

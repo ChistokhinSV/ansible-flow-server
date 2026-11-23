@@ -173,9 +173,10 @@ export const SERVER_TOOLS: ServerTool[] = [
           'lost',
           'rejected',
           'paused',
+          'going',
         ],
         description:
-          'rejected: failed because an approval was rejected or not decided in time; failed leaves those out. paused: a step-by-step run paused before a step (its state is running); waiting has those too',
+          'rejected: failed because an approval was rejected or not decided in time; failed leaves those out. paused: a step-by-step run paused before a step (its state is running); waiting has those too. going: queued, or running and not paused',
       },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       before: str('Where the last page ended: the next of its answer'),

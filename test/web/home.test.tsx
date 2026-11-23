@@ -241,6 +241,10 @@ describe('home, a run paused step by step (AFS-205)', () => {
       '2 runs today, by everyone: 0 went well, 1 still goes, 1 paused step by step. Your run #5 of Firewall firmware upgrade is paused before Push baseline: Step or Continue goes on.',
     );
     expect(within(line).getByRole('link', { name: '1 paused step by step' })).toBeTruthy();
+    // AFS-232: "still goes" is a link too, to the runs going (not the paused ones).
+    expect(within(line).getByRole('link', { name: '1 still goes' }).getAttribute('href')).toBe(
+      '/runs?state=going',
+    );
   });
 });
 

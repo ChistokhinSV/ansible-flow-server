@@ -267,7 +267,8 @@ off because their flow was moved (without `repoint`) or deleted are listed as `t
 with `why`.
 
 A write takes `text` or `base64`, and `executable: true` for a program. A refusal because the branch
-changed the same files is `409` with `files`. An `unpack` that would replace files that are there
+changed the same files is `409` with `files` and `head` (the branch's commit then: once those
+files are out of the change set, it begins there). An `unpack` that would replace files that are there
 (with other content) is refused, `409` with `error: "replaces"` and those `files`, unless it says
 `"replace": true`.
 

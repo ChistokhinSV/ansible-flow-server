@@ -157,9 +157,10 @@ export interface RunFilter {
   /**
    * AFS-193: `rejected` is a failed run whose approval was rejected or not decided in time;
    * `failed` leaves those out. AFS-205: `paused` is a step-by-step run paused before a step (its
-   * state is `running`); `waiting` has those too: both wait for a person.
+   * state is `running`); `waiting` has those too: both wait for a person. AFS-232: `going` is a
+   * run queued or running and not paused (Home's "still go").
    */
-  state?: RunState | 'rejected' | 'paused';
+  state?: RunState | 'rejected' | 'paused' | 'going';
   /** Runs of this launch configuration (its id). */
   config?: string;
   /** Runs this person asked for (their login). */
@@ -377,6 +378,13 @@ export class RunQueue {
         .where('id', filter.state === 'rejected' ? 'in' : 'not in', against);
     } else if (filter.state === 'paused')
       query = query.where('state', '=', 'running').where('step_paused', 'is not', null);
+    else if (filter.state === 'going')
+      query = query.where((eb) =>
+        eb.or([
+          eb('state', '=', 'queued'),
+          eb.and([eb('state', '=', 'running'), eb('step_paused', 'is', null)]),
+        ]),
+      );
     else if (filter.state === 'waiting')
       query = query.where((eb) =>
         eb.or([

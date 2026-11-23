@@ -43,6 +43,9 @@ export class FilesRefused extends Error {
      * files an archive would replace.
      */
     readonly files?: string[],
+    /** AFS-232: for a conflict, the branch's commit now, which a change set without those files
+     * may begin at instead. */
+    readonly head?: string,
   ) {
     super(message);
     this.name = 'FilesRefused';
@@ -343,6 +346,7 @@ export async function saveFiles(
           'conflict',
           `${head.branch} changed the same files since the change set began`,
           both.sort(),
+          head.commit,
         );
     }
     const row = await deps.db

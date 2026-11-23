@@ -234,6 +234,7 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
             error: e.code,
             message: e.message,
             ...(e.files ? { files: e.files } : {}),
+            ...(e.head ? { head: e.head } : {}),
           });
         // A source that refused the push: its reason, without what git said around it.
         if (e instanceof GitError)

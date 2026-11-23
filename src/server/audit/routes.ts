@@ -8,6 +8,7 @@ import { type GrantLevel, LEVEL_NAME } from '../access/types';
 import { administrator } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { viaMcp } from '../mcp/mark';
+import { titleOf } from '../projects/historyRoutes';
 import { auditRefs } from './refs';
 import {
   type AuditEntry,
@@ -220,8 +221,18 @@ const REASONED = new Set([
 ]);
 const typeOf = (action: string) => action.slice(0, action.indexOf('.'));
 
+/** AFS-232: reads a file of a project's repository at a commit (a flow's, for its title). */
+export interface FlowFiles {
+  read(projectId: string, commit: string, path: string): Promise<Buffer | undefined>;
+}
+
 /** Where an object's name is, to name it in the entry: what is deleted cannot be asked later. */
-async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<string | undefined> {
+async function nameOf(
+  db: Kysely<Schema>,
+  type: string,
+  id: string,
+  git?: FlowFiles,
+): Promise<string | undefined> {
   const one = async (query: Promise<{ n: string | number } | undefined>) =>
     (await query.catch(() => undefined))?.n?.toString();
   switch (type) {
@@ -291,6 +302,8 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
           'access_grant.level',
           'access_grant.principal_type',
           'access_grant.flow_file',
+          'access_grant.project_id',
+          'project.commit_id',
           'user_account.login',
           'user_account.name as person',
           'user_group.name',
@@ -300,7 +313,17 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
         .where('access_grant.id', '=', id)
         .executeTakeFirst()
         .catch(() => undefined);
-      return grant ? grantWords(grant) : undefined;
+      if (!grant) return undefined;
+      // AFS-232: a flow by its title, as the Access tab names it, where its file can be read.
+      const title =
+        git && grant.flow_file && grant.project_id && grant.commit_id
+          ? titleOf(
+              await git
+                .read(grant.project_id, grant.commit_id, grant.flow_file)
+                .catch(() => undefined),
+            )
+          : undefined;
+      return grantWords(grant, title);
     }
     // AFS-141: named, not left as ids: what is deleted cannot be asked later.
     case 'environment':
@@ -336,26 +359,33 @@ async function nameOf(db: Kysely<Schema>, type: string, id: string): Promise<str
 
 /**
  * AFS-195: a grant in the pages' words: "read only for group netops on Network team", "operator
- * for Nora Brandt on the flow hello in Hello", not level codes and file paths.
+ * for Nora Brandt on the flow Hello, Ansible in Hello", not level codes and file paths. AFS-232:
+ * the flow by its title when known, else by its file's name.
  */
-function grantWords(grant: {
-  level: string;
-  principal_type: string;
-  flow_file: string | null;
-  login: string | null;
-  person: string | null;
-  name: string | null;
-  workspace: string | null;
-  project: string | null;
-}): string {
+function grantWords(
+  grant: {
+    level: string;
+    principal_type: string;
+    flow_file: string | null;
+    login: string | null;
+    person: string | null;
+    name: string | null;
+    workspace: string | null;
+    project: string | null;
+  },
+  title?: string,
+): string {
   const level = LEVEL_NAME[grant.level as GrantLevel] ?? grant.level;
   const who =
     grant.principal_type === 'user' ? (grant.person ?? grant.login) : `group ${grant.name}`;
   // AFS-141: and where: the workspace, or the flow in it.
   const flow = grant.flow_file
-    ?.split('/')
-    .at(-1)
-    ?.replace(/\.flow\.ya?ml$/, '');
+    ? (title ??
+      grant.flow_file
+        .split('/')
+        .at(-1)
+        ?.replace(/\.flow\.ya?ml$/, ''))
+    : undefined;
   const where = flow ? `the flow ${flow} in ${grant.project ?? grant.workspace}` : grant.workspace;
   return `${level} for ${who} on ${where}`;
 }
@@ -368,6 +398,7 @@ async function grantsOf(
   db: Kysely<Schema>,
   type: 'user' | 'group',
   id: string,
+  git?: FlowFiles,
 ): Promise<{ id: string; name: string; workspace: string }[]> {
   const rows = await db
     .selectFrom('access_grant')
@@ -381,7 +412,7 @@ async function grantsOf(
   for (const row of rows)
     named.push({
       id: row.id,
-      name: (await nameOf(db, 'grant', row.id)) ?? row.id,
+      name: (await nameOf(db, 'grant', row.id, git)) ?? row.id,
       workspace: row.workspace_id,
     });
   return named;
@@ -510,10 +541,12 @@ declare module 'fastify' {
 
 export interface AuditDeps {
   db: Kysely<Schema>;
+  /** AFS-232: the projects' repositories, for the titles of flows a grant is on. */
+  git?: FlowFiles;
 }
 
 export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
-  const { db } = deps;
+  const { db, git } = deps;
   // A route that changes something and is not in the list cannot be added: the server would
   // do it without a word in the log.
   app.addHook('onRoute', (route) => {
@@ -538,10 +571,24 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
 
   app.addHook('preHandler', async (request) => {
     const spec = actionOf(request);
+    // AFS-232: a grant given keeps its workspace by id, as one taken back does (the pages name it
+    // in the address by its key), so the entry links it while it exists.
+    if (spec?.action === 'grant.create') {
+      const asked = (request.params as Record<string, string>).id;
+      const workspace = asked
+        ? await db
+            .selectFrom('workspace')
+            .select('id')
+            .where((eb) => eb.or([eb('id', '=', asked), eb('key', '=', asked)]))
+            .executeTakeFirst()
+            .catch(() => undefined)
+        : undefined;
+      if (workspace) request.auditDetail = { ...request.auditDetail, workspace: workspace.id };
+    }
     if (!spec || typeof spec.id !== 'object') return;
     const id = (request.params as Record<string, string>)[spec.id.param];
     if (!id) return;
-    request.auditName = await nameOf(db, typeOf(spec.action), id);
+    request.auditName = await nameOf(db, typeOf(spec.action), id, git);
     // AFS-195: a grant taken back says its workspace, as a grant given does.
     if (spec.action === 'grant.delete') {
       const grant = await db
@@ -554,7 +601,7 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     }
     if (spec.action === 'group.delete' || spec.action === 'user.delete') {
       const type = spec.action === 'user.delete' ? 'user' : 'group';
-      request.auditGrants = await grantsOf(db, type, id);
+      request.auditGrants = await grantsOf(db, type, id, git);
       request.auditActionGrants = await actionGrantsOf(db, { type, id });
     }
     // AFS-206: a configuration that is an action ends the action and who may run it with it.
@@ -610,7 +657,7 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       object = {
         type,
         id: answer.id,
-        ...withName((await nameOf(db, type, answer.id)) ?? nameInReply(answer)),
+        ...withName((await nameOf(db, type, answer.id, git)) ?? nameInReply(answer)),
       };
     else if (typeof spec.id === 'object' && params[spec.id.param])
       object = { type, id: params[spec.id.param], ...withName(request.auditName) };

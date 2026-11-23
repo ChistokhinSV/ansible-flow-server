@@ -14,6 +14,7 @@ import {
   type ActionSettings,
   ApiError,
   api,
+  type LaunchRequest,
 } from './api';
 import { ask } from './confirm';
 import { Link, navigate } from './router';
@@ -667,6 +668,25 @@ const NEW: ActionSettings = {
 
 const SYSTEM_WORDS = { netbox: 'NetBox', zabbix: 'Zabbix' } as const;
 
+/**
+ * AFS-232: the groups of a configuration's inventory and how many hosts each has (the groups
+ * `all` and `ungrouped` left out); undefined when the inventory cannot be read.
+ */
+export async function inventoryGroupSizes(
+  config: string,
+): Promise<Record<string, number> | undefined> {
+  try {
+    const r = await api.launchFacts(config, { inputs: {}, groups: true } as LaunchRequest);
+    return Object.fromEntries(
+      (r.groups ?? [])
+        .filter((g) => g !== 'all' && g !== 'ungrouped')
+        .map((g) => [g, r.groupHosts?.[g]?.count ?? 0]),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 /** The action of a configuration: make it one, change its words, and who may run it. */
 export function ConfigActionSection({
   config,
@@ -684,13 +704,18 @@ export function ConfigActionSection({
   const id = useId();
   const state = useLoad(() => api.configAction(config), [config]);
   const action = state.data?.action ?? undefined;
-  // AFS-207: the inventory's groups, for "Only hosts of group" (once it is an action).
-  const inventory = useLoad(
-    async () => (action?.id ? api.actionHosts(action.id).catch(() => undefined) : undefined),
-    [action?.id],
-  );
   const manage = !!state.data?.mayManage;
   const [editing, setEditing] = useState(false);
+  // AFS-232: every group of the configuration's inventory with its number of hosts, for "Only
+  // hosts of group", read as the Launch tab reads them, once the settings open with a host list:
+  // before the action is saved too, and not narrowed to the group chosen.
+  const hostLists = inputs.some((i) => i.type === 'host_list' && !i.secret);
+  const [askGroups, setAskGroups] = useState(false);
+  if (editing && hostLists && !askGroups) setAskGroups(true);
+  const inventory = useLoad(
+    async () => (askGroups ? inventoryGroupSizes(config) : undefined),
+    [config, askGroups],
+  );
   const [settings, setSettings] = useState<ActionSettings>(NEW);
   const [rows, setRows] = useState<Record<string, AskedRow>>({});
   const [saved, setSaved] = useState<string>();
@@ -972,7 +997,7 @@ export function ConfigActionSection({
                                 />
                                 {/* AFS-207: the inventory's groups, offered as one types. */}
                                 <datalist id={`${id}-groups`}>
-                                  {Object.entries(inventory.data?.sizes ?? {}).map(([g, n]) => (
+                                  {Object.entries(inventory.data ?? {}).map(([g, n]) => (
                                     <option key={g} value={g}>
                                       {`${n} ${n === 1 ? 'host' : 'hosts'}`}
                                     </option>

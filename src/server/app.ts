@@ -148,7 +148,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // First: their hooks see every route. The catalog describes and scopes them, the audit log
   // records what they change.
   registerCatalog(app, { db: deps.database.db });
-  registerAudit(app, { db: deps.database.db });
+  registerAudit(app, {
+    db: deps.database.db,
+    ...(deps.projects ? { git: deps.projects.git } : {}),
+  });
   registerAuth(app, {
     db: deps.database.db,
     // Behind a proxy the server itself speaks plain HTTP, but people reach it over HTTPS.

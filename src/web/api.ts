@@ -155,6 +155,8 @@ export class ApiError extends Error {
       conflicts?: { id: string; label: string; draft?: string | null; branch?: string | null }[];
       /** AFS-78: the files the branch changed since a change set began. */
       files?: string[];
+      /** AFS-232: with `files`, the branch's commit when the change set was refused. */
+      head?: string;
       /** AFS-164: the errors of a flow that cannot run, with the step each is on. */
       errors?: FlowError[];
       /** AFS-207: the run a refused action run would repeat (the same values a moment ago). */
@@ -219,6 +221,7 @@ async function call<T>(
       ...(data?.form ? { form: data.form } : {}),
       ...(Array.isArray(data?.conflicts) ? { conflicts: data.conflicts } : {}),
       ...(Array.isArray(data?.files) ? { files: data.files } : {}),
+      ...(typeof data?.head === 'string' ? { head: data.head } : {}),
       ...(Array.isArray(data?.errors) ? { errors: data.errors } : {}),
       ...(typeof data?.run?.id === 'string' ? { run: data.run } : {}),
     },

@@ -17,7 +17,8 @@ it; with the HTTP status), the client's address and the request id of the server
   revoked. People and groups made, changed, deleted; who was added to a group
   and who left it, by login. A person not made is named by the login tried, with the reason.
 - Access grants given and taken back, named in the pages' words with the workspace (or flow) they
-  are on ("read only for group netops on Network team"), with the workspace in the detail.
+  are on ("read only for group netops on Network team", a flow by its title), with the workspace
+  in the detail, linked while it exists.
   Deleting a person or a group ends their grants: each one is recorded as taken back
   (`grant.delete`, "the group was deleted"), and the deletion lists them.
 - Workspaces, projects, credentials, launch configurations, schedules and environments made,

@@ -147,7 +147,15 @@ export function Home({ me }: { me: User }) {
         ]
       : []),
     ...(going
-      ? [['going', `${going} still ${going === 1 ? 'goes' : 'go'}`] as [string, ReactNode]]
+      ? [
+          [
+            'going',
+            <Link
+              key="going"
+              to="/runs?state=going"
+            >{`${going} still ${going === 1 ? 'goes' : 'go'}`}</Link>,
+          ] as [string, ReactNode],
+        ]
       : []),
   ];
   // AFS-146: whose decision your own held run waits for, when it is one run.

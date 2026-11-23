@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
-import { addChange, applyChanges, base64Size, uploadedText } from '../../src/web/files';
+import { addChange, applyChanges, base64Size, takeBack, uploadedText } from '../../src/web/files';
 
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
 const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
@@ -126,8 +126,8 @@ describe('the files page', () => {
     expect(sent('POST /projects/p1/files')[0]).toEqual({
       branch: 'main',
       base: COMMIT,
-      // AFS-140: no message typed: the placeholder's words are the commit's.
-      message: 'Move templates/web.conf.j2 to roles/web/templates/web.conf.j2',
+      // AFS-232: no message typed, none sent: the server writes the placeholder's words and lists
+      // the changes in the body.
       changes: [
         { op: 'move', from: 'templates/web.conf.j2', to: 'roles/web/templates/web.conf.j2' },
       ],
@@ -292,6 +292,79 @@ describe('the files page', () => {
     expect(screen.getByRole('link', { name: 'Download' }).getAttribute('href')).toContain(
       'download=true',
     );
+  });
+
+  it('AFS-232: once the refused changes are taken back, the rest saves on the branch as it is now', async () => {
+    const HEAD = 'b'.repeat(40);
+    const move = { op: 'move', from: 'templates/web.conf.j2', to: 'roles/web/web.conf.j2' };
+    const del = { op: 'delete', path: 'flows' };
+    window.localStorage.setItem(
+      'afs.files.p1.main',
+      JSON.stringify({ base: COMMIT, changes: [del, move] }),
+    );
+    window.history.replaceState(null, '', '/w/net/core/files?path=templates%2Fweb.conf.j2');
+    render(<App />);
+    await screen.findByText(/Changes not saved \(2\)/);
+    routes['POST /projects/p1/files'] = () => ({
+      status: 409,
+      body: {
+        error: 'conflict',
+        message: 'main changed the same files since the change set began',
+        files: ['templates/web.conf.j2'],
+        head: HEAD,
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save to main' }));
+    expect(await screen.findByText(/changed the same files/)).toBeTruthy();
+    // The refusal is kept with the change set (a reload keeps it), and the list is read again.
+    expect(JSON.parse(window.localStorage.getItem('afs.files.p1.main') ?? '{}').conflict).toEqual({
+      files: ['templates/web.conf.j2'],
+      head: HEAD,
+    });
+    const listed = () => asked.filter((a) => a.key === 'GET /projects/p1/files?branch=main').length;
+    await waitFor(() => expect(listed()).toBe(2));
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Take back: Move templates/web.conf.j2 to roles/web/web.conf.j2',
+      }),
+    );
+    await waitFor(() => expect(listed()).toBe(3));
+    routes['POST /projects/p1/files'] = () => ({
+      status: 201,
+      body: { branch: 'main', commit: 'c'.repeat(40), files: ['flows/hello/hello.flow.yaml'] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save to main' }));
+    expect(await screen.findByText(/Saved 1 change/)).toBeTruthy();
+    expect(sent('POST /projects/p1/files')[1]).toEqual({
+      branch: 'main',
+      base: HEAD,
+      changes: [del],
+    });
+  });
+});
+
+describe('taking back a change after a refused Save', () => {
+  const conflict = { files: ['templates/web.conf.j2'], head: 'b'.repeat(40) };
+  const edit = { op: 'write', path: 'templates/web.conf.j2', text: 'x' } as const;
+  const other = { op: 'write', path: 'notes.txt', text: 'y' } as const;
+  const folder = { op: 'move', from: 'templates', to: 'tpl' } as const;
+  it('AFS-232: keeps the old beginning while a change still touches a refused file', () => {
+    expect(takeBack({ base: COMMIT, conflict, changes: [other, folder, edit] }, 2)).toEqual({
+      base: COMMIT,
+      conflict,
+      changes: [other, folder],
+    });
+    expect(takeBack({ base: COMMIT, conflict, changes: [other, folder] }, 1)).toEqual({
+      base: conflict.head,
+      changes: [other],
+    });
+    // Without a refusal the beginning stays; with nothing left there is none.
+    expect(takeBack({ base: COMMIT, changes: [other, edit] }, 1)).toEqual({
+      base: COMMIT,
+      changes: [other],
+    });
+    expect(takeBack({ base: COMMIT, conflict, changes: [edit] }, 0)).toEqual({ changes: [] });
   });
 });
 

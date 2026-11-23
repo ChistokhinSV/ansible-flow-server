@@ -223,7 +223,10 @@ describe('the API', () => {
     // ... and a paused run is listed as paused, and among the runs that wait.
     expect((await queue.list({ state: 'paused' })).map((r) => r.id)).toEqual([run.id]);
     expect((await queue.list({ state: 'waiting' })).map((r) => r.id)).toContain(run.id);
+    // AFS-232: going is queued or running and not paused.
+    expect((await queue.list({ state: 'going' })).map((r) => r.id)).not.toContain(run.id);
     await db().updateTable('run').set({ step_paused: null }).where('id', '=', run.id).execute();
+    expect((await queue.list({ state: 'going' })).map((r) => r.id)).toContain(run.id);
     driving.set(run.id, { paused: true, sent: ['step'] });
     expect((await step('dana', run.id, { points: [PING] })).statusCode).toBe(202);
     // Pause does not fit a paused run.

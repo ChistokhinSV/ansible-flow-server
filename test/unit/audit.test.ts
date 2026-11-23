@@ -437,6 +437,46 @@ for (const [name, config] of databases) {
         object: { name: 'operator for Omar Haddad on Operations' },
         detail: { workspace: ws.id },
       });
+
+      // AFS-232: a grant given by the workspace's key (as the pages ask) keeps its id, as one
+      // taken back does, and a flow is named by its title.
+      const hello = (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/workspaces/ops/projects',
+          headers: { cookie: admin },
+          payload: { key: 'hello', name: 'Hello', sample: 'hello' },
+        })
+      ).json() as { id: string };
+      const flows = (
+        await app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/${hello.id}/flows`,
+          headers: { cookie: admin },
+        })
+      ).json() as { flows: { file: string; name?: string }[] };
+      const flow = flows.flows[0] as { file: string; name?: string };
+      expect(flow.name).toBeTruthy();
+      const given = await app.inject({
+        method: 'POST',
+        url: '/api/v1/workspaces/ops/grants',
+        headers: { cookie: admin },
+        payload: { user: 'omar', level: 'ro', project: hello.id, flow: flow.file },
+      });
+      expect(given.statusCode, given.body).toBe(201);
+      expect(await newest('grant.create')).toMatchObject({
+        object: { name: `read only for Omar Haddad on the flow ${flow.name} in Hello` },
+        detail: { workspace: ws.id },
+      });
+      await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/grants/${given.json().id}`,
+        headers: { cookie: admin },
+      });
+      expect(await newest('grant.delete')).toMatchObject({
+        object: { name: `read only for Omar Haddad on the flow ${flow.name} in Hello` },
+        detail: { workspace: ws.id },
+      });
       await app.inject({
         method: 'DELETE',
         url: `/api/v1/groups/${group.id}`,
