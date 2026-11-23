@@ -288,8 +288,8 @@ describe('the API', () => {
       ['dana', 'scopes', undefined],
       ['wes', 'eval', 'vlan_id'],
     ]);
-    // Never the answer.
-    expect(JSON.stringify(entries)).not.toContain('210');
+    // Never the answer: not in what an entry says (ids are random and may hold its digits).
+    expect(JSON.stringify(entries.map((e) => e.detail))).not.toContain('210');
     // The pause has ended: 410.
     driving.set(run.id, { paused: false, sent: [], answer: { gone: true }, asked: [] });
     const gone = await post('wes', at, { op: 'scopes', host: 'localhost' });
