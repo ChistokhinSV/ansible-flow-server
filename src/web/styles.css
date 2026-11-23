@@ -3987,3 +3987,38 @@ fieldset.copy-link h4 {
   width: 5rem;
   display: inline-block;
 }
+
+/* AFS-241: a secret part read from a secret provider: Stored here or From a secret provider,
+   then the provider, the reference's parts and Test read, set in from the form's edge. */
+.secret-part {
+  display: grid;
+  gap: 0.35rem;
+}
+.source-choice {
+  grid-auto-flow: column;
+  justify-content: start;
+  gap: 1.2rem;
+}
+.source-choice > legend {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+.ref-fields {
+  display: grid;
+  gap: 0.35rem;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--input-border);
+}
+.variable-row > .variable-source,
+.variable-row > .ref-fields {
+  grid-column: 1 / -1;
+}
+.test-read {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.good-text {
+  color: var(--ok);
+}

@@ -3,7 +3,8 @@
 // fields, replace its secret, and delete it (refused while in use, with the reason). A secret goes
 // in and is never shown again: its fields start empty, are not filled in by the browser, and a
 // private key can come from a file. And the choice of the credential a project's git source signs
-// in with.
+// in with. AFS-241: each secret part is stored here or taken from a secret provider (a reference,
+// with a Test read that never shows the value).
 import { useId, useState } from 'react';
 import {
   BECOME_METHODS,
@@ -15,6 +16,14 @@ import {
   privateKeyProblem,
   SPEC,
 } from '../server/secrets/kinds';
+import {
+  PROVIDER_KIND_NAME,
+  type ProviderChoice,
+  REF_FIELDS,
+  refPath,
+  refProblem,
+  type SecretRef,
+} from '../server/secrets/providers/types';
 import { api, type Credential } from './api';
 import { ask } from './confirm';
 import { Link } from './router';
@@ -51,12 +60,158 @@ const inWords = (key: string) => {
   return /^[A-Z]{2}/.test(label) ? label : `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 };
 
+/**
+ * AFS-241: where a part taken from a provider is read: "from Corp Vault", with its path for those
+ * the server gives it to (the workspace's administrators).
+ */
+function fromWords(ref: NonNullable<Credential['refs']>[string]): string {
+  const where = ref.kind && ref.path ? ` (${refPath(ref.kind, ref.path)})` : '';
+  return `from ${ref.providerName ?? ref.provider}${where}`;
+}
+
 /** What a credential holds, in words: its visible fields and the names of its secret parts. */
 export function holds(c: Credential): string {
   const fields = Object.entries(c.fields).map(([k, v]) => `${inWords(k)} ${v}`);
+  const refs = c.refs ?? {};
+  const stored = c.has.filter((n) => !refs[n]);
   const secret =
-    c.kind === 'env' ? (c.has.length ? [`variables ${c.has.join(', ')}`] : []) : c.has.map(inWords);
-  return [...fields, ...secret].join(' · ');
+    c.kind === 'env'
+      ? stored.length
+        ? [`variables ${stored.join(', ')}`]
+        : []
+      : stored.map(inWords);
+  const read = Object.entries(refs).map(
+    ([n, r]) => `${c.kind === 'env' ? n : inWords(n)} ${fromWords(r)}`,
+  );
+  return [...fields, ...secret, ...read].join(' · ');
+}
+
+/** A reference as the form edits it, from one the server gave (with its path). */
+const refOf = (shown: NonNullable<Credential['refs']>[string]): SecretRef => ({
+  provider: shown.provider,
+  ...(shown.path ?? {}),
+});
+
+/**
+ * AFS-241: where a secret part is read from: the provider, the kind's parts of the reference, and
+ * Test read, which says whether it reads and never shows the value.
+ */
+function RefFields({
+  workspace,
+  providers,
+  name,
+  value,
+  onChange,
+}: {
+  workspace: string;
+  providers: ProviderChoice[];
+  name: string;
+  value: SecretRef;
+  onChange(ref: SecretRef): void;
+}) {
+  const [result, setResult] = useState<{ ok: boolean; message: string; at: string }>();
+  const [busy, setBusy] = useState(false);
+  const provider = providers.find((p) => p.key === value.provider);
+  return (
+    <div className="ref-fields">
+      <Labelled label="Provider" name={`${name}-provider`}>
+        {(props) => (
+          <select
+            {...props}
+            name={`${name}-provider`}
+            value={value.provider}
+            onChange={(e) => {
+              setResult(undefined);
+              onChange({ provider: e.target.value });
+            }}
+          >
+            {!provider && (
+              <option value={value.provider}>
+                {value.provider ? `${value.provider} (not open to this workspace)` : 'Choose one'}
+              </option>
+            )}
+            {providers.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.name} ({PROVIDER_KIND_NAME[p.kind]})
+              </option>
+            ))}
+          </select>
+        )}
+      </Labelled>
+      {provider &&
+        REF_FIELDS[provider.kind].map((f) => (
+          <Field
+            key={f.name}
+            label={f.label}
+            name={`${name}-${f.name}`}
+            value={value[f.name] ?? ''}
+            onChange={(e) => {
+              setResult(undefined);
+              onChange({ ...value, [f.name]: e.target.value });
+            }}
+            hint={f.hint}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        ))}
+      <div className="test-read">
+        <button
+          type="button"
+          disabled={busy || !provider}
+          onClick={async () => {
+            setBusy(true);
+            const clean = Object.fromEntries(
+              Object.entries(value).filter(([, v]) => v.trim()),
+            ) as SecretRef;
+            const answer = await api
+              .testSecretRef(workspace, clean)
+              .catch((e) => ({ ok: false, message: messageOf(e) }));
+            setResult({
+              ...answer,
+              at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            });
+            setBusy(false);
+          }}
+        >
+          {busy ? 'Reading…' : 'Test read'}
+        </button>{' '}
+        {result && (
+          <span aria-live="polite" className={result.ok ? 'good-text' : 'bad-text'}>
+            {result.ok ? `Read OK at ${result.at} (value not shown)` : result.message}
+          </span>
+        )}
+      </div>
+      <small className="muted">
+        Read when a run starts; never stored. A run fails before it starts if the read fails.
+      </small>
+    </div>
+  );
+}
+
+/** AFS-241: Stored here, or From a secret provider, for one secret part. */
+function SourceChoice({
+  label,
+  fromProvider,
+  onChange,
+}: {
+  label: string;
+  fromProvider: boolean;
+  onChange(fromProvider: boolean): void;
+}) {
+  const name = useId();
+  return (
+    <fieldset className="source-choice">
+      <legend>{label}</legend>
+      <label className="choice">
+        <input type="radio" name={name} checked={!fromProvider} onChange={() => onChange(false)} />{' '}
+        Stored here
+      </label>
+      <label className="choice">
+        <input type="radio" name={name} checked={fromProvider} onChange={() => onChange(true)} />{' '}
+        From a secret provider
+      </label>
+    </fieldset>
+  );
 }
 
 function SecretField({
@@ -118,15 +273,30 @@ function SecretField({
 }
 
 /** The variables of an `env` credential: names and values, one row each. */
+type VariableRow = { name: string; value: string; ref?: SecretRef };
+
 function Variables({
   rows,
   onChange,
+  workspace,
+  providers,
 }: {
-  rows: { name: string; value: string }[];
-  onChange(rows: { name: string; value: string }[]): void;
+  rows: VariableRow[];
+  onChange(rows: VariableRow[]): void;
+  workspace: string;
+  /** AFS-241: the providers a value may be read from (none: values are stored here). */
+  providers: ProviderChoice[];
 }) {
   const set = (i: number, part: 'name' | 'value', v: string) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, [part]: v } : r)));
+  const setRef = (i: number, ref: SecretRef | undefined) =>
+    onChange(
+      rows.map((r, j) => {
+        if (j !== i) return r;
+        const { ref: _old, ...rest } = r;
+        return ref ? { ...rest, ref } : rest;
+      }),
+    );
   return (
     <fieldset>
       <legend>Variables</legend>
@@ -144,14 +314,23 @@ function Variables({
             required
             autoComplete="off"
           />
-          <Field
-            label={`Value ${i + 1}`}
-            name={`variable-value-${i}`}
-            type="password"
-            autoComplete="off"
-            value={r.value}
-            onChange={(e) => set(i, 'value', e.target.value)}
-          />
+          {r.ref ? (
+            <div className="field">
+              <span className="label-space" aria-hidden="true">
+                &nbsp;
+              </span>
+              <span>From a secret provider</span>
+            </div>
+          ) : (
+            <Field
+              label={`Value ${i + 1}`}
+              name={`variable-value-${i}`}
+              type="password"
+              autoComplete="off"
+              value={r.value}
+              onChange={(e) => set(i, 'value', e.target.value)}
+            />
+          )}
           {rows.length > 1 && (
             <div className="field">
               {/* The space of a label, so the button lines up with the inputs. */}
@@ -166,6 +345,27 @@ function Variables({
                 Remove
               </button>
             </div>
+          )}
+          {(providers.length > 0 || r.ref) && (
+            <label className="choice variable-source">
+              <input
+                type="checkbox"
+                checked={!!r.ref}
+                onChange={(e) =>
+                  setRef(i, e.target.checked ? { provider: providers[0]?.key ?? '' } : undefined)
+                }
+              />{' '}
+              Value {i + 1} from a secret provider
+            </label>
+          )}
+          {r.ref && (
+            <RefFields
+              workspace={workspace}
+              providers={providers}
+              name={`variable-ref-${i}`}
+              value={r.ref}
+              onChange={(ref) => setRef(i, ref)}
+            />
           )}
         </div>
       ))}
@@ -193,11 +393,22 @@ function CredentialForm({
   const [description, setDescription] = useState(editing?.description ?? '');
   const [fields, setFields] = useState<Record<string, string>>(editing?.fields ?? {});
   const [secret, setSecret] = useState<Record<string, string>>({});
-  const [variables, setVariables] = useState(
+  const [variables, setVariables] = useState<VariableRow[]>(
     editing?.kind === 'env'
-      ? editing.has.map((n) => ({ name: n, value: '' }))
+      ? editing.has.map((n) => {
+          const shown = editing.refs?.[n];
+          return shown ? { name: n, value: '', ref: refOf(shown) } : { name: n, value: '' };
+        })
       : [{ name: '', value: '' }],
   );
+  // AFS-241: the secret parts taken from a provider, by name.
+  const [refs, setRefs] = useState<Record<string, SecretRef>>(
+    editing?.kind === 'env'
+      ? {}
+      : Object.fromEntries(Object.entries(editing?.refs ?? {}).map(([n, r]) => [n, refOf(r)])),
+  );
+  const providers = useLoad(() => api.workspaceSecretProviders(workspace), [workspace]);
+  const choices = providers.data ?? [];
   // A change keeps the secret unless asked to replace it.
   const [replace, setReplace] = useState(!editing);
   const kindId = useId();
@@ -206,9 +417,24 @@ function CredentialForm({
   const secretPart = () =>
     kind === 'env'
       ? Object.fromEntries(
-          variables.filter((v) => v.name.trim()).map((v) => [v.name.trim(), v.value]),
+          variables.filter((v) => v.name.trim() && !v.ref).map((v) => [v.name.trim(), v.value]),
         )
-      : Object.fromEntries(Object.entries(secret).filter(([, v]) => v !== ''));
+      : Object.fromEntries(Object.entries(secret).filter(([f, v]) => v !== '' && !refs[f]));
+  const refPart = (): Record<string, SecretRef> =>
+    kind === 'env'
+      ? Object.fromEntries(
+          variables
+            .filter((v) => v.name.trim() && v.ref)
+            .map((v) => [v.name.trim(), v.ref as SecretRef]),
+        )
+      : refs;
+  /** A reference's problem, said at its provider's field. */
+  const checkRef = (field: string, ref: SecretRef) => {
+    const provider = choices.find((p) => p.key === ref.provider);
+    if (!provider) refuse(`${field}-provider`, 'Choose a secret provider open to this workspace.');
+    const problem = provider ? refProblem(provider.kind, ref) : undefined;
+    if (problem) refuse(`${field}-provider`, `${problem}.`);
+  };
   const visible = () =>
     Object.fromEntries(spec.fields.map((f) => [f, (fields[f] ?? '').trim()]).filter(([, v]) => v));
   // AFS-140: what the server would refuse is found here first, and said at its field.
@@ -221,21 +447,25 @@ function CredentialForm({
       const problem = fieldProblem(f, fields[f] ?? '');
       if (problem) refuse(f, problem);
     }
+    if (kind !== 'env') for (const [f, ref] of Object.entries(refs)) checkRef(f, ref);
     if (!replace) return;
     for (const f of spec.secret)
-      if (spec.required.includes(f) && !secret[f]) refuse(f, `${FIELD_LABEL[f] ?? f} is needed.`);
+      if (spec.required.includes(f) && !secret[f] && !refs[f])
+        refuse(f, `${FIELD_LABEL[f] ?? f} is needed.`);
     if (kind === 'env') {
       const seen = new Map<string, number>();
       for (const [i, v] of variables.entries()) {
         const n = v.name.trim();
         if (!n) {
-          if (v.value) refuse(`variable-${i}`, 'A name is needed for this value.');
+          if (v.value || v.ref) refuse(`variable-${i}`, 'A name is needed for this value.');
           continue;
         }
+        if (v.ref) checkRef(`variable-ref-${i}`, v.ref);
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
           refuse(`variable-${i}`, 'Letters, digits and underscores, not starting with a digit.');
         // AFS-150: an empty value is most likely one forgotten (a Replace gives them all again).
-        if (!v.value) refuse(`variable-value-${i}`, `${n} has no value: give one, or remove it.`);
+        if (!v.value && !v.ref)
+          refuse(`variable-value-${i}`, `${n} has no value: give one, or remove it.`);
         const before = seen.get(n);
         if (before !== undefined)
           refuse(
@@ -256,12 +486,17 @@ function CredentialForm({
       onCancel={onCancel}
       onSubmit={async () => {
         check();
+        const refsGiven = refPart();
         if (editing)
           await api.changeCredential(editing.id, {
             name: name.trim(),
             description: description.trim() || null,
             ...(kind === 'env' ? {} : { fields: visible() }),
             ...(replace ? { secret: secretPart() } : {}),
+            // AFS-241: the references go whole; an env credential's with its variables.
+            ...((kind !== 'env' || replace) && (Object.keys(refsGiven).length || editing.refs)
+              ? { refs: Object.keys(refsGiven).length ? refsGiven : null }
+              : {}),
           });
         else
           await api.addCredential(workspace, {
@@ -270,6 +505,7 @@ function CredentialForm({
             ...(description.trim() ? { description: description.trim() } : {}),
             ...(kind === 'env' ? {} : { fields: visible() }),
             secret: secretPart(),
+            ...(Object.keys(refsGiven).length ? { refs: refsGiven } : {}),
           });
         onDone();
       }}
@@ -329,20 +565,57 @@ function CredentialForm({
           {kind === 'env' ? ' (every variable: give them all again)' : ''}
         </label>
       )}
-      {replace &&
-        (kind === 'env' ? (
-          <Variables rows={variables} onChange={setVariables} />
-        ) : (
-          spec.secret.map((f) => (
-            <SecretField
-              key={f}
-              name={f}
-              value={secret[f] ?? ''}
-              onChange={(v) => setSecret({ ...secret, [f]: v })}
-              required={spec.required.includes(f)}
+      {kind === 'env'
+        ? replace && (
+            <Variables
+              rows={variables}
+              onChange={setVariables}
+              workspace={workspace}
+              providers={choices}
             />
-          ))
-        ))}
+          )
+        : spec.secret.map((f) => {
+            // AFS-241: each secret part: stored here, or read from a provider when a run starts.
+            const offered = choices.length > 0 || !!refs[f];
+            const fromProvider = !!refs[f];
+            return (
+              <div key={f} className="secret-part">
+                {offered && (
+                  <SourceChoice
+                    label={FIELD_LABEL[f] ?? f}
+                    fromProvider={fromProvider}
+                    onChange={(yes) => {
+                      if (yes) setRefs({ ...refs, [f]: { provider: choices[0]?.key ?? '' } });
+                      else {
+                        const { [f]: _gone, ...rest } = refs;
+                        setRefs(rest);
+                        // A part read from a provider until now needs its value here.
+                        if (editing) setReplace(true);
+                      }
+                    }}
+                  />
+                )}
+                {fromProvider ? (
+                  <RefFields
+                    workspace={workspace}
+                    providers={choices}
+                    name={f}
+                    value={refs[f] as SecretRef}
+                    onChange={(ref) => setRefs({ ...refs, [f]: ref })}
+                  />
+                ) : (
+                  replace && (
+                    <SecretField
+                      name={f}
+                      value={secret[f] ?? ''}
+                      onChange={(v) => setSecret({ ...secret, [f]: v })}
+                      required={spec.required.includes(f)}
+                    />
+                  )
+                )}
+              </div>
+            );
+          })}
       {replace && (
         <p className="muted">
           Kept encrypted on the server; nobody can read it back, here or over the API.

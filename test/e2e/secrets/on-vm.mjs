@@ -37,7 +37,15 @@ try {
   copyFileSync(join(certs, 'client.key'), join(out, 'ccp-client.key'));
   const run = (...args) => execFileSync(args[0], args.slice(1), { stdio: 'inherit' });
   run('ssh', vm, `rm -rf ${there} && mkdir -p ${there}`);
-  run('scp', '-q', join(out, 'secrets.test.mjs'), join(out, 'ccp-ca.pem'), join(out, 'ccp-client.pem'), join(out, 'ccp-client.key'), `${vm}:${there}/`);
+  run(
+    'scp',
+    '-q',
+    join(out, 'secrets.test.mjs'),
+    join(out, 'ccp-ca.pem'),
+    join(out, 'ccp-client.pem'),
+    join(out, 'ccp-client.key'),
+    `${vm}:${there}/`,
+  );
   run(
     'ssh',
     vm,

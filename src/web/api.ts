@@ -74,6 +74,12 @@ import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
 import type { SearchHit } from '../server/search/types';
 import type { Credential } from '../server/secrets/credentials';
+import type {
+  ProviderChoice,
+  SecretProvider,
+  SecretProviderInput,
+  SecretRef,
+} from '../server/secrets/providers/types';
 import type { CertificateInfo, CertificateState } from '../server/tls/types';
 import { answerWords } from './answer';
 
@@ -643,6 +649,8 @@ export const api = {
       description?: string;
       fields?: Record<string, string>;
       secret: Record<string, string>;
+      /** AFS-241: secret parts taken from a secret provider. */
+      refs?: Record<string, SecretRef>;
     },
   ) => call<Credential>('POST', `/workspaces/${encodeURIComponent(workspace)}/credentials`, input),
   /** `secret`, when given, replaces the whole secret part; left out, it stays. */
@@ -653,9 +661,21 @@ export const api = {
       description?: string | null;
       fields?: Record<string, string>;
       secret?: Record<string, string>;
+      /** AFS-241: replaces the parts taken from secret providers, whole; null: none. */
+      refs?: Record<string, SecretRef> | null;
     },
   ) => call<Credential>('PATCH', `/credentials/${encodeURIComponent(id)}`, input),
   deleteCredential: (id: string) => call<void>('DELETE', `/credentials/${encodeURIComponent(id)}`),
+  /** AFS-241: the secret providers a workspace's credentials may read from. */
+  workspaceSecretProviders: (workspace: string) =>
+    call<ProviderChoice[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/secret-providers`),
+  /** AFS-241: whether a reference reads (never the value). */
+  testSecretRef: (workspace: string, ref: SecretRef) =>
+    call<{ ok: boolean; message: string }>(
+      'POST',
+      `/workspaces/${encodeURIComponent(workspace)}/secret-refs/test`,
+      { ref },
+    ),
 
   launchConfigs: (project: string) =>
     call<LaunchConfig[]>('GET', `/projects/${project}/launch-configs`),
@@ -896,6 +916,21 @@ export const api = {
     call<{ checked: number; disabled: number; message: string }>(
       'POST',
       `/admin/ldap-directories/${encodeURIComponent(id)}/sync`,
+    ),
+
+  // Secret providers (administrators, AFS-241).
+  secretProviders: () => call<SecretProvider[]>('GET', '/admin/secret-providers'),
+  addSecretProvider: (input: SecretProviderInput) =>
+    call<SecretProvider>('POST', '/admin/secret-providers', input),
+  changeSecretProvider: (id: string, input: Partial<SecretProviderInput>) =>
+    call<SecretProvider>('PATCH', `/admin/secret-providers/${encodeURIComponent(id)}`, input),
+  deleteSecretProvider: (id: string) =>
+    call<void>('DELETE', `/admin/secret-providers/${encodeURIComponent(id)}`),
+  testSecretProvider: (id: string, ref?: Record<string, string>) =>
+    call<{ ok: boolean; message: string }>(
+      'POST',
+      `/admin/secret-providers/${encodeURIComponent(id)}/test`,
+      ref ? { ref } : {},
     ),
 
   // People and groups (administrators, AFS-56).

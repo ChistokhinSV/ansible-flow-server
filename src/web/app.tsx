@@ -27,6 +27,7 @@ import { Link, match, navigate, usePath } from './router';
 import { RunPage, RunsPage } from './runs';
 import { listenForSaveKey } from './saveKey';
 import { SearchBox } from './search';
+import { SecretProvidersPage } from './secretProviders';
 import { SignInPage } from './signin';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
 import { BarSlot, useLoad } from './ui';
@@ -111,6 +112,8 @@ function Page({
   if (path === '/admin/notifications/settings')
     return me.admin ? <NotificationsPage tab="settings" /> : <AdminOnly />;
   if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <AdminOnly />;
+  // AFS-241: where credentials may read their secrets from.
+  if (path === '/admin/secret-providers') return me.admin ? <SecretProvidersPage /> : <AdminOnly />;
   if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <AdminOnly />;
   if (path === '/admin/people') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
   if (path === '/admin/groups') return me.admin ? <PeoplePage tab="groups" /> : <AdminOnly />;
@@ -384,6 +387,9 @@ function Side({
             </Link>
             <Link to="/admin/sign-in" aria-current={at('/admin/sign-in')}>
               Sign-in
+            </Link>
+            <Link to="/admin/secret-providers" aria-current={at('/admin/secret-providers')}>
+              Secret providers
             </Link>
             <Link to="/admin/certificate" aria-current={at('/admin/certificate')}>
               Server certificate

@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'vitest';
-import { clientOf, type Connection } from '../../src/server/secrets/providers/clients';
+import { type Connection, clientOf } from '../../src/server/secrets/providers/clients';
 import type { SecretReadError } from '../../src/server/secrets/providers/http';
 
 const dir = process.env.AFS_SECRETS_LAB ?? '';
@@ -32,7 +32,12 @@ suite('secret providers in the lab', () => {
     key: 'lab-vault',
     name: 'lab-vault',
     kind: 'vault',
-    settings: { address: `https://${host}:18200`, auth: 'approle', ca: file('vault-ca.pem'), timeoutS: 5 },
+    settings: {
+      address: `https://${host}:18200`,
+      auth: 'approle',
+      ca: file('vault-ca.pem'),
+      timeoutS: 5,
+    },
     secret: { roleId: file('vault-role-id'), secretId: file('vault-secret-id') },
     ...change,
   });
@@ -40,7 +45,12 @@ suite('secret providers in the lab', () => {
     key: 'lab-conjur',
     name: 'lab-conjur',
     kind: 'conjur',
-    settings: { address: `http://${host}:18080`, account: 'spike', login: 'host/afs-spike', timeoutS: 5 },
+    settings: {
+      address: `http://${host}:18080`,
+      account: 'spike',
+      login: 'host/afs-spike',
+      timeoutS: 5,
+    },
     secret: { apiKey: file('conjur-host-key') },
     ...change,
   });
@@ -75,37 +85,65 @@ suite('secret providers in the lab', () => {
     );
     await client.close();
     const token = clientOf(
-      vault({ settings: { ...vault().settings, auth: 'token' }, secret: { token: file('vault-token') } }),
+      vault({
+        settings: { ...vault().settings, auth: 'token' },
+        secret: { token: file('vault-token') },
+      }),
     );
-    assert.equal(await token.read({ provider: 'lab-vault', path: 'lab/switch', field: 'password' }), VALUE);
+    assert.equal(
+      await token.read({ provider: 'lab-vault', path: 'lab/switch', field: 'password' }),
+      VALUE,
+    );
   });
 
   it('HashiCorp Vault: denied, missing, a bad secret id, no CA: words without the path', async () => {
     const client = clientOf(vault());
-    const denied = await failure(client.read({ provider: 'lab-vault', path: 'lab/other', field: 'password' }));
+    const denied = await failure(
+      client.read({ provider: 'lab-vault', path: 'lab/other', field: 'password' }),
+    );
     assert.equal(denied.code, 'denied');
     assert.ok(!denied.message.includes('lab/other'));
-    const missing = await failure(client.read({ provider: 'lab-vault', path: 'lab/missing', field: 'password' }));
+    const missing = await failure(
+      client.read({ provider: 'lab-vault', path: 'lab/missing', field: 'password' }),
+    );
     assert.equal(missing.code, 'not_found');
-    const field = await failure(client.read({ provider: 'lab-vault', path: 'lab/switch', field: 'nope' }));
+    const field = await failure(
+      client.read({ provider: 'lab-vault', path: 'lab/switch', field: 'nope' }),
+    );
     assert.match(field.message, /not the field/);
     await client.close();
     const bad = await failure(
-      clientOf(vault({ secret: { roleId: file('vault-role-id'), secretId: '00000000-0000-0000-0000-000000000000' } })).test(),
+      clientOf(
+        vault({
+          secret: {
+            roleId: file('vault-role-id'),
+            secretId: '00000000-0000-0000-0000-000000000000',
+          },
+        }),
+      ).test(),
     );
     assert.equal(bad.code, 'auth');
-    const noCa = await failure(clientOf(vault({ settings: { ...vault().settings, ca: '' } })).test());
+    const noCa = await failure(
+      clientOf(vault({ settings: { ...vault().settings, ca: '' } })).test(),
+    );
     assert.equal(noCa.code, 'tls');
     const closed = await failure(
-      clientOf(vault({ settings: { ...vault().settings, address: `https://${host}:18299` } })).test(),
+      clientOf(
+        vault({ settings: { ...vault().settings, address: `https://${host}:18299` } }),
+      ).test(),
     );
     assert.equal(closed.code, 'unreachable');
   });
 
   it('CyberArk Conjur: a host API key reads; no permission and missing read the same', async () => {
     const client = clientOf(conjur());
-    assert.equal(await client.read({ provider: 'lab-conjur', variable: 'lab/switch-password' }), VALUE);
-    const hidden = await failure(client.read({ provider: 'lab-conjur', variable: 'lab/other-secret' }));
+    assert.equal(
+      await client.read({ provider: 'lab-conjur', variable: 'lab/switch-password' }),
+      VALUE,
+    );
+    const hidden = await failure(
+      client.read({ provider: 'lab-conjur', variable: 'lab/other-secret' }),
+    );
     const missing = await failure(client.read({ provider: 'lab-conjur', variable: 'lab/missing' }));
     assert.equal(hidden.message, missing.message);
     assert.match(missing.message, /no such variable, or "lab-conjur" may not read it \(404\)/);
@@ -119,7 +157,9 @@ suite('secret providers in the lab', () => {
       await client.read({ provider: 'lab-ccp', safe: 'LAB-NET', object: 'lab-switch-01' }),
       VALUE,
     );
-    const missing = await failure(client.read({ provider: 'lab-ccp', safe: 'LAB-NET', object: 'lab-switch-99' }));
+    const missing = await failure(
+      client.read({ provider: 'lab-ccp', safe: 'LAB-NET', object: 'lab-switch-99' }),
+    );
     assert.equal(missing.code, 'not_found');
     assert.ok(!missing.message.includes('lab-switch-99'));
     const noCert = await failure(
