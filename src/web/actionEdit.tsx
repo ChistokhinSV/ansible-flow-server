@@ -2,7 +2,7 @@
 // launch configuration's): title, sentence, what it asks, the links (the full link with values
 // too), who may run it. Changed by rw on its workspace; who may see its flow reads them. The launch
 // configuration's Settings keep one line that leads here.
-import { ActionRefused, actionAddress, actionEditAddress, ConfigActionSection } from './actions';
+import { ActionRefused, actionEditAddress, ConfigActionSection } from './actions';
 import { ApiError, api } from './api';
 import { Link } from './router';
 import { Breadcrumb, Loading, PageHead, ProjectName, useLoad, WorkspaceName } from './ui';
@@ -43,9 +43,8 @@ export function ActionEditPage({ id }: { id: string }) {
         >
           <ProjectName workspace={place.workspaceKey} project={place.projectKey} />
         </Link>{' '}
-        /{' '}
-        <Link to={configAddress(place.workspaceKey, place.projectKey, id)}>{place.configName}</Link>{' '}
-        / <span aria-current="page">Action</span>
+        / {/* The configuration it runs ends the crumbs: one more part wrapped them at 1024px. */}
+        <Link to={configAddress(place.workspaceKey, place.projectKey, id)}>{place.configName}</Link>
       </Breadcrumb>
       <PageHead
         help="actions.md"
@@ -57,12 +56,7 @@ export function ActionEditPage({ id }: { id: string }) {
             <Link to={configAddress(place.workspaceKey, place.projectKey, id)}>
               {place.configName}
             </Link>
-            {action && (
-              <>
-                {' '}
-                · <Link to={actionAddress(id)}>Open the form its runners see</Link>
-              </>
-            )}
+            .
           </>
         }
       />
