@@ -4,7 +4,7 @@ All notable changes to Ansible Flow Server.
 
 ## Unreleased
 
-Carries Ansible Flow Designer 1.1.0-rc.1.
+Carries Ansible Flow Designer 1.1.0-rc.2.
 
 ### Added
 
