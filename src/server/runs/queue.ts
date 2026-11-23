@@ -200,6 +200,8 @@ export class RunQueue {
    * stops it now rather than at its next heartbeat (a short run had ended by then).
    */
   onStopAsked?: (id: string) => void;
+  /** AFS-53: told of each run a worker took (again, when its first worker went away). */
+  onStarted?: (id: string) => void;
 
   constructor(
     private readonly db: Db,
@@ -468,7 +470,13 @@ export class RunQueue {
    * there is none. A run of a project that has as many runs going as it may waits its turn,
    * and does not hold back runs of other projects behind it.
    */
-  claim(worker: string, now = new Date()): Promise<Job | undefined> {
+  async claim(worker: string, now = new Date()): Promise<Job | undefined> {
+    const job = await this.claimed(worker, now);
+    if (job) this.onStarted?.(job.run.id);
+    return job;
+  }
+
+  private claimed(worker: string, now: Date): Promise<Job | undefined> {
     return this.locked(async (trx) => {
       const running = await trx
         .selectFrom('run')

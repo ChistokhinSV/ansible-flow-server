@@ -24,6 +24,7 @@ const EVENT_LABEL: Record<string, string> = {
   'approval.decided': 'approval decided',
   'run.ended': 'run ended',
   'certificate.expiring': 'certificate',
+  'stream.failing': 'event stream failing',
   test: 'test',
 };
 const TONE: Record<string, string> = { sent: 'ok', failed: 'bad', pending: 'busy' };

@@ -10,6 +10,7 @@ The server tells people what concerns them, by email and by webhook:
 | An approval is approved, rejected, timed out | Who launched the run, and the approval's `notify` list                                                                |
 | A run ends                                   | As its launch configuration says: when a run fails (or is lost), or whenever one ends                                 |
 | The server certificate nears its end         | The administrators, 30, 14, 7, 3 and 1 days before, and once it has ended; each step once                             |
+| An event stream sends nothing for 15 minutes | The administrators, once each time it starts failing ([event streaming](event-streaming.md))                          |
 
 - **Where:** a person at the email address and webhook their account has; a group at its own,
   or, when it has neither, through each of its members. Disabled accounts are told nothing; an

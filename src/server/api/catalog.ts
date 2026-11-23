@@ -1019,6 +1019,39 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('Sign in to the provider; with `ref`, read that secret too. The value is never answered'),
+  // AFS-53: event streaming to syslog and OpenTelemetry.
+  'GET /api/v1/admin/streams': S(
+    'Event streaming',
+    'administrators',
+    'server',
+  )('The event streaming destinations, each with its backlog, drops, last success and last error'),
+  'POST /api/v1/admin/streams': S(
+    'Event streaming',
+    'administrator session',
+    'server',
+  )(
+    'Add a destination: a syslog receiver (TLS, TCP or UDP) or an OpenTelemetry collector (OTLP/HTTP JSON), and what it gets (audit entries, runs)',
+  ),
+  'GET /api/v1/admin/streams/:id': S(
+    'Event streaming',
+    'administrators',
+    'server',
+  )('One destination'),
+  'PATCH /api/v1/admin/streams/:id': S(
+    'Event streaming',
+    'administrator session',
+    'server',
+  )('Change a destination; a header sent without its value keeps the value it has'),
+  'DELETE /api/v1/admin/streams/:id': S(
+    'Event streaming',
+    'administrator session',
+    'server',
+  )('Remove a destination and what waits to go to it'),
+  'POST /api/v1/admin/streams/:id/test': S(
+    'Event streaming',
+    'administrators',
+    'server',
+  )('Send a test message to a destination now, and say how it went'),
   // AFS-31: LDAP and Active Directory directories.
   'GET /api/v1/admin/ldap-directories': S(
     'Sign-in',

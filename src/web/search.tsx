@@ -47,6 +47,12 @@ const PAGES: { title: string; words: string; to: string; admin?: boolean }[] = [
     to: '/admin/notifications',
     admin: true,
   },
+  {
+    title: 'Event streaming',
+    words: 'event streaming syslog siem opentelemetry otlp otel traces collector audit',
+    to: '/admin/streams',
+    admin: true,
+  },
 ];
 
 const KIND_LABEL: Record<string, string> = {

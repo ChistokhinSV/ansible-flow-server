@@ -671,7 +671,60 @@ export interface PausePointTable {
   updated_at: IsoTime;
 }
 
+/** AFS-53: a destination of event streaming: a syslog receiver or an OpenTelemetry collector. */
+export interface StreamSinkTable {
+  id: string;
+  name: string;
+  /** syslog or otlp. */
+  type: string;
+  enabled: Flag;
+  /** Sends audit entries. */
+  audit: Flag;
+  /** Sends runs (syslog: start and end lines; otlp: a trace at the end). */
+  runs: Flag;
+  /** Its settings ({syslog} or {otlp}, stream/store.ts), as JSON; never a secret. */
+  config_json: string;
+  /** OTLP headers ({name: value}, as JSON), sealed with the master key. */
+  headers_enc: string | null;
+  max_backlog: number;
+  max_age_days: number;
+  last_success_at: IsoTime | null;
+  last_error: string | null;
+  last_error_at: IsoTime | null;
+  /** Nothing sent since: set at the first failure after a success. */
+  failing_since: IsoTime | null;
+  /** 1: administrators were told of this failing spell (stream.failing). */
+  failing_told: Flag;
+  /** Rows dropped over the backlog's bounds or refused, counted since it was made. */
+  dropped: number;
+  /** When drops were last put in the audit log (once an hour at most). */
+  dropped_told_at: IsoTime | null;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
+/** AFS-53: the outbox of event streaming: one row per sink, kind and audit entry or run. */
+export interface StreamDeliveryTable {
+  sink_id: string;
+  /** audit, run-start or run-end. */
+  kind: string;
+  /** The audit entry's id or the run's id. */
+  ref_id: string;
+  /** pending, inflight (written to a syslog socket, not yet counted sent), sent, dropped. */
+  status: string;
+  attempts: number;
+  /** When it is tried next; while taken, until when it is that server's; inflight: when written. */
+  next_at: IsoTime;
+  /** The token of the server that took it. */
+  taken_by: string | null;
+  last_error: string | null;
+  created_at: IsoTime;
+  sent_at: IsoTime | null;
+}
+
 export interface Schema {
+  stream_sink: StreamSinkTable;
+  stream_delivery: StreamDeliveryTable;
   pause_point: PausePointTable;
   flow_draft: FlowDraftTable;
   flow_draft_edit: FlowDraftEditTable;

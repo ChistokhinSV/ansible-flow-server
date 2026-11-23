@@ -69,6 +69,11 @@ export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
       page: 'notifications.md',
       about: 'Email and webhooks: who is told of what',
     },
+    {
+      title: 'Event streaming',
+      page: 'event-streaming.md',
+      about: 'Audit entries and runs to syslog (a SIEM) and OpenTelemetry',
+    },
   ],
   [
     {

@@ -6,6 +6,8 @@ export const EVENTS = [
   'approval.decided',
   'run.ended',
   'certificate.expiring',
+  // AFS-53: an event streaming destination has sent nothing for 15 minutes.
+  'stream.failing',
   'test',
 ] as const;
 export type EventKind = (typeof EVENTS)[number];

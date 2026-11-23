@@ -7,6 +7,7 @@ import { collectDefaultMetrics, Gauge, Histogram, Registry } from '@prometheus-i
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
+import { streamStats } from '../stream/store';
 
 /** What the executor and the environment builder tell the metrics. */
 export interface MetricsSink {
@@ -112,6 +113,65 @@ export class Metrics implements MetricsSink {
           .where('state', 'in', ['queued', 'building'])
           .executeTakeFirst();
         this.set(Number(row?.n ?? 0));
+      },
+    });
+    // AFS-53: each event streaming destination, by its id (a name is typed by a person), with
+    // its type: what waits, since when, what was dropped, and when it last sent.
+    const streams = (() => {
+      let last: { at: number; rows: Promise<Awaited<ReturnType<typeof streamStats>>> } | undefined;
+      // One query for the four gauges of one scrape.
+      return () => {
+        if (!last || Date.now() - last.at > 1000) last = { at: Date.now(), rows: streamStats(db) };
+        return last.rows;
+      };
+    })();
+    new Gauge({
+      name: 'afs_stream_backlog',
+      help: 'Event streaming: rows waiting to go, per destination',
+      labelNames: ['sink', 'type'],
+      registers,
+      async collect() {
+        this.reset();
+        for (const s of await streams()) this.set({ sink: s.id, type: s.type }, s.backlog);
+      },
+    });
+    new Gauge({
+      name: 'afs_stream_oldest_pending_seconds',
+      help: 'Event streaming: age of the oldest row waiting, per destination (0: none waits)',
+      labelNames: ['sink', 'type'],
+      registers,
+      async collect() {
+        this.reset();
+        const now = Date.now();
+        for (const s of await streams())
+          this.set(
+            { sink: s.id, type: s.type },
+            s.oldestAt ? Math.max(0, Math.round((now - Date.parse(s.oldestAt)) / 1000)) : 0,
+          );
+      },
+    });
+    new Gauge({
+      name: 'afs_stream_dropped_total',
+      help: 'Event streaming: rows dropped (over the backlog limits, or refused), per destination',
+      labelNames: ['sink', 'type'],
+      registers,
+      async collect() {
+        this.reset();
+        for (const s of await streams()) this.set({ sink: s.id, type: s.type }, s.dropped);
+      },
+    });
+    new Gauge({
+      name: 'afs_stream_last_success_timestamp_seconds',
+      help: 'Event streaming: when a destination last took something (unix seconds; 0: never)',
+      labelNames: ['sink', 'type'],
+      registers,
+      async collect() {
+        this.reset();
+        for (const s of await streams())
+          this.set(
+            { sink: s.id, type: s.type },
+            s.lastSuccessAt ? Math.floor(Date.parse(s.lastSuccessAt) / 1000) : 0,
+          );
       },
     });
     const ends = source.certificateEnds;

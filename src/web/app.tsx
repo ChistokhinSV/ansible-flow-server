@@ -29,6 +29,7 @@ import { listenForSaveKey } from './saveKey';
 import { SearchBox } from './search';
 import { SecretProvidersPage } from './secretProviders';
 import { SignInPage } from './signin';
+import { StreamsPage } from './streams';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
 import { BarSlot, useLoad } from './ui';
 
@@ -114,6 +115,7 @@ function Page({
   if (path === '/admin/certificate') return me.admin ? <CertificatePage /> : <AdminOnly />;
   // AFS-241: where credentials may read their secrets from.
   if (path === '/admin/secret-providers') return me.admin ? <SecretProvidersPage /> : <AdminOnly />;
+  if (path === '/admin/streams') return me.admin ? <StreamsPage /> : <AdminOnly />;
   if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <AdminOnly />;
   if (path === '/admin/people') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
   if (path === '/admin/groups') return me.admin ? <PeoplePage tab="groups" /> : <AdminOnly />;
@@ -396,6 +398,9 @@ function Side({
             </Link>
             <Link to="/admin/notifications" aria-current={at('/admin/notifications')}>
               Notifications
+            </Link>
+            <Link to="/admin/streams" aria-current={at('/admin/streams')}>
+              Event streaming
             </Link>
             <Link to="/admin/audit" aria-current={at('/admin/audit')}>
               Audit log
