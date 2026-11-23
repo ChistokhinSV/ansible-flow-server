@@ -39,6 +39,9 @@ export class CredentialProblem extends Error {
   }
 }
 
+/** AFS-241: the file of values read from secret providers, in the run's credential folder. */
+export const EXTERNAL_FILE = 'external-secrets.json';
+
 /** The variable the container's agent script reads the key's passphrase from. */
 const PASSPHRASE_VAR = 'AFS_SSH_PASSPHRASE';
 
@@ -252,7 +255,28 @@ export async function runCredentials(
     if (c.from && result.notes.length > notes)
       result.notes[result.notes.length - 1] += fromWords(c.from);
   }
+  // AFS-241: values read from secret providers (and each value inside a JSON one) go to a file
+  // of their own in the run's credential folder, named by AFD_EXTERNAL_SECRETS_FILE: the engine
+  // masks them as "external" in every event. Not AFD_SECRETS_FILE, which is also given to Ansible
+  // as extra variables.
+  const external = resolver?.hidden() ?? [];
+  if (external.length) {
+    await mkdir(secretsDir, { recursive: true, mode: 0o700 });
+    await chmod(secretsDir, 0o700);
+    const file = join(secretsDir, EXTERNAL_FILE);
+    await writeFile(file, JSON.stringify(external), { mode: 0o600 });
+    await chmod(file, 0o600);
+    if (owner) {
+      await chown(secretsDir, owner.uid, owner.gid);
+      await chown(file, owner.uid, owner.gid);
+    }
+    if (!result.mounts.some((m) => m.dest === CREDENTIAL_DIR))
+      result.mounts.push({ src: secretsDir, dest: CREDENTIAL_DIR, options: 'ro' });
+    result.options.push('-e', `AFD_EXTERNAL_SECRETS_FILE=${CREDENTIAL_DIR}/${EXTERNAL_FILE}`);
+    result.cleanup = () => rm(secretsDir, { recursive: true, force: true });
+    result.secrets.push(...external);
+  }
   // Short values would hide ordinary words in the output; the store's rules make them rare.
-  result.secrets = result.secrets.filter((v) => v.length >= 4);
+  result.secrets = [...new Set(result.secrets.filter((v) => v.length >= 4))];
   return result;
 }

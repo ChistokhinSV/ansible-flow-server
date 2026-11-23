@@ -3,8 +3,11 @@
 // take a part from a provider, a run's resolver (once per run, revoked at the end, JSON values
 // hidden leaf by leaf) and the routes, with a small Conjur-like server on loopback.
 // The real providers are tried by test/e2e/secretProviders.test.ts (AFS_SECRETS_LAB).
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/app';
@@ -422,15 +425,23 @@ describe('the providers and credentials that read from them', () => {
       run: { id: 'run-1', number: 7 },
     });
     for (const id of [c.id, env.id]) await reveal(database.db, key, id, resolver);
+    const folder = join(mkdtempSync(join(tmpdir(), 'afs-ext-')), 'run');
     const creds = await runCredentials(
       database.db,
       key,
       [c.id, env.id],
-      '/nowhere',
+      folder,
       undefined,
       resolver,
     );
     expect(creds.vars.ansible_password).toBe(VALUE);
+    // The values read go to a file of their own for the engine (AFD_EXTERNAL_SECRETS_FILE).
+    expect(creds.options).toContain('AFD_EXTERNAL_SECRETS_FILE=/afd-cred/external-secrets.json');
+    expect(JSON.parse(readFileSync(join(folder, 'external-secrets.json'), 'utf8'))).toEqual(
+      expect.arrayContaining([VALUE, 'api-token-fictional']),
+    );
+    await creds.cleanup();
+    expect(existsSync(folder)).toBe(false);
     expect(creds.processEnv.DEVICE_JSON).toBe('{"token":"api-token-fictional","user":"api"}');
     expect(creds.notes[0]).toBe(
       'login "Lab switches" as netops, password from HashiCorp Vault "Corp Vault"',

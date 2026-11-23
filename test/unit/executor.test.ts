@@ -184,7 +184,8 @@ function executor(
       runner: async (request, hooks) => {
         const s: Seen = { request, hooks };
         const keyMount = request.env.kind === 'container' ? request.env.mounts[0] : undefined;
-        if (keyMount) s.keyFile = readFileSync(join(keyMount.src, 'ssh_key'), 'utf8');
+        if (keyMount && existsSync(join(keyMount.src, 'ssh_key')))
+          s.keyFile = readFileSync(join(keyMount.src, 'ssh_key'), 'utf8');
         const gen = join(request.root, 'flows', 'generated');
         if (existsSync(gen)) s.generated = readdirSync(gen);
         seen.push(s);
@@ -773,7 +774,14 @@ describe('a run', () => {
         { id: 'u1', login: 'dana' },
       );
     try {
-      const { ex, seen } = executor(async (_request, hooks) => {
+      let externalFile: unknown;
+      const { ex, seen } = executor(async (request, hooks) => {
+        // The engine finds the values read from providers in a file of their own.
+        const env = request.env.kind === 'container' ? request.env : undefined;
+        const mount = env?.mounts.find((m) => m.dest === '/afd-cred');
+        if (mount)
+          externalFile = JSON.parse(readFileSync(join(mount.src, 'external-secrets.json'), 'utf8'));
+        expect(env?.options).toContain('AFD_EXTERNAL_SECRETS_FILE=/afd-cred/external-secrets.json');
         hooks.log?.(`a task said ${VALUE}`);
         return { rc: 0 };
       });
@@ -781,10 +789,9 @@ describe('a run', () => {
       await ex.start();
       await ended(run.id);
       expect(seen).toHaveLength(1);
-      expect(seen[0]?.request.inputs).toMatchObject({
-        ansible_password: VALUE,
-        afs_external_secrets: [VALUE],
-      });
+      expect(seen[0]?.request.inputs).toMatchObject({ ansible_password: VALUE });
+      expect(seen[0]?.request.inputs).not.toHaveProperty('afs_external_secrets');
+      expect(externalFile).toEqual([VALUE]);
       const output = readFileSync(ex.outputFile(run.id), 'utf8');
       expect(output).toContain(
         'login "from conjur" as netops, password from CyberArk Conjur "Conjur"',

@@ -897,9 +897,7 @@ export class Executor implements Stepper {
             ...(r.inventory ? { inventory: r.inventory } : {}),
             storage,
             keepRuns: 1000,
-            // AFS-241: values read from providers go to the run's secrets file too (a name the
-            // engine takes as secret), so its event callback leaves them out of every event.
-            inputs: external.length ? { ...runInputs, afs_external_secrets: external } : runInputs,
+            inputs: runInputs,
             ...(creds.vaultPassword !== undefined ? { vaultPassword: creds.vaultPassword } : {}),
             ...(this.options.recordInputs === false ? { recordInputs: false } : {}),
             // AFS-177: step by step; a later segment starts with what the driver said last.
