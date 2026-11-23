@@ -27,42 +27,15 @@ for (const [name, config] of databases) {
       if (!config) return;
       database = openDatabase(config);
       if (database.kind === 'postgres') {
-        // A database the tests own: start from nothing. Children before their parents.
-        for (const table of [
-          'flow_draft_edit',
-          'flow_draft',
-          'ldap_identity',
-          'ldap_mapping',
-          'ldap_directory',
-          'oidc_login',
-          'user_identity',
-          'oidc_mapping',
-          'oidc_provider',
-          'dev_bundle',
-          'schedule',
-          'environment_build',
-          'environment',
-          'notification',
-          'audit_entry',
-          'access_grant',
-          'run_gate',
-          'run',
-          'launch_config_credential',
-          'launch_config',
-          'git_push',
-          'api_token',
-          'project',
-          'credential',
-          'workspace',
-          'session',
-          'group_member',
-          'user_group',
-          'user_account',
-          'setting',
-          'kysely_migration',
-          'kysely_migration_lock',
-        ])
-          await sql`drop table if exists ${sql.table(table)}`.execute(database.db);
+        // A database the tests own: start from nothing. Every table, so one added by a later
+        // change (or left by another test) cannot make the first change fail.
+        const { rows } = await sql<{
+          tablename: string;
+        }>`select tablename from pg_tables where schemaname = current_schema()`.execute(
+          database.db,
+        );
+        for (const { tablename } of rows)
+          await sql`drop table if exists ${sql.table(tablename)} cascade`.execute(database.db);
       }
     });
     afterAll(async () => {
