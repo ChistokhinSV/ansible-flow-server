@@ -51,6 +51,8 @@ export async function pruneRuns(
     for (const dir of dirs) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     await db.deleteFrom('run_gate').where('run_id', '=', run.id).execute();
     await db.deleteFrom('action_reply').where('run_id', '=', run.id).execute();
+    // AFS-179: what a debug run's pauses showed (ADR-0038 §1: deleted with the run).
+    await db.deleteFrom('run_debug').where('run_id', '=', run.id).execute();
   }
   return gone.length;
 }

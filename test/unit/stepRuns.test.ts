@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RunView } from '@ansible-flow/core/protocol';
-import type { StepCommand, StepPause } from '@ansible-flow/core/run/step';
+import type { PointSpec, StepCommand, StepPause } from '@ansible-flow/core/run/step';
 import type { RunFlowHooks, RunFlowRequest, StepDriver } from '@ansible-flow/node/run/runFlow';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { FastifyInstance } from 'fastify';
@@ -384,7 +384,7 @@ describe('the executor', () => {
   /** reportOnAbort: like the real runner, one more view (no pause) as the stopped process ends. */
   const stepping = (opts: { reportOnAbort?: boolean } = {}) => {
     const sent: string[] = [];
-    let points: string[] = [];
+    let points: PointSpec[] = [];
     let release: () => void = () => undefined;
     const answered = new Promise<void>((resolve) => {
       release = resolve;
@@ -411,8 +411,10 @@ describe('the executor', () => {
           points = next;
           return undefined;
         },
+        setFailures: async () => undefined,
         paused: () => paused,
         control: () => ({ v: 1, command: 'step', points, reply: null }),
+        inspect: async () => ({ error: 'Variables and evaluate need a debug run' }),
       };
       const done = hooks.started?.(async () => undefined, driver);
       const base = { id: request.id, mode: request.mode, startedAt: request.startedAt };

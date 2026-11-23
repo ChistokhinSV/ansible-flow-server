@@ -9,6 +9,35 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-179 (ADR-0038 §1): the web debugger. What a debug run's pauses showed (scopes and watches,
+  // masked), kept with the run; a person's failure filters beside their pause points (which may now
+  // carry settings: a condition, a hit count, a log message); and the workspace setting that lets
+  // operators start debug runs.
+  '0039_run_debug': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('run_debug')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('run_id', 'text', (c) => c.notNull())
+        .addColumn('pause_id', 'text', (c) => c.notNull())
+        .addColumn('node', 'text', (c) => c.notNull())
+        .addColumn('play', 'text')
+        .addColumn('entry_key', 'text', (c) => c.notNull())
+        .addColumn('op', 'text', (c) => c.notNull())
+        .addColumn('host', 'text')
+        .addColumn('exprs_json', 'text')
+        .addColumn('answer_json', 'text', (c) => c.notNull())
+        .addColumn('size', 'integer', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema.createIndex('run_debug_run').on('run_debug').columns(['run_id']).execute();
+      await db.schema.alterTable('pause_point').addColumn('failures_json', 'text').execute();
+      await db.schema
+        .alterTable('workspace')
+        .addColumn('operators_debug', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+    },
+  },
   // AFS-214, AFS-240: a run that is another run again: which run, which of its hosts (the set and
   // how many), and the hosts themselves, which the run's limit file is written from. AFS-239: the
   // count of hosts that did not go well takes unreachable hosts in, for runs kept from before.

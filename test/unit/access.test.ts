@@ -399,6 +399,7 @@ for (const [name, config] of databases) {
         approve: false,
         flows: { [A]: 'operator' },
         flowOnly: true,
+        operatorsDebug: false,
       });
       expect(await list('rita', `/api/v1/projects/${core.id}/access`)).toMatchObject({
         flows: { [A]: 'ro', [B]: 'ro' },

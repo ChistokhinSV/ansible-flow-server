@@ -615,7 +615,11 @@ export function Workspace({
       )}
       {me.admin && space.data && tab === '-/access' && (
         <>
-          <WorkspaceAccess workspace={space.data.key} selfApprove={space.data.selfApprove} />
+          <WorkspaceAccess
+            workspace={space.data.key}
+            selfApprove={space.data.selfApprove}
+            operatorsDebug={space.data.operatorsDebug}
+          />
           <DeleteSection
             what="workspace"
             name={space.data.name}

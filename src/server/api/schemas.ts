@@ -226,6 +226,7 @@ export const SCHEMAS = {
   Workspace: obj(
     { id: str, key: str, name: str, projects: int, selfApprove: bool },
     {
+      operatorsDebug: { ...bool, description: 'AFS-179: operators may start debug runs' },
       description: str,
       level: {
         description: 'Read by its id: your own access level on it (admin: an administrator)',
@@ -298,7 +299,12 @@ export const SCHEMAS = {
       serverDefault: { const: true },
       step: obj(
         { every: bool, points: { type: 'array' }, timeoutS: int },
-        { pointsBy: str, debug: bool, pauseOnFailure: bool },
+        {
+          pointsBy: str,
+          debug: bool,
+          pauseOnFailure: bool,
+          failures: obj({}, { failed: bool, unreachable: bool }),
+        },
       ),
       relaunchOf: obj(
         {
@@ -309,7 +315,10 @@ export const SCHEMAS = {
         { count: int },
       ),
       pausedBefore: str,
-      sent: { ...of('step', 'continue', 'pause', 'stop'), description: 'The command just sent' },
+      sent: {
+        ...of('step', 'continue', 'pause', 'stop', 'retry'),
+        description: 'The command just sent',
+      },
     },
     'A run of a flow',
   ),
@@ -591,7 +600,66 @@ export const ANSWERS = {
     "One host's results, step by step",
   ),
   runView: open(obj({}, {}, "The run as the canvas shows it (the designer's run view)")),
-  pausePoints: obj({ points: strings }, { every: bool }, "A flow's pause points"),
+  pausePoints: obj(
+    {
+      points: {
+        type: 'array',
+        items: {
+          anyOf: [
+            str,
+            obj({ node: str }, { condition: str, hits: int, log: str }, 'A point with settings'),
+          ],
+        },
+      },
+    },
+    {
+      every: bool,
+      failures: obj({}, { failed: bool, unreachable: bool }, 'Which failures pause a debug run'),
+    },
+    "A flow's pause points: node ids, or (debug runs) points with a condition, a hit count or a log message",
+  ),
+  // AFS-179: a paused debug run's answer (ADR-0040 section 2): open, as the engine writes it.
+  inspect: open(
+    obj(
+      {},
+      {
+        ms: int,
+        error: str,
+        refused: bool,
+        timeout: bool,
+        host: str,
+        scopes: listOf(open(obj({ id: str, name: str }, { expensive: bool }))),
+        children: listOf(open(obj({ name: anything, type: str }))),
+        total: int,
+        more: bool,
+        value: anything,
+        masked: of('vault', 'no_log', 'credential', 'external', 'name'),
+        results: listOf(open(obj({ host: str, expr: str }))),
+      },
+      "A paused debug run's answer: scopes, variables, an evaluate's or watch's result, masked by the run (masked values say why, never their size)",
+    ),
+  ),
+  debugKept: obj(
+    {
+      pauses: listOf(
+        obj(
+          {
+            pause: str,
+            node: str,
+            entries: listOf(
+              obj(
+                { op: of('scopes', 'watch'), answer: open(obj({})), at: time },
+                { host: str, exprs: strings },
+              ),
+            ),
+          },
+          { play: str },
+        ),
+      ),
+    },
+    {},
+    "What a debug run's pauses showed (scopes and watches, masked), kept with the run",
+  ),
   launchCheck: obj(
     {
       launch: open(obj({ commit: str, flow: anything, mode, inputs: values, targets: strings })),

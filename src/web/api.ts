@@ -3,7 +3,14 @@
 
 import type { RunView } from '@ansible-flow/core/protocol';
 import type { OutputEntry } from '@ansible-flow/core/run/events';
-import type { StepCommand } from '@ansible-flow/core/run/step';
+import type {
+  FailureFilters,
+  InspectAnswer,
+  InspectArgs,
+  InspectOp,
+  PointSpec,
+  StepCommand,
+} from '@ansible-flow/core/run/step';
 import type {
   Grant,
   GrantLevel,
@@ -71,6 +78,7 @@ import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { LibrarySubflow } from '../server/projects/library';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { LastRun } from '../server/runs/cursor';
+import type { DebugPause } from '../server/runs/debugStore';
 import type { HostAt, HostSets, RelaunchBody, RelaunchOffer } from '../server/runs/hostSets';
 import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
@@ -288,6 +296,8 @@ export interface ProjectAccess {
    * those flows and their runs, nothing else of the project.
    */
   flowOnly?: boolean;
+  /** AFS-179: operators of the workspace may start debug runs (else rw on the flow). */
+  operatorsDebug?: boolean;
 }
 
 /** Who can do what in a workspace, as their grants come out. */
@@ -618,19 +628,27 @@ export const api = {
   relaunchOffer: (id: string) =>
     call<RelaunchOffer>('GET', `/runs/${encodeURIComponent(id)}/relaunch`),
   /** AFS-177: Step, Continue, Pause or Stop for a step-by-step run; or new pause points. */
-  stepRun: (id: string, ask: { command?: StepCommand; points?: string[] }) =>
-    call<Run>('POST', `/runs/${encodeURIComponent(id)}/step`, ask),
+  stepRun: (
+    id: string,
+    ask: { command?: StepCommand; points?: PointSpec[]; failures?: FailureFilters },
+  ) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/step`, ask),
+  /** AFS-179: a question to a paused debug run (variables, evaluate, watch), and its answer. */
+  inspectRun: (id: string, ask: InspectArgs & { op: InspectOp }) =>
+    call<InspectAnswer>('POST', `/runs/${encodeURIComponent(id)}/inspect`, ask),
+  /** AFS-179: what a debug run's pauses showed, kept with the run. */
+  runDebug: (id: string) =>
+    call<{ pauses: DebugPause[] }>('GET', `/runs/${encodeURIComponent(id)}/debug`),
   /** AFS-177: your pause points on a flow, and keeping new ones. */
   pausePoints: (project: string, path: string) =>
-    call<{ points: string[] }>(
+    call<{ points: PointSpec[]; failures?: FailureFilters }>(
       'GET',
       `/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
     ),
-  setPausePoints: (project: string, path: string, points: string[]) =>
-    call<{ points: string[] }>(
+  setPausePoints: (project: string, path: string, points: PointSpec[], failures?: FailureFilters) =>
+    call<{ points: PointSpec[]; failures?: FailureFilters }>(
       'PUT',
       `/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
-      { points },
+      { points, ...(failures ? { failures } : {}) },
     ),
   /** How the run went, as the canvas shows it (its hosts and where they left each step). */
   runView: (id: string) => call<RunView>('GET', `/runs/${encodeURIComponent(id)}/view`),
@@ -881,6 +899,9 @@ export const api = {
     }),
   setSelfApprove: (workspace: string, selfApprove: boolean) =>
     call<Workspace>('PATCH', `/workspaces/${encodeURIComponent(workspace)}`, { selfApprove }),
+  /** AFS-179: operators of the workspace may start debug runs. */
+  setOperatorsDebug: (workspace: string, operatorsDebug: boolean) =>
+    call<Workspace>('PATCH', `/workspaces/${encodeURIComponent(workspace)}`, { operatorsDebug }),
   projectAccess: (id: string) => call<ProjectAccess>('GET', `/projects/${id}/access`),
   grants: (workspace: string) =>
     call<Grant[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/grants`),

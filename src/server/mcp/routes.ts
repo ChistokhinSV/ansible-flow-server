@@ -31,7 +31,7 @@ const INSTRUCTIONS = `Tools of an Ansible Flow Server: the flows of its projects
 Flows are named <workspace>/<project>/<file> (flow_list); read one with flow_describe. Flows change in git, not here.
 A run is launched from a launch configuration (launch_config_list): run_check says what a launch would run (commit, inputs, hosts) or what is in the way; run_launch queues it. Follow it with run_status and run_output; run_stop stops it.
 run_relaunch runs a run again: the same commit, inputs and credentials, all its hosts or only those that did not go well (hosts: "not-ok"), in check mode if asked; its approvals are asked again. run_status says how each host went.
-A run launched with step: true pauses before each step until someone says Step, Continue or Stop on its page; run_step says it for an agent, only with a token made to allow run control and when the user has told you to.
+A run launched with step: true pauses before each step until someone says Step, Continue or Stop on its page; run_step says it for an agent, and run_inspect reads a paused debug run's variables and evaluates expressions there, only with a token made to allow run control and when the user has told you to.
 A run of a flow with approvals waits at each until a person decides (approval_list). Approvals stay with people: approval_decide works only with a token made to allow it, and only for someone allowed to decide.
 You act as the token's owner: you see and do only what they may.`;
 
@@ -190,9 +190,35 @@ export const SERVER_TOOLS: ServerTool[] = [
     inputSchema: object(
       {
         run: str('The run id'),
-        command: { type: 'string', enum: ['step', 'continue', 'pause', 'stop'] },
+        command: { type: 'string', enum: ['step', 'continue', 'pause', 'stop', 'retry'] },
       },
       ['run', 'command'],
+    ),
+  },
+  {
+    name: 'run_inspect',
+    title: 'Look into a paused debug run',
+    description:
+      "Ask a debug run paused at a step: op scopes (a host's variables by scope, no values), vars (the values under scope and path), facts, eval (a Jinja expression for one host; lookups are refused) or watch (expressions for hosts, to compare them). Secrets come back masked with the reason. Only with a token made to allow run control, for runs launched with it (or by an administrator), and when the user has told you to",
+    readOnly: true,
+    inputSchema: object(
+      {
+        run: str('The run id'),
+        op: { type: 'string', enum: ['scopes', 'vars', 'facts', 'eval', 'watch'] },
+        host: str('The host (scopes, vars, facts, eval)'),
+        hosts: { type: 'array', items: { type: 'string' }, description: 'watch: the hosts' },
+        scope: { type: 'string', enum: ['inputs', 'host', 'flow', 'facts'] },
+        path: {
+          type: 'array',
+          items: { type: ['string', 'integer'] },
+          description: 'vars: names and indexes under the scope',
+        },
+        start: { type: 'integer', minimum: 0 },
+        count: { type: 'integer', minimum: 1, maximum: 1000 },
+        expr: str('eval: the expression, without {{ }}'),
+        exprs: { type: 'array', items: { type: 'string' }, description: 'watch: expressions' },
+      },
+      ['run', 'op'],
     ),
   },
   {
@@ -581,6 +607,22 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
         const after = r.json as { number: number };
         return { text: `Run ${after.number}: ${String(command)} sent` };
       },
+      // AFS-179: variables, evaluate and watch at a debug run's pause, as the Debugger panel asks.
+      run_inspect: async ({ run, ...ask }) => {
+        if (!token?.mcpRunControl)
+          return {
+            text: 'This token may not look into debug runs: they stay with people. Ask the user to open the run page, or to make a token that allows agents to drive runs.',
+            isError: true,
+          };
+        const r = await api(
+          authorization,
+          'POST',
+          `/api/v1/runs/${encodeURIComponent(String(run))}/inspect`,
+          ask,
+        );
+        if (r.status !== 200) return refused(r);
+        return { text: JSON.stringify(r.json) };
+      },
       approval_decide: async ({ run, node, decision, comment }) => {
         if (!token?.mcpApprovals)
           return {
@@ -632,7 +674,7 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
         ...SERVER_TOOLS.filter(
           (t) =>
             (t.name !== 'approval_decide' || user.token?.mcpApprovals) &&
-            (t.name !== 'run_step' || user.token?.mcpRunControl),
+            ((t.name !== 'run_step' && t.name !== 'run_inspect') || user.token?.mcpRunControl),
         ).map((t) => ({
           name: t.name,
           title: t.title,

@@ -195,12 +195,16 @@ const NO_INPUT = { principal: '', level: 'ro' as GrantLevel, project: '', flow: 
 export function WorkspaceAccess({
   workspace,
   selfApprove = false,
+  operatorsDebug = false,
 }: {
   workspace: string;
   selfApprove?: boolean;
+  /** AFS-179: operators may start debug runs. */
+  operatorsDebug?: boolean;
 }) {
   const grants = useLoad(() => api.grants(workspace), [workspace]);
   const [self, setSelf] = useState(selfApprove);
+  const [debugging, setDebugging] = useState(operatorsDebug);
   const who = useLoad(() => api.whoCan(workspace), [workspace]);
   const users = useLoad(() => api.users(), []);
   const groups = useLoad(() => api.groups(), []);
@@ -592,6 +596,25 @@ export function WorkspaceAccess({
           }}
         />
         Who launched a run may decide its approvals (off: someone else decides)
+      </label>
+
+      <h3>Debugging</h3>
+      <label className="choice">
+        <input
+          type="checkbox"
+          checked={debugging}
+          data-operators-debug
+          onChange={async (e) => {
+            const on = e.target.checked;
+            setDebugging(on);
+            await api.setOperatorsDebug(workspace, on).catch((err) => {
+              setDebugging(!on);
+              setError(messageOf(err));
+            });
+          }}
+        />
+        Operators may debug (start debug runs, which show the hosts' variables at each pause; off:
+        read and write on the flow)
       </label>
     </section>
   );

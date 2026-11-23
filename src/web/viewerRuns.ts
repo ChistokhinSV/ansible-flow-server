@@ -1,5 +1,6 @@
 // The flow's runs as the designer's Run panel gets them on a page of the server (viewer.ts).
 import type { PastRun } from '@ansible-flow/core/run/pastRuns';
+import type { PointSpec } from '@ansible-flow/core/run/step';
 
 /** A run as the designer's run list shows it. */
 export interface RunRecord {
@@ -20,7 +21,7 @@ export interface RunRecord {
   decidedAgainst?: 'rejected' | 'timed out';
   /** AFS-205: who launched it, and a step-by-step run's pause points and pause. */
   requestedBy?: { login: string; name?: string };
-  step?: { every: boolean; points: string[] };
+  step?: { every: boolean; points: PointSpec[]; debug?: boolean };
   pausedBefore?: string;
 }
 

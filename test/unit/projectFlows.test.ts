@@ -156,6 +156,44 @@ describe('the flows of a project', () => {
   });
 });
 
+describe('repository findings (AFS-246)', () => {
+  it('the flow view says a network module meets ansible_connection: local in the inventory', async () => {
+    const repo = testRepo({
+      'network.flow.yaml': fixture('hello.flow.yaml').replace(
+        'ref: ansible.builtin.ping',
+        'ref: cisco.ios.ios_command',
+      ),
+      'hello.flow.yaml': fixture('hello.flow.yaml'),
+      'ansible.cfg': '[defaults]\ninventory = inventory/hosts.yaml\n',
+      'inventory/hosts.yaml': 'all:\n  hosts:\n    localhost: {}\n',
+      'inventory/group_vars/all.yml': 'ansible_connection: local\n',
+    });
+    try {
+      const workspace = await createWorkspace(database.db, { key: 'lab', name: 'Lab' });
+      await grant(database.db, 'lab', 'omar');
+      const made = await createProject(
+        database.db,
+        workspace.id,
+        { key: 'lab', name: 'Lab', gitUrl: repo.dir, pollSeconds: 0 },
+        true,
+      );
+      const lab = (await sync.sync(made.id)) as Project;
+      const codes = async (file: string) => {
+        const view = await get(`/api/v1/projects/${lab.id}/flows/view?path=${file}`);
+        expect(view.statusCode).toBe(200);
+        return (view.json().snapshot.findings as { code: string }[]).map((f) => f.code);
+      };
+      expect(
+        (await codes('network.flow.yaml')).filter((c) => c === 'binding-connection-local'),
+      ).toHaveLength(1);
+      // A flow without a network module has none.
+      expect(await codes('hello.flow.yaml')).not.toContain('binding-connection-local');
+    } finally {
+      repo.remove();
+    }
+  });
+});
+
 describe('flows over the API', () => {
   it('everyone signed in lists and reads them; nobody else', async () => {
     expect((await get(`/api/v1/projects/${project.id}/flows`, false)).statusCode).toBe(401);

@@ -18,6 +18,7 @@ import {
 } from './api';
 import { APPROVALS_CHANGED, RunApprovals } from './approvals';
 import { ask } from './confirm';
+import { DebugKept, DebugPanel } from './debugger';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { decidedOutcomes, quietEndOrigins } from './outputText';
@@ -1243,6 +1244,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const by = personOf(run.requestedBy);
   // AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop.
   const stepBar = !!run.step && going && run.state === 'running' && !!run.startedAt;
+  // AFS-179: a debug run going has the Debugger panel instead (its own reason line and buttons);
+  // its launcher and administrators drive it and see variables, others the reason line.
+  const debugging = stepBar && !!run.step?.debug;
+  const debugDriver = me.admin || run.requestedBy.login === me.login;
 
   return (
     <>
@@ -1333,12 +1338,15 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 <span
                   className="badge"
                   title={
-                    run.step.every
-                      ? 'Pauses before each step until someone says Step, Continue or Stop'
-                      : 'Pauses at its pause points until someone says Step, Continue or Stop'
+                    run.step.debug
+                      ? 'A debug run: pauses at its pause points and where a host fails, and shows the variables of each host there'
+                      : run.step.every
+                        ? 'Pauses before each step until someone says Step, Continue or Stop'
+                        : 'Pauses at its pause points until someone says Step, Continue or Stop'
                   }
+                  data-debug-badge={run.step.debug ? true : undefined}
                 >
-                  step by step
+                  {run.step.debug ? 'debug run' : 'step by step'}
                 </span>
               </>
             )}
@@ -1407,7 +1415,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         </div>
       </header>
       {/* AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop. */}
-      {stepBar && (
+      {stepBar && !debugging && (
         <div className="run-below run-notes">
           <RunStepBar
             run={run}
@@ -1456,12 +1464,24 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             <p className="muted">The canvas shows the run once it started.</p>
           )}
         </section>
+        {debugging && (
+          <DebugPanel
+            run={run}
+            step={step ?? view?.step}
+            mayDrive={debugDriver}
+            launcher={by}
+            onRun={setRun}
+            onError={setError}
+          />
+        )}
         <aside className="run-side" aria-label="Run details">
           <RunApprovals
             run={run.id}
             changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`}
           />
           <Hosts run={run.id} lines={lines} />
+          {/* AFS-179: a debug run that ended: what its pauses showed, for who could look then. */}
+          {!!run.step?.debug && !going && debugDriver && <DebugKept run={run} />}
           {view?.summary?.outputs || view?.summary?.outputsTooLarge ? (
             <Outputs summary={view.summary} />
           ) : null}

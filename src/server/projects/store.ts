@@ -15,6 +15,8 @@ export interface Workspace {
   projects: number;
   /** AFS-28: who launched a run may decide its approvals too. */
   selfApprove: boolean;
+  /** AFS-179: operators of a flow may start debug runs of it (else rw). */
+  operatorsDebug: boolean;
 }
 
 export interface Project {
@@ -93,6 +95,7 @@ export async function listWorkspaces(db: Db): Promise<Workspace[]> {
     ...(row.description ? { description: row.description } : {}),
     projects: byId.get(row.id) ?? 0,
     selfApprove: row.self_approve === 1,
+    operatorsDebug: row.operators_debug === 1,
   }));
 }
 
@@ -114,6 +117,7 @@ export async function createWorkspace(
     name: input.name.trim(),
     description: input.description?.trim() || null,
     self_approve: 0,
+    operators_debug: 0,
     created_at: at,
     updated_at: at,
   };
@@ -131,13 +135,19 @@ export async function createWorkspace(
     projects: 0,
     ...(row.description ? { description: row.description } : {}),
     selfApprove: false,
+    operatorsDebug: false,
   };
 }
 
 export async function updateWorkspace(
   db: Db,
   id: string,
-  change: { name?: string; description?: string | null; selfApprove?: boolean },
+  change: {
+    name?: string;
+    description?: string | null;
+    selfApprove?: boolean;
+    operatorsDebug?: boolean;
+  },
 ): Promise<Workspace> {
   const problem = change.name !== undefined ? nameProblem(change.name) : undefined;
   if (problem) throw new ProjectError('invalid', problem);
@@ -149,6 +159,9 @@ export async function updateWorkspace(
         ? { description: change.description?.trim() || null }
         : {}),
       ...(change.selfApprove !== undefined ? { self_approve: change.selfApprove ? 1 : 0 } : {}),
+      ...(change.operatorsDebug !== undefined
+        ? { operators_debug: change.operatorsDebug ? 1 : 0 }
+        : {}),
       updated_at: now(),
     })
     .where('id', '=', id)
@@ -446,6 +459,11 @@ export async function deleteProject(db: Db, id: string): Promise<void> {
       );
     await trx
       .deleteFrom('run_gate')
+      .where('run_id', 'in', (eb) => eb.selectFrom('run').select('id').where('project_id', '=', id))
+      .execute();
+    // AFS-179: what debug runs' pauses showed goes with them.
+    await trx
+      .deleteFrom('run_debug')
       .where('run_id', 'in', (eb) => eb.selectFrom('run').select('id').where('project_id', '=', id))
       .execute();
     await trx.deleteFrom('run').where('project_id', '=', id).execute();

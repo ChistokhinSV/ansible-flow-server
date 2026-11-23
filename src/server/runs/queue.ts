@@ -12,6 +12,7 @@
 // A run whose worker stops answering before the run started is given to another worker; after
 // it started it is "lost", never started again: a real run may have changed machines halfway.
 import { randomBytes, randomUUID } from 'node:crypto';
+import type { StepControl } from '@ansible-flow/core/run/step';
 import { type Kysely, sql } from 'kysely';
 import type { Schema } from '../db/schema';
 import type { PreparedLaunch, StepAsked } from '../launch/prepare';
@@ -157,7 +158,7 @@ export interface RelaunchPlan {
  * (`control`: carried into the segment after an approval).
  */
 export interface StepRecord extends StepAsked {
-  control?: { v: 1; command: 'step' | 'continue' | 'pause' | 'stop'; points: string[] };
+  control?: StepControl;
 }
 
 /**
@@ -1211,6 +1212,12 @@ export function stepAsked(json: string): StepAsked {
     // engine reads them (ADR-0040); kept and passed on as they were asked.
     ...(s.debug ? { debug: true } : {}),
     ...(s.pauseOnFailure ? { pauseOnFailure: true } : {}),
+    // AFS-179: the failure filters it has now (changed while it went), as the driver last wrote.
+    ...(s.control?.failures
+      ? { failures: s.control.failures }
+      : s.failures
+        ? { failures: s.failures }
+        : {}),
   };
 }
 

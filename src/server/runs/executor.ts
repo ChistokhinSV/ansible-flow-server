@@ -18,7 +18,12 @@ import type { RunView } from '@ansible-flow/core/protocol';
 import { stripAnsi } from '@ansible-flow/core/run/ansi';
 import type { Environment } from '@ansible-flow/core/run/environment';
 import { REDACTED } from '@ansible-flow/core/run/redact';
-import type { StepCommand } from '@ansible-flow/core/run/step';
+import type {
+  FailureFilters,
+  InspectAnswer,
+  PointSpec,
+  StepCommand,
+} from '@ansible-flow/core/run/step';
 import { startProcess } from '@ansible-flow/node/run/exec';
 import { stamp } from '@ansible-flow/node/run/ids';
 import { runsDir } from '@ansible-flow/node/run/pastRuns';
@@ -50,6 +55,7 @@ import type { MasterKey } from '../secrets/masterKey';
 import { SecretResolver } from '../secrets/providers/resolver';
 import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
+import { keepDebug } from './debugStore';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
 import { runLimit, withLimit } from './limit';
@@ -57,7 +63,7 @@ import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from '.
 import { type Job, type Outcome, pausedGone, type RunQueue, type StepRecord } from './queue';
 import { pullWithSignIn } from './registry';
 import { repositoryConfig } from './repoConfig';
-import { refusalFor, type Stepper } from './stepping';
+import { failuresOf, type InspectAsk, refusalFor, type Stepper } from './stepping';
 import {
   failedWhy,
   NO_HOSTS,
@@ -243,6 +249,7 @@ const STEP_WORD: Record<Exclude<StepCommand, 'stop'>, string> = {
   step: 'Step',
   continue: 'Continue',
   pause: 'Pause',
+  retry: 'Retry',
 };
 
 export class Executor implements Stepper {
@@ -524,7 +531,7 @@ export class Executor implements Stepper {
    */
   async drive(
     run: string,
-    ask: { command?: StepCommand; points?: string[] },
+    ask: { command?: StepCommand; points?: PointSpec[]; failures?: FailureFilters },
     by: string,
   ): Promise<{ error?: string; paused?: boolean } | undefined> {
     const going = this.drivers.get(run);
@@ -535,9 +542,17 @@ export class Executor implements Stepper {
     if (ask.points) {
       const failed = await going.driver.setPoints(ask.points);
       if (failed) return { error: failed, paused };
-      // AFS-205: kept with the run (its page says how many and whose), not only sent to it.
-      await this.deps.queue.keepControl(run, going.driver.control(), by).catch(() => undefined);
     }
+    // AFS-179: a debug run's failure filters, from its next step on.
+    if (ask.failures) {
+      const failed = await going.driver.setFailures(ask.failures);
+      if (failed) return { error: failed, paused };
+    }
+    // AFS-205: kept with the run (its page says how many and whose), not only sent to it.
+    if (ask.points || ask.failures)
+      await this.deps.queue
+        .keepControl(run, going.driver.control(), ask.points ? by : undefined)
+        .catch(() => undefined);
     if (ask.command) {
       if (ask.command === 'stop') going.stopBy = by;
       // AFS-205: the run's output says who went on, and how (Stop says it as the run ends): the
@@ -552,6 +567,31 @@ export class Executor implements Stepper {
       if (said) going.say?.(said);
     }
     return { paused };
+  }
+
+  /**
+   * AFS-179 (ADR-0038 §1): a question to a debug run paused here, and its answer (masked by the
+   * run); undefined when the run is not going here. Scopes and watches are kept with the run.
+   */
+  async inspect(run: string, ask: InspectAsk): Promise<InspectAnswer | undefined> {
+    const going = this.drivers.get(run);
+    if (!going) return undefined;
+    const { op, ...args } = ask;
+    const pause = going.driver.paused();
+    const answer = await going.driver.inspect(op, args);
+    if (pause && !answer.error && !answer.gone && (op === 'scopes' || op === 'watch'))
+      await keepDebug(
+        this.deps.db,
+        run,
+        { pause: pause.id, node: pause.node, play: pause.play },
+        {
+          op,
+          ...(ask.host ? { host: ask.host } : {}),
+          ...(ask.exprs ? { exprs: ask.exprs } : {}),
+          answer,
+        },
+      ).catch((e) => this.deps.log.warn({ err: e, run }, 'What a pause showed was not kept'));
+    return answer;
   }
 
   /** AFS-177: Stop for a step-by-step run paused here; false when it is not paused here. */
@@ -585,9 +625,11 @@ export class Executor implements Stepper {
     const stepRec = r.step ? await queue.stepRecord(r.id).catch(() => undefined) : undefined;
     let control: StepRecord['control'] | undefined = stepRec?.control;
     /** AFS-214: what a debug run (Debug this failure) asked the engine for, as it was asked. */
+    // AFS-179: a debug run gets the engine's debugger (AFD_DEBUG) and its failure filters.
+    const failures = stepRec ? failuresOf(stepRec) : undefined;
     const stepFlags = {
       ...(stepRec?.debug ? { debug: true } : {}),
-      ...(stepRec?.pauseOnFailure ? { pauseOnFailure: true } : {}),
+      ...(failures ? { failures } : {}),
     };
     /** AFS-177: the step it is paused before now, kept in its record (a restart ends it). */
     let pausedAt: { node: string; title: string } | undefined;
@@ -952,8 +994,7 @@ export class Executor implements Stepper {
                     every: stepRec.every,
                     points: control?.points ?? stepRec.points,
                     timeoutS: stepRec.timeoutS,
-                    // AFS-214: a debug run, and pause on failure: passed on for the designer's
-                    // engine (ADR-0040), which reads them once it has the debugger.
+                    // AFS-214, AFS-179: a debug run, and which failures pause it (ADR-0040).
                     ...stepFlags,
                     ...(control ? { control: { ...control, reply: null } } : {}),
                     ...(inside ? { inside } : {}),
