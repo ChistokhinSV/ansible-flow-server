@@ -417,6 +417,29 @@ describe('saving a draft open in several tabs (AFS-149)', () => {
     await call('omar', 'DELETE', `/drafts/${opened}`);
   });
 
+  it('after Undo of the first Tidy Up, steps move again (AFS-203)', async () => {
+    const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
+      .id as string;
+    const send = (command: unknown) => call('omar', 'POST', `/drafts/${id}/commands`, { command });
+    const tidied = await send({
+      kind: 'tidyUp',
+      positions: { [HELLO]: { x: 10, y: 20 }, [PING]: { x: 30, y: 40 } },
+    });
+    expect(tidied.status, JSON.stringify(tidied.json)).toBe(200);
+    expect((await call('omar', 'POST', `/drafts/${id}/undo`)).status).toBe(200);
+    const again = await send({
+      kind: 'tidyUp',
+      positions: { [HELLO]: { x: 50, y: 60 }, [PING]: { x: 70, y: 80 } },
+    });
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    const moved = await send({
+      kind: 'moveNodes',
+      positions: { [HELLO]: { x: 90, y: 100 }, [PING]: { x: 110, y: 120 } },
+    });
+    expect(moved.status, JSON.stringify(moved.json)).toBe(200);
+    await call('omar', 'POST', `/drafts/${id}/discard`);
+  });
+
   it('redo brings back what undo took, in order; a new edit ends it; a clash refuses it (AFS-172)', async () => {
     const id = (await call('omar', 'POST', `/projects/${project.id}/drafts?path=${FILE}`)).json
       .id as string;

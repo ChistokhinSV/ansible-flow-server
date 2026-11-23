@@ -2,6 +2,14 @@
 
 All notable changes to Ansible Flow Server.
 
+## 1.0.3 — Steps move again after Undo
+
+Carries Ansible Flow Designer 1.0.3.
+
+### Fixed
+
+- After Undo of a flow's first move or Tidy Up in the pages, steps can be moved again: every move was refused with "overlapping edits".
+
 ## 1.0.2 — Actions for everyone, links from NetBox and Zabbix, History, and where a value comes from
 
 Carries Ansible Flow Designer 1.0.2.

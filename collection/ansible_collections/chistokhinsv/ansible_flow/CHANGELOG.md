@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+### Changed
+
+- Released with Ansible Flow Server 1.0.3. The modules are as in 1.0.2.
+
 ## 1.0.2
 
 ### Changed
