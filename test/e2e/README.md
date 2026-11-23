@@ -65,6 +65,30 @@ just e2e down                  # stop the stack and remove its data
 | `AFS_E2E_MAIL_PORT`    | 18025   | Mailpit             |
 | `AFS_E2E_CATCHER_PORT` | 18090   | The webhook catcher |
 
+## Secret providers (AFS-242)
+
+`secretProviders.test.ts` reads from real secret providers with the server's own clients:
+HashiCorp Vault 2.2.2 (TLS, AppRole and a token), CyberArk Conjur OSS 1.27.0, LocalStack 4.14.0
+(AWS Secrets Manager) and a CyberArk CCP mock with client certificates. The containers run on the
+GNS3 VM (`~/spike-s9`, started with its `start.sh`; ports 18200, 18080, 14566 and 18443 on
+192.168.200.128). Fictional secrets only. Skipped unless `AFS_SECRETS_LAB` names a folder with
+the lab's values: `vault-ca.pem`, `vault-role-id`, `vault-secret-id`, `vault-token`,
+`conjur-host-key` (from `~/spike-s9/out`), and `ccp-ca.pem`, `ccp-client.pem`, `ccp-client.key`
+(the CCP mock's CA and a client certificate it trusts). `AFS_SECRETS_LAB_HOST` changes the
+address.
+
+```bash
+AFS_SECRETS_LAB=/path/to/lab-values npx vitest run test/e2e/secretProviders.test.ts
+```
+
+A machine whose HTTPS is intercepted (an antivirus that re-signs every connection) cannot reach
+Vault and CCP. Run it from a container on the VM instead, which bundles the test with esbuild
+(node:test in place of Vitest) and takes the lab's values from `~/spike-s9/out`:
+
+```bash
+AFS_SECRETS_LAB_CERTS=/path/to/ccp-certs node test/e2e/secrets/on-vm.mjs
+```
+
 ## What is where
 
 - `stack/`: the compose file and the webhook catcher.

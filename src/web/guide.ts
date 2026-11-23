@@ -77,6 +77,11 @@ export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
       about: 'Users, groups, access levels, tokens, OIDC and LDAP',
     },
     {
+      title: 'Secret providers',
+      page: 'secret-providers.md',
+      about: 'Credentials that read their secrets from Vault, CyberArk or AWS when a run starts',
+    },
+    {
       title: 'HTTPS and the certificate',
       page: 'certificates.md',
       about: "The server's certificate, and trusting a self-signed one",

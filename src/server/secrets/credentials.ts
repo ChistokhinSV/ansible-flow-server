@@ -252,7 +252,7 @@ async function checkedRefs(
     if (!ref || typeof ref !== 'object' || typeof ref.provider !== 'string')
       throw invalid(`${name}: name the secret provider it is read from`, name);
     const provider = await getSecretProvider(db, ref.provider);
-    if (!provider || !provider.workspaces.includes(workspaceId))
+    if (!provider?.workspaces.includes(workspaceId))
       throw invalid(
         `${name}: there is no secret provider "${String(ref.provider).slice(0, 40)}" open to this workspace`,
         name,
@@ -527,7 +527,7 @@ export async function testRef(
   const resolver = new SecretResolver(db, key, log ? { log } : {});
   try {
     const provider = await getSecretProvider(db, String(ref?.provider ?? ''));
-    if (!provider || !provider.workspaces.includes(workspaceId))
+    if (!provider?.workspaces.includes(workspaceId))
       return { ok: false, message: 'There is no such secret provider open to this workspace' };
     const problem = refProblem(provider.kind, ref);
     if (problem) return { ok: false, message: problem };

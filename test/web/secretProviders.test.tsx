@@ -130,7 +130,10 @@ describe('secret providers', () => {
         body: [{ key: 'corp-vault', name: 'Corp Vault', kind: 'vault' }],
       }),
       'POST /workspaces/network/secret-refs/test': () => ({
-        body: { ok: true, message: 'Read from HashiCorp Vault "Corp Vault" (the value is not shown)' },
+        body: {
+          ok: true,
+          message: 'Read from HashiCorp Vault "Corp Vault" (the value is not shown)',
+        },
       }),
       'POST /workspaces/network/credentials': () => {
         list = [login];
