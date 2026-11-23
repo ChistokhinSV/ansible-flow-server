@@ -1,0 +1,138 @@
+/* AFS-199: the API reference page (apidocs.ts): Scalar in the pages' colours. Scalar's theme is
+   "none" and its colours are its --scalar-* variables, set here from the pages' own (styles.css;
+   a test keeps the two the same). data-theme on <html> is the application's choice. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #12171e;
+  --side: #0f141a;
+  --panel: #171d25;
+  --raised: #1c242e;
+  --button: #252f3b;
+  --button-hover: #2e3946;
+  --border: #262f3b;
+  --fg: #e8ecf1;
+  --muted: #9aa4b2;
+  --faint: #8792a1;
+  --accent: #3ccfb8;
+  --accent-fg: #06231f;
+  --link: #7de3d3;
+  --ok: #6ee7a8;
+  --warn: #f2c673;
+  --bad: #f7a39b;
+  --code-bg: #0b0f14;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --side: #eceff3;
+  --panel: #ffffff;
+  --raised: #e1e6ec;
+  --button: #e3e8ee;
+  --button-hover: #d6dde5;
+  --border: #d5dbe2;
+  --fg: #151a21;
+  --muted: #56606d;
+  --faint: #636e7c;
+  --accent: #0b7a6b;
+  --accent-fg: #ffffff;
+  --link: #0a6b5e;
+  --ok: #1d7146;
+  --warn: #8a5a00;
+  --bad: #b3342a;
+  --code-bg: #eef1f4;
+  --shadow: 0 24px 60px rgba(21, 26, 33, 0.14);
+}
+:root {
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+.light-mode,
+.dark-mode {
+  --scalar-background-1: var(--bg);
+  --scalar-background-2: var(--panel);
+  --scalar-background-3: var(--raised);
+  --scalar-background-accent: color-mix(in srgb, var(--accent) 15%, transparent);
+  --scalar-color-1: var(--fg);
+  --scalar-color-2: var(--muted);
+  --scalar-color-3: var(--faint);
+  --scalar-color-accent: var(--accent);
+  --scalar-border-color: var(--border);
+  --scalar-color-green: var(--ok);
+  --scalar-color-red: var(--bad);
+  --scalar-color-yellow: var(--warn);
+  --scalar-color-orange: var(--warn);
+  --scalar-color-blue: var(--link);
+  --scalar-button-1: var(--accent);
+  --scalar-button-1-color: var(--accent-fg);
+  --scalar-button-1-hover: color-mix(in srgb, var(--accent) 85%, var(--fg));
+  --scalar-font: "IBM Plex Sans", system-ui, sans-serif;
+  --scalar-font-code: var(--mono);
+  --scalar-sidebar-background-1: var(--side);
+  --scalar-sidebar-color-1: var(--fg);
+  --scalar-sidebar-color-2: var(--muted);
+  --scalar-sidebar-border-color: var(--border);
+  --scalar-sidebar-item-hover-background: var(--raised);
+  --scalar-sidebar-item-active-background: var(--raised);
+  --scalar-sidebar-color-active: var(--accent);
+  --scalar-sidebar-search-background: var(--bg);
+  --scalar-sidebar-search-border-color: var(--border);
+}
+
+/* The question before a request that may change something (confirm.ts), as the pages ask it. */
+dialog.confirm {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.1rem 1.2rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font:
+    14px / 1.45 "IBM Plex Sans",
+    system-ui,
+    sans-serif;
+}
+dialog.confirm::backdrop {
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.confirm-question {
+  margin: 0 0 1rem;
+  overflow-wrap: anywhere;
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.confirm-actions button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--button);
+  color: var(--fg);
+  cursor: pointer;
+}
+.confirm-actions button:hover {
+  background: var(--button-hover);
+}
+.confirm-actions button.danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--bg);
+  font-weight: 600;
+}
+.confirm-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

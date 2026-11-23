@@ -330,6 +330,8 @@ async function seed(
     newLaunch: '/w/network/hello/launch/new',
     missing: '/w/network/hello/flow/flows/gone.flow.yaml',
     help: '/help',
+    // AFS-199: the API reference: Scalar's page in a frame.
+    apiDocs: '/docs/api',
     // AFS-155: the guide the server serves, a page with a wide table.
     guide: '/help/guide/web-pages.md',
     // AFS-162: settings that end with a danger zone.

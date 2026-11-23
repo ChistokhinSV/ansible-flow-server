@@ -2,6 +2,17 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- The API reference (**Help › API reference**) is interactive: every address with its parameters, body, answers and example requests, and **Test Request** to send one as you or as an access token you paste. A pasted token stays on that page only and is never stored; anything but a read asks before it is sent. The page is served by the server, with nothing loaded from the internet, and follows the pages' theme.
+- The OpenAPI document says what the main resources look like in the answers: runs, flows, launch configurations, schedules, actions, approvals, tokens, people, workspaces and projects.
+
+### Changed
+
+- The OpenAPI document's server is `/`, the address it was read from: clients behind a TLS proxy send to the right address.
+
 ## 1.1.0 — Step by step runs, pause points, and who may run each action
 
 Carries Ansible Flow Designer 1.1.0.

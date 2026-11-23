@@ -53,6 +53,23 @@ const VIEWER_POLICY = [
   "form-action 'none'",
 ].join('; ');
 
+/**
+ * AFS-199: the API reference (apidocs.html, Scalar): shown in a frame of the application, and
+ * its styles are partly set by its script, so inline styles are allowed there. Nothing else
+ * differs from the application's pages: scripts, requests and fonts stay this server's.
+ */
+const APIDOCS_POLICY = [
+  "default-src 'self'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
+  "connect-src 'self'",
+  "frame-ancestors 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join('; ');
+
 /** Addresses that are the server's own, never a page: an unknown one is a JSON 404. */
 const NOT_PAGES = /^\/(api|git|healthz|readyz)(\/|$)/;
 
@@ -110,9 +127,9 @@ export function webHandler(dir: string): WebHandler | undefined {
       .header('x-content-type-options', 'nosniff')
       .header('referrer-policy', 'same-origin')
       .header('cache-control', file.immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
-    if (path === '/viewer.html')
+    if (path === '/viewer.html' || path === '/apidocs.html')
       reply
-        .header('content-security-policy', VIEWER_POLICY)
+        .header('content-security-policy', path === '/viewer.html' ? VIEWER_POLICY : APIDOCS_POLICY)
         .header('x-frame-options', 'SAMEORIGIN');
     else if (file === index || file.type.startsWith('text/html'))
       reply.header('content-security-policy', POLICY).header('x-frame-options', 'DENY');

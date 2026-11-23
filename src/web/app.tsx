@@ -7,7 +7,7 @@ import { Account } from './account';
 import { ActionLinkPage } from './actionLinks';
 import { ActionPage, ActionRunPage, ActionsPage } from './actions';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
-import { ApiDocs } from './apidocs';
+import { ApiDocs } from './apiPage';
 import { APPROVALS_CHANGED, ApprovalsPage } from './approvals';
 import { AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
@@ -94,7 +94,7 @@ function Page({
   if (one?.id) return <RunPage id={one.id} me={me} theme={theme} />;
   if (path === '/account') return <Account me={me} tab="profile" />;
   if (path === '/account/tokens') return <Account me={me} tab="tokens" />;
-  if (path === '/docs/api') return <ApiDocs />;
+  if (path === '/docs/api') return <ApiDocs theme={theme} />;
   // AFS-143: help, at the addresses people try.
   if (path === '/help' || path === '/guide' || path === '/docs') return <HelpPage />;
   // AFS-155: the guide of this server's version, served by the server itself.
@@ -507,15 +507,16 @@ export function App() {
 
   // AFS-94: pages to work on (a project's files, an environment's spec) take the screen's width;
   // pages to read (lists, forms) keep to a column.
-  const kind = /\/flow\//.test(path)
-    ? 'page wide'
-    : match('/runs/:id', path)
-      ? 'page run'
-      : match('/w/:workspace/:project/files', path)
-        ? 'page full'
-        : match('/w/:workspace/environments/:id', path)
-          ? 'page broad'
-          : 'page';
+  const kind =
+    /\/flow\//.test(path) || path === '/docs/api'
+      ? 'page wide'
+      : match('/runs/:id', path)
+        ? 'page run'
+        : match('/w/:workspace/:project/files', path)
+          ? 'page full'
+          : match('/w/:workspace/environments/:id', path)
+            ? 'page broad'
+            : 'page';
   return (
     <>
       {skip}

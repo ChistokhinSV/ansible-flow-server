@@ -206,6 +206,21 @@ for (const [width, height] of SIZES)
         )
           found.push('editing, the line of who is here is not in the head');
       }
+      // AFS-199: the API reference fills its frame, and nothing in the frame scrolls sideways.
+      if (name === 'apiDocs') {
+        const frame = page.frameLocator('iframe.api-frame');
+        await expect(frame.getByRole('heading', { name: 'Ansible Flow Server API' })).toBeVisible({
+          timeout: 45_000,
+        });
+        const box = await page.locator('iframe.api-frame').boundingBox();
+        if (!box || box.height < 300)
+          found.push(`the API reference's frame is ${Math.round(box?.height ?? 0)}px tall`);
+        const inside = await frame
+          .locator('html')
+          .evaluate((e) => [e.scrollWidth, e.clientWidth] as const);
+        if (inside[0] > inside[1] + 1)
+          found.push(`the API reference scrolls sideways: ${inside[0]}px in ${inside[1]}px`);
+      }
       // AFS-169 (AFS-161): an environment's Save and Build stay in sight while its spec is on the
       // screen, however long the spec.
       if (name === 'environment') {

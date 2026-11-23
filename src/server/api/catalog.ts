@@ -8,6 +8,7 @@ import { accessOf, atLeast, type Level } from '../access/grants';
 import { READS } from '../audit/routes';
 import type { Schema } from '../db/schema';
 import { serverMeta } from '../meta';
+import { ANSWERS, type Answer, EMPTY, EVENTS, json, list, one, SCHEMAS } from './schemas';
 
 /** Who may call a route. */
 export type Who =
@@ -71,13 +72,19 @@ export interface RouteDoc {
   tag: string;
   who: Who;
   reach: Reach;
+  /**
+   * AFS-245: what it answers (api/schemas.ts): in the OpenAPI document, and checked against real
+   * answers in the route tests. Absent: not described yet.
+   */
+  returns?: Answer;
 }
 
-const S = (tag: string, who: Who, reach: Reach) => (summary: string) => ({
+const S = (tag: string, who: Who, reach: Reach) => (summary: string, returns?: Answer) => ({
   summary,
   tag,
   who,
   reach,
+  ...(returns ? { returns } : {}),
 });
 const W = { workspace: 'id' } as const;
 const P = { project: 'id' } as const;
@@ -88,7 +95,11 @@ const K = { credential: 'id' } as const;
 const E = { environment: 'id' } as const;
 
 export const ROUTES: Record<string, RouteDoc> = {
-  'GET /api/v1/meta': S('Server', 'anyone', 'anyone')('What the server is: name, version, API'),
+  'GET /api/v1/meta': S(
+    'Server',
+    'anyone',
+    'anyone',
+  )('What the server is: name, version, API', one('Meta')),
   'GET /api/v1/openapi.json': S('Server', 'anyone', 'anyone')('This API as an OpenAPI document'),
   'GET /api/v1/setup': S('Server', 'anyone', 'anyone')('Whether the first administrator is needed'),
   'POST /api/v1/setup': S(
@@ -97,13 +108,20 @@ export const ROUTES: Record<string, RouteDoc> = {
     'anyone',
   )('Make the first administrator with the setup code from the log'),
 
-  'POST /api/v1/session': S('Session', 'anyone', 'anyone')('Sign in with a login and password'),
+  'POST /api/v1/session': S(
+    'Session',
+    'anyone',
+    'anyone',
+  )('Sign in with a login and password', one('User')),
   'GET /api/v1/session': S(
     'Session',
     'signed in',
     'self',
-  )('Who is signed in (with the header X-AFS-Session: optional, 204 when nobody is)'),
-  'DELETE /api/v1/session': S('Session', 'anyone', 'self')('Sign out'),
+  )('Who is signed in (with the header X-AFS-Session: optional, 204 when nobody is)', {
+    ...one('User'),
+    also: 204,
+  }),
+  'DELETE /api/v1/session': S('Session', 'anyone', 'self')('Sign out', EMPTY),
   'PATCH /api/v1/session': S(
     'Session',
     'session',
@@ -118,32 +136,43 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Your own access, workspace by workspace (level, flows of your own, approves, through), and the administrators who give access',
   ),
 
-  'GET /api/v1/tokens': S('Tokens', 'signed in', 'self')('Your access tokens'),
+  'GET /api/v1/tokens': S('Tokens', 'signed in', 'self')('Your access tokens', list('TokenInfo')),
   'POST /api/v1/tokens': S(
     'Tokens',
     'session',
     'self',
-  )('Make an access token (shown once); optionally read-only or for one workspace'),
-  'DELETE /api/v1/tokens/:id': S('Tokens', 'session', 'self')('Revoke one of your tokens'),
-  'GET /api/v1/users/:id/tokens': S('Tokens', 'administrators', 'server')("A user's tokens"),
+  )(
+    'Make an access token (shown once); optionally read-only or for one workspace',
+    one('NewToken', 201),
+  ),
+  'DELETE /api/v1/tokens/:id': S('Tokens', 'session', 'self')('Revoke one of your tokens', EMPTY),
+  'GET /api/v1/users/:id/tokens': S(
+    'Tokens',
+    'administrators',
+    'server',
+  )("A user's tokens", list('TokenInfo')),
   'POST /api/v1/users/:id/tokens': S(
     'Tokens',
     'administrator session',
     'server',
-  )('Make a token for a service account (shown once)'),
+  )('Make a token for a service account (shown once)', one('NewToken', 201)),
   'DELETE /api/v1/users/:id/tokens/:token': S(
     'Tokens',
     'administrators',
     'server',
-  )("Revoke a user's token"),
+  )("Revoke a user's token", EMPTY),
 
-  'GET /api/v1/users': S('People', 'administrators', 'server')('Users and service accounts'),
+  'GET /api/v1/users': S(
+    'People',
+    'administrators',
+    'server',
+  )('Users and service accounts', list('User')),
   'POST /api/v1/users': S(
     'People',
     'administrators',
     'server',
   )('Add a user, or a service account (`service: true`, no password)'),
-  'GET /api/v1/users/:id': S('People', 'administrators', 'server')('One user'),
+  'GET /api/v1/users/:id': S('People', 'administrators', 'server')('One user', one('User')),
   'PATCH /api/v1/users/:id': S(
     'People',
     'administrators',
@@ -181,11 +210,15 @@ export const ROUTES: Record<string, RouteDoc> = {
     'People',
     'administrators',
     'server',
-  )('AFS-207: the actions a group lets its members run, in every workspace'),
+  )('AFS-207: the actions a group lets its members run, in every workspace', list('ActionGrant')),
 
-  'GET /api/v1/workspaces': S('Workspaces', 'signed in', 'server')('Workspaces'),
+  'GET /api/v1/workspaces': S('Workspaces', 'signed in', 'server')('Workspaces', list('Workspace')),
   'POST /api/v1/workspaces': S('Workspaces', 'administrators', 'server')('Add a workspace'),
-  'GET /api/v1/workspaces/:id': S('Workspaces', 'signed in', W)('One workspace, by id or key'),
+  'GET /api/v1/workspaces/:id': S(
+    'Workspaces',
+    'signed in',
+    W,
+  )('One workspace, by id or key', one('Workspace')),
   'PATCH /api/v1/workspaces/:id': S('Workspaces', 'administrators', W)('Change a workspace'),
   'DELETE /api/v1/workspaces/:id': S(
     'Workspaces',
@@ -193,7 +226,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     W,
   )('Delete an empty workspace'),
 
-  'GET /api/v1/workspaces/:id/projects': S('Projects', 'signed in', W)("A workspace's projects"),
+  'GET /api/v1/workspaces/:id/projects': S(
+    'Projects',
+    'signed in',
+    W,
+  )("A workspace's projects", list('Project')),
   'POST /api/v1/workspaces/:id/projects': S(
     'Projects',
     'administrators',
@@ -204,7 +241,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     W,
   )("Read a repository's address before a project mirrors it: whether it answers, its branches"),
-  'GET /api/v1/projects/:id': S('Projects', 'signed in', P)('One project, with its sync state'),
+  'GET /api/v1/projects/:id': S(
+    'Projects',
+    'signed in',
+    P,
+  )('One project, with its sync state', one('Project')),
   'PATCH /api/v1/projects/:id': S('Projects', 'administrators', P)('Change a project'),
   'DELETE /api/v1/projects/:id': S(
     'Projects',
@@ -260,18 +301,22 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Projects',
     'signed in',
     P,
-  )("The flows at the project's commit, with their findings and newest run (`lastRun`)"),
+  )(
+    "The flows at the project's commit, with their findings and newest run (`lastRun`)",
+    one('FlowList'),
+  ),
   'GET /api/v1/projects/:id/flows/view': S(
     'Projects',
     'signed in',
     P,
-  )('One flow as the designer shows it (at a commit when asked)'),
+  )('One flow as the designer shows it (at a commit when asked)', json(ANSWERS.flowView)),
   'POST /api/v1/projects/:id/flows/catalog': S(
     'Projects',
     'signed in',
     P,
   )(
     "The module catalog of a flow's image as the designer asks it while showing the flow (search, doc, names, status); 202 while it is first read",
+    json(ANSWERS.catalog),
   ),
   'GET /api/v1/projects/:id/events': S(
     'Projects',
@@ -279,6 +324,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     P,
   )(
     "The project's branch as it moves, as server-sent events: `commit` at once, then `moved` (from, to)",
+    EVENTS('commit and moved: where the branch is'),
   ),
   'GET /api/v1/projects/:id/changes': S(
     'Projects',
@@ -291,7 +337,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Projects',
     'signed in',
     P,
-  )('The commits that changed a flow, newest first'),
+  )('The commits that changed a flow, newest first', json(ANSWERS.flowHistory)),
   'GET /api/v1/projects/:id/commits': S(
     'Projects',
     'signed in',
@@ -312,6 +358,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     P,
   )(
     "What a commit did to a flow (added, changed, removed or nothing), with its author, time and message, the commit to compare with, and whether the project's branch has it (else the branches that do); ?commit= is a full commit id or its start (7 characters or more)",
+    json(ANSWERS.flowAtCommit),
   ),
   'GET /api/v1/library/subflows': S(
     'Library',
@@ -319,12 +366,13 @@ export const ROUTES: Record<string, RouteDoc> = {
     'server',
   )(
     "The subflows the server's library projects offer, of the libraries whose workspace you may read: source (afs://…), title, flow, version and commit",
+    json(ANSWERS.librarySubflows),
   ),
   'GET /api/v1/library/subflow': S(
     'Library',
     'signed in',
     'server',
-  )('One library subflow as it is now, to copy (?from=afs://…)'),
+  )('One library subflow as it is now, to copy (?from=afs://…)', json(ANSWERS.librarySubflow)),
   'GET /api/v1/projects/:id/files': S(
     'Files',
     'signed in',
@@ -511,61 +559,69 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Launch configurations',
     'signed in',
     P,
-  )("A project's launch configurations, each with its newest run you may see (`lastRun`)"),
+  )(
+    "A project's launch configurations, each with its newest run you may see (`lastRun`)",
+    list('LaunchConfig'),
+  ),
   'POST /api/v1/projects/:id/launch-configs': S(
     'Launch configurations',
     'administrators',
     P,
-  )('Add a launch configuration (saved only if it could run)'),
+  )('Add a launch configuration (saved only if it could run)', one('LaunchConfig', 201)),
   'GET /api/v1/launch-configs/:id': S(
     'Launch configurations',
     'signed in',
     C,
-  )('One launch configuration, with its newest run you may see (`lastRun`)'),
+  )('One launch configuration, with its newest run you may see (`lastRun`)', one('LaunchConfig')),
   'PATCH /api/v1/launch-configs/:id': S(
     'Launch configurations',
     'administrators',
     C,
-  )('Change a launch configuration'),
+  )('Change a launch configuration', one('LaunchConfig')),
   'DELETE /api/v1/launch-configs/:id': S(
     'Launch configurations',
     'administrators',
     C,
-  )('Delete a launch configuration'),
+  )('Delete a launch configuration', EMPTY),
   'GET /api/v1/launch-configs/:id/form': S(
     'Launch configurations',
     'signed in',
     C,
-  )("The launch form: the flow's inputs with their start values"),
+  )("The launch form: the flow's inputs with their start values", one('LaunchForm')),
   'POST /api/v1/launch-configs/:id/check': S(
     'Launch configurations',
     'signed in',
     C,
-  )('What a launch would run, or what stands in its way (422)'),
+  )('What a launch would run, or what stands in its way (422)', json(ANSWERS.launchCheck)),
   'POST /api/v1/launch-configs/:id/facts': S(
     'Launch configurations',
     'signed in',
     C,
   )(
     "The hosts a launch would touch, read from the inventory in the launch's image; with groups: true, the inventory's groups too",
+    json(ANSWERS.facts),
   ),
   'POST /api/v1/launch-configs/:id/launch': S(
     'Launch configurations',
     'administrators',
     C,
-  )('Launch: the run goes in the queue'),
+  )('Launch: the run goes in the queue', one('Run', 201)),
 
   'GET /api/v1/actions': S(
     'Actions',
     'signed in',
     'self',
-  )('The actions you may run (title, sentence, workspace), each with your newest run of it'),
+  )(
+    'The actions you may run (title, sentence, workspace), each with your newest run of it',
+    list('ActionCard'),
+  ),
   'GET /api/v1/actions/:id': S(
     'Actions',
     'may run the action',
     C,
   )(
     "An action's form: only the inputs it asks (label, help, choices), what will happen in words, whom to ask",
+    one('ActionForm'),
   ),
   'GET /api/v1/actions/:id/link': S(
     'Actions',
@@ -573,18 +629,23 @@ export const ROUTES: Record<string, RouteDoc> = {
     C,
   )(
     'AFS-176: what a link to an action gives (its query: values by input name, `_reply` where the result goes back): the form, the values, what is missing or not right, and whether it is ready to confirm. Nothing runs',
+    json(ANSWERS.actionLink),
   ),
   'GET /api/v1/actions/:id/hosts': S(
     'Actions',
     'may run the action',
     C,
-  )("The inventory's hosts and groups by name, for a host list the action asks"),
+  )(
+    "The inventory's hosts and groups by name, for a host list the action asks",
+    json(ANSWERS.actionHosts),
+  ),
   'POST /api/v1/actions/:id/run': S(
     'Actions',
     'may run the action',
     C,
   )(
     'Run an action with the values it asks (inputs by name); an input it does not ask is refused. The run goes in the queue. `reply` (a NetBox object `dcim.device:1`, a Zabbix event `event:2048`) is where its result goes back when the action says so. A system with no person runs it with a signed link: `Authorization: Bearer afsl_…`, in the header only',
+    json(ANSWERS.actionRunStarted, 201),
   ),
   'GET /api/v1/actions/runs/:id': S(
     'Actions',
@@ -592,71 +653,82 @@ export const ROUTES: Record<string, RouteDoc> = {
     R,
   )(
     'How a run of an action goes, in words: steps done of N, who an approval waits for, done or failed and why, whom to ask',
+    one('ActionProgress'),
   ),
   'GET /api/v1/actions/runs/:id/events': S(
     'Actions',
     'may run the action',
     R,
-  )('The same, live, as server-sent events: progress, end'),
+  )(
+    'The same, live, as server-sent events: progress, end',
+    EVENTS('progress: the run of the action as it goes'),
+  ),
   'GET /api/v1/launch-configs/:id/action': S(
     'Actions',
     'signed in',
     C,
-  )("A launch configuration's action (null when it is none), and who may run it"),
+  )(
+    "A launch configuration's action (null when it is none), and who may run it",
+    json(ANSWERS.actionSettings),
+  ),
   'PUT /api/v1/launch-configs/:id/action': S(
     'Actions',
     'administrators',
     C,
   )(
     'Make a launch configuration an action, or change it: title, sentence, the inputs it asks, mode, confirm, on or off',
+    one('Action'),
   ),
   'DELETE /api/v1/launch-configs/:id/action': S(
     'Actions',
     'administrators',
     C,
-  )('Stop a launch configuration being an action (its grants go too)'),
+  )('Stop a launch configuration being an action (its grants go too)', EMPTY),
   'POST /api/v1/launch-configs/:id/action/grants': S(
     'Actions',
     'administrators',
     C,
-  )('Let a user or group run the action (nothing else of the workspace)'),
+  )('Let a user or group run the action (nothing else of the workspace)', one('ActionGrant', 201)),
   'DELETE /api/v1/launch-configs/:id/action/grants/:grant': S(
     'Actions',
     'administrators',
     C,
-  )('Take back who may run the action'),
+  )('Take back who may run the action', EMPTY),
   'GET /api/v1/launch-configs/:id/action/tokens': S(
     'Actions',
     'administrators',
     C,
-  )("An action's signed links, by name (never the tokens)"),
+  )("An action's signed links, by name (never the tokens)", list('ActionToken')),
   'POST /api/v1/launch-configs/:id/action/tokens': S(
     'Actions',
     'administrators',
     C,
   )(
     'Make a signed link for a system with no person (a Zabbix action, a NetBox webhook): a token that runs this action only, as you, shown this once. In a session only',
+    json(ANSWERS.newActionToken, 201),
   ),
   'DELETE /api/v1/launch-configs/:id/action/tokens/:token': S(
     'Actions',
     'administrators',
     C,
-  )('Revoke a signed link: it stops at once'),
+  )('Revoke a signed link: it stops at once', EMPTY),
   'GET /api/v1/workspaces/:id/action-grants': S(
     'Actions',
     'administrators',
     W,
-  )("Who may run the workspace's actions"),
+  )("Who may run the workspace's actions", list('ActionGrant')),
   'GET /api/v1/workspaces/:id/actions': S(
     'Actions',
     'administrators',
     W,
   )(
     'Every action of the workspace, on or off, with who may run it through a grant (operators of its flow and administrators may too)',
+    json({ type: 'array', items: ANSWERS.workspaceAction }),
   ),
 
   'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
     "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
+    list('Run'),
   ),
   'GET /api/v1/runs/:id': S(
     'Runs',
@@ -664,57 +736,69 @@ export const ROUTES: Record<string, RouteDoc> = {
     R,
   )(
     'One run, with its credentials by name (`credentialNames`), the environment its image came from (`environment`) and the targets Ansible skipped because the inventory does not have them (`skippedTargets`)',
+    one('Run'),
   ),
   'GET /api/v1/runs/:id/output': S(
     'Runs',
     'signed in',
     R,
-  )('What Ansible wrote, secrets hidden (text); `from` for what came after'),
+  )('What Ansible wrote, secrets hidden (text); `from` for what came after', {
+    text: 'text/plain',
+    description: "The run's output, as text",
+  }),
   'GET /api/v1/runs/:id/view': S(
     'Runs',
     'signed in',
     R,
-  )('How the run went, step by step, as the designer shows it'),
+  )('How the run went, step by step, as the designer shows it', json(ANSWERS.runView)),
   'GET /api/v1/runs/:id/hosts/:node/:host': S(
     'Runs',
     'signed in',
     R,
-  )('What one host did in one step'),
+  )('What one host did in one step', json(ANSWERS.hostOutput)),
   'GET /api/v1/runs/:id/hosts/:host': S(
     'Runs',
     'signed in',
     R,
-  )('What one host did in the run, step by step'),
+  )('What one host did in the run, step by step', json(ANSWERS.hostSteps)),
   'GET /api/v1/runs/:id/events': S(
     'Runs',
     'signed in',
     R,
-  )('The run as it goes, as server-sent events: run, view, output, end'),
-  'POST /api/v1/runs/:id/cancel': S('Runs', 'administrators', R)('Stop a run'),
+  )(
+    'The run as it goes, as server-sent events: run, view, output, end',
+    EVENTS('run, view, output and end: the run as it goes'),
+  ),
+  'POST /api/v1/runs/:id/cancel': S('Runs', 'administrators', R)('Stop a run', one('Run', 202)),
   'POST /api/v1/runs/:id/step': S(
     'Runs',
     'administrators',
     R,
   )(
     'Drive a step-by-step run: `command` step (run the next step, pause again), continue (run on to a pause point), pause (pause before the next step), stop (end before the next step); `points`: new pause points (node ids)',
+    one('Run', 202),
   ),
   'GET /api/v1/projects/:id/pause-points': S(
     'Runs',
     'signed in',
     P,
-  )('Your pause points on a flow (`path`): the steps your step-by-step runs of it pause before'),
+  )(
+    'Your pause points on a flow (`path`): the steps your step-by-step runs of it pause before',
+    json(ANSWERS.pausePoints),
+  ),
   'PUT /api/v1/projects/:id/pause-points': S(
     'Runs',
     'signed in',
     P,
   )(
     'Keep your pause points on a flow (`path`, body `points`: node ids); your step-by-step runs of it going now get them too',
+    json(ANSWERS.pausePoints),
   ),
   'POST /api/v1/runs/:id/relaunch': S(
     'Runs',
     'administrators',
     R,
-  )('The same run again, as a new run'),
+  )('The same run again, as a new run', one('Run', 201)),
 
   'GET /api/v1/workspaces/:id/grants': S(
     'Access',
@@ -748,17 +832,24 @@ export const ROUTES: Record<string, RouteDoc> = {
     'server',
   )(
     'Approvals that wait for a decision, that you may see; each says whether you may decide it. `?decided=1`: the newest 50 decided ones instead',
+    list('WaitingApproval'),
   ),
   'GET /api/v1/runs/:id/approvals': S(
     'Approvals',
     'signed in',
     R,
-  )("A run's approvals: waiting or decided, by whom, when, why; whether you may decide each"),
+  )(
+    "A run's approvals: waiting or decided, by whom, when, why; whether you may decide each",
+    list('Gate'),
+  ),
   'POST /api/v1/runs/:id/approvals/:node': S(
     'Approvals',
     'signed in',
     R,
-  )('Decide an approval the run waits at: approved or rejected, with a comment; the run goes on'),
+  )(
+    'Decide an approval the run waits at: approved or rejected, with a comment; the run goes on',
+    one('Gate'),
+  ),
   'GET /api/v1/audit': S(
     'Audit',
     'administrators',
@@ -892,6 +983,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     C,
   )(
     "What the configuration's flow needs (its steps and collections/requirements.yml) against what its environment's image holds, or another environment's (`environment`)",
+    json(ANSWERS.environmentCheck),
   ),
   'POST /api/v1/launch-configs/:id/environment': S(
     'Environments',
@@ -904,30 +996,32 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Schedules',
     'signed in',
     C,
-  )("A launch configuration's schedules: their rule, next times and last fire"),
+  )("A launch configuration's schedules: their rule, next times and last fire", list('Schedule')),
   'POST /api/v1/launch-configs/:id/schedules': S(
     'Schedules',
     'signed in',
     C,
   )(
     'Run the launch configuration on a cron (`cron`, `timezone`) or once (`onceAt`); the caller owns the schedule and its runs are checked against the owner’s grants when they fire',
+    one('Schedule', 201),
   ),
   'PATCH /api/v1/launch-configs/:id/schedules/:schedule': S(
     'Schedules',
     'signed in',
     C,
-  )('Change a schedule; `owner` (a service account) only by an administrator'),
+  )('Change a schedule; `owner` (a service account) only by an administrator', one('Schedule')),
   'DELETE /api/v1/launch-configs/:id/schedules/:schedule': S(
     'Schedules',
     'signed in',
     C,
-  )('Delete a schedule'),
+  )('Delete a schedule', EMPTY),
   'GET /api/v1/schedule-times': S(
     'Schedules',
     'signed in',
     'self',
   )(
     'The next times a cron expression fires in a time zone, or why it cannot be read; with `check=1`, every problem in `problems` (each with its field) instead of a refusal',
+    json(ANSWERS.scheduleTimes),
   ),
   // AFS-30: sign-in with OIDC providers.
   'GET /api/v1/auth/methods': S(
@@ -1342,11 +1436,44 @@ interface Seen {
   schema?: RouteOptions['schema'];
 }
 
+const STATUS_WORDS: Record<number, string> = {
+  200: 'Done',
+  201: 'Made',
+  202: 'Accepted: it goes on after this answer',
+};
+
+/** AFS-245: a route's answers, as OpenAPI writes them. */
+export function answered(answer: Answer): Record<string, unknown> {
+  if ('empty' in answer) return { '204': { description: answer.description ?? 'Done' } };
+  if ('text' in answer)
+    return {
+      '200': {
+        description: answer.description,
+        content: { [answer.text]: { schema: { type: 'string' } } },
+      },
+    };
+  if ('events' in answer)
+    return {
+      '200': {
+        description: `Server-sent events: ${answer.events}`,
+        content: { 'text/event-stream': { schema: { type: 'string' } } },
+      },
+    };
+  const status = answer.status ?? 200;
+  return {
+    [String(status)]: {
+      description: answer.description ?? STATUS_WORDS[status],
+      content: { 'application/json': { schema: answer.json } },
+    },
+    ...(answer.also ? { [String(answer.also)]: { description: 'Nothing to say' } } : {}),
+  };
+}
+
 /** A route's parameters, `:id` as OpenAPI writes it (`{id}`). */
 const openPath = (url: string) => url.replace(/:([A-Za-z_]+)/g, '{$1}');
 
 /** The OpenAPI 3.1 document of the routes the server has. */
-export function openApi(routes: Seen[], origin?: string): Record<string, unknown> {
+export function openApi(routes: Seen[]): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const route of routes) {
     const doc = ROUTES[`${route.method} ${route.url}`];
@@ -1393,8 +1520,14 @@ export function openApi(routes: Seen[], origin?: string): Record<string, unknown
           }
         : {}),
       responses: {
+        ...(doc.returns
+          ? answered(doc.returns)
+          : {
+              default: {
+                description: 'The answer, as JSON (an output as text, events as a stream)',
+              },
+            }),
         '4XX': { $ref: '#/components/responses/Refused' },
-        default: { description: 'The answer, as JSON (an output as text, events as a stream)' },
       },
       ...(doc.who === 'anyone' || doc.who === 'push hook token' ? { security: [] } : {}),
     };
@@ -1409,8 +1542,11 @@ export function openApi(routes: Seen[], origin?: string): Record<string, unknown
       description:
         'Sign in with a personal access token as a bearer token (`Authorization: Bearer afs_...`), or with the session cookie of the pages. A token made for one workspace reaches only that workspace; a read-only token only reads.',
     },
-    ...(origin ? { servers: [{ url: origin }] } : {}),
+    // AFS-199: this server, wherever it is reached (behind a TLS proxy too): the pages' Try it
+    // and generated clients send to the address the document came from.
+    servers: [{ url: '/', description: 'This server' }],
     components: {
+      schemas: SCHEMAS,
       responses: {
         Refused: {
           description: 'Refused: what was wrong, in words fit to show',
@@ -1441,8 +1577,19 @@ export function openApi(routes: Seen[], origin?: string): Record<string, unknown
         },
       },
       securitySchemes: {
-        token: { type: 'http', scheme: 'bearer', description: 'A personal access token' },
-        session: { type: 'apiKey', in: 'cookie', name: 'afs_session' },
+        token: {
+          type: 'http',
+          scheme: 'bearer',
+          description:
+            'A personal access token (`afs_...`), made on the Access tokens page. Pasted in the API reference it stays on that page only.',
+        },
+        session: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'afs_session',
+          description:
+            'The session of the pages, after signing in: the browser sends it, there is nothing to type.',
+        },
       },
     },
     security: [{ token: [] }, { session: [] }],
@@ -1534,7 +1681,5 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
     });
   });
 
-  app.get('/api/v1/openapi.json', async (request) =>
-    openApi(seen, `${request.protocol}://${request.host}`),
-  );
+  app.get('/api/v1/openapi.json', async () => openApi(seen));
 }
