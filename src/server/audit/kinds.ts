@@ -136,3 +136,14 @@ export const AUDIT_ACTION_WORDS: Record<string, string> = {
   'workspace.create': 'added a workspace',
   'workspace.delete': 'deleted a workspace',
 };
+
+/**
+ * AFS-232: what an entry says it did, by its result: a refused sign-in did not sign anyone in
+ * ("sign-in refused", not "signed in"). Undefined for an action with no words.
+ */
+export function auditActionWords(action: string, result: string): string | undefined {
+  const words = AUDIT_ACTION_WORDS[action];
+  if (!words || result === 'ok') return words;
+  if (action === 'session.sign-in') return 'sign-in refused';
+  return `${result === 'failed' ? 'failed' : 'refused'}: ${words}`;
+}

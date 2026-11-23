@@ -616,6 +616,10 @@ export function registerLaunch(
         me,
         config.name,
       );
+      // AFS-232: a run launched by a run of the same project that holds its only place says why it
+      // waits (the collection's `run` with wait: true fails at once with these words).
+      const held = me.token?.run ? await queue.heldByLauncher(run, me.token.run) : undefined;
+      if (held) request.log.warn({ run: run.id, launcher: me.token?.run }, held);
       request.log.info(
         {
           by: me.login,
@@ -630,7 +634,7 @@ export function registerLaunch(
         },
         'Run queued',
       );
-      return reply.code(201).send(run);
+      return reply.code(201).send(held ? { ...run, heldByLauncher: held } : run);
     },
   );
 }

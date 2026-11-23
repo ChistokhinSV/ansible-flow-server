@@ -202,4 +202,29 @@ describe("the draft's frame", () => {
       vi.useRealTimers();
     }
   });
+
+  it('AFS-224: tells the designer who an approval with an empty Approvers asks', async () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      const body = url.includes('/approvers?')
+        ? { approvers: ['change-board', 'Sam Reyes'], selfApprove: false }
+        : {};
+      return { ok: true, status: 200, json: async () => body } as Response;
+    });
+    const root = document.createElement('div');
+    document.body.append(root);
+    editDraft({ root, draft: 'd1', me: 'dana', theme: 'dark', stateKey: 'k', tab: 'tab-a' });
+    const told: Record<string, unknown>[] = [];
+    transport?.subscribe?.((m) => told.push(m));
+    transport?.post({ type: 'ready' });
+    (FakeSource.last as FakeSource).emit('draft', {
+      draft: { project: 'p1', file: 'flows/change.flow.yaml', baseCommit: 'c'.repeat(40) },
+      snapshot: { doc: { nodes: [] } },
+    });
+    await vi.waitFor(() =>
+      expect(told.filter((m) => m.type === 'config').at(-1)).toMatchObject({
+        embed: { mayRun: false },
+        impliedApprovers: ['change-board', 'Sam Reyes'],
+      }),
+    );
+  });
 });

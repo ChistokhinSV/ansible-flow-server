@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
+import { ActionEditPage } from './actionEdit';
 import { ActionLinkPage } from './actionLinks';
 import { ActionPage, ActionRunPage, ActionsPage } from './actions';
 import { ApiError, api, setSignedOutHandler, type User } from './api';
@@ -85,6 +86,9 @@ function Page({
   if (path === '/actions') return <ActionsPage />;
   const actionRun = match('/actions/runs/:id', path);
   if (actionRun?.id) return <ActionRunPage run={actionRun.id} />;
+  // AFS-201: an action's settings, on its own page.
+  const actionEdit = match('/actions/:id/edit', path);
+  if (actionEdit?.id) return <ActionEditPage id={actionEdit.id} />;
   const action = match('/actions/:id', path);
   if (action?.id) return <ActionPage id={action.id} />;
   // AFS-176: a link to an action from another system (NetBox, Zabbix), with values in its query.

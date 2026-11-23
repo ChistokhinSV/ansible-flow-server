@@ -33,6 +33,8 @@ export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
       page: 'workspaces-and-projects.md',
       about: 'Where flows live, and working on a project with git',
     },
+  ],
+  [
     {
       title: 'Launch configurations',
       page: 'launch-configurations.md',

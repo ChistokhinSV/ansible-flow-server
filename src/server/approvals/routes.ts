@@ -2,6 +2,7 @@
 //   GET  /api/v1/approvals                    what waits for a decision, that the person may see
 //   GET  /api/v1/runs/:id/approvals           a run's approvals, with whether the person may decide
 //   POST /api/v1/runs/:id/approvals/:node     decide one: approved or rejected, with a comment
+//   GET  /api/v1/projects/:id/approvers?path=  who an approval of a flow with no approvers asks
 // The run then goes back to the queue and continues with the segment the decision picks.
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -12,6 +13,7 @@ import type { Schema } from '../db/schema';
 import type { RunHub } from '../runs/hub';
 import type { RunQueue } from '../runs/queue';
 import {
+  approveHolders,
   DECISIONS,
   type Decision,
   decideGate,
@@ -20,7 +22,7 @@ import {
   gatesOf,
   whyNot,
 } from './gates';
-import type { WaitingApproval } from './types';
+import { decidersWords, type WaitingApproval } from './types';
 
 export type { WaitingApproval };
 
@@ -85,6 +87,44 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
     const deciders = await decidersOf(db, gate, place, selfApprove ? undefined : launcher);
     return { ...gate, deciders };
   };
+
+  /**
+   * AFS-224: who an approval of this flow asks when its Approvers is empty: the people and groups
+   * holding approve on the flow or its workspace (administrators may always decide). For the
+   * Approvers field, so empty does not have to be guessed.
+   */
+  app.get<{ Params: { id: string }; Querystring: { path: string } }>(
+    '/api/v1/projects/:id/approvers',
+    {
+      schema: {
+        params: { type: 'object', properties: { id: text(64) }, required: ['id'] },
+        querystring: {
+          type: 'object',
+          properties: { path: text(500) },
+          required: ['path'],
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!signedIn(request, reply)) return reply;
+      const place = await db
+        .selectFrom('project')
+        .innerJoin('workspace', 'workspace.id', 'project.workspace_id')
+        .select(['workspace.id as workspace', 'workspace.self_approve'])
+        .where('project.id', '=', request.params.id)
+        .executeTakeFirst();
+      if (!place) return reply.code(404).send({ error: 'not_found', message: 'No such project' });
+      return {
+        approvers: await approveHolders(db, {
+          workspace: place.workspace,
+          project: request.params.id,
+          flowFile: request.query.path,
+        }),
+        // Whether who launches a run may decide its approvals too.
+        selfApprove: place.self_approve === 1,
+      };
+    },
+  );
 
   app.get<{ Params: { id: string } }>(
     '/api/v1/runs/:id/approvals',
@@ -165,7 +205,22 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
       const place = await placeOf(run.project);
       if (!who || !place) return reply;
       const why = judge(who, gate, run, place);
-      if (why) return reply.code(403).send({ error: 'forbidden', message: why });
+      if (why) {
+        // AFS-211: the launcher is told who decides it, as the pages tell them.
+        const self = why.startsWith('You launched');
+        const deciders = self
+          ? await decidersOf(
+              db,
+              gate,
+              { workspace: place.workspace, project: run.project, flowFile: run.flow.file },
+              run.requestedBy,
+            )
+          : undefined;
+        return reply.code(403).send({
+          error: 'forbidden',
+          message: deciders ? `${why}. ${decidersWords(deciders)} decides it` : why,
+        });
+      }
       const { decision, comment } = request.body;
       // AFS-146: a rejection says why, whatever asks for it (the pages, the canvas, the API, an
       // agent): the comment is what who launched the run reads.

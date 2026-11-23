@@ -17,6 +17,7 @@ import { createToken } from '../../src/server/auth/tokens';
 import { createUser } from '../../src/server/auth/users';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
+import { fieldWords } from '../../src/server/drafts/drafts';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
@@ -666,6 +667,11 @@ describe('a draft that changes nothing, what a draft changes, and a discard (AFS
     expect((await call('omar', 'DELETE', `/drafts/${id}?tab=o1`)).status).toBe(204);
     await typed;
     await mia.until(() => mia.events.some((e) => e.event === 'discarded'));
+    // AFS-232: the news names the tab whose Discard it was: that page says its own words.
+    expect(mia.events.find((e) => e.event === 'discarded')?.data).toMatchObject({
+      by: { login: 'omar' },
+      tab: 'o1',
+    });
     await mia.close();
     // Mia brings it back: a new draft with her edits, typing included.
     const restore = (who: string) =>
@@ -879,5 +885,13 @@ describe("the module catalog of the flow's image", () => {
       index.close();
       await app2.close();
     }
+  });
+});
+
+describe('AFS-232: a merge names a field as the panel does', () => {
+  it('description, not intent; other places as they are', () => {
+    expect(fieldWords('Ping: intent')).toBe('Ping: description');
+    expect(fieldWords('Ping: title')).toBe('Ping: title');
+    expect(fieldWords('The flow')).toBe('The flow');
   });
 });

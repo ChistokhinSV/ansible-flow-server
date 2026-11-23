@@ -57,7 +57,7 @@ export type DraftNotice =
   /** AFS-186: whether the draft changes anything (Save is off while it does not). */
   | { type: 'afs-draft-changed'; changed: boolean }
   | { type: 'afs-draft-undone' }
-  | { type: 'afs-draft-gone'; by?: string; mine?: boolean }
+  | { type: 'afs-draft-gone'; by?: string; mine?: boolean; here?: boolean }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
   | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } }
   /** AFS-126: the empty canvas's Import / Open Sample: the page picks what to start from. */
@@ -197,6 +197,19 @@ export function editDraft(options: {
    */
   let vars: RepoVars | undefined;
   let keys: Awaited<ReturnType<typeof projectKeys>>;
+  /**
+   * AFS-224: who an approval with an empty Approvers asks (approve holders of the flow or its
+   * workspace), told to the designer with its settings: its Approvers field names them.
+   */
+  let implied: string[] | undefined;
+  // AFS-136: a draft does not run (runs use saved commits): no Run buttons while editing.
+  const sendConfig = () =>
+    send({
+      type: 'config',
+      testMode: false,
+      embed: { mayRun: false, words: 'server' },
+      ...(implied ? { impliedApprovers: implied } : {}),
+    } as HostMessage);
   const withVars = (snapshot: NonNullable<Edit['snapshot']>) =>
     (vars ? vars.snapshot(snapshot as never) : snapshot) as unknown;
   const show = (snapshot: Edit['snapshot']) => {
@@ -231,6 +244,14 @@ export function editDraft(options: {
       });
       void projectKeys(d.project).then((k) => {
         keys = k;
+      });
+      void json(
+        'GET',
+        `/api/v1/projects/${encodeURIComponent(d.project)}/approvers?path=${encodeURIComponent(d.file)}`,
+      ).then((r) => {
+        if (!r.ok || !Array.isArray(r.data?.approvers)) return;
+        implied = (r.data.approvers as unknown[]).filter((a): a is string => typeof a === 'string');
+        if (ready) sendConfig();
       });
     }
     show(first.snapshot);
@@ -302,9 +323,19 @@ export function editDraft(options: {
     });
   });
   events.addEventListener('discarded', (e) => {
-    const news = JSON.parse((e as MessageEvent).data) as { by?: { login: string; name: string } };
+    const news = JSON.parse((e as MessageEvent).data) as {
+      by?: { login: string; name: string };
+      tab?: string;
+    };
     ended();
-    tellPage({ type: 'afs-draft-gone', by: news.by?.name, mine: news.by?.login === me });
+    // AFS-232: the page whose Discard it was says its own words, whatever the same person's other
+    // sessions say.
+    tellPage({
+      type: 'afs-draft-gone',
+      by: news.by?.name,
+      mine: news.by?.login === me,
+      ...(news.tab && news.tab === tab ? { here: true } : {}),
+    });
   });
 
   /** The catalog's state, again every 10 seconds while the image's docs are first read. */
@@ -386,12 +417,7 @@ export function editDraft(options: {
         switch (message.type) {
           case 'ready':
             ready = true;
-            // AFS-136: a draft does not run (runs use saved commits): no Run buttons while editing.
-            send({
-              type: 'config',
-              testMode: false,
-              embed: { mayRun: false, words: 'server' },
-            } as HostMessage);
+            sendConfig();
             if (latest) {
               send({ type: 'snapshot', snapshot: withVars(latest) } as unknown as HostMessage);
               revealOnce();

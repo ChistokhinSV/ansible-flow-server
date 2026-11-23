@@ -6,7 +6,8 @@ import { GUIDE_PAGES, guide } from './guide';
 import { Link } from './router';
 import { Breadcrumb, PageHead, useLoad, WorkspaceName } from './ui';
 
-const GROUPS = ['Running flows', 'For administrators', 'Programs and agents'];
+// AFS-211: the pages that make flows are not under Running flows.
+const GROUPS = ['Getting started', 'Running flows', 'For administrators', 'Programs and agents'];
 
 export function HelpPage() {
   return (

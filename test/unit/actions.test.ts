@@ -387,6 +387,13 @@ for (const [name, config] of databases) {
       expect(offered.users.map((u) => u.login)).toContain('mia');
       expect(offered.users.map((u) => u.login)).not.toContain('nobody');
       expect(offered.groups.map((g) => g.name)).toEqual(['managers']);
+      // AFS-201: where it is, for its own page, and who may change it finds that page.
+      expect(
+        (await call('wanda', 'GET', `/api/v1/launch-configs/${edge}/action`)).body.place,
+      ).toEqual(expect.objectContaining({ workspaceKey: 'net', projectKey: core.key }));
+      expect((await call('wanda', 'GET', `/api/v1/actions/${edge}`)).body.editPage).toBe(
+        `/actions/${edge}/edit`,
+      );
       expect(
         (
           await call('wanda', 'POST', `/api/v1/launch-configs/${edge}/action/grants`, {
@@ -422,6 +429,7 @@ for (const [name, config] of databases) {
         /as a check.*Check the host answers/,
       );
       expect(form.body.configPage).toBeUndefined();
+      expect(form.body.editPage).toBeUndefined();
       // AFS-207: a refusal says whom to ask.
       const refused = await call('rita', 'GET', `/api/v1/actions/${edge}`);
       expect(refused.status).toBe(403);

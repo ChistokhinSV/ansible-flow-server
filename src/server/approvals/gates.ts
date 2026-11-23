@@ -241,8 +241,60 @@ export async function decidersOf(
     for (const a of gate.approvers)
       if (a.toLowerCase() !== except?.login.toLowerCase())
         out.push(names.get(a.toLowerCase()) ?? a);
-    return out;
+    return except ? apartFrom(db, out, except.id) : out;
   }
+  const holders = await approveHolders(db, place, except?.id);
+  return except ? apartFrom(db, holders, except.id) : holders;
+}
+
+/**
+ * AFS-211: a group among the deciders that the launcher is in says who else decides: "Sam Reyes
+ * (change-board)", its other members by name; a group with nobody else is left out. A launcher
+ * who reads "change-board decides it" while in change-board cannot tell who can act.
+ */
+async function apartFrom(db: Db, names: string[], launcher: string): Promise<string[]> {
+  if (!names.length) return names;
+  const rows = await db
+    .selectFrom('user_group')
+    .innerJoin('group_member', 'group_member.group_id', 'user_group.id')
+    .innerJoin('user_account', 'user_account.id', 'group_member.user_id')
+    .select([
+      'user_group.name as group',
+      'user_account.id as user',
+      'user_account.login',
+      'user_account.name',
+      'user_account.disabled',
+    ])
+    .where('user_group.name', 'in', names)
+    .execute();
+  const members = new Map<string, typeof rows>();
+  for (const r of rows) members.set(r.group, [...(members.get(r.group) ?? []), r]);
+  return names.flatMap((name) => {
+    const of = members.get(name);
+    if (!of?.some((m) => m.user === launcher)) return [name];
+    const others = of
+      .filter((m) => m.user !== launcher && !m.disabled)
+      .map((m) => m.name || m.login)
+      .sort((a, b) => a.localeCompare(b));
+    if (!others.length) return [];
+    const who =
+      others.length === 1 ? others[0] : `${others.slice(0, -1).join(', ')} or ${others.at(-1)}`;
+    return [`${who} (${name})`];
+  });
+}
+
+/**
+ * AFS-146, AFS-224: who an approval with no approvers asks: the people and groups holding approve
+ * on the flow or its workspace, by name (a person by display name, a group by its name), sorted.
+ * `except`: a person's id left out (who launched the run, when they may not decide it).
+ * Administrators may always decide and are not listed.
+ */
+export async function approveHolders(
+  db: Db,
+  place: { workspace: string; project: string; flowFile: string },
+  except?: string,
+): Promise<string[]> {
+  const out: string[] = [];
   const grants = await db
     .selectFrom('access_grant')
     .leftJoin('user_account', 'user_account.id', 'access_grant.principal_id')
@@ -269,10 +321,53 @@ export async function decidersOf(
     .execute();
   for (const g of grants) {
     if (g.type === 'group' && g.group) out.push(g.group);
-    else if (g.type === 'user' && g.login && !g.disabled && g.id !== except?.id)
+    else if (g.type === 'user' && g.login && !g.disabled && g.id !== except)
       out.push(g.person || g.login);
   }
   return [...new Set(out)].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * AFS-211: whether this person would decide an approval of this flow if they had not launched the
+ * run: one of its approvers (by login or a group of theirs), or, with none named, holding approve
+ * on the flow or its workspace (themselves or through a group).
+ */
+export async function wouldDecide(
+  db: Db,
+  approvers: readonly string[],
+  place: { workspace: string; project: string; flowFile: string },
+  user: string,
+): Promise<boolean> {
+  const person = await db
+    .selectFrom('user_account')
+    .select('login')
+    .where('id', '=', user)
+    .executeTakeFirst();
+  if (!person) return false;
+  const groups = await db
+    .selectFrom('group_member')
+    .innerJoin('user_group', 'user_group.id', 'group_member.group_id')
+    .select(['user_group.id', 'user_group.name'])
+    .where('group_member.user_id', '=', user)
+    .execute();
+  if (approvers.length) {
+    const names = new Set([person.login, ...groups.map((g) => g.name)].map((n) => n.toLowerCase()));
+    return approvers.some((a) => names.has(a.toLowerCase()));
+  }
+  const held = await db
+    .selectFrom('access_grant')
+    .select('id')
+    .where('level', '=', 'approve')
+    .where('workspace_id', '=', place.workspace)
+    .where('principal_id', 'in', [user, ...groups.map((g) => g.id)])
+    .where((eb) =>
+      eb.or([
+        eb('project_id', 'is', null),
+        eb.and([eb('project_id', '=', place.project), eb('flow_file', '=', place.flowFile)]),
+      ]),
+    )
+    .executeTakeFirst();
+  return !!held;
 }
 
 /** Why this person may not decide this gate; undefined when they may. */

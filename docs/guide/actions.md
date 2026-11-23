@@ -9,8 +9,14 @@ a sentence on what it does, only the values they choose, a summary of what will 
 
 ## Make a launch configuration an action
 
-On the configuration's page, **Settings**, section **Action**, **Make it an action** (an
-administrator, or someone with **read and write** on the workspace):
+An action has a page of its own for its settings: `/actions/<id>/edit` (its id is its launch
+configuration's). The configuration's **Settings** keep one line about it: **Make it an action**,
+or the action's title with a link to its page. The action's form has **Change this action** for
+whoever may change it. The page has three parts: **Settings**, **Links** and **Who may run it**.
+Someone who may see the flow but not change the action reads its settings there.
+
+On the action's page, **Make it an action** (an administrator, or someone with **read and write**
+on the workspace):
 
 - **Title** and **What it does**: in the runners' words ("Restart the edge switch", "Restarts one
   edge switch and checks it answers again").
@@ -37,12 +43,16 @@ administrator, or someone with **read and write** on the workspace):
 - **On**: off, nobody can run it; its words and who may run it are kept for when it is on again.
   **Stop being an action** forgets both; the configuration stays.
 
+Once saved, **Runs with** lists the values of the inputs it does not ask, as the configuration
+has them (a secret one only as _secret_); they are changed on the configuration's **Settings**. An
+empty title or sentence is said by its label ("What it does is needed").
+
 Whoever saves it last is the action's **owner**: runners are told to ask them (and the server's
 administrators) when something goes wrong.
 
 ## Who may run it
 
-Under the action, **Who may run it**: a person by login or a group by name, then **Let them run
+On the action's page, **Who may run it**: a person by login or a group by name, then **Let them run
 it**. That grant gives the action and nothing else of the workspace: no flows, files,
 configurations, runs or search results, not even the workspace's name in the menu. **Take back**
 ends it at once. Operators of the flow and administrators may run it without a grant. The
@@ -75,7 +85,8 @@ whose only access is actions lands on Actions when they sign in, and the menu ho
 and Help.
 
 An action opens its form: the values it asks, **What will happen** (check or real, the steps it
-goes through by title, the approvals it waits at and who decides them; the values the action keeps
+goes through by title, the approvals it waits at and who decides them (by name: an approval with no
+approvers names who holds approve); the values the action keeps
 fixed are not listed: whoever set it up answers for them), and **Run**. A value that is missing,
 not one of the choices, not in the group or the inventory, or more hosts than the action takes is
 said at its field when you press **Run**, before the question. The host picker marks a group with
@@ -113,6 +124,20 @@ from you, switched off or deleted; the **Runs** page points someone who may only
 
 ![A run of an action, step by step](images/action-progress.png)
 
+## A link with values
+
+On the action's page, **Links**, **A link with values**: fill in the values the link gives (a
+choice is picked from its list) and leave the rest for the person who opens it. The page gives
+the whole link, `https://<server>/a/<action id>?<input>=<value>&…`, to copy into a mail, a chat
+or a ticket, and says what the person will see: a confirm page with the values and **Run**, the
+short form asking only for what you left out, or (with **A link that gives every value runs as it
+opens**) the run starting. The values are checked as the form checks them (the choices, the
+group, how many hosts): a wrong one is said at its field. Making the link runs nothing, and an
+action never asks a secret, so none is in a link.
+
+A runner shares what they filled in the same way: on the action's form, **Copy a link with these
+values**.
+
 ## Links from NetBox and Zabbix
 
 A link opens an action with values from the object it is on:
@@ -137,7 +162,7 @@ A link opens an action with values from the object it is on:
 
 ### Make the link: Copy link for NetBox / Zabbix
 
-On the configuration's **Settings**, under the action, **Links from NetBox and Zabbix**: pick
+On the action's page, **Links**, **Links from NetBox and Zabbix**: pick
 NetBox or Zabbix, then for each input where its value comes from (a device's name, its primary
 IPv4 address, its site; a Zabbix host's name, IP, or what the person types), or leave it out (the
 person fills it in). By default the object's name goes to the host list, its site to an input
@@ -189,8 +214,8 @@ reached, and listed on **Notifications** (to whom: the object). Links in them ne
 
 ### Signed links, for systems with no person
 
-A Zabbix action on a trigger, or a NetBox webhook, starts a run with no person to sign in. Under
-**Signed links**, give it a name and **Make a signed link** (in a session on the pages, by who may
+A Zabbix action on a trigger, or a NetBox webhook, starts a run with no person to sign in. On the action's page,
+under **Signed links**, give it a name and **Make a signed link** (in a session on the pages, by who may
 change the action). The token is shown once: keep it in the system that uses it. It runs this
 action only, as you, with the inputs it asks:
 

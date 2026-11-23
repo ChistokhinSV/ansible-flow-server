@@ -260,7 +260,7 @@ describe('the audit log', () => {
     window.history.replaceState(null, '', '/admin/audit');
     render(<App />);
     // AFS-206: what was done in words, its code on hover.
-    expect((await screen.findByText('added a project')).getAttribute('title')).toBe(
+    expect((await screen.findByText('refused: added a project')).getAttribute('title')).toBe(
       'project.create',
     );
     expect(screen.getByText('token a1-readonly')).toBeTruthy();

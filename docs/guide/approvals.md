@@ -14,11 +14,15 @@ server that stops and starts again keeps the run waiting.
 
 - **Who decides:** whoever has the `approve` grant on the flow or its workspace (see
   [Access levels](people-and-sign-in.md#access-levels)); when the approval names `approvers` (users or groups, in the
-  flow), only they. Administrators may always decide.
+  flow), only they. Administrators may always decide. When editing a flow in the pages, an empty
+  **Approvers** field names who will be asked (the people and groups holding approve), and so
+  does an action's **What will happen**.
 - **Not who launched the run**, unless an administrator lets the workspace allow it (Access, on
   the workspace's page, or `PATCH /api/v1/workspaces/<id>` with `{"selfApprove": true}`). Who
-  launched it reads "You launched this run, so others decide its approvals" and who does; the
-  request email to a group they belong to says they do not decide it.
+  launched it reads "You launched this run, so others decide its approvals" and who does, from
+  the pages and the API alike. A deciding group they are in is named by its other members
+  ("Sam Reyes (change-board) decides it"). The request email says the launcher does not decide
+  it only when they would otherwise be asked (one of the approvers, or holding approve).
 - **A comment** goes with every decision; the run, its page, its canvas and the audit log keep
   who decided, when and why. Rejecting needs one: the server refuses a rejection without a
   comment, from the pages, the canvas, the API or an agent. On the pages and the canvas,
@@ -32,8 +36,8 @@ server that stops and starts again keeps the run waiting.
   ended. The decision email names the step the hosts go to.
 - **The request email** carries the approval's message (or, without one, its step's intent),
   the hosts waiting, the run's inputs (secret-looking values as `***`), whether it is a real run,
-  and when it times out. The Approvals page and the run's page show the same, and how long it
-  has waited.
+  and when it times out. The Approvals page and the run's page show the same, how long it has
+  waited, and **Who decides**.
 - **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
   hosts take the approval's `timeout` port (or `rejected` when it has none).
 - **A stopped run** asks nobody any more.
@@ -54,8 +58,9 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
   -d '{"decision":"approved","comment":"Window confirmed with the NOC"}'
 ```
 
-| Address (under `/api/v1`)        | Does                                                                                                                                    | Who                          |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `GET /approvals`                 | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided | signed in                    |
-| `GET /runs/:id/approvals`        | A run's approvals: waiting or decided, by whom (`decidedByName`), when, why; `mayDecide`, `why`; `deciders` (who may decide)            | `ro`                         |
-| `POST /runs/:id/approvals/:node` | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                 | `approve`, and the approvers |
+| Address (under `/api/v1`)           | Does                                                                                                                                    | Who                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `GET /approvals`                    | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided | signed in                    |
+| `GET /runs/:id/approvals`           | A run's approvals: waiting or decided, by whom (`decidedByName`), when, why; `mayDecide`, `why`; `deciders` (who may decide)            | `ro`                         |
+| `POST /runs/:id/approvals/:node`    | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                 | `approve`, and the approvers |
+| `GET /projects/:id/approvers?path=` | Who an approval of the flow asks when its approvers are empty (`approvers`, by name), and `selfApprove`                                 | `ro` on the flow             |

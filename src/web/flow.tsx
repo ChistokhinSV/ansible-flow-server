@@ -283,6 +283,7 @@ export function FlowPage({
         what?: string;
         sent?: boolean;
         mine?: boolean;
+        here?: boolean;
         coAuthors?: string[];
         unsent?: boolean;
       } | null;
@@ -326,6 +327,8 @@ export function FlowPage({
       // AFS-186: this page's own Discard or Stop editing then says its own words.
       if (data?.type === 'afs-draft-gone') {
         draftOver.current = true;
+        // AFS-232: this page discarded it: its own Discard said so already.
+        if (data.here) return;
         stop.current(
           data.mine
             ? 'You discarded the draft in another tab.'

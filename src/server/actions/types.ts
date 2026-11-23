@@ -71,7 +71,7 @@ export interface ActionInput {
   max?: number;
 }
 
-/** An action's settings, as its configuration's Settings tab sets them. */
+/** An action's settings, as its own page sets them (AFS-201: `/actions/<id>/edit`). */
 export interface ActionSettings {
   title: string;
   summary: string;
@@ -190,6 +190,8 @@ export interface ActionForm {
   blocked?: string;
   /** Who may also open its configuration (ro on the flow): the address of its page. */
   configPage?: string;
+  /** AFS-201: who may change it (rw on its workspace): the address of its own settings page. */
+  editPage?: string;
   /** AFS-176: a link with every value runs as its page opens. */
   runOnOpen?: boolean;
   /** AFS-176: the system a run started from a link tells how it ended. */
@@ -261,3 +263,18 @@ export interface ActionProgress {
   /** May run the action again (the form's address). */
   again?: string;
 }
+
+/**
+ * AFS-201: where an action's settings page is: its configuration, flow, project and workspace,
+ * for the page's crumbs and its line back to the configuration.
+ */
+export interface ActionPlaceWords {
+  workspaceKey: string;
+  workspaceName: string;
+  projectKey: string;
+  configName: string;
+  flowFile: string;
+}
+
+/** AFS-201: an action's own settings page: where its settings are changed. */
+export const actionEditAddress = (id: string) => `/actions/${encodeURIComponent(id)}/edit`;

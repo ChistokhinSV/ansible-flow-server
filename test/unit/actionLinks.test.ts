@@ -305,6 +305,10 @@ describe('links to actions on SQLite', () => {
     expect(happens).toMatch(/NetBox is told how it ended/);
     const form = await call('mia', 'GET', `/api/v1/actions/${lb}/link?devices=sw-edge-01`);
     expect(form.body).toMatchObject({ ready: false, missing: ['device'] });
+    // AFS-201: a link with no values yet (the action's page asks so first): everything missing.
+    const bare = await call('mia', 'GET', `/api/v1/actions/${lb}/link`);
+    expect(bare.status).toBe(200);
+    expect(bare.body).toMatchObject({ ready: false, given: [] });
     // Values checked as the form checks them: a number, the group.
     const wrong = await call(
       'mia',

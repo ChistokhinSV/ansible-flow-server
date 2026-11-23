@@ -192,7 +192,7 @@ function executor(dataDir: string) {
   );
 }
 
-async function launch(which = config) {
+async function launch(which = config, by = 'dana') {
   const c = (await new LaunchConfigs(database.db, git).get(which)) as NonNullable<
     Awaited<ReturnType<LaunchConfigs['get']>>
   >;
@@ -201,7 +201,7 @@ async function launch(which = config) {
   return queue.enqueue(
     prepared.launch,
     withoutSecrets(prepared.launch, prepared.form.fields).inputs,
-    { id: ids.dana as string, login: 'dana' },
+    { id: ids[by] as string, login: by },
     'Change',
   );
 }
@@ -544,6 +544,57 @@ describe('a run of a flow with an approval', () => {
     await stateIs(run.id, 'succeeded');
     await ex.stop();
     await updateWorkspace(database.db, project.workspace, { selfApprove: false });
+  });
+
+  it('AFS-211: a launcher in the deciding group is told who else decides, by the API too', async () => {
+    const board = await database.db
+      .selectFrom('user_group')
+      .select('id')
+      .where('name', '=', 'change-board')
+      .executeTakeFirstOrThrow();
+    await setMembers(database.db, board.id, [ids.omar as string, ids.gary as string]);
+    try {
+      const ex = executor(join(root, 'data-211'));
+      const run = await launch(config, 'omar');
+      await ex.start();
+      await stateIs(run.id, 'waiting');
+      const [mine] = (await call('omar', 'GET', `/api/v1/runs/${run.id}/approvals`)).json();
+      expect(mine).toMatchObject({ mayDecide: false, deciders: ['gary (change-board)'] });
+      const refused = await call('omar', 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
+        decision: 'approved',
+      });
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json().message).toBe(
+        'You launched this run, so others decide its approvals (only an administrator can change that). gary (change-board) decides it',
+      );
+      // The same names for everyone: the launcher does not decide it, whoever reads.
+      const [theirs] = (await call('gary', 'GET', `/api/v1/runs/${run.id}/approvals`)).json();
+      expect(theirs).toMatchObject({ mayDecide: true, deciders: ['gary (change-board)'] });
+      expect(
+        (
+          await call('gary', 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
+            decision: 'approved',
+          })
+        ).statusCode,
+      ).toBe(200);
+      await stateIs(run.id, 'succeeded');
+      await ex.stop();
+    } finally {
+      await setMembers(database.db, board.id, [ids.omar as string]);
+    }
+  });
+
+  it('AFS-224: who an approval with no approvers asks, for the Approvers field', async () => {
+    const asked = await call(
+      'rita',
+      'GET',
+      `/api/v1/projects/${project.id}/approvers?path=flows/change.flow.yaml`,
+    );
+    expect(asked.statusCode).toBe(200);
+    expect(asked.json()).toEqual({ approvers: ['change-board', 'gary'], selfApprove: false });
+    expect((await call('rita', 'GET', `/api/v1/projects/${project.id}/approvers`)).statusCode).toBe(
+      400,
+    );
   });
 
   it('a flow whose approvals cannot wait for a person does not run: nothing is approved by itself', async () => {

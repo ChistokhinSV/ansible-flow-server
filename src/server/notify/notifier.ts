@@ -11,7 +11,7 @@
 
 import type { Kysely } from 'kysely';
 import type { ActionReply } from '../actions/types';
-import { waitingHosts } from '../approvals/gates';
+import { waitingHosts, wouldDecide } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { STATE_WORDS } from '../runs/words';
@@ -72,7 +72,17 @@ interface RunFacts {
   error: string | null;
   project: { id: string; key: string; name: string };
   workspace: { id: string; key: string; name: string };
+  /** AFS-232: a failed run whose approval was rejected or not decided in time, as the pages say. */
+  against?: 'rejected' | 'timed out';
 }
+
+/** AFS-232: how a run ended in words: a rejected one reads rejected, as on its page. */
+const endedWords = (run: RunFacts): string =>
+  run.state === 'failed' && run.against === 'rejected'
+    ? 'rejected'
+    : run.state === 'failed' && run.against === 'timed out'
+      ? 'not decided in time'
+      : (ENDED_WORDS[run.state] ?? run.state);
 
 const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'lost']);
 const UNSUCCESSFUL = new Set(['failed', 'lost']);
@@ -224,7 +234,20 @@ export class Notifier {
     } catch {
       // No inputs to tell.
     }
+    const against =
+      row.state === 'failed'
+        ? (
+            await this.db
+              .selectFrom('run_gate')
+              .select('status')
+              .where('run_id', '=', row.id)
+              .where('status', 'in', ['rejected', 'timed out'])
+              .orderBy('decided_at', 'desc')
+              .executeTakeFirst()
+          )?.status
+        : undefined;
     return {
+      ...(against === 'rejected' || against === 'timed out' ? { against } : {}),
       id: row.id,
       number: row.number,
       state: row.state,
@@ -256,6 +279,8 @@ export class Notifier {
       workspace: run.workspace,
       ...(run.configName ? { config: run.configName } : {}),
       requestedBy: run.requestedLogin,
+      // AFS-232: a run ended by a rejection says so beside its state.
+      ...(run.against ? { decidedAgainst: run.against } : {}),
       ...(run.error && run.state !== 'succeeded' ? { error: run.error } : {}),
       ...(link ? { link } : {}),
     };
@@ -303,7 +328,16 @@ export class Notifier {
       project: run.project.id,
       flowFile: run.flowFile,
     });
-    return { approvers, told, selfApprove };
+    // AFS-211: "who does not decide it" only of a launcher who would otherwise be asked.
+    const launcherLeftOut =
+      !selfApprove &&
+      (await wouldDecide(
+        this.db,
+        approval.approvers ?? [],
+        { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
+        run.requestedBy,
+      ).catch(() => false));
+    return { approvers, told, selfApprove, launcherLeftOut };
   }
 
   /**
@@ -377,7 +411,7 @@ export class Notifier {
         message?: string;
         intent?: string;
       };
-      const { approvers, told, selfApprove } = await this.asked(run, approval);
+      const { approvers, told, launcherLeftOut } = await this.asked(run, approval);
       // AFS-193: what is decided: the approval's message (else its step's intent) and the hosts.
       const about = approval.message?.trim() || approval.intent?.trim();
       const hosts = waitingHosts(gate.carried_json, gate.node_key) ?? [];
@@ -399,7 +433,7 @@ export class Notifier {
           ? [`${hosts.length === 1 ? 'Host' : `Hosts (${hosts.length})`} waiting: ${shownHosts}`]
           : []),
         // AFS-193: a list or group address reaches who launched it too: they do not decide it.
-        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'})${selfApprove ? '' : `, who does not decide it`}.`,
+        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'})${launcherLeftOut ? ', who does not decide it' : ''}.`,
         ...(inputs.length ? ['Inputs:', ...inputs] : []),
         ...(gate.deadline ? [`Nobody deciding by ${readable(gate.deadline)}: it times out.`] : []),
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',
@@ -520,14 +554,14 @@ export class Notifier {
       if (notify.when === 'failed' && !UNSUCCESSFUL.has(run.state)) return;
       const link = this.link(`/runs/${run.id}`);
       const lines = [
-        `${this.where(run)} ${ENDED_WORDS[run.state] ?? run.state}.`,
+        `${this.where(run)} ${endedWords(run)}.`,
         ...(run.configName ? [`Launch configuration: ${run.configName}.`] : []),
         `Launched by ${run.requestedName}.`,
         ...(run.error && run.state !== 'succeeded' ? [`Why: ${run.error}`] : []),
         ...(link ? [link] : []),
       ];
       const message: Message = {
-        subject: `Run ${ENDED_WORDS[run.state] ?? run.state}: ${run.flowName} #${run.number}`,
+        subject: `Run ${endedWords(run)}: ${run.flowName} #${run.number}`,
         text: lines.join('\n'),
         payload: this.envelope('run.ended', {
           run: this.runPayload(run),

@@ -745,7 +745,7 @@ export function registerDrafts(
         // AFS-186: what the others are typing goes in first, so Bring back has it too.
         if (await drafts.text(request.params.id))
           await flushPages(request.params.id, me, request.query.tab, 'discard');
-        await drafts.discard(request.params.id, editorOf(me));
+        await drafts.discard(request.params.id, editorOf(me), request.query.tab);
         return reply.code(204).send();
       } catch (e) {
         return failed(reply, e);

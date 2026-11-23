@@ -57,6 +57,13 @@ describe('help', () => {
     expect(screen.getByRole('link', { name: 'API reference' }).getAttribute('href')).toBe(
       '/docs/api',
     );
+    // AFS-211: the pages that make flows are not listed under Running flows.
+    const running = screen.getByRole('heading', { name: 'Running flows' }).closest('section');
+    expect(
+      within(running as HTMLElement).queryByRole('link', { name: 'Your first flow' }),
+    ).toBeNull();
+    expect(within(running as HTMLElement).getByRole('link', { name: 'Approvals' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Getting started' })).toBeTruthy();
   });
 
   it('a page links its part of the guide beside its title', async () => {

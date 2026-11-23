@@ -229,6 +229,10 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
           ...(gone.off.length ? { turnedOff: gone.off } : {}),
         });
       } catch (e) {
+        // AFS-232: the branch moved on: the project's commit and "looked at" are read again now, so
+        // its header shows the branch as the conflict does, not as it was before the save.
+        if (e instanceof FilesRefused && e.head)
+          await deps.sync.refresh(project.id).catch(() => undefined);
         if (e instanceof FilesRefused)
           return reply.code(STATUS[e.code]).send({
             error: e.code,

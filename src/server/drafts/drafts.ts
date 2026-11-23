@@ -93,9 +93,20 @@ export type DraftNews =
       wires: number;
     }
   | { kind: 'saved'; commit: string; by: Editor; coAuthors: string[] }
-  | { kind: 'discarded'; by: Editor };
+  /** AFS-232: `tab`: the page that discarded it, which says its own words. */
+  | { kind: 'discarded'; by: Editor; tab?: string };
 
 type Db = Kysely<Schema>;
+/**
+ * AFS-232: a merge's place ("Ping: intent") with the field as the designer's panel calls it
+ * ("Ping: description"): people never see the file's names.
+ */
+const FIELD_WORDS: Record<string, string> = { intent: 'description' };
+export const fieldWords = (label: string): string =>
+  label.replace(/: ([a-z_]+)$/, (whole, field: string) =>
+    FIELD_WORDS[field] ? `: ${FIELD_WORDS[field]}` : whole,
+  );
+
 /** AFS-186: how long a discarded draft can be brought back. */
 const KEEP_DISCARDED_MS = 15 * 60_000;
 const now = () => new Date().toISOString();
@@ -550,7 +561,7 @@ export class Drafts {
       if (merged.conflicts.length)
         throw new DraftError(
           'refused',
-          `Someone changed the same place since: ${merged.conflicts.map((c) => c.label).join('; ')}`,
+          `Someone changed the same place since: ${merged.conflicts.map((c) => fieldWords(c.label)).join('; ')}`,
         );
       const text = writeMergedFlow(current.text, merged.doc);
       // AFS-172: an undo of a start says so, for its redo.
@@ -614,7 +625,7 @@ export class Drafts {
       if (merged.conflicts.length)
         throw new DraftError(
           'refused',
-          `Someone changed the same place since: ${merged.conflicts.map((c) => c.label).join('; ')}`,
+          `Someone changed the same place since: ${merged.conflicts.map((c) => fieldWords(c.label)).join('; ')}`,
         );
       const text = writeMergedFlow(current.text, merged.doc);
       const started = last.kind === 'undo-start';
@@ -816,7 +827,7 @@ export class Drafts {
     );
   }
 
-  async discard(id: string, by: Editor): Promise<void> {
+  async discard(id: string, by: Editor, tab?: string): Promise<void> {
     await this.one(id, async () => {
       const row = await this.row(id);
       if (!row) throw new DraftError('not_found', 'No such draft');
@@ -854,7 +865,7 @@ export class Drafts {
       });
       await this.drop(id);
     });
-    this.tell(id, { kind: 'discarded', by });
+    this.tell(id, { kind: 'discarded', by, ...(tab ? { tab } : {}) });
   }
 
   /**
@@ -966,7 +977,7 @@ export class Drafts {
           text,
           kept.files.length ? kept.files : undefined,
         );
-      return merged.conflicts.map((c) => c.label);
+      return merged.conflicts.map((c) => fieldWords(c.label));
     });
     this.discarded.delete(id);
     this.restored.set(id, { id: target, at: Date.now() });

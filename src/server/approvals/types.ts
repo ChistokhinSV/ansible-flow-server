@@ -35,6 +35,16 @@ export interface Gate {
   createdAt: string;
 }
 
+/**
+ * AFS-146, AFS-211: who may decide a gate, as a phrase: "Sam Reyes", "Sam Reyes or change-board";
+ * nobody named: an administrator (who always may).
+ */
+export function decidersWords(names: readonly string[]): string {
+  if (!names.length) return 'An administrator';
+  if (names.length === 1) return names[0] as string;
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+}
+
 /** A waiting gate as the inbox lists it. */
 export interface WaitingApproval {
   run: {
