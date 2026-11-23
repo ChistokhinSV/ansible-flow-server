@@ -360,15 +360,21 @@ describe('a run', () => {
       asked.push(String(text));
       return answer;
     });
-    const again = await screen.findByRole('button', { name: 'Run again' });
+    // AFS-214: Run again ▾ is a menu; its first item is the run as it was.
+    const menu = await screen.findByRole('button', { name: 'Run again ▾' });
+    fireEvent.click(menu);
+    const again = screen.getByRole('menuitem', { name: 'Run again' });
     expect(again.getAttribute('title')).toMatch(/^A real run again, at the same commit\./);
     fireEvent.click(again);
+    await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0]).toMatch(
       /^Run Hello, Ansible for real again\? It changes the hosts it reaches\./,
     );
     expect(window.location.pathname).toBe('/runs/r1');
     answer = true;
-    fireEvent.click(again);
+    fireEvent.click(menu);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Run again' }));
+    await waitFor(() => expect(asked).toHaveLength(2));
     confirm.mockRestore();
     await screen.findByRole('heading', { name: 'Hello, Ansible #8' });
     expect(window.location.pathname).toBe('/runs/r2');

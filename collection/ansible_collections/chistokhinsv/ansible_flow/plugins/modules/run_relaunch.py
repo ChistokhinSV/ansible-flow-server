@@ -11,6 +11,9 @@ short_description: Run a run of Ansible Flow Server again
 description:
   - Runs a run of Ansible Flow Server again, as its Run again button does - the same commit, flow, mode,
     inputs and credentials - as a new run with its own number.
+  - With O(hosts), only some of the run's hosts, such as the ones that did not go well; with O(mode), O(commit)
+    and O(step), in another mode, at the newest commit, or step by step. The server checks the run again as a
+    launch (the credentials its launch configuration gives now) and asks its approvals again.
   - Always makes a new run (C(changed=true)); in check mode it only reads the run.
   - Needs C(operator) or more on the run's flow.
 author:
@@ -58,6 +61,39 @@ options:
       - With O(wait=true), fail the task when the new run ends V(failed), V(cancelled) or V(lost).
     type: bool
     default: true
+  hosts:
+    description:
+      - Which of the run's hosts run again - V(all), V(not-ok) (the hosts that did not go well - failed,
+        unreachable or stopped before the end), V(failed), V(unreachable), V(stopped) - or a list of host names
+        of the run.
+      - Absent, every host the run had.
+    type: raw
+  include_handled:
+    description:
+      - With O(hosts), add the hosts whose failure the flow handled through a wired fail port.
+    type: bool
+    default: false
+  mode:
+    description:
+      - V(check) or V(real); absent, the run's mode.
+    type: str
+    choices: [check, real]
+  commit:
+    description:
+      - V(same), the run's commit, or V(newest), the newest commit of its branch.
+    type: str
+    choices: [same, newest]
+    default: same
+  step:
+    description:
+      - V(true) runs step by step, pausing before each step until someone says Step, Continue or Stop;
+        V(false) runs without pausing; absent, as the run was asked.
+    type: bool
+  pause_points:
+    description:
+      - Run step by step, pausing only before these steps (node ids).
+    type: list
+    elements: str
 seealso:
   - module: chistokhinsv.ansible_flow.run
   - module: chistokhinsv.ansible_flow.run_cancel
@@ -71,6 +107,12 @@ EXAMPLES = r"""
     run_id: "{{ patch.id }}"
     wait: true
   register: again
+
+- name: Run only the hosts that did not go well, as a check run
+  chistokhinsv.ansible_flow.run_relaunch:
+    run_id: "{{ patch.id }}"
+    hosts: not-ok
+    mode: check
 """
 
 RETURN = r"""
@@ -148,6 +190,36 @@ from ansible_collections.chistokhinsv.ansible_flow.plugins.module_utils.afs impo
 )
 
 
+HOST_SETS = ("all", "not-ok", "failed", "unreachable", "stopped")
+
+
+def relaunch_body(p):
+    """The relaunch body from the module's options, or why the options do not make one."""
+    body = {}
+    hosts = p.get("hosts")
+    if hosts is not None:
+        if isinstance(hosts, str) and hosts in HOST_SETS:
+            body["hosts"] = hosts
+        elif isinstance(hosts, list) and hosts and all(isinstance(h, str) and h for h in hosts):
+            body["hosts"] = hosts
+        else:
+            return "hosts is one of %s, or a list of host names" % ", ".join(HOST_SETS)
+    if p.get("include_handled"):
+        body["includeHandled"] = True
+    if p.get("mode"):
+        body["mode"] = p["mode"]
+    if p.get("commit") and p["commit"] != "same":
+        body["commit"] = p["commit"]
+    points = p.get("pause_points") or []
+    if points:
+        body["step"] = {"every": p.get("step") is True, "points": points}
+    elif p.get("step") is True:
+        body["step"] = {"every": True}
+    elif p.get("step") is False:
+        body["step"] = None
+    return body
+
+
 def main():
     spec = connection_argument_spec()
     spec.update(
@@ -157,16 +229,25 @@ def main():
         poll_interval=dict(type="int", default=5),
         wait_for_approvals=dict(type="bool", default=False),
         fail_on_failure=dict(type="bool", default=True),
+        hosts=dict(type="raw"),
+        include_handled=dict(type="bool", default=False),
+        mode=dict(type="str", choices=["check", "real"]),
+        commit=dict(type="str", choices=["same", "newest"], default="same"),
+        step=dict(type="bool"),
+        pause_points=dict(type="list", elements="str"),
     )
     module = AnsibleModule(argument_spec=spec, supports_check_mode=True)
     p = module.params
+    body = relaunch_body(p)
+    if isinstance(body, str):
+        module.fail_json(msg=body)
     client = AFSClient.from_module(module)
     timed_out = None
     try:
         before = client.run(p["run_id"])
         if module.check_mode:
             module.exit_json(changed=True, relaunched_from=before["id"])
-        run = client.post("/runs/%s/relaunch" % seg(before["id"]))
+        run = client.post("/runs/%s/relaunch" % seg(before["id"]), body)
         if p["wait"]:
             run, timed_out = wait_for_run(client, run["id"], p["wait_timeout"], p["poll_interval"],
                                           through_approvals=p["wait_for_approvals"])

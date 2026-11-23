@@ -14,6 +14,7 @@
 //
 // Where a host went wrong is its earliest failing node: inside a subflow the inner step (a pause
 // point works there), except in a rolling subflow, which is one play: the subflow itself.
+import type { StepRequest } from '../launch/prepare';
 
 /** The part of a flow's nodes this reads: titles, ends, subflows and their rolling setting. */
 export interface FlowStep {
@@ -258,3 +259,29 @@ export function limitLine(name: string): string {
 /** The text of a limit file: one line per host. */
 export const limitFile = (hosts: readonly string[]): string =>
   `${hosts.map(limitLine).join('\n')}\n`;
+
+/** AFS-240: the body of POST /runs/:id/relaunch (relaunch.ts); `{}` is 1.1's Run again. */
+export interface RelaunchBody {
+  /** Which hosts: all (default), a set of the run's, or names (each a host of the run). */
+  hosts?: HostChoice | string[];
+  /** Add the hosts whose failure the flow handled through a wired fail port. */
+  includeHandled?: boolean;
+  /** Default: the run's mode. */
+  mode?: 'check' | 'real';
+  /** null: not step by step; absent: as the run was asked. */
+  step?: StepRequest | null;
+  /** The run's commit (default), or the newest of its branch. */
+  commit?: 'same' | 'newest';
+}
+
+/** What GET /runs/:id/relaunch answers. */
+export interface RelaunchOffer {
+  /** How the hosts went: absent for a run that reached no host (or never ran). */
+  sets?: HostSets;
+  /** "3 of 40 hosts did not go well: 2 failed at Apply config, 1 unreachable". */
+  line?: string;
+  /** What a host limit changes in this flow (steps on other hosts, run_once, percentages). */
+  risks: string[];
+  /** The flow's approvals, by title: a run again asks each again. */
+  approvals: string[];
+}

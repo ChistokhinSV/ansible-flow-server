@@ -41,6 +41,7 @@ the audit log with the source `mcp`.
 | `run_launch`                                                    | Queue a run of a launch configuration (`operator`); `step: true` runs it step by step             |
 | `run_status`, `run_output`, `run_list`                          | How a run stands (state, approvals, hosts per step), its output, the runs                         |
 | `run_stop`                                                      | Stop a run                                                                                        |
+| `run_relaunch`                                                  | Run a run again (`operator`): all its hosts or those that did not go well, step by step           |
 | `approval_list`                                                 | Approvals that wait, and whether you may decide each                                              |
 | `approval_decide`                                               | Only with a token made to allow it (below)                                                        |
 | `run_step`                                                      | Step, Continue, Pause or Stop a step-by-step run; only with a token made to allow it (below)      |

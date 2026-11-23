@@ -271,7 +271,7 @@ secret is sent when the credential is made (`update_secret: on_create`, the defa
 | `chistokhinsv.ansible_flow.run`           | Launch a launch configuration, optionally wait and gate on the result |
 | `chistokhinsv.ansible_flow.run_info`      | Read a run: state, hosts, approvals, output tail                      |
 | `chistokhinsv.ansible_flow.run_cancel`    | Stop a run, optionally wait until it has stopped                      |
-| `chistokhinsv.ansible_flow.run_relaunch`  | Run a run again (same commit and inputs), optionally wait for it      |
+| `chistokhinsv.ansible_flow.run_relaunch`  | Run a run again: all hosts, or those that did not go well; wait       |
 | `chistokhinsv.ansible_flow.approval`      | Approve or reject an approval a run waits at                          |
 | `chistokhinsv.ansible_flow.workspace`     | Workspaces                                                            |
 | `chistokhinsv.ansible_flow.project`       | Projects: mirrors of a repository, or hosted (from a sample); sync    |

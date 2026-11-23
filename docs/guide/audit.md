@@ -25,7 +25,9 @@ it; with the HTTP status), the client's address and the request id of the server
   changed, deleted; syncs and push hooks. A change names only the fields whose values changed.
 - Runs launched, stopped, run again, named by their flow and number (`Firewall firmware upgrade
   #5`), with `mode` (`real` or `check`); run again names the new run too (`run`, and its
-  `number`, which still says it once the run is removed). Approvals decided: the decision, the approval by its title, and the comment it was given
+  `number`, which still says it once the run is removed), which hosts (`hosts`: `all`, a set such
+  as `not-ok`, or `chosen`; `count` and the first 100 `names`), the `commit` (`same` or `newest`) and
+  how it steps (`step`). Approvals decided: the decision, the approval by its title, and the comment it was given
   with. Pushes through the server with the branches they moved;
   refused pushes.
 - The `user`, `cert` and `secrets` commands that change something, with the machine's user.

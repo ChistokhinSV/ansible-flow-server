@@ -2,6 +2,26 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- **Run again ▾** on a run that has ended: **Run again** as it was; **Change and run…**, the launch form filled in from the run with a line naming what differs from its configuration; **Only the N hosts that did not go well**, the hosts that failed, could not be reached or stopped before the end; and **Debug this failure…**, a check run of those hosts, step by step, that pauses before the step they failed at and when a host fails (a real run if asked, which asks first and names the hosts).
+- A run's page says how its hosts went, in one line: "3 of 40 hosts did not go well: 2 failed at Apply config, 1 unreachable". A run of another run again names it ("Run again of #41 on the 3 hosts that did not go well").
+- Running only some hosts again asks first, naming the hosts and what a host limit changes in the flow: steps on `localhost` or a controller group are skipped, and `run_once`, failure percentages and rolling batches see only those hosts.
+- `POST /api/v1/runs/<id>/relaunch` takes `hosts` (`not-ok`, `failed`, `unreachable`, `stopped`, or host names), `includeHandled`, `mode`, `step` (with `debug` and `pauseOnFailure`) and `commit` (`same` or `newest`); `GET /api/v1/runs/<id>/relaunch` gives the run's hosts in sets, with the step each went wrong at. The audit entry names the hosts.
+- MCP: `run_relaunch`. The collection's `run_relaunch` module takes the same options.
+
+### Changed
+
+- Run again checks the run as a launch: it uses the credentials its launch configuration gives now, needs rw on the flow for a run of another branch or commit than the configuration names, and asks the run's approvals again. A run whose launch configuration is gone cannot run again.
+- The hosts that ran again are given to Ansible in a limit file, one host per line, so host names with commas, or starting with `!`, `&`, `~` or `@`, run only that host.
+
+### Fixed
+
+- Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
+- The lists of runs did not count hosts that could not be reached among the hosts that did not go well.
+
 ## 1.1.0 — Step by step runs, pause points, and who may run each action
 
 Carries Ansible Flow Designer 1.1.0.

@@ -2909,6 +2909,32 @@ fieldset.name-chips {
   background: var(--button-hover);
 }
 
+/* AFS-214: Run again ▾ on a run's page, its Debug this failure dialog, the outcome line. */
+.run-outcome {
+  margin: 0.25rem 0 0;
+}
+dialog.run-again-dialog {
+  width: min(34rem, calc(100vw - 2rem));
+}
+dialog.run-again-dialog h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.1rem;
+}
+.run-again-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.run-again-risks {
+  margin: 0.5rem 0 0.9rem;
+  padding-left: 1.2rem;
+  color: var(--muted);
+}
+
 /* AFS-114: the canvas and what opens over it; the stage is what goes full screen. */
 .flow-stage {
   position: relative;

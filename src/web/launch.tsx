@@ -5,7 +5,7 @@
 // AFS-85: a configuration's page is four tabs (Launch, Runs, Schedules, Settings), each with an
 // address; the launch form comes first, and what is rarely typed is folded away.
 
-import { readFields, realRunLines } from '@ansible-flow/core/run/launch';
+import { inputText, readFields, realRunLines } from '@ansible-flow/core/run/launch';
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { errorsLead, type FlowError } from '../server/flowErrors';
 import type { FactsReply } from '../server/launch/facts';
@@ -23,6 +23,7 @@ import {
   type PreparedLaunch,
   type Problem,
   type Project,
+  type Run,
   type User,
 } from './api';
 import { ask } from './confirm';
@@ -82,6 +83,61 @@ function Takes({ config, project }: { config: LaunchConfig; project?: Project })
       newest of <code>{config.gitRef ?? project?.gitRef ?? 'the project branch'}</code>
     </>
   );
+}
+
+/**
+ * AFS-214: Change and run: the launch form filled from a run (`?from=<run>`): its inputs (not the
+ * secret ones, which are never shown), mode, limit, and its commit for who may pick one; and a
+ * line naming what differs from the configuration.
+ */
+export function fillFrom(
+  run: Pick<Run, 'number' | 'mode' | 'commit' | 'limit' | 'inputs'>,
+  form: Pick<LaunchForm, 'mode' | 'commit' | 'limit' | 'fields'>,
+  mayPickCommit: boolean,
+): {
+  texts: Record<string, string>;
+  mode?: 'check' | 'real';
+  limit?: string;
+  commit?: string;
+  line: string;
+} {
+  const texts: Record<string, string> = {};
+  const secret: string[] = [];
+  for (const f of form.fields) {
+    if (!(f.name in run.inputs)) continue;
+    if (f.secret) {
+      secret.push(f.name);
+      continue;
+    }
+    const text = inputText(run.inputs[f.name]);
+    if (text !== f.text) texts[f.name] = text;
+  }
+  const differs: string[] = [];
+  const notes: string[] = [];
+  const mode = run.mode !== form.mode ? run.mode : undefined;
+  if (mode) differs.push(`${mode === 'real' ? 'a real run' : 'a check run'}`);
+  const limit = (run.limit ?? '') !== (form.limit ?? '') ? (run.limit ?? '') : undefined;
+  if (limit !== undefined) differs.push(limit ? `the limit ${limit}` : 'no limit');
+  const short = run.commit.slice(0, 12);
+  const commit = run.commit !== form.commit && mayPickCommit ? run.commit : undefined;
+  if (commit) differs.push(`commit ${short}`);
+  else if (run.commit !== form.commit)
+    notes.push(`It runs commit ${form.commit.slice(0, 12)}; run #${run.number} ran ${short}.`);
+  const names = Object.keys(texts);
+  if (names.length)
+    differs.push(`${names.length === 1 ? 'the input' : 'the inputs'} ${names.join(', ')}`);
+  if (secret.length)
+    notes.push(`Secret inputs are not filled in (${secret.join(', ')}): type them again.`);
+  const head = differs.length
+    ? `Filled in from run #${run.number}: unlike the configuration, ${differs.join('; ')}.`
+    : `Filled in from run #${run.number}: the same as the configuration.`;
+  return {
+    texts,
+    ...(mode ? { mode } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+    ...(commit ? { commit } : {}),
+    line: [head, ...notes].join(' '),
+  };
 }
 
 /** The choice of the environment chooser that asks for an image's name instead. */
@@ -1024,6 +1080,36 @@ export function LaunchConfigPage({
     launchAddress(workspace, key, id),
   );
 
+  // AFS-214: Change and run on a run's page: the form filled from that run, once, with a line of
+  // what differs from the configuration.
+  const fromRun = useMemo(
+    () => new URLSearchParams(window.location.search).get('from') ?? undefined,
+    [],
+  );
+  const source = useLoad(
+    async () => (fromRun ? await api.run(fromRun).catch(() => undefined) : undefined),
+    [fromRun],
+  ).data;
+  const [filledFrom, setFilledFrom] = useState<string>();
+  const filled = useRef(false);
+  const accessKnown = me.admin || !!access;
+  useEffect(() => {
+    if (filled.current || !source || !form.data || !config.data || !accessKnown) return;
+    filled.current = true;
+    const mayPick =
+      me.admin || (!!access && atLeast(flowLevel(access, config.data.flowFile), 'rw'));
+    const plan = fillFrom(source, form.data, mayPick);
+    setTexts((t) => ({ ...t, ...plan.texts }));
+    setTyped(new Set(Object.keys(plan.texts)));
+    if (plan.mode) setMode(plan.mode);
+    if (plan.limit !== undefined) setLimit(plan.limit);
+    if (plan.commit) {
+      setCommit(plan.commit);
+      setAt({ ref: '', commit: plan.commit });
+    }
+    setFilledFrom(plan.line);
+  }, [source, form.data, config.data, accessKnown, access, me.admin]);
+
   const c = config.data;
   // AFS-152: a project or a configuration not there (or not shared): what was looked for, with a
   // way back to a page the person can open.
@@ -1345,6 +1431,12 @@ export function LaunchConfigPage({
               }}
               aria-describedby={error ? 'launch-error' : undefined}
             >
+              {/* AFS-214: Change and run: filled from a run, and what differs. */}
+              {filledFrom && (
+                <p className="notice" role="status" data-filled-from>
+                  {filledFrom}
+                </p>
+              )}
               {/* AFS-164: a flow with errors: which, each a link to its step. */}
               {formErrors ? (
                 <FlowErrorsNote

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `run_relaunch` takes `hosts` (`not-ok`, `failed`, `unreachable`, `stopped`, or host names), `include_handled`,
+  `mode`, `commit` (`same` or `newest`), `step` and `pause_points`: run only the hosts that did not go well, in
+  check mode, at the newest commit, or step by step.
+
 ## 1.0.3
 
 ### Changed

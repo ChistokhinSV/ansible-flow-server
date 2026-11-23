@@ -16,23 +16,18 @@ import { accessOf, atLeast } from '../access/grants';
 import { signedIn } from '../auth/guards';
 import { flowAt, LaunchConfigs } from '../launch/configs';
 import { getDevBundle } from '../launch/dev';
-import {
-  type PrepareDeps,
-  prepareLaunch,
-  type StepAsked,
-  type StepRequest,
-  withoutSecrets,
-} from '../launch/prepare';
+import { type PrepareDeps, prepareLaunch, type StepAsked, withoutSecrets } from '../launch/prepare';
 import { getProject } from '../projects/store';
 import {
   chosenHosts,
   type FlowStep,
   HOST_CHOICES,
   type HostChoice,
-  type HostSets,
   hostSets,
   MAX_LIMIT_HOSTS,
   outcomeLine,
+  type RelaunchBody,
+  type RelaunchOffer,
   stepIds,
   type ViewOfHosts,
 } from './hostSets';
@@ -45,19 +40,6 @@ import {
   type RunQueue,
 } from './queue';
 import { STEP_SCHEMA, STEP_TIMEOUT_MINUTES, stepAsked } from './stepping';
-
-export interface RelaunchBody {
-  /** Which hosts: all (default), a set of the run's, or names (each a host of the run). */
-  hosts?: HostChoice | string[];
-  /** Add the hosts whose failure the flow handled through a wired fail port. */
-  includeHandled?: boolean;
-  /** Default: the run's mode. */
-  mode?: 'check' | 'real';
-  /** null: not step by step; absent: as the run was asked. */
-  step?: StepRequest | null;
-  /** The run's commit (default), or the newest of its branch. */
-  commit?: 'same' | 'newest';
-}
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
@@ -78,18 +60,6 @@ export const RELAUNCH_BODY = {
     commit: { type: 'string', enum: ['same', 'newest'] },
   },
 };
-
-/** What GET /runs/:id/relaunch answers. */
-export interface RelaunchOffer {
-  /** How the hosts went: absent for a run that reached no host (or never ran). */
-  sets?: HostSets;
-  /** "3 of 40 hosts did not go well: 2 failed at Apply config, 1 unreachable". */
-  line?: string;
-  /** What a host limit changes in this flow (steps on other hosts, run_once, percentages). */
-  risks: string[];
-  /** The flow's approvals, by title: a run again asks each again. */
-  approvals: string[];
-}
 
 type Refusal = { status: number; error: string; message: string; field?: string };
 const refuse = (status: number, message: string, field?: string): Refusal => ({
