@@ -127,7 +127,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'session',
     'self',
   )('Change your own name and email address; a webhook only as an administrator'),
-  'PUT /api/v1/session/password': S('Session', 'session', 'self')('Change your own password'),
+  'PUT /api/v1/session/password': S(
+    'Session',
+    'session',
+    'self',
+  )('Change your own password', EMPTY),
   'GET /api/v1/session/access': S(
     'Session',
     'signed in',
@@ -171,29 +175,33 @@ export const ROUTES: Record<string, RouteDoc> = {
     'People',
     'administrators',
     'server',
-  )('Add a user, or a service account (`service: true`, no password)'),
+  )('Add a user, or a service account (`service: true`, no password)', one('User', 201)),
   'GET /api/v1/users/:id': S('People', 'administrators', 'server')('One user', one('User')),
   'PATCH /api/v1/users/:id': S(
     'People',
     'administrators',
     'server',
-  )('Change a user: name, contact, administrator, disabled'),
+  )('Change a user: name, contact, administrator, disabled', one('User')),
   'PUT /api/v1/users/:id/password': S(
     'People',
     'administrators',
     'server',
-  )("Set a user's password (not a service account's)"),
-  'DELETE /api/v1/users/:id': S('People', 'administrators', 'server')('Delete a user'),
-  'GET /api/v1/groups': S('People', 'administrators', 'server')('Groups'),
-  'POST /api/v1/groups': S('People', 'administrators', 'server')('Add a group'),
-  'GET /api/v1/groups/:id': S('People', 'administrators', 'server')('One group'),
-  'PATCH /api/v1/groups/:id': S('People', 'administrators', 'server')('Change a group'),
+  )("Set a user's password (not a service account's)", EMPTY),
+  'DELETE /api/v1/users/:id': S('People', 'administrators', 'server')('Delete a user', EMPTY),
+  'GET /api/v1/groups': S('People', 'administrators', 'server')('Groups', list('Group')),
+  'POST /api/v1/groups': S('People', 'administrators', 'server')('Add a group', one('Group', 201)),
+  'GET /api/v1/groups/:id': S('People', 'administrators', 'server')('One group', one('Group')),
+  'PATCH /api/v1/groups/:id': S(
+    'People',
+    'administrators',
+    'server',
+  )('Change a group', one('Group')),
   'PUT /api/v1/groups/:id/members': S(
     'People',
     'administrators',
     'server',
-  )("Set a group's members"),
-  'DELETE /api/v1/groups/:id': S('People', 'administrators', 'server')('Delete a group'),
+  )("Set a group's members", one('Group')),
+  'DELETE /api/v1/groups/:id': S('People', 'administrators', 'server')('Delete a group', EMPTY),
   'GET /api/v1/users/:id/access': S(
     'People',
     'administrators',
@@ -213,18 +221,26 @@ export const ROUTES: Record<string, RouteDoc> = {
   )('AFS-207: the actions a group lets its members run, in every workspace', list('ActionGrant')),
 
   'GET /api/v1/workspaces': S('Workspaces', 'signed in', 'server')('Workspaces', list('Workspace')),
-  'POST /api/v1/workspaces': S('Workspaces', 'administrators', 'server')('Add a workspace'),
+  'POST /api/v1/workspaces': S(
+    'Workspaces',
+    'administrators',
+    'server',
+  )('Add a workspace', one('Workspace', 201)),
   'GET /api/v1/workspaces/:id': S(
     'Workspaces',
     'signed in',
     W,
   )('One workspace, by id or key', one('Workspace')),
-  'PATCH /api/v1/workspaces/:id': S('Workspaces', 'administrators', W)('Change a workspace'),
+  'PATCH /api/v1/workspaces/:id': S(
+    'Workspaces',
+    'administrators',
+    W,
+  )('Change a workspace', one('Workspace')),
   'DELETE /api/v1/workspaces/:id': S(
     'Workspaces',
     'administrators',
     W,
-  )('Delete an empty workspace'),
+  )('Delete an empty workspace', EMPTY),
 
   'GET /api/v1/workspaces/:id/projects': S(
     'Projects',
@@ -235,7 +251,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Projects',
     'administrators',
     W,
-  )('Add a project: one the server keeps, or a mirror of a repository'),
+  )('Add a project: one the server keeps, or a mirror of a repository', one('Project', 201)),
   'POST /api/v1/workspaces/:id/projects/check': S(
     'Projects',
     'administrators',
@@ -246,12 +262,16 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('One project, with its sync state', one('Project')),
-  'PATCH /api/v1/projects/:id': S('Projects', 'administrators', P)('Change a project'),
+  'PATCH /api/v1/projects/:id': S(
+    'Projects',
+    'administrators',
+    P,
+  )('Change a project', one('Project')),
   'DELETE /api/v1/projects/:id': S(
     'Projects',
     'administrators',
     P,
-  )('Delete a project (refused while runs go)'),
+  )('Delete a project (refused while runs go)', EMPTY),
   'POST /api/v1/projects/:id/sync': S('Projects', 'administrators', P)('Look at the source now'),
   'GET /api/v1/projects/:id/host-key': S(
     'Projects',
@@ -537,23 +557,27 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Credentials',
     'signed in',
     W,
-  )("A workspace's credentials (never their secrets)"),
+  )("A workspace's credentials (never their secrets)", list('Credential')),
   'POST /api/v1/workspaces/:id/credentials': S(
     'Credentials',
     'administrators',
     W,
-  )('Add a credential; its secret goes in and is never shown'),
-  'GET /api/v1/credentials/:id': S('Credentials', 'signed in', K)('One credential'),
+  )('Add a credential; its secret goes in and is never shown', one('Credential', 201)),
+  'GET /api/v1/credentials/:id': S(
+    'Credentials',
+    'signed in',
+    K,
+  )('One credential', one('Credential')),
   'PATCH /api/v1/credentials/:id': S(
     'Credentials',
     'administrators',
     K,
-  )('Change a credential, or replace its secret'),
+  )('Change a credential, or replace its secret', one('Credential')),
   'DELETE /api/v1/credentials/:id': S(
     'Credentials',
     'administrators',
     K,
-  )('Delete a credential (refused while used)'),
+  )('Delete a credential (refused while used)', EMPTY),
 
   'GET /api/v1/projects/:id/launch-configs': S(
     'Launch configurations',
@@ -908,42 +932,60 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Environments',
     'signed in',
     W,
-  )("A workspace's execution environments, with the image a launch gets now and the newest build"),
+  )(
+    "A workspace's execution environments, with the image a launch gets now and the newest build",
+    list('Environment'),
+  ),
   'POST /api/v1/workspaces/:id/environments': S(
     'Environments',
     'signed in',
     W,
   )(
     'Add an execution environment: a spec the server builds (`kind: spec`), or a registered image (`kind: image`)',
+    one('Environment', 201),
   ),
-  'GET /api/v1/environments/:id': S('Environments', 'signed in', E)('One execution environment'),
+  'GET /api/v1/environments/:id': S(
+    'Environments',
+    'signed in',
+    E,
+  )('One execution environment', one('Environment')),
   'PATCH /api/v1/environments/:id': S(
     'Environments',
     'signed in',
     E,
-  )('Change an execution environment; a new spec takes effect at its next build'),
+  )(
+    'Change an execution environment; a new spec takes effect at its next build',
+    one('Environment'),
+  ),
   'DELETE /api/v1/environments/:id': S(
     'Environments',
     'signed in',
     E,
-  )('Delete an execution environment no launch configuration uses, with its builds and images'),
+  )(
+    'Delete an execution environment no launch configuration uses, with its builds and images',
+    EMPTY,
+  ),
   'GET /api/v1/environments/:id/builds': S(
     'Environments',
     'signed in',
     E,
   )(
     'Its builds, newest first: state, image, the versions settled (lock), what the image holds (catalog)',
+    list('EnvironmentBuild'),
   ),
   'POST /api/v1/environments/:id/builds': S(
     'Environments',
     'signed in',
     E,
-  )('Build it now (a registered image: pull it and read what it holds); builds go one at a time'),
+  )(
+    'Build it now (a registered image: pull it and read what it holds); builds go one at a time',
+    one('EnvironmentBuild', 201),
+  ),
   'GET /api/v1/environments/:id/builds/:build/log': S(
     'Environments',
     'signed in',
     E,
-  )("A build's log, as text"),
+  )("A build's log, as text", { text: 'text/plain', description: 'The build log, as text' }),
   'GET /api/v1/environments/:id/execution-environment.yml': S(
     'Environments',
     'signed in',
