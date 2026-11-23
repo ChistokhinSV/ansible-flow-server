@@ -438,47 +438,53 @@ export function DebugPanel({
 
   return (
     <section className={`debugger${pause ? ' paused' : ''}`} aria-label="Debugger" data-debugger>
-      <div className="debug-reason" role="status" aria-live="polite" data-debug-reason>
-        <strong>{pause ? reasonLine(pause, title, now) : stepLine(run, step, now)}</strong>
-        {!mayDrive && (
-          <span className="muted">
-            {' '}
-            · {pause ? `Paused by ${launcher}` : `Debugged by ${launcher}`}: only {launcher} or an
-            administrator drives it and sees its variables
-          </span>
-        )}
-        {pause?.debug === false && (
-          <span className="warn-text"> · {pause.why ?? 'This run cannot show variables'}</span>
-        )}
-      </div>
-      {mayDrive && (
-        <div className="debug-actions">
-          <span className="step-actions">
-            {pause?.kind === 'failure' &&
-              button('retry', 'Retry', `Run ${title} again on the hosts that failed`, {
-                primary: true,
-                ...(pause.retryRefused ? { off: pause.retryRefused } : {}),
-              })}
-            {paused
-              ? button('continue', 'Continue', 'Run on; pause only at a pause point', { key: 'F8' })
-              : button('pause', 'Pause', 'Pause before the next step', { key: 'F8' })}
-            {button('step', 'Step', 'Run this step, then pause before the next one', {
-              primary: pause?.kind !== 'failure',
-              key: 'F10',
-              ...(paused ? {} : { off: 'The run is going: Step answers its next pause' }),
-            })}
-            {button('stop', 'Stop', 'End the run before its next step; what ran is kept')}
-          </span>
-          {retryOffered && (
-            <span className="debug-warn small" data-retry-warning>
-              Retry runs {title} again on {failedHosts.join(', ')}. Changes on hosts are not undone.
+      {/* The reason and the buttons stay in sight while the panel scrolls. */}
+      <div className="debug-head">
+        <div className="debug-reason" role="status" aria-live="polite" data-debug-reason>
+          <strong>{pause ? reasonLine(pause, title, now) : stepLine(run, step, now)}</strong>
+          {!mayDrive && (
+            <span className="muted">
+              {' '}
+              · {pause ? `Paused by ${launcher}` : `Debugged by ${launcher}`}: only {launcher} or an
+              administrator drives it and sees its variables
             </span>
           )}
-          {pause?.kind === 'failure' && pause.retryRefused && (
-            <span className="muted small">{pause.retryRefused}</span>
+          {pause?.debug === false && (
+            <span className="warn-text"> · {pause.why ?? 'This run cannot show variables'}</span>
           )}
         </div>
-      )}
+        {mayDrive && (
+          <div className="debug-actions">
+            <span className="step-actions">
+              {pause?.kind === 'failure' &&
+                button('retry', 'Retry', `Run ${title} again on the hosts that failed`, {
+                  primary: true,
+                  ...(pause.retryRefused ? { off: pause.retryRefused } : {}),
+                })}
+              {paused
+                ? button('continue', 'Continue', 'Run on; pause only at a pause point', {
+                    key: 'F8',
+                  })
+                : button('pause', 'Pause', 'Pause before the next step', { key: 'F8' })}
+              {button('step', 'Step', 'Run this step, then pause before the next one', {
+                primary: pause?.kind !== 'failure',
+                key: 'F10',
+                ...(paused ? {} : { off: 'The run is going: Step answers its next pause' }),
+              })}
+              {button('stop', 'Stop', 'End the run before its next step; what ran is kept')}
+            </span>
+            {retryOffered && (
+              <span className="debug-warn small" data-retry-warning>
+                Retry runs {title} again on {failedHosts.join(', ')}. Changes on hosts are not
+                undone.
+              </span>
+            )}
+            {pause?.kind === 'failure' && pause.retryRefused && (
+              <span className="muted small">{pause.retryRefused}</span>
+            )}
+          </div>
+        )}
+      </div>
       {mayDrive && pause && debuggable && (
         <div className="debug-body">
           <label className="debug-host">

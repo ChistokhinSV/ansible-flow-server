@@ -22,6 +22,13 @@ All notable changes to Ansible Flow Server.
 - Running only some hosts again asks first, naming the hosts and what a host limit changes in the flow: steps on `localhost` or a controller group are skipped, and `run_once`, failure percentages and rolling batches see only those hosts.
 - `POST /api/v1/runs/<id>/relaunch` takes `hosts` (`not-ok`, `failed`, `unreachable`, `stopped`, or host names), `includeHandled`, `mode`, `step` (with `debug` and `pauseOnFailure`) and `commit` (`same` or `newest`); `GET /api/v1/runs/<id>/relaunch` gives the run's hosts in sets, with the step each went wrong at. The audit entry names the hosts.
 - MCP: `run_relaunch`. The collection's `run_relaunch` module takes the same options.
+- **Debug a run**: **Debug** beside **Launch**, and **Run ▾ › Debug…** on the canvas, start a debug run: a step-by-step run that pauses at your pause points and where a host fails, and shows each host's variables there. Debugging needs read and write on the flow, or operator where the workspace's administrator ticked **Operators may debug**.
+- The run's page has a **Debugger** panel while it is paused: a line saying where and why it paused (a pause point, a condition, a failure, an unreachable host) and for how long it waits; **Retry**, **Continue**, **Step** and **Stop**; a host list that starts at the first failed host; the host's variables by scope (step inputs, host variables, flow data, facts on request); **Watch** with **Compare across hosts**; and **Evaluate** for Jinja (Ctrl+Enter). Keys: F10 Step, F8 Continue.
+- **Retry** at a failure pause runs the step again on the hosts that failed, and says first that changes on the hosts are not undone.
+- Pause points take settings in **Edit Pause Point…**: pause when a condition holds, after N arrivals, or only log a message. The failure filters (a host failed, a host is unreachable) are kept with your pause points on each flow.
+- Secrets never show in the debugger: a masked value says why (vault, no_log, credential, external secret, secret-looking name), never its size, also for values read from secret providers and for copies made from a secret.
+- Only who launched a debug run and administrators see its variables and drive it; others see where and why it waits. Each question to a paused run is in the audit log with its expression, never its answer. What the pauses showed is kept with the run (at most 1 MB) and listed on its page after it ends.
+- The API: `POST /api/v1/runs/<id>/inspect`, `GET /api/v1/runs/<id>/debug`, `retry` and `failures` on `/runs/<id>/step`, points with settings on pause points. MCP: `run_inspect`, for tokens that allow run control.
 
 ### Changed
 
@@ -30,6 +37,7 @@ All notable changes to Ansible Flow Server.
 
 ### Fixed
 
+- The flow pages now show the warnings that need the repository, such as a network module on hosts the inventory reaches with `ansible_connection: local`, as VS Code does.
 - Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
 - The lists of runs did not count hosts that could not be reached among the hosts that did not go well.
 - An action has a page of its own for its settings, links and who may run it (`/actions/<id>/edit`). The launch configuration's **Settings** keep one line that leads there; the action's form has **Change this action** for whoever may change it.

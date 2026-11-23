@@ -241,6 +241,10 @@ launch configuration's **Launch** tab, or in the canvas's Run dialog (**Run Step
 Run menu opens it ticked). It is one Ansible run that waits; nothing is split or started again,
 so facts and registered values carry on from step to step.
 
+A **debug run** is a step-by-step run that also shows each host's variables where it pauses,
+watches and evaluates expressions, pauses where a host fails, and runs a failed step again:
+see [Debug a run](debugging.md).
+
 - **Where it waits:** before a step that has hosts, all its hosts together. The run's page says
   so above the canvas: "Paused before Read the minimal facts · 2 hosts · stops by itself in
   59 min", with the hosts that wait there, how many pause points the run has, and, when it waits

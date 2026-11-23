@@ -24,6 +24,7 @@ endpoint for agents.
 | [Workspaces and projects](workspaces-and-projects.md) | Where flows live: a git repository of yours, or one the server hosts                            |
 | [Launch configurations](launch-configurations.md)     | A flow with its inputs, inventory, credentials and image: what Launch runs                      |
 | [Runs](runs.md)                                       | The queue, a run on the canvas, its hosts and output, stop and run again; dev runs from VS Code |
+| [Debug a run](debugging.md)                           | Pause where a host fails, read each host's variables, watch, evaluate, retry a step             |
 | [Actions](actions.md)                                 | A short form to run an approved thing, for people who do not read flows                         |
 | [Approvals](approvals.md)                             | A run waits at an approval step until someone allowed decides                                   |
 | [Schedules](schedules.md)                             | Launch a configuration at set times                                                             |

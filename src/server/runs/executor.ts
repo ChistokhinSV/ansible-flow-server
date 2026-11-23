@@ -52,6 +52,7 @@ import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
 import { reveal } from '../secrets/credentials';
 import type { MasterKey } from '../secrets/masterKey';
+import type { Caller } from '../secrets/providers/clients';
 import { SecretResolver } from '../secrets/providers/resolver';
 import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
@@ -129,6 +130,8 @@ const COLLECTION_DEST =
 
 export interface ExecutorOptions {
   dataDir: string;
+  /** AFS-223: replaces the secret providers' HTTP call (tests: a provider answered by the test). */
+  secretCaller?: Caller;
   /** The container engine; `auto` finds docker, else podman; `off` runs nothing. */
   engine: Engine | 'auto' | 'off';
   /** The image a run uses unless it names its own (AFS_EE_IMAGE). */
@@ -632,7 +635,7 @@ export class Executor implements Stepper {
       ...(failures ? { failures } : {}),
     };
     /** AFS-177: the step it is paused before now, kept in its record (a restart ends it). */
-    let pausedAt: { node: string; title: string } | undefined;
+    let pausedAt: { node: string; title: string; id?: string } | undefined;
     /** AFS-177: who sent Stop to it (the run says who stopped it). */
     let stepStopBy: string | undefined;
     const controller = new AbortController();
@@ -834,6 +837,7 @@ export class Executor implements Stepper {
       resolver = new SecretResolver(this.deps.db, this.deps.key, {
         log: say,
         run: { id: r.id, number: r.number },
+        ...(this.options.secretCaller ? { caller: this.options.secretCaller } : {}),
       });
       for (const id of r.credentials) await reveal(this.deps.db, this.deps.key, id, resolver);
       const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials, resolver);
@@ -942,13 +946,18 @@ export class Executor implements Stepper {
       let agentFailure: string | undefined;
       /** Runs one playbook of the flow: the whole flow, or one of its segments (AFS-28). */
       /** AFS-177: a step-by-step run's pause, as the run goes: kept in its record and its output. */
-      const notePause = (node: string | undefined, view: RunView) => {
-        if (node === pausedAt?.node) return;
+      const notePause = (pause: { node: string; id?: string } | undefined, view: RunView) => {
+        // AFS-179: a new pause at the same step (a debug run's failure pause after its pause
+        // point, or after a Retry) is a new pause: its view is kept too.
+        if (pause?.node === pausedAt?.node && pause?.id === pausedAt?.id) return;
+        const node = pause?.node;
         // AFS-231: a run being stopped reports once more as its process ends, with no pause: the
         // pause it had when the stop came is what its end says ("stopped while paused").
         if (controller.signal.aborted) return;
         // AFS-205: a step inside a subflow by its path ("Pre-checks › Read device status").
-        pausedAt = node ? { node, title: pathOf(steps, node) ?? node } : undefined;
+        pausedAt = node
+          ? { node, title: pathOf(steps, node) ?? node, ...(pause?.id ? { id: pause.id } : {}) }
+          : undefined;
         // AFS-205: the record changes both ways (paused, and going on after Step or Continue),
         // so the pages stop saying "Paused before" once it goes on.
         void queue
@@ -1008,7 +1017,7 @@ export class Executor implements Stepper {
               if (v.summary?.running) lastRunning = v.summary.running;
               const view = shown(v);
               this.deps.hub?.publish(r.id, { kind: 'view', view });
-              if (stepRec) notePause(v.step?.paused?.node, view);
+              if (stepRec) notePause(v.step?.paused, view);
             },
             // AFS-177: the run's driver, kept while its process goes; its last word is kept after.
             started: (_stop, driver) => {

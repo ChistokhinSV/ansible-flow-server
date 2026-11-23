@@ -4141,6 +4141,15 @@ fieldset.copy-link h4 {
   flex: 1 1 auto;
   min-width: 0;
 }
+.debug-add button {
+  flex: none;
+  white-space: nowrap;
+}
+.debug-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .debug-eval textarea {
   width: 100%;
   box-sizing: border-box;
@@ -4167,6 +4176,15 @@ fieldset.copy-link h4 {
     align-self: flex-start;
     max-height: calc(100vh - var(--run-flow-top, 160px));
     overflow-y: auto;
+    padding-top: 0;
+  }
+  .debug-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-top: 16px;
+    padding-bottom: 6px;
+    background: var(--bg);
   }
 }
 @media (max-width: 860px) {
