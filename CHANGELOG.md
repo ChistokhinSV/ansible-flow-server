@@ -2,9 +2,9 @@
 
 All notable changes to Ansible Flow Server.
 
-## Unreleased
+## 1.1.0 — Step by step runs, pause points, and who may run each action
 
-Carries Ansible Flow Designer 1.1.0-rc.3.
+Carries Ansible Flow Designer 1.1.0.
 
 ### Added
 
