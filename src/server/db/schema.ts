@@ -109,6 +109,26 @@ export interface GroupMemberTable {
   source: string | null;
 }
 
+/** AFS-241: a secret provider credentials may read their secret fields from. */
+export interface SecretProviderTable {
+  id: string;
+  /** Unique; what a credential's reference names. */
+  key: string;
+  name: string;
+  /** vault, conjur, ccp or aws. */
+  kind: string;
+  /** Address, CA, timeout and the kind's own fields, as JSON. */
+  settings_json: string;
+  /** The names of the secret parts it holds, as JSON. */
+  has_json: string;
+  /** The secret part (a token, an API key, a client key): JSON, sealed under secret-provider:<id>. */
+  secret_enc: string | null;
+  /** The ids of the workspaces whose credentials may use it, as JSON. */
+  workspaces_json: string;
+  created_at: IsoTime;
+  updated_at: IsoTime;
+}
+
 /** AFS-30: an OIDC provider people sign in with. */
 export interface OidcProviderTable {
   id: string;
@@ -279,6 +299,11 @@ export interface CredentialTable {
   has_json: string;
   /** The secret part: JSON, sealed (secrets/crypto.ts). */
   secret_enc: string;
+  /**
+   * AFS-241: secret fields taken from a secret provider, by field name, as JSON: where each is
+   * read when a run starts. Not secret, but shown only to the workspace's administrators.
+   */
+  refs_json: string | null;
   created_at: IsoTime;
   updated_at: IsoTime;
 }
@@ -676,6 +701,7 @@ export interface Schema {
   group_member: GroupMemberTable;
   session: SessionTable;
   oidc_provider: OidcProviderTable;
+  secret_provider: SecretProviderTable;
   oidc_mapping: OidcMappingTable;
   user_identity: UserIdentityTable;
   oidc_login: OidcLoginTable;

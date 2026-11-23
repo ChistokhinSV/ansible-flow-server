@@ -9,6 +9,27 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-241: secret providers (HashiCorp Vault, CyberArk Conjur and CCP, AWS Secrets Manager): open
+  // settings, a sealed secret part and the workspaces that may use each; a credential's secret
+  // fields taken from one (`credential.refs_json`).
+  '0035_secret_providers': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('secret_provider')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('key', 'text', (c) => c.notNull().unique())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('kind', 'text', (c) => c.notNull())
+        .addColumn('settings_json', 'text', (c) => c.notNull())
+        .addColumn('has_json', 'text', (c) => c.notNull())
+        .addColumn('secret_enc', 'text')
+        .addColumn('workspaces_json', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema.alterTable('credential').addColumn('refs_json', 'text').execute();
+    },
+  },
   // AFS-210: why a schedule was turned off by the server (its flow moved or deleted), for its page.
   // Cleared when someone turns it on or off again.
   '0034_schedule_off_why': {

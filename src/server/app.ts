@@ -46,6 +46,7 @@ import { registerSchedules } from './schedules/routes';
 import type { Schedules } from './schedules/schedules';
 import { registerSearch } from './search/routes';
 import type { MasterKey } from './secrets/masterKey';
+import { registerSecretProviders } from './secrets/providers/routes';
 import { registerCredentials } from './secrets/routes';
 import { type CertificateDeps, registerCertificate } from './tls/routes';
 import { webHandler } from './web';
@@ -242,7 +243,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.projects) registerAccess(app, { db: deps.database.db });
   // AFS-24: agents, over MCP.
   if (deps.projects) registerMcp(app, { db: deps.database.db, git: deps.projects.git });
-  if (deps.masterKey) registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
+  if (deps.masterKey) {
+    registerCredentials(app, { db: deps.database.db, key: deps.masterKey });
+    // AFS-241: secret providers credentials read their secret parts from.
+    registerSecretProviders(app, { db: deps.database.db, key: deps.masterKey });
+  }
   if (deps.runs) {
     const notifier = deps.notifier;
     registerRuns(
