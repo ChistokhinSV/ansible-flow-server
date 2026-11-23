@@ -148,6 +148,24 @@ for (const [name, config] of databases) {
       expect((await q.get(a1?.id as string))?.worker).toBeUndefined();
     });
 
+    it('AFS-232: says why a run launched by a run of its project waits for the place it holds', async () => {
+      const q = queue({ maxRuns: 4, perProject: 1 });
+      const [parent] = await fill(q, [a]);
+      await q.claim('w1', at(10));
+      const [child, other] = await fill(q, [a, b]);
+      expect(await q.heldByLauncher(child as never, parent?.id as string)).toBe(
+        `It waits for a place: this project runs one run at once (AFS_MAX_RUNS_PER_PROJECT), and run #${parent?.number}, which launched it, holds it until it ends`,
+      );
+      // Another project's run, or with places to spare: nothing to say.
+      expect(await q.heldByLauncher(other as never, parent?.id as string)).toBeUndefined();
+      expect(
+        await queue({ maxRuns: 4, perProject: 2 }).heldByLauncher(
+          child as never,
+          parent?.id as string,
+        ),
+      ).toBeUndefined();
+    });
+
     it('a lease is kept by heartbeats with its token, and only while it lasts', async () => {
       const q = queue();
       const [run] = await fill(q, [a]);

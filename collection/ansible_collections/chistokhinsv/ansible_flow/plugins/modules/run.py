@@ -282,6 +282,13 @@ def main():
         run = client.post("/launch-configs/%s/launch" % seg(config["id"]), body)
 
         timed_out = None
+        # The server says the run waits for the place the run calling this module holds: waiting
+        # for it would last until wait_timeout, so the module says why at once.
+        held = run.pop("heldByLauncher", None)
+        if p["wait"] and held:
+            module.fail_json(msg="Run %s cannot start while this run goes. %s." % (
+                run.get("number"), held), run=run, id=run.get("id"), number=run.get("number"),
+                state=run.get("state"), url=client.run_url(run["id"]), changed=True)
         if p["wait"]:
             run, timed_out = wait_for_run(client, run["id"], p["wait_timeout"], p["poll_interval"],
                                           through_approvals=p["wait_for_approvals"])

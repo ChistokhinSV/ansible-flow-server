@@ -57,7 +57,7 @@ export type DraftNotice =
   /** AFS-186: whether the draft changes anything (Save is off while it does not). */
   | { type: 'afs-draft-changed'; changed: boolean }
   | { type: 'afs-draft-undone' }
-  | { type: 'afs-draft-gone'; by?: string; mine?: boolean }
+  | { type: 'afs-draft-gone'; by?: string; mine?: boolean; here?: boolean }
   /** AFS-79: Insert Shared Subflow… on the canvas: the page picks from the library. */
   | { type: 'afs-draft-insert-shared'; level: string; at?: { x: number; y: number } }
   /** AFS-126: the empty canvas's Import / Open Sample: the page picks what to start from. */
@@ -323,9 +323,19 @@ export function editDraft(options: {
     });
   });
   events.addEventListener('discarded', (e) => {
-    const news = JSON.parse((e as MessageEvent).data) as { by?: { login: string; name: string } };
+    const news = JSON.parse((e as MessageEvent).data) as {
+      by?: { login: string; name: string };
+      tab?: string;
+    };
     ended();
-    tellPage({ type: 'afs-draft-gone', by: news.by?.name, mine: news.by?.login === me });
+    // AFS-232: the page whose Discard it was says its own words, whatever the same person's other
+    // sessions say.
+    tellPage({
+      type: 'afs-draft-gone',
+      by: news.by?.name,
+      mine: news.by?.login === me,
+      ...(news.tab && news.tab === tab ? { here: true } : {}),
+    });
   });
 
   /** The catalog's state, again every 10 seconds while the image's docs are first read. */

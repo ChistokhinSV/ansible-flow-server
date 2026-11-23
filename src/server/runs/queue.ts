@@ -464,6 +464,26 @@ export class RunQueue {
   }
 
   /**
+   * AFS-232: why a run launched by another run of the same project waits for a place: the project
+   * runs as many at once as it may, and the launching run holds one of them until it ends (a
+   * run waiting for its child there would wait for ever). Undefined when it does not.
+   */
+  async heldByLauncher(run: Run, launcher: string): Promise<string | undefined> {
+    if (run.state !== 'queued') return undefined;
+    const parent = await this.get(launcher);
+    if (!parent || parent.project !== run.project || parent.state !== 'running') return undefined;
+    const row = await this.db
+      .selectFrom('run')
+      .select((eb) => eb.fn.countAll().as('n'))
+      .where('project_id', '=', run.project)
+      .where('state', '=', 'running')
+      .executeTakeFirstOrThrow();
+    if (Number(row.n) < this.limits.perProject) return undefined;
+    const n = this.limits.perProject;
+    return `It waits for a place: this project runs ${n === 1 ? 'one run' : `${n} runs`} at once (AFS_MAX_RUNS_PER_PROJECT), and run #${parent.number}, which launched it, holds ${n === 1 ? 'it' : 'one'} until it ends`;
+  }
+
+  /**
    * Gives a worker the oldest queued run that fits the limits, with a lease; undefined when
    * there is none. A run of a project that has as many runs going as it may waits its turn,
    * and does not hold back runs of other projects behind it.

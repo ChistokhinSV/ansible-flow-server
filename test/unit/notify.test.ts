@@ -594,6 +594,23 @@ for (const [name, config] of databases) {
       await notifier.idle();
       expect(sentTo(mails)).toEqual(['noc@example.net', 'dana@example.net']);
       expect(smtp.received.at(-1)?.data).toContain('stopped');
+
+      // AFS-232: a run ended by a rejection reads rejected, as its page says, not failed.
+      const rejected = await launch('dana');
+      const g = await gate(rejected.id);
+      await db()
+        .updateTable('run_gate')
+        .set({ status: 'rejected', decided_by: 'omar', decided_at: new Date().toISOString() })
+        .where('id', '=', g.id)
+        .execute();
+      let job = await queue.claim('w1');
+      while (job && job.run.id !== rejected.id) job = await queue.claim('w1');
+      if (!job) throw new Error('not claimed');
+      await queue.finish(rejected.id, job.token, 'failed', 'Rejected by omar');
+      await notifier.idle();
+      const said = readable(smtp.received.at(-1)?.data ?? '');
+      expect(said).toContain(`Run rejected: ${rejected.flow.name} #${rejected.number}`);
+      expect(said).not.toContain('Run failed');
     });
 
     it('the certificate: administrators are told at each step once, whatever restarts between', async () => {

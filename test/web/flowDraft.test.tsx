@@ -462,6 +462,17 @@ describe("a flow's draft on its page (AFS-149)", () => {
     vi.useRealTimers();
   });
 
+  it("AFS-232: the page whose Discard it was keeps its own words, not another tab's", async () => {
+    routes = base();
+    await editing();
+    tell({ type: 'afs-draft-gone', by: 'Dana Whitfield', mine: true, here: true });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText(/You discarded the draft in another tab/)).toBeNull();
+    // The same person's other session says it was another tab.
+    tell({ type: 'afs-draft-gone', by: 'Dana Whitfield', mine: true });
+    expect(await screen.findByText(/You discarded the draft in another tab/)).toBeTruthy();
+  });
+
   it('offers to bring back a draft someone else discarded (AFS-186)', async () => {
     const restore = 'POST /projects/p1/drafts/restore?path=flows%2Fupgrade.flow.yaml';
     routes = { ...base(), [restore]: () => ({ body: { ...draft, id: 'd2' } }) };
