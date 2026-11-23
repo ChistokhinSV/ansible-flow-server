@@ -837,6 +837,8 @@ export function LaunchConfigPage({
   const [ref, setRef] = useState('');
   const [commit, setCommit] = useState('');
   const [limit, setLimit] = useState<string | undefined>();
+  /** AFS-177: run step by step: pause before each step until Step, Continue or Stop. */
+  const [stepped, setStepped] = useState(false);
   /** The commit and branch the form was read at: what the inputs are of. */
   const [at, setAt] = useState({ ref: '', commit: '' });
   // AFS-152: asked for once the configuration is there, so one not there is asked for once.
@@ -1076,7 +1078,14 @@ export function LaunchConfigPage({
       return;
     start('launch');
     try {
-      const run = await api.launch(c.id, request());
+      // AFS-177: step by step, with this person's pause points on the flow (Continue stops there).
+      const points = stepped
+        ? ((await api.pausePoints(c.project, c.flowFile).catch(() => undefined))?.points ?? [])
+        : [];
+      const run = await api.launch(c.id, {
+        ...request(),
+        ...(stepped ? { step: { every: true, points } } : {}),
+      });
       release();
       navigate(`/runs/${run.id}`);
     } catch (e) {
@@ -1392,6 +1401,17 @@ export function LaunchConfigPage({
                   </label>
                 ))}
               </fieldset>
+              {/* AFS-177: a step-by-step run pauses before each step; its page has Step and Continue. */}
+              <label className="inline launch-step">
+                <input
+                  type="checkbox"
+                  checked={stepped}
+                  data-launch-step
+                  onChange={(e) => setStepped(e.target.checked)}
+                />
+                Step by step: pause before each step until someone says Step, Continue or Stop on
+                the run's page
+              </label>
               {error &&
                 (flowErrors ? (
                   <FlowErrorsNote

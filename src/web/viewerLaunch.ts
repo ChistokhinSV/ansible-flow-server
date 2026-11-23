@@ -42,6 +42,11 @@ export interface LauncherDeps {
   askYes?: (question: string, yes: string) => Promise<boolean>;
   /** AFS-135: the person may add launch configurations (rw on the flow); default true. */
   mayAddConfig?: boolean;
+  /**
+   * AFS-177: the dialog offers Step by step (designer AFD-346); its runs pause at these points
+   * (the person's pause points on the flow) after Continue.
+   */
+  stepPoints?: () => string[];
 }
 
 type Reply = { ok: boolean; status: number; data: unknown };
@@ -73,6 +78,9 @@ const why = (reply: Reply, fallback: string): string =>
 export function launcher(deps: LauncherDeps) {
   /** The dialogs open now, by token: their configuration and plan. */
   const open = new Map<string, { config: string; plan: LaunchPlan; facts?: FactsReply }>();
+  /** AFS-177: launched step by step: every step, with the person's pause points. */
+  const stepBody = (step: boolean | undefined) =>
+    step && deps.stepPoints ? { step: { every: true, points: deps.stepPoints() } } : {};
   let next = 0;
   const notify = (level: 'info' | 'error', text: string) =>
     deps.send({ type: 'notify', level, text });
@@ -80,7 +88,7 @@ export function launcher(deps: LauncherDeps) {
     call(`/api/v1/launch-configs/${encodeURIComponent(config)}/facts`, body);
 
   /** Run on the canvas: the configuration, then the dialog with its fields and the hosts. */
-  async function run(mode: 'check' | 'real'): Promise<void> {
+  async function run(mode: 'check' | 'real', step?: boolean): Promise<void> {
     const list = await call(
       `/api/v1/projects/${encodeURIComponent(deps.project)}/launch-configs`,
     ).catch(() => undefined);
@@ -127,6 +135,8 @@ export function launcher(deps: LauncherDeps) {
       // AFS-97: Save as Launch Configuration (a designer without it leaves it out).
       canSave: deps.mayAddConfig !== false,
       ...(origins ? { origins } : {}),
+      // AFS-177: the tick, ticked when Run Step by Step opened the dialog.
+      ...(deps.stepPoints ? { steps: { on: step === true } } : {}),
     };
     open.set(token, { config: config.id, plan, facts: answer });
     deps.send({ type: 'launch', plan });
@@ -155,7 +165,11 @@ export function launcher(deps: LauncherDeps) {
   }
 
   /** Run in the dialog: the configuration is launched with these inputs. */
-  async function launch(token: string, inputs: Record<string, unknown>): Promise<void> {
+  async function launch(
+    token: string,
+    inputs: Record<string, unknown>,
+    step?: boolean,
+  ): Promise<void> {
     const dialog = open.get(token);
     if (!dialog) return;
     const typed = texts(inputs);
@@ -184,6 +198,7 @@ export function launcher(deps: LauncherDeps) {
     const reply = await call(`/api/v1/launch-configs/${encodeURIComponent(dialog.config)}/launch`, {
       mode: dialog.plan.mode,
       inputs: typed,
+      ...stepBody(step),
     }).catch(() => undefined);
     if (reply?.ok) {
       open.delete(token);

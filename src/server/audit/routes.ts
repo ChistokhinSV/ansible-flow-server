@@ -116,6 +116,10 @@ export const ACTIONS: Record<string, Action> = {
   'DELETE /api/v1/grants/:id': { action: 'grant.delete', id: at() },
   'POST /api/v1/runs/:id/approvals/:node': { action: 'approval.decide', id: at() },
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },
+  // AFS-177: Step, Continue, Pause, Stop of a step-by-step run (the command in the entry).
+  'POST /api/v1/runs/:id/step': { action: 'run.step', id: at() },
+  // AFS-177: a person's own pause points on a flow (sent to their step-by-step runs of it).
+  'PUT /api/v1/projects/:id/pause-points': { action: 'project.pause-points', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },
   'POST /git/:workspace/:repo/git-receive-pack': { action: 'git.push', id: 'none', self: true },
   'POST /api/v1/projects/:id/dev-bundles': {

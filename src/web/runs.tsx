@@ -21,6 +21,7 @@ import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { decidedOutcomes, quietEndOrigins } from './outputText';
 import { Link, navigate } from './router';
+import { RunStepBar } from './stepBar';
 import type { ThemeChoice } from './theme';
 import {
   ago,
@@ -945,6 +946,8 @@ export function againWords(run: Run): { title: string; confirm?: string; yes: st
 export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeChoice }) {
   const [run, setRun] = useState<Run>();
   const [view, setView] = useState<RunView>();
+  /** AFS-177: a step-by-step run's state, from its live view (as the canvas hears it). */
+  const [step, setStep] = useState<RunView['step']>();
   const access = useProjectAccess(run?.project).data;
   const [output, setOutput] = useState('');
   // AFS-181: no generated-code excerpt under a failed end's error (the output file keeps it).
@@ -968,6 +971,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   useEffect(() => {
     setRun(undefined);
     setView(undefined);
+    setStep(undefined);
     setOutput('');
     setError(undefined);
     setMissing(false);
@@ -982,6 +986,16 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
         stream = events;
         events.addEventListener('run', (event) => setRun(JSON.parse((event as MessageEvent).data)));
+        // AFS-177: where a step-by-step run is paused, as soon as it pauses (not every 5 s).
+        let lastStep = '';
+        events.addEventListener('view', (event) => {
+          if (!found.step) return;
+          const next = (JSON.parse((event as MessageEvent).data) as RunView).step;
+          const text = JSON.stringify(next ?? null);
+          if (text === lastStep) return;
+          lastStep = text;
+          setStep(next);
+        });
         events.addEventListener('output', (event) => {
           const { text } = JSON.parse((event as MessageEvent).data) as { text: string };
           setOutput((before) => {
@@ -1248,6 +1262,21 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 </span>
               </>
             )}
+            {run.step && (
+              <>
+                {' '}
+                <span
+                  className="badge"
+                  title={
+                    run.step.every
+                      ? 'Pauses before each step until someone says Step, Continue or Stop'
+                      : 'Pauses at its pause points until someone says Step, Continue or Stop'
+                  }
+                >
+                  step by step
+                </span>
+              </>
+            )}
             {run.cancelRequested && going && ' · asked to stop'}
           </p>
         </div>
@@ -1286,6 +1315,18 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           )}
         </div>
       </header>
+      {/* AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop. */}
+      {run.step && going && run.state === 'running' && run.startedAt && (
+        <div className="run-below run-notes">
+          <RunStepBar
+            run={run}
+            step={step ?? view?.step}
+            mayDrive={mayAct}
+            onRun={setRun}
+            onError={setError}
+          />
+        </div>
+      )}
       {(run.error || error || !!run.skippedTargets?.length) && (
         <div className="run-below run-notes">
           {run.error && (

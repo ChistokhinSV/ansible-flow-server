@@ -152,6 +152,54 @@ Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEE
 the server asks the engine about its own container and gives run containers the volume's paths
 as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find out).
 
+## Step by step
+
+A run can pause before each step until someone says how to go on: tick **Step by step** on a
+launch configuration's **Launch** tab, or in the canvas's Run dialog (**Run Step by Step** in the
+Run menu opens it ticked). It is one Ansible run that waits; nothing is split or started again,
+so facts and registered values carry on from step to step.
+
+- **Where it waits:** before a step that has hosts, all its hosts together. The run's page says
+  so above the canvas: "Paused before Read the minimal facts · 2 hosts · stops by itself in
+  59 min", and the canvas rings the step with the number of hosts waiting. On a phone the line
+  and its buttons are above the canvas too.
+- **Step** runs that step and pauses before the next one. **Continue** runs on and pauses only at
+  a pause point. **Pause** (while a step runs) pauses before the next step. **Stop** ends the run
+  before its next step; what ran is kept, and the run reads "Stopped by Dana Whitfield before
+  Say hello". **Stop** in the page's header does the same for a paused run; while a step runs it
+  cuts the step off, as for any run.
+- **Pause points:** a step's menu on the canvas sets or takes away a pause point. They are
+  yours, per flow, kept by the server (not in the flow file), and a step-by-step run you
+  launched gets the new ones at its next step.
+- **Who:** whoever may launch the flow may launch it step by step (`operator` on the flow).
+  Step, Continue, Pause and Stop are for whoever may stop the run: `operator` on its flow (the
+  person who launched it is one) and administrators. Each is in the audit log as `run.step`
+  with the command.
+- **While it waits** the run keeps its container, its place among the runs at once
+  (`AFS_MAX_RUNS`) and its lease, and counts toward `AFS_RUN_TIMEOUT_MINUTES`. A pause nobody
+  answers stops the run by itself after `AFS_RUN_STEP_TIMEOUT_MINUTES` (60): "Stopped before
+  Say hello: nobody answered for 60 minutes". A launch may ask for less (`timeoutMinutes`),
+  never more.
+- **A server that stops or restarts** while a run is paused ends it as stopped: "Stopped: the
+  server restarted while the run was paused before Say hello; a paused run cannot go on after a
+  restart". The process that waited is gone; launch it again.
+- **Approvals** inside a step-by-step run work as in any run; after the decision the run goes on
+  step by step from where it was.
+- A schedule never runs step by step, and neither does an action. A run's end notifications are
+  the same as for any run; a pause tells nobody.
+- With several servers on one database, Step and Continue reach the run on the server that
+  runs it: open its page there.
+
+| Address (under `/api/v1`)                    | Does                                                                                                     | Who        |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------- |
+| `POST /launch-configs/:id/launch`            | With `"step": {"every": true}` (or `"points": [<node ids>]`, `"timeoutMinutes"`): a step-by-step run     | `operator` |
+| `POST /runs/:id/step`                        | `{"command": "step"\|"continue"\|"pause"\|"stop"}`, and/or `"points"`; 409 with why when it does not fit | `operator` |
+| `GET /projects/:id/pause-points?path=<flow>` | Your pause points on a flow                                                                              | `ro`       |
+| `PUT /projects/:id/pause-points?path=<flow>` | Keep them (`{"points": [...]}`); your step-by-step runs of the flow going now get them                   | `operator` |
+
+`GET /runs/:id` says `step` (what it was asked for) and `pausedBefore` (the step it waits at now);
+the run's view has the designer's `step` (the pause, its hosts, when it stops by itself).
+
 ## Dev runs
 
 Someone with `rw` on a workspace can check work they have not pushed yet: VS Code's **Check My

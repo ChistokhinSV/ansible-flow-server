@@ -63,6 +63,26 @@ export interface PreparedLaunch {
   credentials: string[];
   /** AFS-26: a dev run: the bundle of unpushed work whose commit it runs. */
   dev?: string;
+  /** AFS-177: run step by step (launch pages, API, MCP; never a schedule or an action). */
+  step?: StepAsked;
+}
+
+/** AFS-177: what a launch asks for: `{every: true}` pauses before each step, `points` at those. */
+export interface StepRequest {
+  every?: boolean;
+  points?: string[];
+  /** How long a pause waits, at most the server's setting. */
+  timeoutMinutes?: number;
+}
+
+/**
+ * AFS-177: what a step-by-step run was asked for: pause before every step (`every`) or only at the
+ * pause points (`points`, node ids); `timeoutS` how long a pause waits before the run stops itself.
+ */
+export interface StepAsked {
+  every: boolean;
+  points: string[];
+  timeoutS: number;
 }
 
 export interface LaunchForm {

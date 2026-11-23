@@ -184,6 +184,9 @@ export function progressOf(p: ProgressInput): ActionProgress {
       case 'queued':
         return 'Waiting to start: it starts as soon as the server has room for it.';
       case 'running':
+        // AFS-177: actions never start step by step; a step-by-step run of one says where it waits.
+        if (run.pausedBefore)
+          return `Paused before ${run.pausedBefore}: it goes on when someone says Step or Continue on its page.`;
         return step >= 0
           ? `Running step ${step + 1} of ${total}: ${steps[step]?.title}.`
           : `Running: ${done} of ${total} steps done.`;

@@ -687,6 +687,112 @@ describe('a run', () => {
   });
 });
 
+// AFS-177: a step-by-step run's page: paused where, with Step, Continue, Pause, Stop outside the
+// canvas, for who may stop it; a reader sees where it waits and no buttons.
+describe('a step-by-step run', () => {
+  const stepping = {
+    ...run,
+    step: { every: true, points: [], timeoutS: 3600 },
+    pausedBefore: 'Read a few facts',
+  };
+  const paused = {
+    every: true,
+    points: [],
+    pauses: 2,
+    paused: {
+      id: 't-2',
+      node: '01M6GPM99KC9TX091MCH61REQV',
+      play: '[facts] Read a few facts',
+      hosts: ['fw-edge-01', 'fw-edge-02'],
+      since: Date.now() / 1000,
+      timeout: 3600,
+    },
+  };
+  const barOf = async (text: RegExp) =>
+    (await screen.findByText(text)).closest('[data-step-bar]') as HTMLElement;
+
+  it('says where it is paused and sends Step, Continue and Stop; Pause while it goes', async () => {
+    const sent: unknown[] = [];
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({ body: stepping }),
+      'GET /runs/r1/view': () => ({ body: { state: 'running', step: paused } }),
+      'POST /runs/r1/step': () => ({ status: 202, body: { ...stepping, pausedBefore: undefined } }),
+    };
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url.endsWith('/step')) sent.push(JSON.parse(String(init.body)));
+      return answer(url, init);
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    await screen.findByText('step by step');
+    const stream = FakeStream.last as FakeStream;
+    stream.emit('view', { state: 'running', step: paused });
+    const bar = await barOf(
+      /^Paused before Read a few facts · 2 hosts · stops by itself in (59|60) min$/,
+    );
+    fireEvent.click(within(bar).getByRole('button', { name: 'Step' }));
+    await waitFor(() => expect(sent).toEqual([{ command: 'step' }]));
+    // The run goes on: the bar offers Pause and Stop.
+    stream.emit('view', { state: 'running', step: { ...paused, paused: undefined } });
+    const going = await within(bar).findByRole('button', { name: 'Pause' });
+    expect(within(bar).queryByRole('button', { name: 'Continue' })).toBeNull();
+    fireEvent.click(going);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    stream.emit('run', stepping);
+    stream.emit('view', { state: 'running', step: paused });
+    fireEvent.click(await within(bar).findByRole('button', { name: 'Continue' }));
+    // One at a time: the buttons wait for the answer.
+    await waitFor(() => expect(sent).toHaveLength(3));
+    await waitFor(() =>
+      expect(
+        (within(bar).getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(within(bar).getByRole('button', { name: 'Stop' }));
+    await waitFor(() =>
+      expect(sent).toEqual([
+        { command: 'step' },
+        { command: 'pause' },
+        { command: 'continue' },
+        { command: 'stop' },
+      ]),
+    );
+  });
+
+  it('a refusal is said; a reader sees where it waits, with no buttons', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({ body: stepping }),
+      'GET /runs/r1/view': () => ({ body: { state: 'running', step: paused } }),
+      'POST /runs/r1/step': () => ({
+        status: 409,
+        body: {
+          error: 'conflict',
+          message: 'The run is not paused: Pause pauses it before its next step',
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const bar = await barOf(/^Paused before Read a few facts/);
+    fireEvent.click(within(bar).getByRole('button', { name: 'Step' }));
+    await screen.findByText('The run is not paused: Pause pauses it before its next step');
+
+    cleanup();
+    routes = {
+      ...routes,
+      'GET /session': () => ({ body: omar }),
+      'GET /projects/p1/access': () => ({ body: { admin: false, workspace: 'ro', flows: {} } }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const read = await barOf(/^Paused before Read a few facts/);
+    expect(within(read).queryAllByRole('button')).toHaveLength(0);
+  });
+});
+
 // AFS-185: what Stop asks of a real run, and when a stopped run says it stopped.
 describe('stop words', () => {
   it('names the run and what stopping it does where it is', () => {

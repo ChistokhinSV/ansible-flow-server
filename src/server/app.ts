@@ -41,6 +41,7 @@ import type { CatalogState } from './runs/catalogs';
 import type { RunHub } from './runs/hub';
 import type { RunQueue } from './runs/queue';
 import { registerRuns } from './runs/routes';
+import { registerStepping, type Stepper } from './runs/stepping';
 import { registerSchedules } from './schedules/routes';
 import type { Schedules } from './schedules/schedules';
 import { registerSearch } from './search/routes';
@@ -71,6 +72,10 @@ export interface AppDeps {
   runOutput?: (runId: string) => string;
   /** What runs going here say while they go. */
   hub?: RunHub;
+  /** AFS-177: drives the step-by-step runs going here (the executor). */
+  stepper?: Stepper;
+  /** AFS-177: how long a step-by-step run's pause may wait (AFS_RUN_STEP_TIMEOUT_MINUTES). */
+  stepTimeoutMinutes?: number;
   /** The master key: with it the server keeps credentials. */
   masterKey?: MasterKey;
   /** The folder of the built web application (dist/web); without it there are no pages. */
@@ -217,6 +222,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ...(deps.runs ? { queue: deps.runs } : {}),
       ...(deps.dev ? { dev: deps.dev } : {}),
       ...(deps.inventory ? { inventory: deps.inventory } : {}),
+      ...(deps.stepTimeoutMinutes ? { stepTimeoutMinutes: deps.stepTimeoutMinutes } : {}),
       vars,
     });
     // AFS-175: actions: approved launches for people who do not read flows.
@@ -244,6 +250,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       deps.database.db,
       notifier ? (run, gate) => notifier.approvalCancelled(run, gate) : undefined,
     );
+    // AFS-177: Step, Continue, Pause, Stop; each person's pause points per flow.
+    registerStepping(app, {
+      queue: deps.runs,
+      db: deps.database.db,
+      ...(deps.hub ? { hub: deps.hub } : {}),
+      ...(deps.stepper ? { stepper: deps.stepper } : {}),
+      ...(notifier ? { gateClosed: (run, gate) => notifier.approvalCancelled(run, gate) } : {}),
+    });
     registerApprovals(app, {
       db: deps.database.db,
       queue: deps.runs,

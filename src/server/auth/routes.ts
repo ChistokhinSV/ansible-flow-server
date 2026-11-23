@@ -349,6 +349,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     readOnly?: boolean;
     workspace?: string;
     mcpApprovals?: boolean;
+    mcpRunControl?: boolean;
   };
   const TOKEN_BODY = body(['name'], {
     name: text(100, 1),
@@ -356,6 +357,8 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     readOnly: { type: 'boolean' },
     // AFS-24: an agent with the token may decide approvals over MCP.
     mcpApprovals: { type: 'boolean' },
+    // AFS-177: an agent with the token may drive step-by-step runs over MCP (run_step).
+    mcpRunControl: { type: 'boolean' },
     // A workspace's id or key: the token reaches that workspace only.
     workspace: text(64, 1),
   });
@@ -371,6 +374,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       days: input.expiresInDays,
       readOnly: input.readOnly,
       mcpApprovals: input.mcpApprovals,
+      mcpRunControl: input.mcpRunControl,
       ...(workspace ? { workspace: workspace.id } : {}),
     };
   };

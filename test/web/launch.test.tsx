@@ -814,6 +814,59 @@ describe('the launch form', () => {
   });
 });
 
+// AFS-177: Step by step on the launch form: the run pauses before each step, at the person's
+// pause points too after Continue.
+describe('a step-by-step launch', () => {
+  it('asks for every step, with the pause points the person keeps on the flow', async () => {
+    routes = {
+      ...common(dana),
+      'GET /projects/p1/pause-points?path=flows%2Fupgrade.flow.yaml': () => ({
+        body: { points: ['01M6GPM99KC9TX091MCH61REQV'] },
+      }),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/api_password/), {
+      target: { value: 's3cret-value' },
+    });
+    const tick = screen.getByLabelText(/^Step by step/) as HTMLInputElement;
+    expect(tick.checked).toBe(false);
+    fireEvent.click(tick);
+    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
+    expect(launched?.body).toMatchObject({
+      step: { every: true, points: ['01M6GPM99KC9TX091MCH61REQV'] },
+    });
+  });
+
+  it('a launch without the tick asks for no step', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/api_password/), {
+      target: { value: 's3cret-value' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
+    expect((launched?.body as { step?: unknown } | undefined)?.step).toBeUndefined();
+    expect(asked.some((a) => a.key.includes('pause-points'))).toBe(false);
+  });
+});
+
 describe('what a level shows', () => {
   it('an operator on the flow launches as configured: no other branch, no start values, no change', async () => {
     routes = {

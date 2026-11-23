@@ -679,6 +679,25 @@ export const ROUTES: Record<string, RouteDoc> = {
     R,
   )('The run as it goes, as server-sent events: run, view, output, end'),
   'POST /api/v1/runs/:id/cancel': S('Runs', 'administrators', R)('Stop a run'),
+  'POST /api/v1/runs/:id/step': S(
+    'Runs',
+    'administrators',
+    R,
+  )(
+    'Drive a step-by-step run: `command` step (run the next step, pause again), continue (run on to a pause point), pause (pause before the next step), stop (end before the next step); `points`: new pause points (node ids)',
+  ),
+  'GET /api/v1/projects/:id/pause-points': S(
+    'Runs',
+    'signed in',
+    P,
+  )('Your pause points on a flow (`path`): the steps your step-by-step runs of it pause before'),
+  'PUT /api/v1/projects/:id/pause-points': S(
+    'Runs',
+    'signed in',
+    P,
+  )(
+    'Keep your pause points on a flow (`path`, body `points`: node ids); your step-by-step runs of it going now get them too',
+  ),
   'POST /api/v1/runs/:id/relaunch': S(
     'Runs',
     'administrators',
@@ -1150,6 +1169,11 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/runs/:id/hosts/:host': 'ro',
   'GET /api/v1/runs/:id/events': 'ro',
   'POST /api/v1/runs/:id/cancel': 'operator',
+  // AFS-177: who may stop a run may drive it step by step (the person who launched it is
+  // operator on its flow; administrators too).
+  'POST /api/v1/runs/:id/step': 'operator',
+  'GET /api/v1/projects/:id/pause-points': 'ro',
+  'PUT /api/v1/projects/:id/pause-points': 'operator',
   'POST /api/v1/runs/:id/relaunch': 'operator',
   // An approver sees what they decide: approve counts as ro; deciding is checked by the handler
   // (the approve grant, the approval's approvers, self-approval).
@@ -1178,6 +1202,8 @@ const FLOW_QUERY: Record<string, string> = {
   'GET /api/v1/projects/:id/flows/history': 'path',
   'GET /api/v1/projects/:id/commits': 'path',
   'GET /api/v1/projects/:id/flows/commit': 'path',
+  'GET /api/v1/projects/:id/pause-points': 'path',
+  'PUT /api/v1/projects/:id/pause-points': 'path',
 };
 
 /** What a route reaches: the workspace, and the project and flow when it reaches one. */
