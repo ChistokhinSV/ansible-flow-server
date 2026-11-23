@@ -70,6 +70,7 @@ import type { FlowList, FlowSummary } from '../server/projects/flows';
 import type { LibrarySubflow } from '../server/projects/library';
 import type { Project, Push, Workspace } from '../server/projects/store';
 import type { LastRun } from '../server/runs/cursor';
+import type { HostAt, HostSets, RelaunchBody, RelaunchOffer } from '../server/runs/hostSets';
 import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
 import type { SearchHit } from '../server/search/types';
@@ -118,6 +119,8 @@ export type {
   GrantLevel,
   Group,
   GroupGrant,
+  HostAt,
+  HostSets,
   LastRun,
   LaunchConfig,
   LaunchConfigInput,
@@ -132,6 +135,8 @@ export type {
   Project,
   Push,
   ReachedAction,
+  RelaunchBody,
+  RelaunchOffer,
   Run,
   RunNotify,
   Schedule,
@@ -604,7 +609,12 @@ export const api = {
     ),
   run: (id: string) => call<Run>('GET', `/runs/${encodeURIComponent(id)}`),
   cancelRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/cancel`),
-  relaunchRun: (id: string) => call<Run>('POST', `/runs/${encodeURIComponent(id)}/relaunch`),
+  /** AFS-240: the run again; no body is 1.1's Run again (all hosts, as it was). */
+  relaunchRun: (id: string, body?: RelaunchBody) =>
+    call<Run>('POST', `/runs/${encodeURIComponent(id)}/relaunch`, body),
+  /** AFS-214: what Run again offers: the run's host sets, its outcome line, risks, approvals. */
+  relaunchOffer: (id: string) =>
+    call<RelaunchOffer>('GET', `/runs/${encodeURIComponent(id)}/relaunch`),
   /** AFS-177: Step, Continue, Pause or Stop for a step-by-step run; or new pause points. */
   stepRun: (id: string, ask: { command?: StepCommand; points?: string[] }) =>
     call<Run>('POST', `/runs/${encodeURIComponent(id)}/step`, ask),

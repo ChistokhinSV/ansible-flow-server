@@ -581,6 +581,9 @@ export function registerLaunch(
       if (step && 'error' in step)
         return reply.code(400).send({ error: 'invalid', message: step.error, field: 'step' });
       if (step) request.auditDetail = { step: step.every ? 'every step' : 'pause points' };
+      // ADR-0038 §1: a debug run looks into the run's variables: rw on the flow.
+      if (step?.debug && !(await mayManage(request, reply, config.project, config.flowFile)))
+        return reply;
       // A dev run (AFS-26) and another branch or commit are rw's.
       if (
         (body.dev ||

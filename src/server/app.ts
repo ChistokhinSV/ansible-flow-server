@@ -40,6 +40,7 @@ import { ProjectWatch } from './projects/watch';
 import type { CatalogState } from './runs/catalogs';
 import type { RunHub } from './runs/hub';
 import type { RunQueue } from './runs/queue';
+import { registerRelaunch } from './runs/relaunch';
 import { registerRuns } from './runs/routes';
 import { registerStepping, type Stepper } from './runs/stepping';
 import { registerSchedules } from './schedules/routes';
@@ -233,6 +234,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ...(deps.stepTimeoutMinutes ? { stepTimeoutMinutes: deps.stepTimeoutMinutes } : {}),
       vars,
     });
+    // AFS-214, AFS-240: Run again, of some hosts, step by step: through the launch's checks.
+    if (deps.runs)
+      registerRelaunch(app, {
+        db: deps.database.db,
+        git: deps.projects.git,
+        sync: deps.projects.sync,
+        queue: deps.runs,
+        ...(deps.stepTimeoutMinutes ? { stepTimeoutMinutes: deps.stepTimeoutMinutes } : {}),
+      });
     // AFS-175: actions: approved launches for people who do not read flows.
     registerActions(app, {
       db: deps.database.db,

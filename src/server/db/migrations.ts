@@ -9,6 +9,32 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-214, AFS-240: a run that is another run again: which run, which of its hosts (the set and
+  // how many), and the hosts themselves, which the run's limit file is written from. AFS-239: the
+  // count of hosts that did not go well takes unreachable hosts in, for runs kept from before.
+  '0037_run_relaunch': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('relaunch_of_json', 'text').execute();
+      await db.schema.alterTable('run').addColumn('limit_hosts_json', 'text').execute();
+      const k = db as unknown as Kysely<{
+        run: { id: string; view_json: string | null; failed_count: number | null };
+      }>;
+      const rows = await k
+        .selectFrom('run')
+        .select(['id', 'view_json'])
+        .where('view_json', 'like', '%"unreachable":["%')
+        .execute();
+      for (const row of rows) {
+        const counts = hostCounts(row.view_json);
+        if ('failed_count' in counts)
+          await k
+            .updateTable('run')
+            .set({ failed_count: counts.failed_count })
+            .where('id', '=', row.id)
+            .execute();
+      }
+    },
+  },
   // AFS-53 (AFS-243, AFS-244): event streaming: its destinations, and an outbox with one row per
   // destination, kind and audit entry or run.
   '0036_event_streaming': {

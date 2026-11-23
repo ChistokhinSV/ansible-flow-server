@@ -9,6 +9,7 @@ import {
   ApiError,
   api,
   type Project,
+  type RelaunchBody,
   type Run,
   type RunsFilter,
   runCursor,
@@ -21,6 +22,7 @@ import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { decidedOutcomes, quietEndOrigins } from './outputText';
 import { Link, navigate } from './router';
+import { RunAgainMenu, relaunchWords } from './runAgain';
 import { RunStepBar } from './stepBar';
 import type { ThemeChoice } from './theme';
 import {
@@ -1015,6 +1017,12 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     async () => (projectId && flowFile ? belongs(projectId, flowFile, configId) : null),
     [projectId, flowFile, configId],
   ).data;
+  // AFS-214: once the run has ended, how its hosts went and what Run again offers.
+  const over = !!run && run.id === id && !ACTIVE.includes(run.state);
+  const offer = useLoad(
+    async () => (over ? await api.relaunchOffer(id).catch(() => undefined) : undefined),
+    [id, over, run?.state],
+  ).data;
 
   useEffect(() => {
     setRun(undefined);
@@ -1194,11 +1202,19 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   // operator on the run's flow stops it and runs it again.
   const mayAct = me.admin || atLeast(flowLevel(access, run.flow.file), 'operator');
   const again = againWords(run);
-  const act = async (what: 'cancel' | 'relaunch') => {
-    // AFS-147: a real run again changes the hosts again: asked first, as Launch asks, with the
-    // inputs it reuses.
-    if (what === 'relaunch' && again.confirm && !(await ask(again.confirm, { yes: again.yes })))
-      return;
+  // AFS-214: Debug this failure looks into the run's variables: rw on the flow.
+  const mayDebug = me.admin || atLeast(flowLevel(access, run.flow.file), 'rw');
+  const relaunch = async (body?: RelaunchBody) => {
+    setBusy(true);
+    try {
+      navigate(`/runs/${(await api.relaunchRun(run.id, body)).id}`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const act = async (what: 'cancel') => {
     // AFS-185: so does Stop of a real run: it cuts off what is in progress.
     if (
       what === 'cancel' &&
@@ -1211,8 +1227,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
       return;
     setBusy(true);
     try {
-      if (what === 'cancel') setRun(await api.cancelRun(run.id));
-      else navigate(`/runs/${(await api.relaunchRun(run.id)).id}`);
+      setRun(await api.cancelRun(run.id));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1328,7 +1343,25 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               </>
             )}
             {run.cancelRequested && going && ' · asked to stop'}
+            {/* AFS-214: a run of another run again: which, and which of its hosts. */}
+            {run.relaunchOf && (
+              <>
+                {' · '}
+                <Link to={`/runs/${encodeURIComponent(run.relaunchOf.id)}`} data-relaunch-of>
+                  {relaunchWords(run.relaunchOf)}
+                </Link>
+              </>
+            )}
           </p>
+          {/* AFS-213: how the hosts went, in one line, once the run has ended. */}
+          {offer?.line && (
+            <p
+              className={offer.sets?.notOk.length ? 'run-outcome bad-text' : 'run-outcome'}
+              data-outcome
+            >
+              {offer.line}
+            </p>
+          )}
         </div>
         <div className="actions">
           <button
@@ -1355,15 +1388,21 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               Stop
             </button>
           )}
+          {/* AFS-214: Run again ▾: as it was, changed, only the hosts that did not go well, or
+              Debug this failure. */}
           {mayAct && !going && (
-            <button
-              type="button"
-              disabled={busy}
-              title={again.title}
-              onClick={() => act('relaunch')}
-            >
-              Run again
-            </button>
+            <RunAgainMenu
+              run={run}
+              {...(offer ? { offer } : {})}
+              again={again}
+              {...(where?.config
+                ? { change: `${where.config}?from=${encodeURIComponent(run.id)}` }
+                : {})}
+              mayDebug={mayDebug}
+              busy={busy}
+              onAgain={(body) => void relaunch(body)}
+              onChange={navigate}
+            />
           )}
         </div>
       </header>

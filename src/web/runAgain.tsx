@@ -1,0 +1,351 @@
+// AFS-214 (ADR-0038 §2): Run again ▾ on a run's page: Run again (as it was), Change and run (the
+// launch form, filled from the run), Only the N hosts that did not go well, and Debug this
+// failure (a check run of those hosts, step by step, pausing before the step they failed at and
+// when a host fails). The run's offer (GET /runs/:id/relaunch) says the host sets, the risks of a
+// host limit and the flow's approvals.
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import type { HostAt, HostSets, RelaunchBody, RelaunchOffer, Run } from './api';
+import { ask } from './confirm';
+
+const list = (names: readonly string[], max = 5) =>
+  names.length > max
+    ? `${names.slice(0, max).join(', ')} and ${names.length - max} more`
+    : names.join(', ');
+const hostsWord = (n: number) => (n === 1 ? '1 host' : `${n} hosts`);
+
+/** The hosts that did not go well, each with the step it went wrong at, in the run's order. */
+export function notOkHosts(sets: HostSets): HostAt[] {
+  const all = [...sets.failed, ...sets.unreachable, ...sets.stopped];
+  return sets.notOk.flatMap((h) => all.filter((a) => a.host === h).slice(0, 1));
+}
+
+/**
+ * Where Debug this failure pauses: before each step a host that did not go well went wrong at
+ * (their ids and titles); none known (a host stopped before the run said where): every step.
+ */
+export function debugPoints(sets: HostSets): { points: string[]; titles: string[] } {
+  const points: string[] = [];
+  const titles: string[] = [];
+  for (const h of notOkHosts(sets))
+    if (h.node && !points.includes(h.node)) {
+      points.push(h.node);
+      titles.push(h.title ?? h.node);
+    }
+  return { points, titles };
+}
+
+/** The body of Debug this failure: the hosts that did not go well, at the run's commit. */
+export function debugBody(sets: HostSets, real: boolean): RelaunchBody {
+  const { points } = debugPoints(sets);
+  return {
+    hosts: 'not-ok',
+    mode: real ? 'real' : 'check',
+    commit: 'same',
+    step: {
+      every: points.length === 0,
+      ...(points.length ? { points } : {}),
+      debug: true,
+      pauseOnFailure: true,
+    },
+  };
+}
+
+/** The question before Only the N hosts that did not go well. */
+export function onlyQuestion(run: Run, offer: RelaunchOffer): string {
+  const hosts = offer.sets?.notOk ?? [];
+  const real = run.mode === 'real' ? ' for real' : ' as a check run';
+  const risks = offer.risks.length ? ` ${offer.risks.join('. ')}.` : '';
+  const changes = run.mode === 'real' ? ' It changes the hosts it reaches.' : '';
+  return `Run #${run.number} again${real} on ${hostsWord(hosts.length)}: ${list(hosts)} (commit ${run.commit.slice(0, 12)}, the same inputs, the credentials of its configuration)?${changes} Approvals are asked again.${risks}`;
+}
+
+/** A modal dialog of the page's own (Escape closes it), focus back where it was. */
+function Dialog({
+  label,
+  onClose,
+  children,
+}: {
+  label: string;
+  onClose(): void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    const back = document.activeElement as HTMLElement | null;
+    if (!d) return;
+    if (typeof d.showModal === 'function') {
+      try {
+        d.showModal();
+      } catch {
+        d.setAttribute('open', '');
+      }
+    } else d.setAttribute('open', '');
+    return () => {
+      if (typeof d.close === 'function' && d.open) d.close();
+      if (back?.isConnected) back.focus({ preventScroll: true });
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="confirm run-again-dialog"
+      aria-label={label}
+      aria-modal="true"
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      {children}
+    </dialog>
+  );
+}
+
+/** Debug this failure: check (default) or real, the hosts, where it pauses, what it risks. */
+export function DebugDialog({
+  run,
+  offer,
+  onStart,
+  onClose,
+}: {
+  run: Run;
+  offer: RelaunchOffer & { sets: HostSets };
+  onStart(body: RelaunchBody): void;
+  onClose(): void;
+}) {
+  const [real, setReal] = useState(false);
+  const hosts = offer.sets.notOk;
+  const { titles } = debugPoints(offer.sets);
+  const start = async () => {
+    if (
+      real &&
+      !(await ask(
+        `Debug run #${run.number} for real on ${list(hosts)}? It changes these hosts. Approvals are asked again: a failure after an approval means passing that approval again.`,
+        { yes: 'Debug for real', danger: true },
+      ))
+    )
+      return;
+    onStart(debugBody(offer.sets, real));
+  };
+  return (
+    <Dialog label="Debug this failure" onClose={onClose}>
+      <h2>Debug this failure</h2>
+      <p data-debug-hosts>
+        Hosts: {list(hosts, 8)} · commit <code>{run.commit.slice(0, 12)}</code> (the failed run's)
+      </p>
+      <p>
+        {titles.length
+          ? `Pauses before ${list(titles, 3)}; pauses when a host fails.`
+          : 'Pauses before each step; pauses when a host fails.'}{' '}
+        Step by step, with the debugger.
+      </p>
+      <fieldset className="run-again-mode">
+        <legend>Mode</legend>
+        <label>
+          <input type="radio" name="debug-mode" checked={!real} onChange={() => setReal(false)} />{' '}
+          Check mode: changes nothing on the hosts; the failure may not show
+        </label>
+        <label>
+          <input type="radio" name="debug-mode" checked={real} onChange={() => setReal(true)} />{' '}
+          Real run: changes the hosts; asks for confirmation
+        </label>
+      </fieldset>
+      {real && offer.approvals.length > 0 && (
+        <p className="warn-text">
+          A real run waits again at {list(offer.approvals, 3)}: approvals are asked again.
+        </p>
+      )}
+      {offer.risks.length > 0 && (
+        <ul className="run-again-risks">
+          {offer.risks.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <div className="actions confirm-actions">
+        <button type="button" className={real ? 'danger' : 'primary'} onClick={() => void start()}>
+          Start debugging
+        </button>
+        <button type="button" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+const items = (box: HTMLElement | null) => [
+  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+];
+
+/**
+ * Run again ▾: the menu. `again`: Run again's title and question (the run as it was); `change`:
+ * where Change and run goes (the launch form, filled from the run), when the run has a
+ * configuration this person can open; `mayDebug`: rw on the flow.
+ */
+export function RunAgainMenu({
+  run,
+  offer,
+  again,
+  change,
+  mayDebug,
+  busy,
+  onAgain,
+  onChange,
+}: {
+  run: Run;
+  offer?: RelaunchOffer;
+  again: { title: string; confirm?: string; yes: string };
+  change?: string;
+  mayDebug: boolean;
+  busy: boolean;
+  onAgain(body?: RelaunchBody): void;
+  onChange(to: string): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [debugging, setDebugging] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    items(box.current)[0]?.focus();
+    const away = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (box.current?.contains(document.activeElement)) button.current?.focus();
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open]);
+  const sets = offer?.sets;
+  const bad = sets?.notOk.length ?? 0;
+  const pick = async (what: 'again' | 'change' | 'only' | 'debug') => {
+    setOpen(false);
+    if (what === 'again') {
+      if (again.confirm && !(await ask(again.confirm, { yes: again.yes }))) return;
+      onAgain();
+    } else if (what === 'change' && change) onChange(change);
+    else if (what === 'only' && offer) {
+      if (
+        !(await ask(onlyQuestion(run, offer), {
+          yes: run.mode === 'real' ? 'Run for real' : 'Run again',
+        }))
+      )
+        return;
+      onAgain({ hosts: 'not-ok' });
+    } else if (what === 'debug') setDebugging(true);
+  };
+  const notOkTitle = sets
+    ? notOkHosts(sets)
+        .slice(0, 5)
+        .map((h) => {
+          const why = sets.unreachable.some((u) => u.host === h.host)
+            ? 'unreachable'
+            : sets.stopped.some((s) => s.host === h.host)
+              ? 'stopped'
+              : 'failed';
+          return `${h.host} (${why})`;
+        })
+        .join(', ') + (bad > 5 ? ` and ${bad - 5} more` : '')
+    : '';
+  return (
+    <div className="more-menu run-again" ref={box}>
+      <button
+        ref={button}
+        type="button"
+        disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        Run again ▾
+      </button>
+      {open && (
+        <div
+          className="more-menu-list"
+          role="menu"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            const all = items(box.current);
+            const at = all.indexOf(document.activeElement as HTMLElement);
+            const to =
+              e.key === 'ArrowDown'
+                ? (at + 1) % all.length
+                : e.key === 'ArrowUp'
+                  ? (at - 1 + all.length) % all.length
+                  : e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? all.length - 1
+                      : undefined;
+            if (to !== undefined) {
+              e.preventDefault();
+              all[to]?.focus();
+            } else if (e.key === 'Tab') setOpen(false);
+          }}
+        >
+          <button type="button" role="menuitem" title={again.title} onClick={() => pick('again')}>
+            Run again
+          </button>
+          {change && (
+            <button
+              type="button"
+              role="menuitem"
+              title="The launch form, filled from this run: change what you need, then launch"
+              onClick={() => pick('change')}
+            >
+              Change and run…
+            </button>
+          )}
+          {bad > 0 && (
+            <button type="button" role="menuitem" title={notOkTitle} onClick={() => pick('only')}>
+              Only the {bad === 1 ? 'host' : `${bad} hosts`} that did not go well
+            </button>
+          )}
+          {bad > 0 && mayDebug && (
+            <button
+              type="button"
+              role="menuitem"
+              title="A check run of those hosts, step by step, that pauses before the step they failed at"
+              onClick={() => pick('debug')}
+            >
+              Debug this failure…
+            </button>
+          )}
+        </div>
+      )}
+      {debugging && offer?.sets && (
+        <DebugDialog
+          run={run}
+          offer={{ ...offer, sets: offer.sets }}
+          onClose={() => setDebugging(false)}
+          onStart={(body) => {
+            setDebugging(false);
+            onAgain(body);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** "Run again of #41 on 3 hosts that did not go well": what a run again is, for its page. */
+export function relaunchWords(of: NonNullable<Run['relaunchOf']>): string {
+  const which =
+    of.hosts === 'all' || of.count === undefined
+      ? ''
+      : of.hosts === 'not-ok'
+        ? ` on the ${hostsWord(of.count)} that did not go well`
+        : of.hosts === 'chosen'
+          ? ` on ${hostsWord(of.count)}`
+          : ` on the ${hostsWord(of.count)} that ${of.hosts === 'failed' ? 'failed' : of.hosts === 'unreachable' ? 'could not be reached' : 'stopped before the end'}`;
+  return `Run again of #${of.number}${which}`;
+}

@@ -16,6 +16,18 @@ describe('hostCounts', () => {
     expect(hostCounts(JSON.stringify(view))).toEqual({ host_count: 3, failed_count: 2 });
   });
 
+  it('AFS-239: counts hosts that could not be reached as not gone well', () => {
+    const view = {
+      summary: {
+        hosts: ['edge-r1', 'edge-r2', 'edge-r3'],
+        outcome: { 'edge-r1': 'failed' },
+        failures: [],
+        unreachable: ['edge-r3'],
+      },
+    };
+    expect(hostCounts(view)).toEqual({ host_count: 3, failed_count: 2 });
+  });
+
   it('gives nothing for a view without a summary, or one that does not parse', () => {
     expect(hostCounts({ state: 'running' })).toEqual({});
     expect(hostCounts('{not json')).toEqual({});

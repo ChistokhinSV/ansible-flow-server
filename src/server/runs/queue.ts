@@ -112,6 +112,44 @@ export interface Run {
   step?: StepAsked;
   /** AFS-177: the step a step-by-step run is paused before now (its title). */
   pausedBefore?: string;
+  /**
+   * AFS-214: a run of another run again: that run, the hosts it took (`all`, a set, or `chosen`
+   * names) and how many (absent for `all`).
+   */
+  relaunchOf?: RelaunchOf;
+}
+
+/** AFS-214: the run a run is again, and which of its hosts. */
+export interface RelaunchOf {
+  id: string;
+  number: number;
+  hosts: 'all' | 'not-ok' | 'failed' | 'unreachable' | 'stopped' | 'chosen';
+  count?: number;
+}
+
+/**
+ * AFS-240: what a run again is made of, settled by the relaunch route through the launch's checks:
+ * the commit and flow, the mode, the image, the credentials its configuration gives now, how it
+ * steps, the hosts it is limited to. `inputs` (with `shown`, as anyone may see them) when they are
+ * not the old run's own (at the newest commit, read again as that flow's types).
+ */
+export interface RelaunchPlan {
+  commit: string;
+  ref?: string;
+  flow: Run['flow'];
+  mode: Run['mode'];
+  inventory?: string;
+  eeImage?: string;
+  limit?: string;
+  inputs?: Record<string, unknown>;
+  shown?: Record<string, unknown>;
+  targets?: string[];
+  credentials: string[];
+  /** null: not step by step. */
+  step: StepAsked | null;
+  /** The hosts it runs on, written to its limit file; absent: as the old run's limit says. */
+  limitHosts?: string[];
+  relaunchOf: RelaunchOf;
 }
 
 /**
@@ -141,6 +179,8 @@ export interface Job {
   leaseUntil: string;
   /** The inputs as the flow gets them, secrets included. Never log or show this. */
   inputs: Record<string, unknown>;
+  /** AFS-240: the hosts the run is limited to (its limit file), when it is a run again of some. */
+  limitHosts?: string[];
 }
 
 export interface QueueLimits {
@@ -264,6 +304,9 @@ export class RunQueue {
       ...(row.ee_default === 1 ? { serverDefault: true as const } : {}),
       ...(row.step_json ? { step: stepAsked(row.step_json) } : {}),
       ...(row.step_paused ? { pausedBefore: row.step_paused } : {}),
+      ...(row.relaunch_of_json
+        ? { relaunchOf: JSON.parse(row.relaunch_of_json) as RelaunchOf }
+        : {}),
     };
   }
 
@@ -332,6 +375,8 @@ export class RunQueue {
         action_title: launch.action ?? null,
         step_json: launch.step ? JSON.stringify(launch.step) : null,
         step_paused: null,
+        relaunch_of_json: null,
+        limit_hosts_json: null,
       };
       await trx.insertInto('run').values(row).execute();
       return this.of(row);
@@ -346,6 +391,21 @@ export class RunQueue {
       .where('id', '=', id)
       .executeTakeFirst();
     return row?.view_json ? failedView(JSON.parse(row.view_json), row.state, row.error) : undefined;
+  }
+
+  /**
+   * AFS-240: a run's inputs in full, secrets too, for a run again of it (checked as a launch's).
+   * Never log or show this.
+   */
+  async inputsOf(id: string): Promise<Record<string, unknown> | undefined> {
+    const row = await this.db
+      .selectFrom('run')
+      .select('inputs_enc')
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return row
+      ? (JSON.parse(open(this.key, row.inputs_enc, context(id))) as Record<string, unknown>)
+      : undefined;
   }
 
   /** AFS-185: a person's name by their login, as the pages show people (the login if none). */
@@ -528,6 +588,9 @@ export class RunQueue {
           string,
           unknown
         >,
+        ...(row.limit_hosts_json
+          ? { limitHosts: JSON.parse(row.limit_hosts_json) as string[] }
+          : {}),
       };
     });
   }
@@ -703,12 +766,14 @@ export class RunQueue {
   }
 
   /**
-   * The same run again: the same commit, flow, mode, inputs (secrets too) and credentials, as a
-   * new run in the queue, asked for by `by`. Undefined when there is no such run.
+   * The run again, as a new run in the queue asked for by `by`: what `plan` settles (AFS-240: the
+   * relaunch route, through the launch's checks); without one, the same commit, flow, mode, inputs
+   * (secrets too), credentials and hosts. Undefined when there is no such run.
    */
   relaunch(
     id: string,
     by: { id: string; login: string },
+    plan?: RelaunchPlan,
     now = new Date(),
   ): Promise<Run | undefined> {
     return this.locked(async (trx) => {
@@ -721,12 +786,52 @@ export class RunQueue {
         .executeTakeFirst();
       const fresh = randomUUID();
       const at = iso(now);
+      // The inputs are sealed to their run: opened from the old one, sealed to the new one.
+      const inputs = plan?.inputs
+        ? JSON.stringify(plan.inputs)
+        : open(this.key, old.inputs_enc, context(old.id));
+      // AFS-177: steps again as it was asked to, from the start (not where its driver left it).
+      const step =
+        plan === undefined
+          ? old.step_json
+            ? JSON.stringify(stepAsked(old.step_json))
+            : null
+          : plan.step
+            ? JSON.stringify(plan.step)
+            : null;
       const row: Row = {
         ...old,
         id: fresh,
         number: Number(last?.n ?? 0) + 1,
-        // The inputs are sealed to their run: opened from the old one, sealed to the new one.
-        inputs_enc: seal(this.key, open(this.key, old.inputs_enc, context(old.id)), context(fresh)),
+        ...(plan
+          ? {
+              commit_id: plan.commit,
+              git_ref: plan.ref ?? null,
+              flow_file: plan.flow.file,
+              flow_key: plan.flow.key,
+              flow_name: plan.flow.name,
+              flow_version: plan.flow.version,
+              mode: plan.mode,
+              inventory: plan.inventory ?? null,
+              ee_image: plan.eeImage ?? null,
+              ee_default: plan.eeImage
+                ? old.ee_image === plan.eeImage
+                  ? old.ee_default
+                  : 0
+                : null,
+              // The hosts' limit file takes the place of the old run's limit (ADR-0038 §2).
+              run_limit: plan.limitHosts ? null : (plan.limit ?? null),
+              credentials_json: JSON.stringify(plan.credentials),
+              ...(plan.shown ? { inputs_shown_json: JSON.stringify(plan.shown) } : {}),
+              ...(plan.targets ? { targets_json: JSON.stringify(plan.targets) } : {}),
+              relaunch_of_json: JSON.stringify(plan.relaunchOf),
+              // A run again of a run again of some hosts keeps to those hosts.
+              limit_hosts_json: plan.limitHosts
+                ? JSON.stringify(plan.limitHosts)
+                : old.limit_hosts_json,
+            }
+          : {}),
+        inputs_enc: seal(this.key, inputs, context(fresh)),
         state: 'queued',
         requested_by: by.id,
         requested_login: by.login,
@@ -747,8 +852,7 @@ export class RunQueue {
         failed_count: null,
         run_dir: null,
         segments_json: null,
-        // AFS-177: steps again as it was asked to, from the start (not where its driver left it).
-        step_json: old.step_json ? JSON.stringify(stepAsked(old.step_json)) : null,
+        step_json: step,
         step_paused: null,
       };
       await trx.insertInto('run').values(row).execute();
@@ -1083,6 +1187,10 @@ export function stepAsked(json: string): StepAsked {
     points: s.control?.points ?? s.points ?? [],
     timeoutS: s.timeoutS,
     ...(s.pointsBy ? { pointsBy: s.pointsBy } : {}),
+    // AFS-214: a debug run (Debug this failure), and pause when a host fails: the designer's
+    // engine reads them (ADR-0040); kept and passed on as they were asked.
+    ...(s.debug ? { debug: true } : {}),
+    ...(s.pauseOnFailure ? { pauseOnFailure: true } : {}),
   };
 }
 

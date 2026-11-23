@@ -721,11 +721,20 @@ export const ROUTES: Record<string, RouteDoc> = {
   )(
     'Keep your pause points on a flow (`path`, body `points`: node ids); your step-by-step runs of it going now get them too',
   ),
+  'GET /api/v1/runs/:id/relaunch': S(
+    'Runs',
+    'signed in',
+    R,
+  )(
+    "What Run again offers: the run's hosts in sets (failed, unreachable, stopped, handled, notOk) with the step each went wrong at, the outcome line, what a host limit changes in the flow (`risks`), and its approvals",
+  ),
   'POST /api/v1/runs/:id/relaunch': S(
     'Runs',
     'administrators',
     R,
-  )('The same run again, as a new run'),
+  )(
+    "The run again, as a new run, through the launch's checks (its configuration's credentials now; approvals are asked again). Body, every field optional: `hosts` all (default), not-ok, failed, unreachable, stopped, or names of its hosts (at most 5000; they go to a limit file); `includeHandled` adds hosts whose failure the flow handled; `mode` check or real; `step` {every, points, timeoutMinutes, debug, pauseOnFailure} or null; `commit` same (default) or newest. 409 while the run goes; 422 for an empty set, a run that reached no host, a host not of the run, a pause point not in the flow",
+  ),
 
   'GET /api/v1/workspaces/:id/grants': S(
     'Access',
@@ -1265,6 +1274,9 @@ const NEEDS: Record<string, Who> = {
   'POST /api/v1/runs/:id/step': 'operator',
   'GET /api/v1/projects/:id/pause-points': 'ro',
   'PUT /api/v1/projects/:id/pause-points': 'operator',
+  'GET /api/v1/runs/:id/relaunch': 'ro',
+  // AFS-240: another branch or commit than its configuration names, a dev run, and a debug run
+  // need rw on the flow: checked by the handler.
   'POST /api/v1/runs/:id/relaunch': 'operator',
   // An approver sees what they decide: approve counts as ro; deciding is checked by the handler
   // (the approve grant, the approval's approvers, self-approval).

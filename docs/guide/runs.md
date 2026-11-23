@@ -121,16 +121,16 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `GET /runs/:id/events`            | The run as it goes, as server-sent events: `run`, `view`, `output` (with `next`), `end`; `?from=<next>` resumes the output | signed in  |
 | `GET /runs/:id/hosts/:node/:host` | What one host did in one step, from the run's events                                                                       | signed in  |
 | `GET /runs/:id/hosts/:host`       | What one host did in the whole run: `steps`, each with its `node`, its title (`step`) and its task results (`entries`)     | signed in  |
-| `POST /runs/:id/relaunch`         | The same run again (same commit, inputs and credentials), as a new run                                                     | `operator` |
+| `GET /runs/:id/relaunch`          | What **Run again** offers: the host sets, where each host went wrong, the outcome line, `risks`, `approvals`               | signed in  |
+| `POST /runs/:id/relaunch`         | The run again, as a new run: all hosts or some, a mode, step by step, a commit ([Run again](#run-again))                   | `operator` |
 
 **A run's page** says what ran: the flow and commit, the run's number (counted over the
 project's runs), check or real, the hosts and the limit, the inventory, the environment and its
 image (marked "the server's default" when the run got the server's default image as it started),
 the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
-same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. **Run again** runs the
-same commit, inputs and credentials as a new run; its title says which inputs it reuses, and on
-a real run it asks first, as Launch does; so does a run that reached no host, which would likely
-end the same way. **Hosts** lists the run's hosts and how each fared; a
+same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. Once the run has ended,
+a line under its title says how its hosts went: "3 of 40 hosts did not go well: 2 failed at Apply
+config, 1 unreachable" (see [Run again](#run-again)). **Hosts** lists the run's hosts and how each fared; a
 host's row opens what it did, step by step: each task's result, with Ansible's message and
 output.
 
@@ -153,6 +153,84 @@ Ended runs are removed after `AFS_RUNS_KEEP_DAYS` (90), and beyond `AFS_RUNS_KEE
 [Run with docker compose](install.md#run-with-docker-compose). The data folder may be any volume: at start
 the server asks the engine about its own container and gives run containers the volume's paths
 as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find out).
+
+## Run again
+
+**Run again ▾** on a run that has ended, for operators of its flow:
+
+- **Run again**: the same commit, inputs and limit, as a new run. Its title says which inputs it
+  reuses; on a real run it asks first, as Launch does, and so does a run that reached no host.
+- **Change and run…**: the configuration's **Launch** tab, filled in from the run (its inputs, mode,
+  limit, and its commit for who may pick one), with a line naming what differs from the
+  configuration. Secret inputs are not filled in: type them again.
+- **Only the N hosts that did not go well**: the run again on the hosts that failed, could not be
+  reached, or stopped before the end. It asks first, naming the hosts and what a host limit changes
+  in this flow.
+- **Debug this failure…** (rw on the flow): those hosts, step by step, at the failed run's commit,
+  pausing before the step they went wrong at and when a host fails, with the debugger. A check run
+  by default: it changes nothing, though the failure may not show the same way. **Real run** asks
+  first, names the hosts, and says that its approvals are asked again.
+
+**How the hosts went.** A run's hosts fall into sets, read from how the run went:
+
+| Set           | Hosts                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `failed`      | Ended badly: at an open fail port or a failed end, or a failure nothing rescued       |
+| `unreachable` | Ansible could not reach them                                                          |
+| `stopped`     | The run ended before they reached an end (Stop, a pause nobody answered, a rejection) |
+| `handled`     | Had a failure that a wired fail port took to an end that did not fail: they went well |
+| `notOk`       | `failed`, `unreachable` and `stopped`: the hosts that did not go well                 |
+
+Where a host went wrong is the earliest step it failed at: inside a subflow, the step inside it;
+a rolling subflow as a whole, since it runs as one play. Hosts the run never reached are not
+listed. The lists of runs count unreachable hosts among those that did not go well.
+
+**Every run again goes through the launch's checks:** the launch configuration as it is now (its
+flow, the credentials it gives now, its environment), rw on the flow for a run of another branch or
+commit than the configuration names and for a dev run, and the inputs read again as the flow's
+types. A run whose configuration is gone cannot run again: launch the flow from a configuration.
+**Approvals are asked again**: an approval covers one run.
+
+**Only some hosts.** The hosts go to a file in the run's folder, given to Ansible as
+`--limit @/afd-run/limit.txt` in place of the run's limit: one host per line, so a name with a
+comma stays one name, and a name Ansible would read as a pattern (with `[ ] * ?`, or starting with
+`! & ~ @`) is written as an anchored pattern that matches only that host. At most 5,000 hosts, each
+one of the run's. A host limit changes what some steps do, and the question says so:
+
+- steps that run on other hosts (`localhost`, a controller group) are skipped unless those hosts are
+  in the limit;
+- `run_once` steps, failure percentages and rolling batches see only the hosts in the limit.
+
+**The API:** `POST /api/v1/runs/<id>/relaunch`; every field may be left out, and `{}` (or no body)
+is the run again as it was:
+
+```json
+{
+  "hosts": "not-ok",
+  "includeHandled": false,
+  "mode": "check",
+  "step": {
+    "every": false,
+    "points": ["01JZAPPLY0000000000000000A"],
+    "debug": true,
+    "pauseOnFailure": true
+  },
+  "commit": "same"
+}
+```
+
+- `hosts`: `all` (default), `not-ok`, `failed`, `unreachable`, `stopped`, or a list of the run's host
+  names; `includeHandled` adds the handled hosts.
+- `mode`: `check` or `real` (default: the run's).
+- `step`: as on a launch, with `debug` (a debug run: rw on the flow) and `pauseOnFailure`; `null`
+  runs without pausing; left out, as the run was asked.
+- `commit`: `same` (default) or `newest` (the newest commit of its branch; not for a dev run).
+- The answer (201) is the new run, with `relaunchOf` (`id`, `number`, `hosts`, `count`). 409 while
+  the run goes; 422 for an empty set ("No host failed in run #41"), a run that reached no host, a
+  host that was not the run's, or a pause point that is not a step of the flow at that commit.
+- The audit entry `run.relaunch` names the set, how many hosts and the first 100 of them.
+
+MCP's `run_relaunch` and the collection's `run_relaunch` module take the same options.
 
 ## Step by step
 
