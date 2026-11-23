@@ -1,0 +1,35 @@
+@startsalt
+title Run page, paused debug run (1440)
+{+
+  {/ <b>Run #412 · Paused before Apply config | Debugger | Output | Hosts }
+  { "Paused before <b>Apply config</b> · 1 of 6 hosts failed (attempt 1) · stops by itself in 52 min" }
+  { [Retry] | [Continue] | [Step] | [Stop] | "Retry runs Apply config again on edge-02. Changes on hosts are not undone." }
+  ==
+  {
+    { "Host" | ^edge-02 · failed^ }
+    {T
+      + Step inputs (edge-02)
+      ++ vlan_id | 210
+      ++ backup_path | "/backups/edge-02"
+      ++ admin_password | masked: credential
+      + Host variables
+      ++ ansible_host | 10.20.0.2
+      ++ site | "lab-east"
+      + Flow data
+      + Facts (load on request)
+    }
+    ..
+    { <b>Watch | [+ Add] }
+    { "｛｛ vlan_id ｝｝" | "210" | [Compare across hosts] }
+    { "｛｛ backup_path is exists ｝｝" | "error: 'exists' test needs a path on the controller" }
+    ..
+    { <b>Compare: ｛｛ vlan_id ｝｝ }
+    { "200" | "edge-01, edge-03, core-01, core-02, lb-01" }
+    { "210" | "edge-02" }
+    ..
+    { <b>Evaluate (edge-02) }
+    { "｛｛ interfaces ∣ selectattr('vlan','==',vlan_id) ∣ list ∣ length ｝｝  " | [Evaluate] }
+    { "0" }
+  }
+}
+@endsalt

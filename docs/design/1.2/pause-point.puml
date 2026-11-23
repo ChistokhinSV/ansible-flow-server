@@ -1,0 +1,17 @@
+@startsalt
+title Pause point popover (step menu › Edit Pause Point)
+{+
+  <b>Pause point · Apply config
+  ( ) Always pause
+  (X) Pause when
+  { "｛｛ inventory_hostname is match('core') ｝｝       " }
+  "All hosts wait when any host matches; the pause names them."
+  [ ] Only after it is reached | "3" | "times"
+  ( ) Log only, never pause
+  { "bgp peers: ｛｛ bgp_peers ∣ length ｝｝           " }
+  ..
+  [X] Pause when a host fails a step
+  [ ] Pause when a host is unreachable
+  { [Save] | [Remove pause point] | [Cancel] }
+}
+@endsalt

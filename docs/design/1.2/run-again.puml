@@ -1,0 +1,21 @@
+@startsalt
+title Failed run: Run again menu and Debug this failure (1024)
+{+
+  { "3 of 40 hosts did not go well: 2 failed at Apply config, 1 unreachable" }
+  { [Run again ▾] }
+  {+
+    Run again                         | "same commit, inputs and hosts"
+    Change and run…                   | "the launch form, prefilled"
+    Only the 3 hosts that did not go well | "edge-02, edge-07 (failed), lb-02 (unreachable)"
+    Debug this failure…               | "step by step, pause before Apply config"
+  }
+  ..
+  <b>Debug this failure
+  "Hosts: edge-02, edge-07, lb-02 · commit 3f9c2a1d0b4e (the failed run's)"
+  "Pauses before Apply config; pauses when a host fails."
+  (X) Check mode: changes nothing on hosts; the failure may not show
+  ( ) Real run: changes hosts; asks for confirmation
+  "A real run waits again at Change board approval before Apply config."
+  { [Start debugging] | [Cancel] }
+}
+@endsalt
