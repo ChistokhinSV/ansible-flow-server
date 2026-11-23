@@ -88,6 +88,8 @@ const hostsFailed = (view: RunView) =>
 const POLL_MS = 2_000;
 /** A run's output is kept up to this size. */
 const MAX_OUTPUT = 20 * 1024 * 1024;
+/** AFS-196: how long the end of a run waits for the targets the inventory does not have. */
+const MISSING_WAIT_MS = 5_000;
 /** The image when neither the launch nor the settings name one: what the designer proposes. */
 export const DEFAULT_IMAGE = 'ghcr.io/ansible/community-ansible-dev-tools:latest';
 
@@ -145,6 +147,12 @@ export interface ExecutorOptions {
   runner?: (request: RunFlowRequest, hooks: RunFlowHooks) => Promise<RunView>;
   /** Tests: how the repository's Ansible config is read (AFS-80); with a runner, by default not. */
   repoConfig?: typeof repositoryConfig;
+  /**
+   * AFS-196: the run's targets its inventory does not have (read beside the run by the inventory
+   * probe; Ansible does not always warn of them). Tests give their own; with a runner and none,
+   * nothing is read.
+   */
+  missingTargets?: (q: Omit<InventoryQuestion, 'image'> & { image: string }) => Promise<string[]>;
   /** Tests: how often the lease is kept alive. */
   heartbeatMs?: number;
   pollMs?: number;
@@ -610,6 +618,20 @@ export class Executor implements Stepper {
     const errorLines: string[] = [];
     // AFS-147: targets Ansible ignored because the inventory does not have them.
     const skipped = new Set<string>();
+    /** AFS-196: the targets the inventory does not have, read beside the run; added at its end. */
+    let missing: Promise<string[]> | undefined;
+    const addMissing = async () => {
+      const asked = missing;
+      missing = undefined;
+      if (!asked) return;
+      // The probe is given a few seconds more once the run has ended, never longer.
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<string[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), MISSING_WAIT_MS);
+      });
+      for (const target of await Promise.race([asked, late])) skipped.add(target);
+      clearTimeout(timer);
+    };
     /** The flow's steps, once it is read: a stopped or failed run names its step. */
     let steps: Parameters<typeof titleOf>[0] = [];
     const line = (text: string) => {
@@ -642,6 +664,7 @@ export class Executor implements Stepper {
         say.warn('The run was given to another worker or lost: its end is not recorded here');
         return;
       }
+      await addMissing();
       const ended = new Date();
       // AFS-147: the step a stopped run was in (the canvas marks it), and the targets it skipped.
       const at =
@@ -736,6 +759,23 @@ export class Executor implements Stepper {
         await queue.keepImage(r.id, image);
         line(`The server's default image: ${image}`);
       }
+      // AFS-196: which targets the inventory does not have, asked beside the run (its probe is
+      // the launch dialog's, often still up), so What ran names them even when Ansible is silent.
+      const readMissing =
+        this.options.missingTargets ??
+        (this.options.runner
+          ? undefined
+          : (q: Omit<InventoryQuestion, 'image'> & { image: string }) =>
+              this.inventory(q).then((a) => a.facts?.unknown ?? []));
+      missing = readMissing?.({
+        project: project.id,
+        commit: r.commit,
+        doc,
+        inputs: job.inputs,
+        ...(r.inventory ? { inventory: r.inventory } : {}),
+        image,
+        credentials: r.credentials,
+      }).catch(() => []);
       // AFS-66: a registry credential signs in and pulls the image first; reading the image's
       // user (below) already needs the image.
       const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials);
@@ -944,6 +984,8 @@ export class Executor implements Stepper {
         );
       /** How a run that has ended is recorded, from the view of how it went. */
       const ended = async (view: RunView, whole = false, decided?: string) => {
+        // AFS-196: a run that reached no host names the targets the inventory does not have.
+        await addMissing();
         // AFS-185: Ansible ended by itself, with every host where the flow sent it, before the
         // stop reached it: the run is recorded as it ended, not as stopped.
         if (why === 'cancel' && view.state === 'done' && view.rc === 0 && !view.error) {

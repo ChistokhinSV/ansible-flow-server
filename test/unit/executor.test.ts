@@ -155,6 +155,7 @@ function executor(
     repoConfig?: ExecutorOptions['repoConfig'];
     defaultImage?: ExecutorOptions['defaultImage'];
     recordInputs?: boolean;
+    missingTargets?: ExecutorOptions['missingTargets'];
   } = {},
 ) {
   const seen: Seen[] = [];
@@ -173,6 +174,7 @@ function executor(
       ...(options.repoConfig ? { repoConfig: options.repoConfig } : {}),
       ...(options.defaultImage ? { defaultImage: options.defaultImage } : {}),
       ...(options.recordInputs !== undefined ? { recordInputs: options.recordInputs } : {}),
+      ...(options.missingTargets ? { missingTargets: options.missingTargets } : {}),
       runner: async (request, hooks) => {
         const s: Seen = { request, hooks };
         const keyMount = request.env.kind === 'container' ? request.env.mounts[0] : undefined;
@@ -474,6 +476,36 @@ describe('a run', () => {
     expect((await queue.get(none3.id))?.error).toBe(
       'No host ran: the limit nosuchhost matched none of the targets (fw-edge-01) in the inventory',
     );
+  });
+
+  it('AFS-196: names the targets the inventory does not have when Ansible says nothing', async () => {
+    const questions: { commit: string; inputs: Record<string, unknown> }[] = [];
+    const { ex } = executor(
+      async () => ({
+        summary: {
+          nodes: {},
+          outcome: {},
+          failures: [],
+          unreachable: [],
+          hosts: ['fw-edge-01'],
+          stoppedEarly: false,
+        },
+      }),
+      {
+        missingTargets: async (q) => {
+          questions.push({ commit: q.commit, inputs: q.inputs });
+          return ['ghost-01'];
+        },
+      },
+    );
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect((await queue.get(run.id))?.state).toBe('succeeded');
+    expect(await queue.view(run.id)).toMatchObject({ skippedTargets: ['ghost-01'] });
+    expect(questions).toHaveLength(1);
+    expect(questions[0]?.commit).toBe(run.commit);
   });
 
   it('names the targets Ansible skipped, on a run that went well too (AFS-147)', async () => {
