@@ -378,7 +378,8 @@ describe('the executor', () => {
    * Ansible played by the test, as the designer's runFlow drives a step-by-step run: it hands a
    * driver, reports a pause, and ends as the driver's commands say.
    */
-  const stepping = () => {
+  /** reportOnAbort: like the real runner, one more view (no pause) as the stopped process ends. */
+  const stepping = (opts: { reportOnAbort?: boolean } = {}) => {
     const sent: string[] = [];
     let points: string[] = [];
     let release: () => void = () => undefined;
@@ -418,6 +419,12 @@ describe('the executor', () => {
         answered,
         new Promise((r) => request.signal?.addEventListener('abort', r)),
       ]);
+      if (opts.reportOnAbort && request.signal?.aborted)
+        hooks.report({
+          ...base,
+          state: 'running',
+          step: { ...step, paused: undefined },
+        } as RunView);
       done?.();
       const stopped = sent.includes('stop');
       return {
@@ -502,6 +509,19 @@ describe('the executor', () => {
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
     expect(output).toContain('Continue by omar');
     await ex.stop();
+  });
+
+  it('AFS-231: still stopped, not failed, when the run reports once more as it ends', async () => {
+    await clear();
+    const fake = stepping({ reportOnAbort: true });
+    const ex = executor(fake.runner);
+    const run = (await launch('omar', { step: { every: true } })).json();
+    await ex.start();
+    await until(async () => (await queue.get(run.id))?.pausedBefore === 'Read a few facts');
+    await ex.stop();
+    const after = await queue.get(run.id);
+    expect(after?.state).toBe('cancelled');
+    expect(after?.error).toContain('while the run was paused before Read a few facts');
   });
 
   it('a server that stops while a run is paused ends it as stopped, not failed', async () => {

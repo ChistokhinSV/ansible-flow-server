@@ -842,6 +842,9 @@ export class Executor implements Stepper {
       /** AFS-177: a step-by-step run's pause, as the run goes: kept in its record and its output. */
       const notePause = (node: string | undefined, view: RunView) => {
         if (node === pausedAt?.node) return;
+        // AFS-231: a run being stopped reports once more as its process ends, with no pause: the
+        // pause it had when the stop came is what its end says ("stopped while paused").
+        if (controller.signal.aborted) return;
         // AFS-205: a step inside a subflow by its path ("Pre-checks › Read device status").
         pausedAt = node ? { node, title: pathOf(steps, node) ?? node } : undefined;
         // AFS-205: the record changes both ways (paused, and going on after Step or Continue),
