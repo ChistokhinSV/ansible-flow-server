@@ -12,6 +12,9 @@ import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { indexInputs, type VarIndex } from '@ansible-flow/core/inventory/varIndex';
 import type { HostMessage, Snapshot } from '@ansible-flow/core/protocol';
 
+/** AFS-246: the designer's repository findings (its repoFindings), which the server adds too. */
+export const REPO_CODES = ['input-hides-inventory', 'binding-connection-local'];
+
 /** A launch configuration as far as the inventory of its runs goes. */
 export interface ConfigInventory {
   flowFile: string;
@@ -85,8 +88,10 @@ export function repoVars(options: {
     index && s.doc
       ? {
           ...s,
+          // AFS-246: the server's flow view has them already (for its inventory): replaced here
+          // with this index's, never shown twice.
           findings: withRepoFindings(
-            s.findings,
+            s.findings.filter((f) => !REPO_CODES.includes(f.code)),
             modelOf(s.doc as FlowDocument),
             index,
           ) as Snapshot['findings'],

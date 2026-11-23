@@ -186,18 +186,20 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook('onClose', async () => watch.stop());
     // AFS-79: one library for its routes and for the flows' checks.
     const library = new Library({ db: deps.database.db, git: deps.projects.git });
+    // AFS-183: the repository's variables for the canvas (where a value comes from), kept per
+    // commit; the launch form's origins of the inputs read them too. AFS-246: and the flow's
+    // repository findings (a network module on hosts the inventory reaches locally).
+    const vars = new VarIndexes(deps.projects.git);
     registerProjects(app, {
       db: deps.database.db,
       ...deps.projects,
       watch,
       library,
+      vars,
       ...(deps.masterKey ? { masterKey: deps.masterKey } : {}),
     });
     // AFS-78: the project's files in the pages.
     registerFiles(app, { db: deps.database.db, ...deps.projects });
-    // AFS-183: the repository's variables for the canvas (where a value comes from), kept per
-    // commit; the launch form's origins of the inputs read them too.
-    const vars = new VarIndexes(deps.projects.git);
     registerVars(app, { db: deps.database.db, git: deps.projects.git, vars });
     // AFS-123: the project's history: its commits, one commit's files, a flow at a commit.
     registerHistory(app, { db: deps.database.db, git: deps.projects.git });

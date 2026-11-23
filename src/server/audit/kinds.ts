@@ -105,6 +105,7 @@ export const AUDIT_ACTION_WORDS: Record<string, string> = {
   'run.launch': 'launched a run',
   'run.relaunch': 'ran again',
   'run.step': 'drove a run step by step',
+  'run.debug.inspect': 'looked into a paused debug run',
   'run.stop': 'stopped a run',
   'schedule.change': 'changed a schedule',
   'schedule.create': 'added a schedule',

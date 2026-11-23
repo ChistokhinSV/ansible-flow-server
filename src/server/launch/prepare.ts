@@ -9,6 +9,7 @@ import {
   readFields,
   targetsOf,
 } from '@ansible-flow/core/run/launch';
+import type { FailureFilters, PointSpec } from '@ansible-flow/core/run/step';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 import { environmentImage } from '../environments/image';
@@ -70,13 +71,16 @@ export interface PreparedLaunch {
 /** AFS-177: what a launch asks for: `{every: true}` pauses before each step, `points` at those. */
 export interface StepRequest {
   every?: boolean;
-  points?: string[];
+  /** Node ids, or (AFS-179, ADR-0040 §6) points with a condition, a hit count or a log message. */
+  points?: PointSpec[];
   /** How long a pause waits, at most the server's setting. */
   timeoutMinutes?: number;
   /** AFS-214 (ADR-0038 §1): a debug run: the debugger may look into its pauses. */
   debug?: boolean;
   /** AFS-214: pause when a host fails, before the run routes it on. */
   pauseOnFailure?: boolean;
+  /** AFS-179: which failures pause a debug run (a host failed: as pauseOnFailure says). */
+  failures?: FailureFilters;
 }
 
 /**
@@ -85,7 +89,7 @@ export interface StepRequest {
  */
 export interface StepAsked {
   every: boolean;
-  points: string[];
+  points: PointSpec[];
   timeoutS: number;
   /**
    * AFS-205: who set the pause points the run has now, when someone changed them while it went
@@ -96,6 +100,8 @@ export interface StepAsked {
   debug?: boolean;
   /** AFS-214: pauses when a host fails. */
   pauseOnFailure?: boolean;
+  /** AFS-179: a debug run's failure filters, as asked (else from pauseOnFailure). */
+  failures?: FailureFilters;
 }
 
 export interface LaunchForm {

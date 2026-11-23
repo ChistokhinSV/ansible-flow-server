@@ -318,7 +318,12 @@ describe('a debug run (AFS-214)', () => {
     await ex.start();
     await ended(run.id);
     await ex.stop();
-    expect(seen[0]?.request.step).toMatchObject({ ...step, debug: true, pauseOnFailure: true });
+    // AFS-179: pause on failure reaches the engine as its failure filters.
+    expect(seen[0]?.request.step).toMatchObject({
+      ...step,
+      debug: true,
+      failures: { failed: true },
+    });
   });
 });
 

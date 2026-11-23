@@ -199,6 +199,8 @@ export interface WorkspaceTable {
   description: string | null;
   /** AFS-28: who launched a run may decide its approvals too. Default no. */
   self_approve: Flag;
+  /** AFS-179: operators may start debug runs (else rw on the flow). Default no. */
+  operators_debug: Flag;
   created_at: IsoTime;
   updated_at: IsoTime;
 }
@@ -673,9 +675,29 @@ export interface PausePointTable {
   user_id: string;
   project_id: string;
   flow_file: string;
-  /** The steps' node ids, as JSON. */
+  /** The steps' node ids, as JSON; AFS-179: or points with settings ({node, condition, ...}). */
   points_json: string;
+  /** AFS-179: the debugger's failure filters ({failed, unreachable}) as JSON; null: not set. */
+  failures_json: string | null;
   updated_at: IsoTime;
+}
+
+/** AFS-179: an answer a debug run's pause gave the debugger (scopes, watch), masked, kept. */
+export interface RunDebugTable {
+  id: string;
+  run_id: string;
+  pause_id: string;
+  node: string;
+  play: string | null;
+  /** op, host and expressions: one row per key and pause. */
+  entry_key: string;
+  op: string;
+  host: string | null;
+  exprs_json: string | null;
+  answer_json: string;
+  /** Bytes of answer_json (at most 1 MB per run). */
+  size: number;
+  created_at: IsoTime;
 }
 
 /** AFS-53: a destination of event streaming: a syslog receiver or an OpenTelemetry collector. */
@@ -733,6 +755,7 @@ export interface Schema {
   stream_sink: StreamSinkTable;
   stream_delivery: StreamDeliveryTable;
   pause_point: PausePointTable;
+  run_debug: RunDebugTable;
   flow_draft: FlowDraftTable;
   flow_draft_edit: FlowDraftEditTable;
   dev_bundle: DevBundleTable;

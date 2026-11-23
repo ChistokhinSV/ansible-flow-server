@@ -119,6 +119,8 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },
   // AFS-177: Step, Continue, Pause, Stop of a step-by-step run (the command in the entry).
   'POST /api/v1/runs/:id/step': { action: 'run.step', id: at() },
+  // AFS-179: a question to a paused debug run: the op and the expression, never the answer.
+  'POST /api/v1/runs/:id/inspect': { action: 'run.debug.inspect', id: at() },
   // AFS-177: a person's own pause points on a flow (sent to their step-by-step runs of it).
   'PUT /api/v1/projects/:id/pause-points': { action: 'project.pause-points', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },

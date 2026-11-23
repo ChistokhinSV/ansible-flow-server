@@ -15,6 +15,14 @@
 // When someone changes the flow on the branch, a bar says so (AFS-75, viewerChanges.ts).
 import '@ansible-flow/designer/index.css';
 import type { HostMessage, WebviewMessage } from '@ansible-flow/core/protocol';
+import {
+  type FailureFilters,
+  hasSettings,
+  normalPoints,
+  type PausePoint,
+  type PointSpec,
+  pointNode,
+} from '@ansible-flow/core/run/step';
 import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
 import { isSaveKey, SAVE_KEY } from './saveKey';
@@ -95,6 +103,8 @@ interface ProjectAccess {
   admin: boolean;
   workspace: string | null;
   flows: Record<string, string | null>;
+  /** AFS-179: operators may start debug runs here. */
+  operatorsDebug?: boolean;
 }
 const RANK: Partial<Record<string, number>> = { ro: 1, operator: 2, rw: 3 };
 const OPERATOR = 2;
@@ -104,6 +114,33 @@ const mayManage = (access: ProjectAccess | undefined, file: string): boolean =>
 const mayOperate = (access: ProjectAccess | undefined, file: string): boolean =>
   !!access &&
   (access.admin || (RANK[access.flows[file] ?? access.workspace ?? ''] ?? 0) >= OPERATOR);
+/** AFS-179: may start debug runs: rw, or operator where the workspace lets operators debug. */
+export const mayDebugFlow = (access: ProjectAccess | undefined, file: string): boolean =>
+  mayManage(access, file) || (!!access?.operatorsDebug && mayOperate(access, file));
+
+/**
+ * AFS-179: pause points as the designer takes them (ADR-0040 "Designer and host messages"): the
+ * node ids, the points with settings, and the failure filters.
+ */
+export function pointsMessage(points: readonly PointSpec[], failures?: FailureFilters) {
+  const settings = points.filter(hasSettings) as PausePoint[];
+  return {
+    type: 'pausePoints' as const,
+    points: points.map(pointNode),
+    ...(settings.length ? { settings } : {}),
+    ...(failures ? { failures } : {}),
+  };
+}
+
+/** AFS-179: the points after Save in a point's popover (null: the point removed). */
+export function withPoint(
+  points: readonly PointSpec[],
+  node: string,
+  point: PausePoint | null,
+): PointSpec[] {
+  const rest = points.filter((p) => pointNode(p) !== node);
+  return point ? normalPoints([...rest, { ...point, node }]) : rest;
+}
 
 /** Opens a page of the application: in the window that holds this frame, when there is one. */
 function go(to: string): void {
@@ -192,10 +229,18 @@ async function start(): Promise<void> {
   // AFS-177: step-by-step runs, pause points, Step/Continue/Pause/Stop for who may launch and stop:
   // on the flow and on a run's page, not on the flow at an older commit.
   const stepping = operate && (!commit || !!runId);
+  // AFS-179: debug runs (Run > Debug, a point's settings, the failure filters, Retry) for who may
+  // start them.
+  const debugging =
+    stepping && mayDebugFlow(access?.ok ? (access.data as ProjectAccess) : undefined, path);
   /** AFS-177: this person's pause points on the flow, kept by the server. */
-  let points: string[] = [];
+  let points: PointSpec[] = [];
+  /** AFS-179: this person's failure filters on the flow (debug runs). */
+  let failures: FailureFilters | undefined;
   /** AFS-205: a run's page: the run's pause points (it is step by step), not this person's. */
-  let runPoints: string[] | undefined;
+  let runPoints: PointSpec[] | undefined;
+  /** AFS-179: a run's page of a debug run: its points take settings and filters. */
+  let runDebug = false;
 
   const listeners = new Set<(message: HostMessage) => void>();
   // The designer expects answers after its own call returns, as from a real host.
@@ -374,6 +419,7 @@ async function start(): Promise<void> {
     go,
     mayAddConfig: manage,
     ...(stepping ? { stepPoints: () => points } : {}),
+    ...(debugging ? { debugFailures: () => failures } : {}),
     launched: (id) => {
       void runs().then(() => showRun(id, false));
       runsChanged();
@@ -395,6 +441,61 @@ async function start(): Promise<void> {
     live: !commit,
     onCommit: (c) => vars.at(c),
   });
+
+  /**
+   * AFS-177, AFS-179: new pause points (and failure filters) shown at once and kept: on a run's
+   * page they are the run's (sent to it; your own list stays), elsewhere yours on the flow (and
+   * sent to the run shown when it is a step-by-step run going). Put back when not kept.
+   */
+  const keepPoints = (next: PointSpec[], nextFailures?: FailureFilters) => {
+    const before = { points, failures };
+    points = next;
+    if (nextFailures) failures = nextFailures;
+    send(pointsMessage(points, failures));
+    const undo = (text: string) => {
+      points = before.points;
+      failures = before.failures;
+      send(pointsMessage(points, failures));
+      send({ type: 'notify', level: 'error', text });
+    };
+    const toRun = (id: string) =>
+      fetch(`/api/v1/runs/${encodeURIComponent(id)}/step`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ points, ...(nextFailures ? { failures: nextFailures } : {}) }),
+      });
+    // AFS-205: on a run's page they are the run's.
+    if (runId && runPoints) {
+      if (nextFailures && !runDebug) return undo('Pause on failure needs a debug run');
+      void toRun(runId).then(
+        async (reply) => {
+          if (reply.ok) return;
+          const why = (await reply.json().catch(() => undefined))?.message;
+          undo(why ?? 'The pause point was not kept');
+        },
+        () => undo('The server does not answer'),
+      );
+      return;
+    }
+    void fetch(
+      `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
+      {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ points, ...(nextFailures ? { failures: nextFailures } : {}) }),
+      },
+    )
+      .then((reply) => {
+        if (!reply.ok) throw new Error(answerWords(reply.status));
+        // The run shown, when it is a step-by-step run this person drives.
+        const id = shown;
+        const record = known.find((r) => r.id === id);
+        if (id && record?.step && going(record.state)) void toRun(id).catch(() => undefined);
+      })
+      .catch(() => undo('The pause point was not kept'));
+  };
 
   const stateKey = `afs.viewer.${project}.${path}`;
   mount(root, {
@@ -423,6 +524,7 @@ async function start(): Promise<void> {
               viewer: true,
               embed,
               ...(stepping ? { stepRuns: true } : {}),
+              ...(debugging ? { debugRuns: true } : {}),
             } as HostMessage);
             // AFS-205: on a run's page, the run's own pause points (as its launcher left them);
             // on the flow's page, yours.
@@ -431,9 +533,13 @@ async function start(): Promise<void> {
                 (reply) => {
                   if (!reply.ok) return;
                   if (reply.data?.step) {
-                    runPoints = (reply.data.step.points as string[] | undefined) ?? [];
+                    runPoints = (reply.data.step.points as PointSpec[] | undefined) ?? [];
+                    runDebug = !!reply.data.step.debug;
                     points = runPoints;
-                    send({ type: 'pausePoints', points });
+                    failures = runDebug
+                      ? (reply.data.step.failures as FailureFilters | undefined)
+                      : undefined;
+                    send(pointsMessage(points, failures));
                   }
                 },
                 () => undefined,
@@ -444,8 +550,9 @@ async function start(): Promise<void> {
               ).then(
                 (reply) => {
                   if (!reply.ok) return;
-                  points = (reply.data?.points as string[] | undefined) ?? [];
-                  send({ type: 'pausePoints', points });
+                  points = (reply.data?.points as PointSpec[] | undefined) ?? [];
+                  failures = reply.data?.failures as FailureFilters | undefined;
+                  send(pointsMessage(points, failures));
                 },
                 () => undefined,
               );
@@ -469,13 +576,18 @@ async function start(): Promise<void> {
               });
               return;
             }
-            void launch.run(message.mode, message.step);
+            void launch.run(message.mode, message.step, debugging && message.debug === true);
             return;
           case 'launchCheck':
             void launch.check(message.token, message.inputs);
             return;
           case 'launchRun':
-            void launch.launch(message.token, message.inputs, message.step);
+            void launch.launch(
+              message.token,
+              message.inputs,
+              message.step,
+              debugging && message.debug === true,
+            );
             return;
           case 'stepRun': {
             // AFS-177: Step, Continue, Pause, Stop of the step-by-step run on the canvas.
@@ -499,67 +611,22 @@ async function start(): Promise<void> {
           case 'togglePausePoint': {
             // AFS-177: kept per person and flow on the server; a step-by-step run going gets them.
             if (!stepping) return;
-            const before = points;
-            points = points.includes(message.node)
-              ? points.filter((n) => n !== message.node)
-              : [...points, message.node];
-            send({ type: 'pausePoints', points });
-            // AFS-205: on a run's page they are the run's: sent to it, your own list stays.
-            if (runId && runPoints) {
-              void fetch(`/api/v1/runs/${encodeURIComponent(runId)}/step`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ points }),
-              }).then(
-                async (reply) => {
-                  if (reply.ok) return;
-                  const why = (await reply.json().catch(() => undefined))?.message;
-                  points = before;
-                  send({ type: 'pausePoints', points });
-                  send({
-                    type: 'notify',
-                    level: 'error',
-                    text: why ?? 'The pause point was not kept',
-                  });
-                },
-                () => {
-                  points = before;
-                  send({ type: 'pausePoints', points });
-                  send({ type: 'notify', level: 'error', text: 'The server does not answer' });
-                },
-              );
-              return;
-            }
-            void fetch(
-              `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
-              {
-                method: 'PUT',
-                credentials: 'same-origin',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ points }),
-              },
-            )
-              .then((reply) => {
-                if (!reply.ok) throw new Error(answerWords(reply.status));
-                // The run shown, when it is someone else's step-by-step run this person drives.
-                const id = shown;
-                const record = known.find((r) => r.id === id) as
-                  | (RunRecord & { step?: unknown })
-                  | undefined;
-                if (id && record?.step && going(record.state))
-                  void fetch(`/api/v1/runs/${encodeURIComponent(id)}/step`, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ points }),
-                  }).catch(() => undefined);
-              })
-              .catch(() => {
-                points = before;
-                send({ type: 'pausePoints', points });
-                send({ type: 'notify', level: 'error', text: 'The pause point was not kept' });
-              });
+            const had = points.some((p) => pointNode(p) === message.node);
+            keepPoints(
+              had ? points.filter((p) => pointNode(p) !== message.node) : [...points, message.node],
+            );
+            return;
+          }
+          case 'setPausePoint': {
+            // AFS-179: a point's settings (Edit Pause Point...), or the point removed.
+            if (!debugging) return;
+            keepPoints(withPoint(points, message.node, message.point));
+            return;
+          }
+          case 'setFailureFilters': {
+            // AFS-179: which failures pause this person's debug runs of the flow.
+            if (!debugging) return;
+            keepPoints(points, { ...message.failures });
             return;
           }
           case 'launchCancel':

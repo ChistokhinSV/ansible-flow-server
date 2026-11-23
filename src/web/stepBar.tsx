@@ -2,7 +2,7 @@
 // small): where it is paused and how many hosts wait, and Step, Continue, Pause, Stop.
 // AFS-205: the same bar as the canvas's: "Running X…" with Pause once it goes on, the hosts that
 // wait, the pause points and whose they are, who may go on, keys (F10, F8), and the focus kept.
-import type { RunStep, StepCommand } from '@ansible-flow/core/run/step';
+import { pointNode, type RunStep, type StepCommand } from '@ansible-flow/core/run/step';
 import { useEffect, useRef, useState } from 'react';
 import { api, type Run } from './api';
 import { ask } from './confirm';
@@ -72,7 +72,7 @@ export function pointWords(
   launcher: string,
 ): string | undefined {
   const at = step?.paused?.node;
-  const points = step?.points?.length ? step.points : (run.step?.points ?? []);
+  const points = step?.points?.length ? step.points : (run.step?.points ?? []).map(pointNode);
   if (!at || !points.includes(at)) return undefined;
   const by = run.step?.pointsBy;
   return by && by !== run.requestedBy.login

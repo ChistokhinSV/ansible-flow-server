@@ -46,6 +46,11 @@ export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
       about: 'The queue, a run on the canvas, its hosts and output, stop and run again',
     },
     {
+      title: 'Debug a run',
+      page: 'debugging.md',
+      about: "Pause where a host fails, read each host's variables, watch, evaluate, retry a step",
+    },
+    {
       title: 'Actions',
       page: 'actions.md',
       about: 'A short form to run an approved thing, for people who do not read flows',

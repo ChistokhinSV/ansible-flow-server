@@ -21,7 +21,7 @@ import type { Schema } from '../db/schema';
 import { lastRuns } from '../runs/queue';
 import type { MasterKey } from '../secrets/masterKey';
 import { BranchRefused, createBranch, deleteBranch, listBranches } from './branches';
-import { FLOW_FILE, FlowError, ProjectFlows } from './flows';
+import { FLOW_FILE, FlowError, flowInventoryOf, ProjectFlows, withRepo } from './flows';
 import { type Git, GitError, gitUrlProblem, refProblem, sshHost } from './git';
 import type { Library } from './library';
 import {
@@ -55,6 +55,7 @@ import {
   updateWorkspace,
 } from './store';
 import type { ProjectSync } from './sync';
+import type { VarIndexes } from './vars';
 import type { ProjectWatch } from './watch';
 
 export interface ProjectDeps {
@@ -73,6 +74,11 @@ export interface ProjectDeps {
   archiveMaxBytes?: number;
   /** AFS-79: the flow library, to say which library copies of a flow are behind. */
   library?: Library;
+  /**
+   * AFS-246: the repository's variable index, for the findings that need the repository (an
+   * input default hiding the inventory's value, a network module on local connections).
+   */
+  vars?: VarIndexes;
 }
 
 /** A comment line now and then keeps a quiet stream open through proxies. */
@@ -195,7 +201,14 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
   });
 
   app.patch<
-    WithId & { Body: { name?: string; description?: string | null; selfApprove?: boolean } }
+    WithId & {
+      Body: {
+        name?: string;
+        description?: string | null;
+        selfApprove?: boolean;
+        operatorsDebug?: boolean;
+      };
+    }
   >(
     '/api/v1/workspaces/:id',
     {
@@ -206,6 +219,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           description: { type: ['string', 'null'], maxLength: 2000 },
           // AFS-28: who launched a run may decide its approvals too.
           selfApprove: { type: 'boolean' },
+          // AFS-179: operators may start debug runs (off: rw on the flow).
+          operatorsDebug: { type: 'boolean' },
         }),
       },
     },
@@ -688,7 +703,21 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           .code(404)
           .send({ error: 'not_found', message: 'The project has no such commit' });
       try {
-        const view = await flows.view(project.id, commit, request.query.path);
+        const seen = await flows.view(project.id, commit, request.query.path);
+        // AFS-246: the findings that need the repository (its inventory, roles and files), with
+        // the inventory the flow's launch configurations name (as the canvas reads it).
+        const view = deps.vars
+          ? {
+              ...seen,
+              snapshot: await withRepo(
+                seen.snapshot,
+                deps.vars,
+                project.id,
+                commit,
+                await flowInventoryOf(db, project.id, request.query.path),
+              ),
+            }
+          : seen;
         // AFS-79: library copies against the library, as the person asking may read it.
         const doc = view.snapshot.doc;
         if (deps.library && doc && usesLibrary(doc)) {
@@ -884,6 +913,8 @@ export function registerProjects(app: FastifyInstance, deps: ProjectDeps): void 
           .filter(([, level]) => !only || level),
       ),
       flowOnly: only,
+      // AFS-179: operators may start debug runs here (else rw on the flow).
+      operatorsDebug: !!(await getWorkspace(db, project.workspace))?.operatorsDebug,
     };
   });
 

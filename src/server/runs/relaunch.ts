@@ -11,6 +11,7 @@
 // commit than the configuration names or for a dev run, and its inputs read again as the flow's
 // types. Approvals are asked again: a run's approvals are its own. `{}` is 1.1's Run again.
 import { inputText } from '@ansible-flow/core/run/launch';
+import { pointNode } from '@ansible-flow/core/run/step';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { accessOf, atLeast } from '../access/grants';
 import { signedIn } from '../auth/guards';
@@ -39,7 +40,7 @@ import {
   type Run,
   type RunQueue,
 } from './queue';
-import { STEP_SCHEMA, STEP_TIMEOUT_MINUTES, stepAsked } from './stepping';
+import { debugRefusal, STEP_SCHEMA, STEP_TIMEOUT_MINUTES, stepAsked } from './stepping';
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
@@ -271,8 +272,17 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
       if (asked && 'error' in asked) return refuse(400, asked.error, 'step');
       step = asked ?? null;
     }
-    // ADR-0038 §1: a debug run looks into the run's variables: rw on the flow.
-    if (step?.debug && !rw) return refuse(403, `A debug run needs rw on ${old.flow.file}`, 'step');
+    // ADR-0038 §1: a debug run looks into the run's variables: rw on the flow, or operator where
+    // the workspace lets operators debug (AFS-179).
+    if (step?.debug) {
+      const why = await debugRefusal(
+        deps.db,
+        project.workspace,
+        access?.onFlow(project.workspace, project.id, old.flow.file),
+        old.flow.file,
+      );
+      if (why) return refuse(403, why, 'step');
+    }
 
     // The launch's checks, with the run's inputs, at its commit or the newest.
     const inputs = (await queue.inputsOf(id)) ?? {};
@@ -319,7 +329,7 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
     const nodes = await nodesAt(old, launch.commit);
     if (step?.points.length) {
       const known = stepIds(nodes ?? []);
-      const missing = step.points.find((p) => !known.has(p));
+      const missing = step.points.map(pointNode).find((p) => !known.has(p));
       if (missing)
         return refuse(
           422,

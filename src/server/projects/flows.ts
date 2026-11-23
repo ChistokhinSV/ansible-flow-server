@@ -3,14 +3,19 @@
 // designer's own code does the reading, so the page shows what VS Code would.
 import { codePreview } from '@ansible-flow/core/engine/preview';
 import { parseFlow } from '@ansible-flow/core/flow/document';
-import { buildModel } from '@ansible-flow/core/flow/model';
+import { buildModel, modelOf } from '@ansible-flow/core/flow/model';
 import { openFailPorts } from '@ansible-flow/core/flow/openPorts';
+import { withRepoFindings } from '@ansible-flow/core/flow/origin';
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import { type Finding, validateFlow } from '@ansible-flow/core/flow/validate';
+import { indexInputs } from '@ansible-flow/core/inventory/varIndex';
 import type { Snapshot } from '@ansible-flow/core/protocol';
 import { autoPositions, shownLayout } from '@ansible-flow/node/autoLayout';
+import type { Kysely } from 'kysely';
+import type { Schema } from '../db/schema';
 import { type FlowSummary, summarizeFlow } from '../flows';
 import type { Git } from './git';
+import type { VarIndexes } from './vars';
 
 export type { FlowSummary };
 
@@ -194,4 +199,53 @@ export async function snapshotOf(
     autoPositions: Object.assign({}, ...positions),
     ...(preview?.plays ? { plays: preview.plays } : {}),
   };
+}
+
+/** AFS-246: findings the designer adds from the repository; replaced, never added twice. */
+export const REPO_CODES = ['input-hides-inventory', 'binding-connection-local'];
+
+/**
+ * AFS-246: a snapshot with the findings that need the repository at its commit (the designer's
+ * repoFindings: an input default that hides the inventory's value, a network module on hosts the
+ * inventory reaches with ansible_connection: local), from the variable index (kept per commit and
+ * inventory, within its file and time limits). An index that cannot be read adds nothing.
+ */
+export async function withRepo(
+  snapshot: Snapshot,
+  vars: VarIndexes,
+  project: string,
+  commit: string,
+  inventory: string,
+): Promise<Snapshot> {
+  const doc = snapshot.doc as FlowDocument | undefined;
+  if (!doc) return snapshot;
+  const { roles, files } = indexInputs(doc.nodes);
+  const index = await vars
+    .index(project, commit, { inventory, roles, files })
+    .catch(() => undefined);
+  if (!index) return snapshot;
+  const kept = snapshot.findings.filter((f) => !REPO_CODES.includes(f.code));
+  return {
+    ...snapshot,
+    findings: withRepoFindings(kept, modelOf(doc), index) as Snapshot['findings'],
+  };
+}
+
+/**
+ * AFS-246: the inventory runs of a flow use, as its launch configurations name it: theirs when
+ * they all name the same one, else what the repository's ansible.cfg names (as the canvas reads it).
+ */
+export async function flowInventoryOf(
+  db: Kysely<Schema>,
+  project: string,
+  file: string,
+): Promise<string> {
+  const rows = await db
+    .selectFrom('launch_config')
+    .select('inventory')
+    .where('project_id', '=', project)
+    .where('flow_file', '=', file)
+    .execute();
+  const named = new Set(rows.map((r) => r.inventory ?? ''));
+  return named.size === 1 ? ([...named][0] as string) : '';
 }

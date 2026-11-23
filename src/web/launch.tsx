@@ -973,7 +973,7 @@ export function LaunchConfigPage({
   const [error, setError] = useState<string>();
   const [result, setResult] = useState<{ launch: PreparedLaunch; form: LaunchForm }>();
   const [hosts, setHosts] = useState<HostsState>();
-  const [busy, setBusy] = useState<'check' | 'launch' | 'save'>();
+  const [busy, setBusy] = useState<'check' | 'launch' | 'debug' | 'save'>();
   const [saved, setSaved] = useState<string>();
   /** The fold of rarely typed fields, once the person opened or closed it themselves. */
   const [folded, setFolded] = useState<boolean>();
@@ -1130,6 +1130,8 @@ export function LaunchConfigPage({
   const level = me.admin ? 'rw' : flowLevel(access, c.flowFile);
   const mayLaunch = atLeast(level, 'operator');
   const mayManage = atLeast(level, 'rw');
+  // AFS-179: a debug run shows the hosts' variables: rw, or operator where the workspace allows.
+  const mayDebug = mayManage || (atLeast(level, 'operator') && !!access?.operatorsDebug);
   const request = () => ({
     ...(mode ? { mode } : {}),
     ...(ref.trim() ? { ref: ref.trim() } : {}),
@@ -1165,7 +1167,7 @@ export function LaunchConfigPage({
     setProblems((before) =>
       before.some((p) => p.field === field) ? before.filter((p) => p.field !== field) : before,
     );
-  const start = (what: 'check' | 'launch' | 'save') => {
+  const start = (what: 'check' | 'launch' | 'debug' | 'save') => {
     setBusy(what);
     setProblems([]);
     setError(undefined);
@@ -1190,7 +1192,8 @@ export function LaunchConfigPage({
       setBusy(undefined);
     }
   };
-  const launch = async () => {
+  /** AFS-179: `debug` is Debug beside Launch: a debug run (variables at each pause). */
+  const launch = async (debug = false) => {
     // AFS-134: a real run changes the hosts: asked first, with what it runs and where.
     const real = (mode ?? form.data?.mode ?? c.mode) === 'real';
     // AFS-191: what the inventory says of the targets and the limit as they are now; read here
@@ -1214,11 +1217,13 @@ export function LaunchConfigPage({
       const count = none ? undefined : (facts?.limited?.count ?? facts?.facts?.count);
       const on = count ? ` on ${count} ${count === 1 ? 'host' : 'hosts'}` : '';
       // AFS-205: and that it pauses, step by step.
-      const pauses = stepped
-        ? atPoints
-          ? ' It pauses at your pause points until you say Step or Continue.'
-          : ' It pauses before each step until you say Step or Continue.'
-        : '';
+      const pauses = debug
+        ? ' It is a debug run: it pauses at your pause points and where a host fails, and shows the hosts’ variables there.'
+        : stepped
+          ? atPoints
+            ? ' It pauses at your pause points until you say Step or Continue.'
+            : ' It pauses before each step until you say Step or Continue.'
+          : '';
       if (
         !(await ask(
           `Run ${form.data?.flow.name ?? c.name} for real${on}${where}? It changes the hosts it reaches.${pauses}${skipped}`,
@@ -1231,23 +1236,38 @@ export function LaunchConfigPage({
       !(await ask(`Launch the check run?${skipped}`, { yes: none ? 'Launch anyway' : 'Launch' }))
     )
       return;
-    start('launch');
+    start(debug ? 'debug' : 'launch');
     try {
       // AFS-177: step by step, with this person's pause points on the flow (Continue stops there).
-      const points = stepped
-        ? ((await api.pausePoints(c.project, c.flowFile).catch(() => undefined))?.points ?? [])
-        : [];
+      // AFS-179: a debug run takes their settings (conditions, hit counts, log messages) and
+      // failure filters too.
+      const mine =
+        stepped || debug
+          ? await api.pausePoints(c.project, c.flowFile).catch(() => undefined)
+          : undefined;
+      const points = mine?.points ?? [];
       const minutes = Number(stepWait);
       const run = await api.launch(c.id, {
         ...request(),
-        ...(stepped
+        ...(stepped || debug
           ? {
               step: {
                 // AFS-205: before each step, or only at the pause points (when there are some).
-                every: !(atPoints && points.length > 0),
+                // AFS-179: a debug run pauses at the pause points (before each step without any)
+                // unless Step by step says before each.
+                every: debug
+                  ? (stepped && !atPoints) || points.length === 0
+                  : !(atPoints && points.length > 0),
                 points,
                 ...(stepWait.trim() && Number.isInteger(minutes) && minutes > 0
                   ? { timeoutMinutes: minutes }
+                  : {}),
+                ...(debug
+                  ? {
+                      debug: true,
+                      pauseOnFailure: mine?.failures?.failed !== false,
+                      ...(mine?.failures ? { failures: mine.failures } : {}),
+                    }
                   : {}),
               },
             }
@@ -1652,6 +1672,19 @@ export function LaunchConfigPage({
                 {mayLaunch && (
                   <button type="submit" className="primary" disabled={!!busy || !form.data}>
                     {busy === 'launch' ? 'Launching…' : 'Launch'}
+                  </button>
+                )}
+                {/* AFS-179: Debug beside Launch: a debug run, for rw (or operator where the
+                    workspace lets operators debug). */}
+                {mayLaunch && mayDebug && (
+                  <button
+                    type="button"
+                    data-launch-debug
+                    title="A debug run: pauses at your pause points and where a host fails, and shows each host's variables there (F10 Step, F8 Continue)"
+                    onClick={() => void launch(true)}
+                    disabled={!!busy || !form.data}
+                  >
+                    {busy === 'debug' ? 'Starting…' : 'Debug'}
                   </button>
                 )}
                 <button

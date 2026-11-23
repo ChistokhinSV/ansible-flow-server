@@ -310,6 +310,8 @@ describe('run again', () => {
       timeoutS: 3600,
       debug: true,
       pauseOnFailure: true,
+      // AFS-179: the failure filters the engine gets.
+      failures: { failed: true },
     });
     await jobOf(again.id);
     const missing = await post(run.id, { step: { points: ['01JZNOSUCHSTEP0000000000000'] } });

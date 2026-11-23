@@ -21,7 +21,13 @@ import { GitError } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { VarIndexes } from '../projects/vars';
 import { lastRuns, type RunQueue } from '../runs/queue';
-import { STEP_SCHEMA, STEP_TIMEOUT_MINUTES, type StepRequest, stepAsked } from '../runs/stepping';
+import {
+  debugRefusal,
+  STEP_SCHEMA,
+  STEP_TIMEOUT_MINUTES,
+  type StepRequest,
+  stepAsked,
+} from '../runs/stepping';
 import { flowAt, type LaunchConfigInput, LaunchConfigs, LaunchError } from './configs';
 import type { FactsReply, InventoryAnswer, InventoryQuestion } from './facts';
 
@@ -581,9 +587,21 @@ export function registerLaunch(
       if (step && 'error' in step)
         return reply.code(400).send({ error: 'invalid', message: step.error, field: 'step' });
       if (step) request.auditDetail = { step: step.every ? 'every step' : 'pause points' };
-      // ADR-0038 §1: a debug run looks into the run's variables: rw on the flow.
-      if (step?.debug && !(await mayManage(request, reply, config.project, config.flowFile)))
-        return reply;
+      // ADR-0038 §1: a debug run looks into the run's variables: rw on the flow, or operator
+      // where the workspace lets operators debug (AFS-179).
+      if (step?.debug) {
+        const project = await getProject(deps.db, config.project);
+        const access = await accessOf(deps.db, request);
+        const why = project
+          ? await debugRefusal(
+              deps.db,
+              project.workspace,
+              access?.onFlow(project.workspace, project.id, config.flowFile),
+              config.flowFile,
+            )
+          : 'The project is gone';
+        if (why) return reply.code(403).send({ error: 'forbidden', message: why, field: 'step' });
+      }
       // A dev run (AFS-26) and another branch or commit are rw's.
       if (
         (body.dev ||

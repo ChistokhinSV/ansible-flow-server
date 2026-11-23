@@ -377,6 +377,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       // AFS-177: step-by-step runs going here, driven through the executor.
       stepper: {
         drive: (run, ask, by) => executor?.drive(run, ask, by) ?? Promise.resolve(undefined),
+        // AFS-179: variables, evaluate and watch at a debug run's pause.
+        inspect: (run, ask) => executor?.inspect(run, ask) ?? Promise.resolve(undefined),
       },
       stepTimeoutMinutes: config.runStepTimeoutMinutes ?? 60,
       // AFS-76: module catalogs from images, for editing in the pages.

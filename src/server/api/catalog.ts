@@ -810,8 +810,24 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     R,
   )(
-    'Drive a step-by-step run: `command` step (run the next step, pause again), continue (run on to a pause point), pause (pause before the next step), stop (end before the next step); `points`: new pause points (node ids)',
+    'Drive a step-by-step run: `command` step (run the next step, pause again), continue (run on to a pause point), pause (pause before the next step), stop (end before the next step), retry (a debug run paused where hosts failed: run the step again on them; changes on hosts are not undone); `points`: new pause points (node ids, or in a debug run {node, condition, hits, log}); `failures` {failed, unreachable}: which failures pause a debug run. A debug run is driven by who launched it and administrators (Stop: operators too)',
     one('Run', 202),
+  ),
+  'POST /api/v1/runs/:id/inspect': S(
+    'Runs',
+    'signed in',
+    R,
+  )(
+    "Ask a paused debug run (who launched it, or an administrator): `op` scopes (a host's scopes; `facts` lists facts too), vars (`scope`, `path`, `start`, `count`), facts, eval (`expr` for `host`; lookups refused, 2 s limit) or watch (`exprs` for `hosts`, all paused hosts by default). Waits for the run's answer, masked by the run. 409 when the run is not a debug run or goes on another server; 410 when the pause or the run has ended. Audited with the op and the expression, never the answer",
+    json(ANSWERS.inspect),
+  ),
+  'GET /api/v1/runs/:id/debug': S(
+    'Runs',
+    'signed in',
+    R,
+  )(
+    "What a debug run's pauses showed (scopes and watches, masked), kept with the run (at most 1 MB): for who launched it and administrators",
+    json(ANSWERS.debugKept),
   ),
   'GET /api/v1/projects/:id/approvers': S(
     'Approvals',
@@ -833,7 +849,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )(
-    'Keep your pause points on a flow (`path`, body `points`: node ids); your step-by-step runs of it going now get them too',
+    'Keep your pause points on a flow (`path`, body `points`: node ids, or {node, condition, hits, log} for debug runs; `failures` {failed, unreachable}: which failures pause your debug runs); your step-by-step runs of it going now get them too',
     json(ANSWERS.pausePoints),
   ),
   'GET /api/v1/runs/:id/relaunch': S(
@@ -848,7 +864,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     R,
   )(
-    "The run again, as a new run, through the launch's checks (its configuration's credentials now; approvals are asked again). Body, every field optional: `hosts` all (default), not-ok, failed, unreachable, stopped, or names of its hosts (at most 5000; they go to a limit file); `includeHandled` adds hosts whose failure the flow handled; `mode` check or real; `step` {every, points, timeoutMinutes, debug, pauseOnFailure} or null; `commit` same (default) or newest. 409 while the run goes; 422 for an empty set, a run that reached no host, a host not of the run, a pause point not in the flow",
+    "The run again, as a new run, through the launch's checks (its configuration's credentials now; approvals are asked again). Body, every field optional: `hosts` all (default), not-ok, failed, unreachable, stopped, or names of its hosts (at most 5000; they go to a limit file); `includeHandled` adds hosts whose failure the flow handled; `mode` check or real; `step` {every, points, timeoutMinutes, debug, pauseOnFailure, failures} or null (a debug run needs rw on the flow, or operator where the workspace lets operators debug); `commit` same (default) or newest. 409 while the run goes; 422 for an empty set, a run that reached no host, a host not of the run, a pause point not in the flow",
     one('Run', 201),
   ),
 
@@ -1416,6 +1432,9 @@ const NEEDS: Record<string, Who> = {
   // AFS-177: who may stop a run may drive it step by step (the person who launched it is
   // operator on its flow; administrators too).
   'POST /api/v1/runs/:id/step': 'operator',
+  // AFS-179: who launched a debug run and administrators: checked by the handler.
+  'POST /api/v1/runs/:id/inspect': 'operator',
+  'GET /api/v1/runs/:id/debug': 'operator',
   'GET /api/v1/projects/:id/pause-points': 'ro',
   'GET /api/v1/projects/:id/approvers': 'ro',
   'PUT /api/v1/projects/:id/pause-points': 'operator',

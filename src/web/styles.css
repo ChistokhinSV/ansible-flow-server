@@ -4028,3 +4028,170 @@ fieldset.copy-link h4 {
 .good-text {
   color: var(--ok);
 }
+
+/* AFS-179: the Debugger panel of a debug run: beside the canvas (a column at 1440, a drawer
+   beside it at 1024), under it on a phone. The reason line first, then the buttons, the host,
+   the scopes, Watch and Evaluate. */
+.debugger {
+  flex: 1 1 360px;
+  min-width: 0;
+  max-width: 480px;
+  padding: 16px 20px 24px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-wrap: anywhere;
+}
+.debugger.paused .debug-reason {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.debug-reason {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 14px;
+}
+.debug-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.debug-warn {
+  color: var(--warn-text, var(--fg));
+}
+.debug-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.debug-body h3 {
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+.debug-host select {
+  max-width: 100%;
+}
+.debug-failed {
+  margin: 0;
+  color: var(--muted);
+}
+.debug-scopes details,
+.debug-scopes summary {
+  min-width: 0;
+}
+.debug-scopes summary {
+  cursor: pointer;
+  padding: 3px 0;
+}
+.dbg-vars {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  font-size: 13px;
+}
+.dbg-var,
+.dbg-watch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 2px 0;
+  min-width: 0;
+}
+.dbg-var > details {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.dbg-name {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.dbg-value {
+  font-family: var(--mono);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dbg-masked {
+  color: var(--muted);
+  font-style: italic;
+}
+.dbg-watch-actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+.dbg-compare {
+  flex: 1 1 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.dbg-compare td {
+  padding: 2px 8px 2px 0;
+  vertical-align: top;
+}
+.debug-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.debug-add input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.debug-add button {
+  flex: none;
+  white-space: nowrap;
+}
+.debug-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.debug-eval textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: 13px / 1.5 var(--mono);
+}
+.debug-eval-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 6px;
+}
+.dbg-result {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  font: 13px / 1.5 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1101px) {
+  .debugger {
+    align-self: flex-start;
+    max-height: calc(100vh - var(--run-flow-top, 160px));
+    overflow-y: auto;
+    padding-top: 0;
+  }
+  .debug-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-top: 16px;
+    padding-bottom: 6px;
+    background: var(--bg);
+  }
+}
+@media (max-width: 860px) {
+  .debugger {
+    max-width: none;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-inline: 16px;
+  }
+}

@@ -6,6 +6,7 @@
 // chosen (AFS-97, designer AFD-300).
 import type { HostMessage } from '@ansible-flow/core/protocol';
 import { inputText, type LaunchField, type LaunchPlan } from '@ansible-flow/core/run/launch';
+import { type FailureFilters, type PointSpec, pointNode } from '@ansible-flow/core/run/step';
 import type { FactsReply } from '../server/launch/facts';
 import { noHostWhy } from './noHost';
 
@@ -46,7 +47,12 @@ export interface LauncherDeps {
    * AFS-177: the dialog offers Step by step (designer AFD-346); its runs pause at these points
    * (the person's pause points on the flow) after Continue.
    */
-  stepPoints?: () => string[];
+  stepPoints?: () => PointSpec[];
+  /**
+   * AFS-179: Run > Debug is offered (designer config.debugRuns): a debug run takes the pause
+   * points with their settings and these failure filters (none: a failed host pauses it).
+   */
+  debugFailures?: () => FailureFilters | undefined;
 }
 
 type Reply = { ok: boolean; status: number; data: unknown };
@@ -79,8 +85,26 @@ export function launcher(deps: LauncherDeps) {
   /** The dialogs open now, by token: their configuration and plan. */
   const open = new Map<string, { config: string; plan: LaunchPlan; facts?: FactsReply }>();
   /** AFS-177: launched step by step: every step, with the person's pause points. */
-  const stepBody = (step: boolean | undefined) =>
-    step && deps.stepPoints ? { step: { every: true, points: deps.stepPoints() } } : {};
+  // AFS-179: a debug run pauses at the pause points (before each step when there are none), and
+  // where a host fails as the failure filters say.
+  const stepBody = (step: boolean | undefined, debug?: boolean) => {
+    if (debug && deps.debugFailures && deps.stepPoints) {
+      const points = deps.stepPoints();
+      const failures = deps.debugFailures();
+      return {
+        step: {
+          every: points.length === 0,
+          points,
+          debug: true,
+          pauseOnFailure: failures?.failed !== false,
+          ...(failures ? { failures } : {}),
+        },
+      };
+    }
+    return step && deps.stepPoints
+      ? { step: { every: true, points: deps.stepPoints().map(pointNode) } }
+      : {};
+  };
   let next = 0;
   const notify = (level: 'info' | 'error', text: string) =>
     deps.send({ type: 'notify', level, text });
@@ -88,7 +112,7 @@ export function launcher(deps: LauncherDeps) {
     call(`/api/v1/launch-configs/${encodeURIComponent(config)}/facts`, body);
 
   /** Run on the canvas: the configuration, then the dialog with its fields and the hosts. */
-  async function run(mode: 'check' | 'real', step?: boolean): Promise<void> {
+  async function run(mode: 'check' | 'real', step?: boolean, debug?: boolean): Promise<void> {
     const list = await call(
       `/api/v1/projects/${encodeURIComponent(deps.project)}/launch-configs`,
     ).catch(() => undefined);
@@ -136,7 +160,10 @@ export function launcher(deps: LauncherDeps) {
       canSave: deps.mayAddConfig !== false,
       ...(origins ? { origins } : {}),
       // AFS-177: the tick, ticked when Run Step by Step opened the dialog.
-      ...(deps.stepPoints ? { steps: { on: step === true } } : {}),
+      // AFS-179: Run > Debug: the dialog's Run says Debug.
+      ...(deps.stepPoints
+        ? { steps: { on: step === true || debug === true, ...(debug ? { debug: true } : {}) } }
+        : {}),
     };
     open.set(token, { config: config.id, plan, facts: answer });
     deps.send({ type: 'launch', plan });
@@ -169,6 +196,7 @@ export function launcher(deps: LauncherDeps) {
     token: string,
     inputs: Record<string, unknown>,
     step?: boolean,
+    debug?: boolean,
   ): Promise<void> {
     const dialog = open.get(token);
     if (!dialog) return;
@@ -198,7 +226,7 @@ export function launcher(deps: LauncherDeps) {
     const reply = await call(`/api/v1/launch-configs/${encodeURIComponent(dialog.config)}/launch`, {
       mode: dialog.plan.mode,
       inputs: typed,
-      ...stepBody(step),
+      ...stepBody(step, debug),
     }).catch(() => undefined);
     if (reply?.ok) {
       open.delete(token);
