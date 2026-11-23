@@ -173,6 +173,11 @@ export const SCHEMAS = {
     {
       description: str,
       uses: listOf(obj({ kind: of('project', 'launch'), project: str, name: str }, { id: str })),
+      refs: {
+        ...values,
+        description:
+          'The secret parts taken from a secret provider, by name: the provider, and the path for those who may see it',
+      },
     },
     'A credential of a workspace: its secret parts are never shown',
   ),
@@ -282,7 +287,7 @@ export const SCHEMAS = {
       cancelledBy: str,
       worker: str,
       error: str,
-      hosts: obj({ total: int, failed: int }),
+      hosts: obj({ total: int, failed: int }, { unreachable: int }),
       dev: { const: true },
       schedule: str,
       action: str,
@@ -291,7 +296,18 @@ export const SCHEMAS = {
       environment: obj({ id: str, name: str, workspace: str }),
       skippedTargets: strings,
       serverDefault: { const: true },
-      step: obj({ every: bool, points: strings, timeoutS: int }, { pointsBy: str }),
+      step: obj(
+        { every: bool, points: { type: 'array' }, timeoutS: int },
+        { pointsBy: str, debug: bool, pauseOnFailure: bool },
+      ),
+      relaunchOf: obj(
+        {
+          id: str,
+          number: int,
+          hosts: of('all', 'not-ok', 'failed', 'unreachable', 'stopped', 'chosen'),
+        },
+        { count: int },
+      ),
       pausedBefore: str,
       sent: { ...of('step', 'continue', 'pause', 'stop'), description: 'The command just sent' },
     },
@@ -500,7 +516,13 @@ export const SCHEMAS = {
       happens: strings,
       ask: strings,
     },
-    { blocked: str, configPage: str, runOnOpen: bool, replies: of('netbox', 'zabbix') },
+    {
+      blocked: str,
+      configPage: str,
+      editPage: str,
+      runOnOpen: bool,
+      replies: of('netbox', 'zabbix'),
+    },
     "An action's form: the inputs it asks, and what will happen",
   ),
   ActionGrant: obj(
@@ -651,6 +673,13 @@ export const ANSWERS = {
         groups: listOf(obj({ id: str, name: str })),
       }),
       tokens: listOf(ref('ActionToken')),
+      place: obj({
+        workspaceKey: str,
+        workspaceName: str,
+        projectKey: str,
+        configName: str,
+        flowFile: str,
+      }),
     },
     "A launch configuration's action: none (null) or its settings, and for who may change it, who may run it",
   ),
