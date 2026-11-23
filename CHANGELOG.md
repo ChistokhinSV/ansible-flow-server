@@ -4,6 +4,8 @@ All notable changes to Ansible Flow Server.
 
 ## Unreleased
 
+Carries Ansible Flow Designer 1.1.0-rc.1.
+
 ### Added
 
 - **Step by step**: a run can pause before each step until someone says **Step** (run that step, pause again), **Continue** (run on to a pause point), **Pause** or **Stop** (end before the next step, keeping what ran). Tick **Step by step** on the **Launch** tab or in the canvas's Run dialog (**Run Step by Step**). The run's page says where it waits and how many hosts wait there, with the buttons above the canvas, also on a phone; the canvas rings the step.
