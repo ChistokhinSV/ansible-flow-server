@@ -617,6 +617,8 @@ export interface ScheduleTable {
   last_run_id: string | null;
   /** AFS-170: the last fire's flow errors (FlowError[]), as JSON, when its flow could not run. */
   last_errors_json: string | null;
+  /** AFS-210: why the server turned it off (its flow moved or deleted); null otherwise. */
+  off_why: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

@@ -13,9 +13,12 @@ adds, changes, pauses and deletes them, `ro` reads them.
   those come from credentials), on its own pinned commit if it has one, else on the
   configuration's: its pinned commit, or the newest commit of its branch.
 - Deleting a flow (on its page, in **Files**, or by the API) turns off, in the same save, the
-  schedules of configurations that run it from that branch; its page names them first. A
-  schedule whose flow is gone in another way (a push) is turned off at its next fire, and says
-  why; turn it on again once the flow is back.
+  schedules of configurations that run it from that branch; its page names them first. Moving or
+  renaming it in **Files** names them too, and offers to point those configurations at the new
+  file in the same save (`repoint` in the API): then their schedules stay on. A schedule turned
+  off this way says why on its page (`offWhy`, until someone turns it on or off). A schedule
+  whose flow is gone in another way (a push) is turned off at its next fire, and says why; turn
+  it on again once the flow is back.
 - A schedule whose flow has errors, or is gone, can still be paused, changed and deleted. Only
   what the schedule itself says (its inputs, commit, mode) is checked then. Adding one, or
   turning one on again, is refused while the flow cannot run.

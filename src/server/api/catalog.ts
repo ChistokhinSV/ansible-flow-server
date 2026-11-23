@@ -352,7 +352,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )(
-    'Save a change set as one commit on a branch: write (text or base64), delete, move (files or folders) and unpack (a zip or tar.gz into a folder); refused when the branch changed the same files since `base`',
+    'Save a change set as one commit on a branch: write (text or base64), delete, move (files or folders) and unpack (a zip or tar.gz into a folder); refused when the branch changed the same files since `base`. Configurations that run a flow it deletes or moves have their schedules turned off (`turnedOff`), unless `repoint` makes those of a moved flow run it from its new file (`repointed`)',
   ),
   'GET /api/v1/projects/:id/drafts': S(
     'Editing',

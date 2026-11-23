@@ -18,6 +18,8 @@ export interface Schedule {
   /** For a one-time schedule: when. */
   onceAt?: string;
   enabled: boolean;
+  /** AFS-210: why the server turned it off (its flow was moved or deleted); absent otherwise. */
+  offWhy?: string;
   /** Absent: the configuration's mode. */
   mode?: 'check' | 'real';
   /** Input values, as typed, over the configuration's start values. Never a secret. */

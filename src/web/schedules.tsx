@@ -466,6 +466,8 @@ export function SchedulesSection({
   const [error, setError] = useState<string>();
   const done = () => {
     setOpen(undefined);
+    // AFS-210: a refusal before is over once a change is saved.
+    setError(undefined);
     list.reload();
   };
   const act = async (work: () => Promise<unknown>) => {
@@ -520,6 +522,14 @@ export function SchedulesSection({
               <span className="badge">{s.next || s.kind === 'cron' ? 'paused' : 'done'}</span>
             )}
           </h3>
+          {/* AFS-210: turned off by the server (its flow moved or deleted): why, and the way on. */}
+          {!s.enabled && s.offWhy && (
+            <p className="notice warn" data-off-why>
+              Turned off by the server: {s.offWhy.charAt(0).toLowerCase() + s.offWhy.slice(1)}.
+              Resume it once this configuration runs a flow that is there (its Settings name the
+              flow file).
+            </p>
+          )}
           <dl className="facts">
             <dt>When</dt>
             <dd>
@@ -615,7 +625,14 @@ export function SchedulesSection({
           </dl>
           {mayManage && open !== s.id && (
             <div className="actions">
-              <button type="button" aria-label={`Change ${s.name}`} onClick={() => setOpen(s.id)}>
+              <button
+                type="button"
+                aria-label={`Change ${s.name}`}
+                onClick={() => {
+                  setError(undefined);
+                  setOpen(s.id);
+                }}
+              >
                 Change
               </button>
               {(s.kind === 'cron' || s.enabled) && (

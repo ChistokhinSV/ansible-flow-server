@@ -869,7 +869,8 @@ export function CloneHelp({ project }: { project: Project }) {
               the server's certificate
             </a>{' '}
             and clone with it; git keeps the setting for the clone. On Windows, add{' '}
-            <code>-c http.sslBackend=openssl</code> after <code>clone</code>.
+            {/* AFS-210: an option is not broken across lines. */}
+            <code className="nowrap">-c http.sslBackend=openssl</code> after <code>clone</code>.
           </p>
           <p>
             <Copyable

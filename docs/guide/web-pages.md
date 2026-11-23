@@ -228,7 +228,7 @@ the Message field shows), by you; this browser keeps them meanwhile, **Take back
 them all once you say so. An archive does not replace files that are there without asking: Save
 lists the files it would replace, and **Replace them and save** saves. When the branch moved since your first change, Save goes on top of it,
 unless the branch changed one of the same files: then nothing is saved and those files are
-listed. For a project with an external repository the commit is pushed there first. A Save is
+listed. For a project with an external repository the commit is pushed there first. Moving, renaming or deleting a flow names, above Save, the launch configurations that run it (from this branch, not pinned to a commit) and their schedules; for a move, **Point them at the new file in the same save** (on by default) makes them run the flow from its new file, else their schedules are turned off and say why. An upload over a file that is there says it replaces it. A Save without a message lists every change in the commit's body when its subject sums them up. A Save is
 listed with the pushes and in the audit log (`project.files-save`).
 
 An empty project the server hosts has the **Files** tab from the start, for whoever may change
@@ -256,16 +256,22 @@ download); `GET /api/v1/projects/<id>/files/history?commit=&path=` the commits t
     { "op": "move", "from": "files/old.cfg", "to": "files/web.cfg" },
     { "op": "delete", "path": "files/unused" },
     { "op": "unpack", "path": "roles", "base64": "<a zip or tar.gz>" }
-  ]
+  ],
+  "repoint": true
 }
 ```
+
+`repoint` makes the launch configurations that run a flow the change set moves (from this branch,
+not pinned) run it from its new file; the answer lists them as `repointed`. The schedules turned
+off because their flow was moved (without `repoint`) or deleted are listed as `turnedOff`, each
+with `why`.
 
 A write takes `text` or `base64`, and `executable: true` for a program. A refusal because the branch
 changed the same files is `409` with `files`. An `unpack` that would replace files that are there
 (with other content) is refused, `409` with `error: "replaces"` and those `files`, unless it says
 `"replace": true`.
 
-`?line=<n>` with `?path=` opens the file with that line in the middle and the cursor on it (the
+`?line=<n>` with `?path=` opens the file scrolled to show that line, with the cursor on it (the
 canvas's links to where a value is defined use it).
 
 Not there yet: a diff before Save, and a link from a step's template in the designer to its file.
@@ -278,7 +284,9 @@ above the list. **Find** keeps the commits whose message, author, hash or change
 the words you type. The newest 50 come first; **More commits** reads the next ones (with a
 filter, **Look further back** goes on through a long history). The tab is for who may read the
 project's files (`ro` on the workspace); the address keeps the branch, the filter and the open
-commit, so it can be shared.
+commit, so it can be shared. One commit is open at a time. `?commit=` takes the short hash the pages show (7
+characters or more); a commit the list does not show opens above it, and one the project does
+not have is said. `GET /api/v1/projects/<id>/commits/<commit>` takes a short hash too.
 
 A commit opens to the files it changed, each **added**, **changed**, **removed** or **renamed**
 (with the path it had; a merge shows what it brought to its first parent). Flows are named by

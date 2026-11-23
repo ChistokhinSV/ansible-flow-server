@@ -146,6 +146,50 @@ describe("a project's History tab", () => {
     expect(window.location.search).toContain('q=greet');
   });
 
+  it('AFS-210: ?commit= with the short hash opens it, one at a time; a wrong one is said', async () => {
+    const details = (hash: string, subject: string) => () => ({
+      body: { ...commit(hash, subject), parents: [], body: '', files: [] },
+    });
+    routes = {
+      'GET /projects/p1/branches': () => ({ body: { branches: ['main'] } }),
+      'GET /projects/p1/commits?limit=50': () => ({
+        body: {
+          branch: 'main',
+          commit: TIP,
+          commits: [commit(C1, 'Tune the timeouts'), commit(C2, 'Greet the team')],
+        },
+      }),
+      [`GET /projects/p1/commits/${C2.slice(0, 12)}`]: details(C2, 'Greet the team'),
+      [`GET /projects/p1/commits/${C2}`]: details(C2, 'Greet the team'),
+      [`GET /projects/p1/commits/${C1}`]: details(C1, 'Tune the timeouts'),
+      'GET /projects/p1/commits/zzz': () => ({
+        status: 404,
+        body: { error: 'not_found', message: 'The project has no commit zzz.' },
+      }),
+    };
+    window.history.replaceState(null, '', `/w/net/core/history?commit=${C2.slice(0, 12)}`);
+    render(<ProjectHistory workspace="net" project={project} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { expanded: true }).textContent).toContain(
+        'Greet the team',
+      ),
+    );
+    expect(window.location.search).toContain(`commit=${C2}`);
+    // Another opened closes the first.
+    fireEvent.click(screen.getByRole('button', { name: /Tune the timeouts/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { expanded: true }).map((b) => b.textContent)).toEqual([
+        expect.stringContaining('Tune the timeouts'),
+      ]),
+    );
+    cleanup();
+    window.history.replaceState(null, '', '/w/net/core/history?commit=zzz');
+    render(<ProjectHistory workspace="net" project={project} />);
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'The project has no commit zzz.',
+    );
+  });
+
   it('reads another branch', async () => {
     routes = {
       'GET /projects/p1/branches': () => ({ body: { branches: ['main', 'feature/ospf'] } }),

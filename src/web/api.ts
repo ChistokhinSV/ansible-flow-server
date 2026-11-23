@@ -432,7 +432,7 @@ export const api = {
   },
   /** AFS-123: one commit with the files it changed. */
   commit: (id: string, commit: string) =>
-    call<CommitDetails>('GET', `/projects/${id}/commits/${commit}`),
+    call<CommitDetails>('GET', `/projects/${id}/commits/${encodeURIComponent(commit)}`),
   /** AFS-123: what a commit did to a flow, for the flow at that commit. */
   flowAtCommit: (id: string, path: string, commit: string) =>
     call<FlowAtCommit>(
@@ -442,13 +442,23 @@ export const api = {
   /** AFS-78: one commit with the change set. */
   saveFiles: (
     id: string,
-    input: { branch: string; base?: string; message?: string; changes: FileChange[] },
+    input: {
+      branch: string;
+      base?: string;
+      message?: string;
+      changes: FileChange[];
+      /** AFS-210: launch configurations of a moved flow run it from its new file. */
+      repoint?: boolean;
+    },
   ) =>
-    call<{ branch: string; commit: string; files: string[]; unchanged?: boolean }>(
-      'POST',
-      `/projects/${id}/files`,
-      input,
-    ),
+    call<{
+      branch: string;
+      commit: string;
+      files: string[];
+      unchanged?: boolean;
+      repointed?: { id: string; name: string; from: string; to: string }[];
+      turnedOff?: { id: string; name: string; why: string }[];
+    }>('POST', `/projects/${id}/files`, input),
   flows: (id: string) => call<FlowList>('GET', `/projects/${id}/flows`),
   /** AFS-109: a file's text at a commit (a flow to copy). */
   fileText: async (id: string, path: string, commit: string): Promise<string> => {

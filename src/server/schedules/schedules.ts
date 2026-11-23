@@ -24,6 +24,8 @@ import {
   withoutSecrets,
 } from '../launch/prepare';
 import type { Logger } from '../log';
+import { whereAfter } from '../projects/changeWords';
+import type { FileChange } from '../projects/files';
 import { getProject } from '../projects/store';
 import { ACTIVE, type RunQueue } from '../runs/queue';
 
@@ -147,6 +149,7 @@ function of(row: Row, now = new Date()): Schedule {
     timezone: row.timezone,
     ...(row.once_at ? { onceAt: row.once_at } : {}),
     enabled: row.enabled === 1,
+    ...(!row.enabled && row.off_why ? { offWhy: row.off_why } : {}),
     ...(row.mode ? { mode: row.mode as 'check' | 'real' } : {}),
     inputs: JSON.parse(row.inputs_json) as Record<string, string>,
     ...(row.commit_id ? { commit: row.commit_id } : {}),
@@ -224,10 +227,22 @@ function settled(input: ScheduleInput, before?: Row) {
   return { name, timezone, cron, onceAt, mode, commit, missed, overlap, inputs };
 }
 
+/** AFS-210: what a save did to the configurations and schedules of the flows it moved or deleted. */
+export interface GoneFlows {
+  /** Configurations that follow a moved flow to its new file (asked for with `repoint`). */
+  repointed: { id: string; name: string; from: string; to: string }[];
+  /** Schedules turned off, each with why. */
+  off: { id: string; name: string; why: string }[];
+}
+
+const FLOW_FILE = /.flow.ya?ml$/;
+
 /**
  * AFS-187: a save that took flows away (deleted or moved) turns off, in the same step, the
  * schedules of the configurations that ran them from that branch (not pinned to a commit), so
- * they do not fire and fail. Each one turned off is audited. Resolves with their names.
+ * they do not fire and fail. Each one turned off is audited, and keeps why for its page (AFS-210).
+ * AFS-210: with `repoint`, a configuration whose flow the change set moved to another flow file
+ * runs it from there instead, and its schedules stay on.
  */
 export async function turnOffGoneFlows(
   db: Db,
@@ -235,19 +250,47 @@ export async function turnOffGoneFlows(
   project: { id: string; gitRef: string },
   saved: { branch: string; commit: string; files: string[] },
   by: { id: string; login: string },
-): Promise<string[]> {
-  if (!saved.files.length) return [];
+  opts: { changes?: readonly FileChange[]; repoint?: boolean } = {},
+): Promise<GoneFlows> {
+  const done: GoneFlows = { repointed: [], off: [] };
+  if (!saved.files.length) return done;
   const configs = await db
     .selectFrom('launch_config')
-    .select(['id', 'flow_file', 'git_ref'])
+    .select(['id', 'name', 'flow_file', 'git_ref'])
     .where('project_id', '=', project.id)
     .where('commit_id', 'is', null)
     .where('flow_file', 'in', saved.files)
     .execute();
-  const off: string[] = [];
   for (const config of configs) {
     if ((config.git_ref ?? project.gitRef) !== saved.branch) continue;
     if (await git.exists(project.id, saved.commit, config.flow_file)) continue;
+    const to = opts.changes ? whereAfter(config.flow_file, opts.changes) : null;
+    const moved = to !== null && to !== config.flow_file;
+    if (
+      moved &&
+      opts.repoint &&
+      FLOW_FILE.test(to) &&
+      (await git.exists(project.id, saved.commit, to))
+    ) {
+      await db
+        .updateTable('launch_config')
+        .set({ flow_file: to, updated_at: iso(new Date()) })
+        .where('id', '=', config.id)
+        .execute();
+      done.repointed.push({ id: config.id, name: config.name, from: config.flow_file, to });
+      await recordAudit(db, {
+        actor: by,
+        source: 'server',
+        action: 'launch-config.change',
+        object: { type: 'launch-config', id: config.id, name: config.name },
+        result: 'ok',
+        detail: { changed: ['flowFile'], why: `Its flow ${config.flow_file} was moved to ${to}` },
+      });
+      continue;
+    }
+    const why = moved
+      ? `Its flow ${config.flow_file} was moved to ${to}`
+      : `Its flow ${config.flow_file} was deleted`;
     const rows = await db
       .selectFrom('schedule')
       .select(['id', 'name'])
@@ -257,21 +300,21 @@ export async function turnOffGoneFlows(
     for (const row of rows) {
       await db
         .updateTable('schedule')
-        .set({ enabled: 0, next_at: null, updated_at: iso(new Date()) })
+        .set({ enabled: 0, next_at: null, off_why: why, updated_at: iso(new Date()) })
         .where('id', '=', row.id)
         .execute();
-      off.push(row.name);
+      done.off.push({ id: row.id, name: row.name, why });
       await recordAudit(db, {
         actor: by,
         source: 'server',
         action: 'schedule.change',
         object: { type: 'schedule', id: row.id, name: row.name },
         result: 'ok',
-        detail: { changed: ['enabled'], why: `Its flow ${config.flow_file} was deleted` },
+        detail: { changed: ['enabled'], why },
       });
     }
   }
-  return off;
+  return done;
 }
 
 /** What a launch of the schedule asks for. */
@@ -431,6 +474,7 @@ export class Schedules {
       last_detail: null,
       last_run_id: null,
       last_errors_json: null,
+      off_why: null,
       created_by: owner.login,
       created_at: iso(now),
       updated_at: iso(now),
@@ -477,6 +521,8 @@ export class Schedules {
       timezone: s.timezone,
       once_at: s.onceAt,
       enabled: enabled ? 1 : 0,
+      // AFS-210: turned on or off by someone, the server's reason is over.
+      ...(change.enabled !== undefined || enabled ? { off_why: null } : {}),
       mode: s.mode,
       inputs_json: JSON.stringify(s.inputs),
       commit_id: s.commit,
@@ -673,7 +719,7 @@ export class Schedules {
       if (why.startsWith(`There is no flow ${config.flowFile} `)) {
         await this.db
           .updateTable('schedule')
-          .set({ enabled: 0, next_at: null })
+          .set({ enabled: 0, next_at: null, off_why: why })
           .where('id', '=', row.id)
           .execute();
         return this.settle(

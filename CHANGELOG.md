@@ -25,6 +25,9 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - Running an action with the same values as your run of a moment ago asks **Run again** or **Open that run**; the API answers 409 `duplicate` unless `again` is sent.
 - **Search** finds the actions you may run. A group's page lists the actions its members may run (`GET /api/v1/groups/<id>/action-grants`).
 - An action card marks an action that runs for real and opens your last run of it; **Run it again** starts with that run's values.
+- Moving or renaming a flow in **Files** names, before Save, the launch configurations that run it and their schedules, and offers to point them at the new file in the same save. Deleting one there names them too.
+- A schedule the server turned off because its flow was moved or deleted says why on its page (`offWhy` in the API).
+- `repoint` on `POST /api/v1/projects/<id>/files`; the answer names the configurations it pointed at a moved flow (`repointed`) and the schedules it turned off (`turnedOff`).
 
 ### Changed
 
@@ -46,6 +49,10 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - A pause is said once in the run's output, in plain words, after the step before it.
 - Your own run that still goes stays in the flow page's **Latest runs** and on its canvas after others launched newer ones.
 - Home's counts of today's runs say they are everyone's, and each is a link to those runs on the Runs page.
+- An upload over a file that is there says it replaces it ("Replace inventory.ini with an upload").
+- A Files save left without a message lists every change in the commit's body when its subject sums them up, so History shows them all.
+- History opens one commit at a time.
+- `?line=` in **Files** scrolls only as far as it takes to show the line: a line near the top keeps the page where it is.
 
 ### Fixed
 
@@ -83,6 +90,11 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - A new launch configuration of a repository without `ansible.cfg` starts with its only inventory (such as `inventory.ini`), or names those it has.
 - After the settings are saved (another inventory), the **Launch** tab reads the inventory again instead of keeping the old groups and target warning.
 - The Run dialog on the canvas no longer says what the host list is twice.
+- A playbook imported with its role in the project's top `roles/` folder failed with "the role was not found" unless an `ansible.cfg` named that folder: runs now search `roles/` at the top of the project, after the roles path the config gives.
+- Moving a flow in **Files** broke its launch configurations and turned their schedules off without a word.
+- A refusal on a schedule stayed on the page after a later change was saved.
+- The History tab dropped `?commit=` unless it was the full 40-character hash: the 12 characters the pages show open the commit, also one older than the list shows, and a wrong one is said.
+- The clone help broke `-c http.sslBackend=openssl` across lines.
 
 ## 1.0.3 — Steps move again after Undo
 

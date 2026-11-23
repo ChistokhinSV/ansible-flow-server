@@ -1,7 +1,7 @@
 // AFS-78: a project's files in the pages: the tree of a branch, a file's bytes and history, and
 // Save, one commit with a change set (write, upload, unpack, move, delete), refused only when the
 // branch changed the same files since the change set began; recorded like a push and audited.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -424,5 +424,138 @@ describe('the files of a project', () => {
       result: 'ok',
       detail: { changed: ['enabled'] },
     });
+  });
+  it('AFS-210: a moved flow takes its configurations along when asked; else their schedules say why', async () => {
+    const flowText = readFileSync(join(__dirname, '../fixtures/hello.flow.yaml'), 'utf8');
+    const made = await save(omar, {
+      changes: [{ op: 'write', path: 'flows/motd/motd.flow.yaml', text: flowText }],
+    });
+    expect(made.statusCode, made.body).toBe(201);
+    const now = new Date().toISOString();
+    await database.db
+      .insertInto('launch_config')
+      .values({
+        id: 'motd-config',
+        project_id: project.id,
+        name: 'motd nightly',
+        description: null,
+        flow_file: 'flows/motd/motd.flow.yaml',
+        git_ref: null,
+        commit_id: null,
+        inventory: null,
+        ee_image: null,
+        environment_id: null,
+        mode: 'check',
+        run_limit: null,
+        inputs_json: '{}',
+        notify_json: null,
+        created_at: now,
+        updated_at: now,
+      })
+      .execute();
+    const owner = await database.db
+      .selectFrom('user_account')
+      .select(['id', 'login'])
+      .where('login', '=', 'omar')
+      .executeTakeFirstOrThrow();
+    await database.db
+      .insertInto('schedule')
+      .values({
+        id: 'motd-schedule',
+        config_id: 'motd-config',
+        name: 'motd at three',
+        kind: 'cron',
+        cron: '0 3 * * *',
+        timezone: 'UTC',
+        once_at: null,
+        enabled: 1,
+        mode: null,
+        inputs_json: '{}',
+        commit_id: null,
+        missed: 'once',
+        overlap: 'skip',
+        owner_id: owner.id,
+        owner_login: owner.login,
+        next_at: now,
+        last_at: null,
+        last_result: null,
+        last_detail: null,
+        last_run_id: null,
+        last_errors_json: null,
+        off_why: null,
+        created_by: owner.login,
+        created_at: now,
+        updated_at: now,
+      })
+      .execute();
+    const state = async () => ({
+      flow: (
+        await database.db
+          .selectFrom('launch_config')
+          .select('flow_file')
+          .where('id', '=', 'motd-config')
+          .executeTakeFirstOrThrow()
+      ).flow_file,
+      schedule: await database.db
+        .selectFrom('schedule')
+        .select(['enabled', 'off_why'])
+        .where('id', '=', 'motd-schedule')
+        .executeTakeFirstOrThrow(),
+    });
+
+    // The folder moved, with repoint: the configuration runs the flow from its new file, and its
+    // schedule stays on; in the same save, audited.
+    const followed = await save(omar, {
+      repoint: true,
+      changes: [{ op: 'move', from: 'flows/motd', to: 'flows/motd-x' }],
+    });
+    expect(followed.statusCode, followed.body).toBe(201);
+    expect(followed.json().repointed).toEqual([
+      {
+        id: 'motd-config',
+        name: 'motd nightly',
+        from: 'flows/motd/motd.flow.yaml',
+        to: 'flows/motd-x/motd.flow.yaml',
+      },
+    ]);
+    expect(followed.json().turnedOff).toBeUndefined();
+    expect(await state()).toEqual({
+      flow: 'flows/motd-x/motd.flow.yaml',
+      schedule: { enabled: 1, off_why: null },
+    });
+    const changed = await listAudit(database.db, { action: 'launch-config.change' });
+    expect(changed.entries[0]).toMatchObject({
+      actor: { login: 'omar' },
+      object: { type: 'launch-config', name: 'motd nightly' },
+      detail: { changed: ['flowFile'] },
+    });
+
+    // Renamed without repoint: the configuration stays, its schedule is turned off and says why.
+    const left = await save(omar, {
+      changes: [
+        { op: 'move', from: 'flows/motd-x/motd.flow.yaml', to: 'flows/motd-x/b.flow.yaml' },
+      ],
+    });
+    expect(left.statusCode, left.body).toBe(201);
+    const why = 'Its flow flows/motd-x/motd.flow.yaml was moved to flows/motd-x/b.flow.yaml';
+    expect(left.json().turnedOff).toEqual([{ id: 'motd-schedule', name: 'motd at three', why }]);
+    expect(await state()).toEqual({
+      flow: 'flows/motd-x/motd.flow.yaml',
+      schedule: { enabled: 0, off_why: why },
+    });
+
+    // A move to a file that is not a flow is not followed, repoint or not.
+    await database.db
+      .updateTable('launch_config')
+      .set({ flow_file: 'flows/motd-x/b.flow.yaml' })
+      .where('id', '=', 'motd-config')
+      .execute();
+    const notFlow = await save(omar, {
+      repoint: true,
+      changes: [{ op: 'move', from: 'flows/motd-x/b.flow.yaml', to: 'flows/motd-x/b.txt' }],
+    });
+    expect(notFlow.statusCode, notFlow.body).toBe(201);
+    expect(notFlow.json().repointed).toBeUndefined();
+    expect((await state()).flow).toBe('flows/motd-x/b.flow.yaml');
   });
 });
