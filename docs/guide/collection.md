@@ -36,6 +36,11 @@ ends with the run (a run that waits for a person gets a new one when it goes on)
 certificate is checked unless it is the server's own self-signed one (`AFS_RUN_VERIFY_TLS` decides
 otherwise). In a skeleton run, launching modules launch nothing (Ansible's check mode).
 
+A run that launches another flow of its own project holds one of the project's places
+(`AFS_MAX_RUNS_PER_PROJECT`, 1 by default) while the other run waits for one. `run` with
+`wait: true` then fails at once and says why, instead of waiting until `wait_timeout`: launch it
+in another project, or let the project run more at once.
+
 **Values back from a flow.** A flow gives values back with its outputs (the designer's Run outputs:
 a step's output, per host). The run keeps them (at most 256 KB) and shows them on its page under
 **Outputs**; `run` and `run_relaunch` with `wait: true` and `run_info` return them as `outputs`,

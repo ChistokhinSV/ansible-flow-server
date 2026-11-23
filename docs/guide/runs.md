@@ -112,7 +112,9 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   steps had all ended when the stop reached it is recorded as it ended, and its output says so. A
   run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
 - **Targets not in the inventory:** Ansible skips them. The run names them
-  (`skippedTargets` on `GET /runs/:id`, and on its page), also when it went well.
+  (`skippedTargets` on `GET /runs/:id`, and on its page under What ran: "not in the inventory:
+  ghost-01"), also when it went well and when Ansible did not warn of them: the server reads the
+  inventory beside the run.
 
 | Address (under `/api/v1`)         | Answers                                                                                                                    | Who        |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------- |

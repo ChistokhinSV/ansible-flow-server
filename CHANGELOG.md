@@ -2,6 +2,36 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- An action has a page of its own for its settings, links and who may run it (`/actions/<id>/edit`). The launch configuration's **Settings** keep one line that leads there; the action's form has **Change this action** for whoever may change it.
+- **A link with values**: on the action's page, fill in some or all of the values and copy the whole link to hand to someone. The page checks the values as the form does and says what the person will see: a confirm page, or the short form asking for what is left.
+- **Copy a link with these values** on an action's form, to share what you filled in.
+- An action's page lists the values of the inputs it does not ask (**Runs with**); a secret one is never shown.
+- `GET /api/v1/projects/<id>/approvers?path=<flow>`: who an approval with empty approvers asks. An action's **What will happen** names them too.
+
+### Changed
+
+- A waiting approval says **Who decides**, not "decided by".
+- Someone who launched a run and is in the group that decides its approval reads who else in the group decides ("Sam Reyes (change-board) decides it"). Refusing them through the API names the deciders too.
+- The request email says the launcher does not decide only when they would otherwise be asked.
+- An approval email or webhook about a run that ended because of a rejection says **rejected** (or **not decided in time**), not failed, as the pages do; the webhook's run has `decidedAgainst`.
+- The Approvals page says "No run waits for a decision." once when nothing waits.
+- Help lists the first steps under **Getting started**, apart from **Running flows**.
+- A refused sign-in reads "sign-in refused" in the audit log, not "signed in"; other refused entries say so before what was tried.
+- **Who can do what** and a person's **What they reach** say operators and read-and-write people of a workspace may run every action of it.
+- The `run` module of the collection, with `wait: true`, fails at once and says why when the run it launched waits for the place its own run holds in the project (`AFS_MAX_RUNS_PER_PROJECT`), instead of waiting until `wait_timeout`.
+
+### Fixed
+
+- What ran names targets the inventory does not have ("not in the inventory: ghost-01") also when Ansible gives no warning about them.
+- After Discard in a draft open in two sessions of the same person, the page where Discard was pressed no longer says "You discarded the draft in another tab".
+- Bring back's note after merging into a new draft names a step's description as "description", not "intent".
+- An empty **What it does** on an action is said by its label, not as "Summary is needed".
+- During a conflict in **Files**, the project's header shows the branch's commit and when it was looked at, without waiting for the save.
+
 ## 1.1.0 — Step by step runs, pause points, and who may run each action
 
 Carries Ansible Flow Designer 1.1.0.
