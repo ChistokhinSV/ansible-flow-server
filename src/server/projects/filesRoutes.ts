@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
-import { turnOffGoneFlows } from '../schedules/schedules';
+import { type GoneFlows, turnOffGoneFlows } from '../schedules/schedules';
 import {
   type FileChange,
   FilesRefused,
@@ -148,7 +148,13 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
   /** Save: the change set as one commit on the branch. */
   app.post<
     WithId & {
-      Body: { branch?: string; base?: string; message?: string; changes: FileChange[] };
+      Body: {
+        branch?: string;
+        base?: string;
+        message?: string;
+        changes: FileChange[];
+        repoint?: boolean;
+      };
     }
   >(
     '/api/v1/projects/:id/files',
@@ -165,6 +171,8 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
             branch: text(200, 1),
             base: COMMIT,
             message: text(2000),
+            // AFS-210: launch configurations of a moved flow run it from its new file.
+            repoint: { type: 'boolean' },
             changes: {
               type: 'array',
               minItems: 1,
@@ -186,12 +194,21 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
       };
       try {
         const saved = await saveFiles(deps, project, request.body, me, { archiveMaxBytes });
+        let gone: GoneFlows = { repointed: [], off: [] };
         if (!saved.unchanged) {
-          const off = await turnOffGoneFlows(db, deps.git, project, saved, me);
-          if (off.length)
+          gone = await turnOffGoneFlows(db, deps.git, project, saved, me, {
+            changes: request.body.changes,
+            repoint: request.body.repoint === true,
+          });
+          if (gone.repointed.length)
             request.log.info(
-              { by: me.login, project: project.key, schedules: off },
-              'Schedules turned off: their flow was deleted',
+              { by: me.login, project: project.key, configs: gone.repointed.map((c) => c.name) },
+              'Launch configurations follow their moved flow',
+            );
+          if (gone.off.length)
+            request.log.info(
+              { by: me.login, project: project.key, schedules: gone.off.map((o) => o.name) },
+              'Schedules turned off: their flow was moved or deleted',
             );
         }
         if (!saved.unchanged)
@@ -205,7 +222,12 @@ export function registerFiles(app: FastifyInstance, deps: FilesRouteDeps): void 
             },
             'Files saved',
           );
-        return reply.code(saved.unchanged ? 200 : 201).send(saved);
+        // AFS-210: what the save did to the configurations and schedules of the flows it took away.
+        return reply.code(saved.unchanged ? 200 : 201).send({
+          ...saved,
+          ...(gone.repointed.length ? { repointed: gone.repointed } : {}),
+          ...(gone.off.length ? { turnedOff: gone.off } : {}),
+        });
       } catch (e) {
         if (e instanceof FilesRefused)
           return reply.code(STATUS[e.code]).send({

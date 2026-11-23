@@ -3,7 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import { fieldLabel, plainInvalid } from '../../src/server/api/invalid';
 import { collectionProblem } from '../../src/server/environments/collections';
-import { changeWords, defaultMessage } from '../../src/server/projects/changeWords';
+import {
+  changeWords,
+  defaultBody,
+  defaultMessage,
+  whereAfter,
+} from '../../src/server/projects/changeWords';
 import { plainCron } from '../../src/server/schedules/schedules';
 import { fieldProblem, fieldValue, privateKeyProblem } from '../../src/server/secrets/kinds';
 
@@ -122,5 +127,30 @@ describe('change words of a new file (AFS-153)', () => {
         existed,
       ),
     ).toBe('Add playbooks/new.yml; Delete playbooks/site.yml');
+  });
+});
+
+describe('AFS-210: what a change set does to a path, and its words', () => {
+  it('follows a path through moves of it or its folder; a delete takes it away', () => {
+    const changes = [
+      { op: 'move' as const, from: 'flows/motd', to: 'flows/motd-x' },
+      { op: 'move' as const, from: 'flows/motd-x/motd.flow.yaml', to: 'flows/b.flow.yaml' },
+    ];
+    expect(whereAfter('flows/motd/motd.flow.yaml', changes)).toBe('flows/b.flow.yaml');
+    // A folder named like the start of another is not it.
+    expect(whereAfter('flows/motd2/a.flow.yaml', changes)).toBe('flows/motd2/a.flow.yaml');
+    expect(whereAfter('flows/b.flow.yaml', [{ op: 'delete', path: 'flows' }])).toBeNull();
+  });
+
+  it('an upload over a file that is there replaces it; a long change set lists all in the body', () => {
+    const had = new Set(['inventory.ini']);
+    const existed = (path: string) => had.has(path);
+    expect(changeWords({ op: 'write', path: 'inventory.ini', base64: 'AA==' }, existed)).toBe(
+      'Replace inventory.ini with an upload',
+    );
+    expect(defaultBody([{ op: 'delete', path: 'a' }])).toBe('');
+    const many = ['a', 'b', 'c', 'd'].map((path) => ({ op: 'delete' as const, path }));
+    expect(defaultMessage(many)).toBe('Delete a and 3 more changes');
+    expect(defaultBody(many)).toBe('- Delete a\n- Delete b\n- Delete c\n- Delete d');
   });
 });

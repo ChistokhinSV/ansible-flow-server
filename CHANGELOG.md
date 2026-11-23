@@ -20,6 +20,9 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - The run's output says who said Step, Continue or Pause.
 - The **Launch** tab offers **Only at your pause points** and how long a pause waits; a real run's question says that it pauses.
 - Readers of a paused run are told who may go on.
+- Moving or renaming a flow in **Files** names, before Save, the launch configurations that run it and their schedules, and offers to point them at the new file in the same save. Deleting one there names them too.
+- A schedule the server turned off because its flow was moved or deleted says why on its page (`offWhy` in the API).
+- `repoint` on `POST /api/v1/projects/<id>/files`; the answer names the configurations it pointed at a moved flow (`repointed`) and the schedules it turned off (`turnedOff`).
 
 ### Changed
 
@@ -35,6 +38,10 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - Step times leave the pauses out ("ran 1 s, waited 31 s"); a time near a whole minute no longer reads "7 min 60 s".
 - A pause is said once in the run's output, in plain words, after the step before it.
 - Your own run that still goes stays in the flow page's **Latest runs** and on its canvas after others launched newer ones.
+- An upload over a file that is there says it replaces it ("Replace inventory.ini with an upload").
+- A Files save left without a message lists every change in the commit's body when its subject sums them up, so History shows them all.
+- History opens one commit at a time.
+- `?line=` in **Files** scrolls only as far as it takes to show the line: a line near the top keeps the page where it is.
 
 ### Fixed
 
@@ -48,6 +55,11 @@ Carries Ansible Flow Designer 1.1.0-rc.2.
 - A paused step's Run tab said "0 hosts" while hosts waited there.
 - "Stops by itself in 61 s" with a 60 s timeout.
 - The **Launch** tab's **Step by step** box was smaller than the radios beside it and grey in the dark theme; the host list's help said what it is twice.
+- A playbook imported with its role in the project's top `roles/` folder failed with "the role was not found" unless an `ansible.cfg` named that folder: runs now search `roles/` at the top of the project, after the roles path the config gives.
+- Moving a flow in **Files** broke its launch configurations and turned their schedules off without a word.
+- A refusal on a schedule stayed on the page after a later change was saved.
+- The History tab dropped `?commit=` unless it was the full 40-character hash: the 12 characters the pages show open the commit, also one older than the list shows, and a wrong one is said.
+- The clone help broke `-c http.sslBackend=openssl` across lines.
 
 ## 1.0.3 — Steps move again after Undo
 

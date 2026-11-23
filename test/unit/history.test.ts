@@ -206,6 +206,14 @@ describe("a project's history", () => {
       (await call(lina, 'GET', `/api/v1/projects/${project.id}/commits/${'0'.repeat(40)}`))
         .statusCode,
     ).toBe(404);
+    // AFS-210: the 12 characters the pages show name it too; a wrong id says so.
+    const short = (
+      await call(lina, 'GET', `/api/v1/projects/${project.id}/commits/${renamed.slice(0, 12)}`)
+    ).json();
+    expect(short.commit).toBe(renamed);
+    const wrong = await call(lina, 'GET', `/api/v1/projects/${project.id}/commits/zzz`);
+    expect(wrong.statusCode).toBe(404);
+    expect(wrong.json().message).toBe('The project has no commit zzz.');
   });
 
   it("lists a flow's commits: its flow and scenarios files", async () => {

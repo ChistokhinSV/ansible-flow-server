@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
-import { defaultMessage } from './changeWords';
+import { defaultBody, defaultMessage } from './changeWords';
 import { type Git, GitError, MAX_FILE_BYTES, refProblem, type TreeEntry } from './git';
 import { archiveFiles, MAX_FILES } from './start';
 import { type Project, recordPushes } from './store';
@@ -353,12 +353,14 @@ export async function saveFiles(
     // AFS-140: without a message, the words the page showed as its placeholder.
     const had = new Set(entries.map((e) => e.path));
     const subject = input.message?.trim() || defaultMessage(changes, (path) => had.has(path));
+    // AFS-210: a subject that sums the changes up has them all in the body.
+    const body = input.message?.trim() ? '' : defaultBody(changes, (path) => had.has(path));
     const commit = await deps.git.commitChanges(project.id, {
       parent: head.commit,
       writes,
       removes,
       author: { name: by.name, email: row?.email ?? `${by.login}@users.ansible-flow-server` },
-      message: `${subject}\n`,
+      message: body ? `${subject}\n\n${body}\n` : `${subject}\n`,
     });
     await deps.git.publish(
       project.id,

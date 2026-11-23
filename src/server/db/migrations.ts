@@ -9,6 +9,13 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-210: why a schedule was turned off by the server (its flow moved or deleted), for its page.
+  // Cleared when someone turns it on or off again.
+  '0034_schedule_off_why': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('schedule').addColumn('off_why', 'text').execute();
+    },
+  },
   // AFS-177: step-by-step runs: what a run was asked for (every step, pause points, how long a
   // pause waits) and the step it is paused before now, so a server that restarts ends it as
   // stopped; tokens that let an agent drive them (run_step); each person's pause points per flow.

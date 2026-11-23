@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RunView } from '@ansible-flow/core/protocol';
+import { CONTAINER, runProcess } from '@ansible-flow/core/run/command';
 import type { RunFlowHooks, RunFlowRequest } from '@ansible-flow/node/run/runFlow';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, openDatabase } from '../../src/server/db/database';
@@ -223,6 +224,40 @@ describe("the repository's Ansible config (AFS-80)", () => {
     expect(asked[0]?.image).toBe('afd-ee:2.19');
     expect(asked[0]?.root).toBe(seen[0]?.request.root);
     expect(seen[0]?.request.callbacks).toEqual(config);
+  });
+
+  it("AFS-210: the run's command searches the project's top roles/ after the config's roles_path", async () => {
+    // As the probe reads the config in the run image: roles_path's defaults (no ansible.cfg).
+    const config = {
+      enabled: [],
+      paths: [],
+      plugins: { roles: ['/home/runner/.ansible/roles', '/usr/share/ansible/roles'] },
+      varsEnabled: [],
+    };
+    const { ex, seen } = executor(async () => ({ rc: 0 }), { repoConfig: async () => config });
+    const run = await launch();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    const request = seen[0]?.request as RunFlowRequest;
+    expect(request.callbacks).toEqual(config);
+    // The command the runner makes of it: an imported playbook's role in roles/ is found.
+    const spec = runProcess(
+      request.env,
+      { root: request.root, probe: request.probeDir },
+      {
+        playbook: request.playbook,
+        check: true,
+        runDir: join(dataDir, 'r'),
+        vault: false,
+        hasConfig: false,
+        ...(request.callbacks ? { callbacks: request.callbacks } : {}),
+      },
+      'n',
+    );
+    expect(spec.args).toContain(
+      `ANSIBLE_ROLES_PATH=/home/runner/.ansible/roles:/usr/share/ansible/roles:${CONTAINER.root}/roles`,
+    );
   });
 
   it('a config that cannot be read leaves the run as before', async () => {

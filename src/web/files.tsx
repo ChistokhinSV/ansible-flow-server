@@ -2,7 +2,7 @@
 // changes made here, kept as a change set until Save makes one commit of them on the branch. The
 // change set lives in this browser until then (a reload keeps it); the server checks it all again.
 import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { changeWords, defaultMessage } from '../server/projects/changeWords';
+import { changeWords, defaultMessage, whereAfter } from '../server/projects/changeWords';
 import { atLeast, ProjectYourAccess, useProjectAccess } from './access';
 import { ApiError, api, type FileChange, type FileEntry, type User } from './api';
 import type { Editor } from './codeEditor';
@@ -376,6 +376,108 @@ function DeletedNote({
   );
 }
 
+/** AFS-210: a launch configuration that runs a flow the change set moves or deletes. */
+interface FlowUser {
+  config: { id: string; name: string; flowFile: string };
+  /** Where the flow is once saved; null: deleted. */
+  to: string | null;
+  /** It is still a flow file there, so the configuration can follow it. */
+  follows: boolean;
+  /** Its schedules that are on. */
+  schedules: string[];
+}
+
+const scheduleWords = (names: string[]) =>
+  names.length === 1 ? `the schedule ${names[0]}` : `the schedules ${names.join(', ')}`;
+
+/**
+ * AFS-210: before Save, as Delete does on a flow's page: the configurations that run a flow the
+ * change set moves or deletes, and their schedules; those of a moved flow may follow it.
+ */
+function FlowUsers({
+  users,
+  repoint,
+  setRepoint,
+}: {
+  users: FlowUser[];
+  repoint: boolean;
+  setRepoint(on: boolean): void;
+}) {
+  const moved = users.filter((u) => u.follows);
+  const gone = users.filter((u) => !u.follows);
+  const offIfLeft = moved.flatMap((u) => u.schedules);
+  return (
+    <div className="notice warn" data-flow-users>
+      {moved.length > 0 && (
+        <>
+          <p>
+            {moved.length === 1
+              ? 'A launch configuration runs a flow'
+              : 'Launch configurations run flows'}{' '}
+            these changes move:
+          </p>
+          <ul>
+            {moved.map((u) => (
+              <li key={u.config.id}>
+                <strong>{u.config.name}</strong> runs <code>{u.config.flowFile}</code>, which moves
+                to <code>{u.to}</code>
+                {u.schedules.length
+                  ? `; ${scheduleWords(u.schedules)} fire${u.schedules.length === 1 ? 's' : ''} it`
+                  : ''}
+              </li>
+            ))}
+          </ul>
+          <label>
+            <input
+              type="checkbox"
+              checked={repoint}
+              onChange={(e) => setRepoint(e.target.checked)}
+            />{' '}
+            Point {moved.length === 1 ? 'it' : 'them'} at the new file in the same save
+          </label>
+          {!repoint && (
+            <p>
+              Left as {moved.length === 1 ? 'it is, it cannot' : 'they are, they cannot'} launch
+              {offIfLeft.length
+                ? `, and ${scheduleWords(offIfLeft)} ${offIfLeft.length === 1 ? 'is' : 'are'} turned off`
+                : ''}
+              .
+            </p>
+          )}
+        </>
+      )}
+      {gone.length > 0 && (
+        <>
+          <p>
+            {gone.length === 1
+              ? 'A launch configuration runs a flow'
+              : 'Launch configurations run flows'}{' '}
+            these changes take away: {gone.length === 1 ? 'it cannot' : 'they cannot'} launch once
+            saved.
+          </p>
+          <ul>
+            {gone.map((u) => (
+              <li key={u.config.id}>
+                <strong>{u.config.name}</strong> runs <code>{u.config.flowFile}</code>
+                {u.to === null ? (
+                  ', which is deleted'
+                ) : (
+                  <>
+                    , moved to <code>{u.to}</code>, which is not a flow file
+                  </>
+                )}
+                {u.schedules.length
+                  ? `; ${scheduleWords(u.schedules)} ${u.schedules.length === 1 ? 'is' : 'are'} turned off`
+                  : ''}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PathForm({
   label,
   start,
@@ -589,6 +691,29 @@ export function FilesPage({
     /** AFS-150: `files` are what an archive would replace, asked about before it does. */
     replaces?: boolean;
   }>();
+  // AFS-210: the launch configurations that run a flow the change set moves or deletes (those that
+  // follow this branch, not pinned to a commit), with their schedules that are on, named before
+  // Save; those of a moved flow may follow it to its new file in the same save.
+  const takes = set.changes.filter((c) => c.op === 'move' || c.op === 'delete');
+  const users = useLoad(async () => {
+    if (!id || !project || !takes.length) return [];
+    const configs = await api.launchConfigs(id);
+    const hit = configs
+      .filter((c) => !c.commit && (c.gitRef ?? project.gitRef) === branch)
+      .map((config) => ({ config, to: whereAfter(config.flowFile, set.changes) }))
+      .filter((x) => x.to !== x.config.flowFile);
+    return Promise.all(
+      hit.map(async (x) => ({
+        ...x,
+        follows: x.to !== null && FLOW.test(x.to),
+        schedules: (await api.schedules(x.config.id).catch(() => []))
+          .filter((s) => s.enabled)
+          .map((s) => s.name),
+      })),
+    );
+  }, [id, branch, project?.gitRef, JSON.stringify(takes)]).data;
+  const [repoint, setRepoint] = useState(true);
+  const canFollow = !!users?.some((u) => u.follows);
   const uploads = useRef<HTMLInputElement>(null);
   const archive = useRef<HTMLInputElement>(null);
   const join = (folderPath: string, name: string) => (folderPath ? `${folderPath}/${name}` : name);
@@ -629,6 +754,7 @@ export function FilesPage({
         ...(set.base ? { base: set.base } : {}),
         // AFS-140: the message is what the placeholder showed when none is typed.
         message: message.trim() || defaultMessage(set.changes, existed),
+        ...(canFollow && repoint ? { repoint: true } : {}),
         // AFS-150: an archive replaces files that are there only once the person said it may.
         changes: replace
           ? set.changes.map((c) => (c.op === 'unpack' ? { ...c, replace: true } : c))
@@ -655,10 +781,19 @@ export function FilesPage({
       }
       update({ changes: [] });
       setMessage('');
+      // AFS-210: what the save did to the configurations and schedules of the flows it took.
+      const followed = (done.repointed ?? []).map((c) => `${c.name} now runs ${c.to}.`);
+      const off = (done.turnedOff ?? []).map(
+        (o) => `The schedule ${o.name} is turned off: ${o.why.replace(/^Its/, 'its')}.`,
+      );
       setSaid({
         ok: done.unchanged
           ? 'Nothing to save: the branch has the files as they are.'
-          : `Saved ${n} change${n === 1 ? '' : 's'} as ${done.commit.slice(0, 12)} on ${done.branch}.`,
+          : [
+              `Saved ${n} change${n === 1 ? '' : 's'} as ${done.commit.slice(0, 12)} on ${done.branch}.`,
+              ...followed,
+              ...off,
+            ].join(' '),
       });
       listing.reload();
       found.reload();
@@ -1029,7 +1164,12 @@ export function FilesPage({
             </p>
           )}
           {file && pending && pending.text === undefined && (
-            <p className="muted">Uploaded here: it is on the branch once saved.</p>
+            <p className="muted">
+              {/* AFS-210: an upload over a file the branch has says it replaces it. */}
+              {existed(file.from ?? file.path)
+                ? `Uploaded here: it replaces ${file.from ?? file.path} on ${branch} once saved.`
+                : 'Uploaded here: it is on the branch once saved.'}
+            </p>
           )}
           {file && pending?.preview !== undefined && (
             <TextView
@@ -1086,6 +1226,9 @@ export function FilesPage({
               </li>
             ))}
           </ul>
+          {canEdit && !!users?.length && (
+            <FlowUsers users={users} repoint={repoint} setRepoint={setRepoint} />
+          )}
           {canEdit ? (
             <div className="inline-form">
               <label>

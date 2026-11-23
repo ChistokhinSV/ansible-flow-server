@@ -336,3 +336,61 @@ describe('the tree after a change set', () => {
     expect(uploadedText(Buffer.from([0, 1, 2]).toString('base64'))).toBeUndefined();
   });
 });
+
+describe('AFS-210: moving a flow in Files', () => {
+  it('names the configurations and schedules that run it, and takes them along on Save', async () => {
+    window.localStorage.setItem(
+      'afs.files.p1.main',
+      JSON.stringify({
+        base: COMMIT,
+        changes: [{ op: 'move', from: 'flows/hello', to: 'flows/hi' }],
+      }),
+    );
+    routes['GET /projects/p1/launch-configs'] = () => ({
+      body: [
+        { id: 'c1', name: 'Hello nightly', flowFile: 'flows/hello/hello.flow.yaml' },
+        // Pinned to a commit: the flow stays there, nothing to say.
+        { id: 'c2', name: 'Hello pinned', flowFile: 'flows/hello/hello.flow.yaml', commit: COMMIT },
+      ],
+    });
+    routes['GET /launch-configs/c1/schedules'] = () => ({
+      body: [{ id: 's1', name: 'At three', enabled: true }],
+    });
+    routes['POST /projects/p1/files'] = () => ({
+      status: 201,
+      body: {
+        branch: 'main',
+        commit: 'b'.repeat(40),
+        files: ['flows/hello/hello.flow.yaml', 'flows/hi/hello.flow.yaml'],
+        repointed: [
+          {
+            id: 'c1',
+            name: 'Hello nightly',
+            from: 'flows/hello/hello.flow.yaml',
+            to: 'flows/hi/hello.flow.yaml',
+          },
+        ],
+      },
+    });
+    window.history.replaceState(null, '', '/w/net/core/files?path=templates%2Fweb.conf.j2');
+    render(<App />);
+    const note = (await screen.findByText(/run(s)? a flow/)).closest('[data-flow-users]');
+    expect(note?.textContent).toContain(
+      'Hello nightly runs flows/hello/hello.flow.yaml, which moves to flows/hi/hello.flow.yaml; the schedule At three fires it',
+    );
+    expect(note?.textContent).not.toContain('Hello pinned');
+    const follow = screen.getByRole('checkbox', { name: /Point it at the new file/ });
+    expect((follow as HTMLInputElement).checked).toBe(true);
+    // Left as it is, the page says what that means.
+    fireEvent.click(follow);
+    expect(note?.textContent).toContain(
+      'it cannot launch, and the schedule At three is turned off',
+    );
+    fireEvent.click(follow);
+    fireEvent.click(screen.getByRole('button', { name: 'Save to main' }));
+    expect(
+      await screen.findByText(/Hello nightly now runs flows\/hi\/hello.flow.yaml/),
+    ).toBeTruthy();
+    expect(sent('POST /projects/p1/files')[0]).toMatchObject({ repoint: true });
+  });
+});

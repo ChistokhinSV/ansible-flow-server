@@ -182,6 +182,27 @@ function CommitFiles({
   );
 }
 
+/** AFS-210: a commit opened from the address that the list does not show: its line and files. */
+function AskedCommit({
+  workspace,
+  project,
+  commit,
+}: {
+  workspace: string;
+  project: Project;
+  commit: string;
+}) {
+  const details = useLoad(() => api.commit(project.id, commit), [project.id, commit]);
+  const d = details.data;
+  return (
+    <div className="commit-row" data-commit={commit}>
+      <Loading state={details} />
+      {d ? <CommitLine commit={{ ...d, files: [] }} /> : null}
+      <CommitFiles workspace={workspace} project={project} commit={commit} />
+    </div>
+  );
+}
+
 /** The address's choices: branch, filter and the open commit. */
 function choicesInAddress() {
   const q = new URLSearchParams(window.location.search);
@@ -189,7 +210,8 @@ function choicesInAddress() {
   return {
     branch: q.get('branch') ?? '',
     q: q.get('q') ?? '',
-    open: HASH.test(commit) ? commit : '',
+    // AFS-210: a short id (as the pages show it) or a wrong one is looked up, not dropped.
+    asked: commit.trim(),
   };
 }
 
@@ -199,7 +221,20 @@ export function ProjectHistory({ workspace, project }: { workspace: string; proj
   const [branch, setBranch] = useState(start.branch || project.gitRef);
   const [typed, setTyped] = useState(start.q);
   const [q, setQ] = useState(start.q.trim());
-  const [open, setOpen] = useState<Set<string>>(() => new Set(start.open ? [start.open] : []));
+  // AFS-210: one commit open at a time; the address names it.
+  const [open, setOpen] = useState(HASH.test(start.asked) ? start.asked : '');
+  const [askedWrong, setAskedWrong] = useState<string>();
+  useEffect(() => {
+    if (!start.asked || HASH.test(start.asked)) return;
+    let live = true;
+    api
+      .commit(project.id, start.asked)
+      .then((d) => live && setOpen(d.commit))
+      .catch((e) => live && setAskedWrong(messageOf(e)));
+    return () => {
+      live = false;
+    };
+  }, [project.id, start.asked]);
   // The filter asks once typing pauses.
   useEffect(() => {
     const timer = setTimeout(() => setQ(typed.trim()), 300);
@@ -225,21 +260,20 @@ export function ProjectHistory({ workspace, project }: { workspace: string; proj
     const query = new URLSearchParams();
     if (branch !== project.gitRef) query.set('branch', branch);
     if (q) query.set('q', q);
-    const one = [...open].at(-1);
-    if (one) query.set('commit', one);
+    if (open) query.set('commit', open);
     window.history.replaceState(
       window.history.state,
       '',
       `${window.location.pathname}${query.size ? `?${query}` : ''}`,
     );
   }, [branch, q, open, project.gitRef]);
-  const toggle = (commit: string) =>
-    setOpen((now) => {
-      const next = new Set(now);
-      if (next.has(commit)) next.delete(commit);
-      else next.add(commit);
-      return next;
-    });
+  const toggle = (commit: string) => {
+    setAskedWrong(undefined);
+    setOpen((now) => (now === commit ? '' : commit));
+  };
+  // AFS-210: the commit the address opened, when it is not among the ones listed (older, or on
+  // another branch): shown above the list.
+  const outside = !!open && !list.loading && !list.commits.some((c) => c.commit === open);
   return (
     <section aria-label="History of the project" className="history">
       <div className="run-filters history-filters">
@@ -271,6 +305,22 @@ export function ProjectHistory({ workspace, project }: { workspace: string; proj
           {list.error}
         </p>
       ) : null}
+      {askedWrong ? (
+        <p className="notice warn" role="status">
+          {askedWrong} The list shows the newest commits of {branch}.
+        </p>
+      ) : null}
+      {outside ? (
+        <div className="commit-asked">
+          <p className="muted small">
+            The commit the address names; it is not among the commits listed below.{' '}
+            <button type="button" className="link" onClick={() => setOpen('')}>
+              Close it
+            </button>
+          </p>
+          <AskedCommit workspace={workspace} project={project} commit={open} />
+        </div>
+      ) : null}
       {list.loading && !list.commits.length ? (
         <p className="muted" aria-live="polite">
           Loading…
@@ -288,7 +338,7 @@ export function ProjectHistory({ workspace, project }: { workspace: string; proj
       {list.commits.length ? (
         <ul className="rows commit-rows">
           {list.commits.map((c) => {
-            const isOpen = open.has(c.commit);
+            const isOpen = open === c.commit;
             return (
               <li key={c.commit} className="commit-row" data-commit={c.commit}>
                 <button

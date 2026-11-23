@@ -160,7 +160,8 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
       schema: {
         params: {
           type: 'object',
-          properties: { id: text(64, 1), commit: COMMIT },
+          // AFS-210: a full id, or its start as the pages show it (7 characters or more).
+          properties: { id: text(64, 1), commit: SOME_COMMIT },
           required: ['id', 'commit'],
         },
       },
@@ -169,11 +170,18 @@ export function registerHistory(app: FastifyInstance, deps: HistoryRouteDeps): v
       if (!signedIn(request, reply)) return reply;
       const project = await getProject(db, request.params.id);
       if (!project) return reply.code(404).send(NO_PROJECT);
-      const { commit } = request.params;
-      if (!(await git.hasCommit(project.id, commit)))
+      const asked = request.params.commit;
+      const found = await git.findCommit(project.id, asked);
+      if ('ambiguous' in found)
+        return reply.code(404).send({
+          error: 'not_found',
+          message: `More than one commit of the project starts with ${asked}: give more of its id.`,
+        });
+      if ('none' in found)
         return reply
           .code(404)
-          .send({ error: 'not_found', message: 'The project has no such commit' });
+          .send({ error: 'not_found', message: `The project has no commit ${asked}.` });
+      const { commit } = found;
       const [one] = (await git.log(project.id, commit, { limit: 1 })).commits;
       if (!one)
         return reply

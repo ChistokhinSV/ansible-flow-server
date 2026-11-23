@@ -336,6 +336,34 @@ describe('schedules of a launch configuration', () => {
     );
   });
 
+  it('AFS-210: one the server turned off says why; a refusal goes once a change is saved', async () => {
+    const off = {
+      ...weekdays,
+      enabled: false,
+      next: undefined,
+      upcoming: [],
+      offWhy: 'Its flow flows/upgrade.flow.yaml was moved to flows/up.flow.yaml',
+    };
+    routes = {
+      ...page(dana, () => [off]),
+      'PATCH /launch-configs/c1/schedules/s1': (body) =>
+        (body as { enabled?: boolean }).enabled
+          ? {
+              status: 400,
+              body: { error: 'invalid', message: 'There is no flow flows/upgrade.flow.yaml' },
+            }
+          : { body: off },
+    };
+    show(dana);
+    const box = await section();
+    const one = await within(box).findByRole('article', { name: 'Weekdays at three' });
+    expect(within(one).getByText(/Turned off by the server: its flow flows\/upgrade/)).toBeTruthy();
+    fireEvent.click(within(one).getByRole('button', { name: 'Resume Weekdays at three' }));
+    expect((await within(box).findByRole('alert')).textContent).toContain('There is no flow');
+    fireEvent.click(within(one).getByRole('button', { name: 'Change Weekdays at three' }));
+    await waitFor(() => expect(within(box).queryByRole('alert')).toBeNull());
+  });
+
   it('an operator reads them and changes nothing', async () => {
     routes = page(omar, () => [weekdays]);
     show(omar);

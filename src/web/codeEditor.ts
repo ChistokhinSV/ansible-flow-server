@@ -151,7 +151,9 @@ export function createEditor(
     const at = view.state.doc.line(Math.min(Math.floor(options.line), view.state.doc.lines));
     view.dispatch({
       selection: { anchor: at.from },
-      effects: EditorView.scrollIntoView(at.from, { y: 'center' }),
+      // AFS-210: only as far as it takes to show it, with room around: a line near the top keeps
+      // the page (and its breadcrumb) where it is.
+      effects: EditorView.scrollIntoView(at.from, { y: 'nearest', yMargin: 160 }),
     });
   }
   return {
