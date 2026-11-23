@@ -4,6 +4,8 @@ All notable changes to Ansible Flow Server.
 
 ## Unreleased
 
+Carries Ansible Flow Designer 1.2.0-rc.1.
+
 ### Added
 
 - **Secret providers**: credentials can take a password, key, token or variable from HashiCorp Vault (AppRole or a token, KV version 2), CyberArk Conjur (a host's API key), CyberArk Central Credential Provider (AppID and a client certificate) or AWS Secrets Manager (an access key). Administrators keep the list under **Administration › Secret providers**, with each provider's own certificate authority, the workspaces that may use it, and **Test the provider**.
