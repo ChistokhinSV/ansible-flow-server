@@ -23,6 +23,7 @@ const WORKSPACES = [
   'git_push',
   'project',
   'credential',
+  'secret_provider',
   'workspace',
 ] as const;
 

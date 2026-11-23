@@ -13,6 +13,7 @@ import type { Schema } from '../db/schema';
 import type { InventoryAnswer, InventoryQuestion } from '../launch/facts';
 import type { Logger } from '../log';
 import type { MasterKey } from '../secrets/masterKey';
+import { SecretResolver } from '../secrets/providers/resolver';
 import { inventoryEnv, registrySignIn } from './credentials';
 import type { Engine } from './executor';
 import { rewriteMounts, type ToHost } from './hostPaths';
@@ -134,18 +135,33 @@ export class InventoryProbes {
     const engine = this.options.engine();
     if (!engine) throw new Error('no container engine answers on this server');
     const id = `probe-${Date.now().toString(36)}-${(this.next++).toString(36)}`;
-    const signIn = await registrySignIn(this.options.db, this.options.key, q.credentials);
-    if (signIn)
-      await pullWithSignIn(
-        engine,
-        q.image,
-        signIn,
-        join(this.options.secretsDir, `${id}-registry`),
+    // AFS-241: what credentials take from secret providers is read once for the probe, then the
+    // sign-ins are given back (the values stay only in the probe's environment).
+    const resolver = new SecretResolver(this.options.db, this.options.key, {
+      log: this.options.log,
+    });
+    let vars: Awaited<ReturnType<typeof inventoryEnv>>;
+    try {
+      const signIn = await registrySignIn(
+        this.options.db,
+        this.options.key,
+        q.credentials,
+        resolver,
       );
+      if (signIn)
+        await pullWithSignIn(
+          engine,
+          q.image,
+          signIn,
+          join(this.options.secretsDir, `${id}-registry`),
+        );
+      // A dynamic inventory may need the run's variables (a token for its source): those only.
+      vars = await inventoryEnv(this.options.db, this.options.key, q.credentials, resolver);
+    } finally {
+      await resolver.close();
+    }
     const workdir = await this.options.workdirs.checkout(q.project, q.commit, false, id);
     try {
-      // A dynamic inventory may need the run's variables (a token for its source): those only.
-      const vars = await inventoryEnv(this.options.db, this.options.key, q.credentials);
       const options = this.options.labels.flatMap((l) => ['--label', l]);
       const env: Environment = {
         kind: 'container',

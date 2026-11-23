@@ -9,6 +9,7 @@ import type { Schema } from '../db/schema';
 import { type Revealed, reveal } from '../secrets/credentials';
 import { KIND_NAME } from '../secrets/kinds';
 import type { MasterKey } from '../secrets/masterKey';
+import type { SecretResolver } from '../secrets/providers/resolver';
 import type { RegistrySignIn } from './registry';
 
 /** Where the run's container finds its key. */
@@ -37,6 +38,9 @@ export class CredentialProblem extends Error {
     this.name = 'CredentialProblem';
   }
 }
+
+/** AFS-241: the file of values read from secret providers, in the run's credential folder. */
+export const EXTERNAL_FILE = 'external-secrets.json';
 
 /** The variable the container's agent script reads the key's passphrase from. */
 const PASSPHRASE_VAR = 'AFS_SSH_PASSPHRASE';
@@ -86,14 +90,25 @@ const ASKPASS_SCRIPT = [
   '',
 ].join('\n');
 
+/** AFS-241: ", password from HashiCorp Vault "corp-vault"": where the read parts came from. */
+export function fromWords(from: Record<string, string>): string {
+  const byProvider = new Map<string, string[]>();
+  for (const [part, provider] of Object.entries(from))
+    byProvider.set(provider, [...(byProvider.get(provider) ?? []), part]);
+  return [...byProvider]
+    .map(([provider, parts]) => `, ${parts.join(' and ')} from ${provider}`)
+    .join('');
+}
+
 /** The registry sign-in among a run's credentials, if it has one (AFS-66). */
 export async function registrySignIn(
   db: Kysely<Schema>,
   key: MasterKey,
   ids: string[],
+  resolver?: SecretResolver,
 ): Promise<RegistrySignIn | undefined> {
   for (const id of ids) {
-    const c = await reveal(db, key, id);
+    const c = await reveal(db, key, id, resolver);
     if (c?.kind === 'registry' && c.fields.host && c.fields.username && c.secret.password)
       return {
         name: c.name,
@@ -113,10 +128,11 @@ export async function inventoryEnv(
   db: Kysely<Schema>,
   key: MasterKey,
   ids: string[],
+  resolver?: SecretResolver,
 ): Promise<{ options: string[]; processEnv: Record<string, string> }> {
   const out = { options: [] as string[], processEnv: {} as Record<string, string> };
   for (const id of ids) {
-    const c = await reveal(db, key, id);
+    const c = await reveal(db, key, id, resolver);
     if (c?.kind !== 'env') continue;
     for (const [name, value] of Object.entries(c.secret)) {
       out.options.push('-e', name);
@@ -137,6 +153,11 @@ export async function runCredentials(
    * key only its owner can read.
    */
   owner?: { uid: number; gid: number },
+  /**
+   * AFS-241: reads the parts taken from secret providers, once per run; the run closes it as it
+   * ends (Vault tokens are revoked then).
+   */
+  resolver?: SecretResolver,
 ): Promise<RunCredentials> {
   const result: RunCredentials = {
     vars: {},
@@ -149,7 +170,7 @@ export async function runCredentials(
   };
   const revealed: Revealed[] = [];
   for (const id of ids) {
-    const credential = await reveal(db, key, id);
+    const credential = await reveal(db, key, id, resolver);
     if (!credential) throw new CredentialProblem('A credential of the run is gone');
     revealed.push(credential);
   }
@@ -159,6 +180,7 @@ export async function runCredentials(
   };
   for (const c of revealed) {
     const { fields, secret: s } = c;
+    const notes = result.notes.length;
     switch (c.kind) {
       case 'ssh_key': {
         await mkdir(secretsDir, { recursive: true, mode: 0o700 });
@@ -229,8 +251,32 @@ export async function runCredentials(
       default:
         throw new CredentialProblem(`${c.name} (${KIND_NAME[c.kind]}) is not for a run`);
     }
+    // AFS-241: the note names the provider a part came from, never its path.
+    if (c.from && result.notes.length > notes)
+      result.notes[result.notes.length - 1] += fromWords(c.from);
+  }
+  // AFS-241: values read from secret providers (and each value inside a JSON one) go to a file
+  // of their own in the run's credential folder, named by AFD_EXTERNAL_SECRETS_FILE: the engine
+  // masks them as "external" in every event. Not AFD_SECRETS_FILE, which is also given to Ansible
+  // as extra variables.
+  const external = resolver?.hidden() ?? [];
+  if (external.length) {
+    await mkdir(secretsDir, { recursive: true, mode: 0o700 });
+    await chmod(secretsDir, 0o700);
+    const file = join(secretsDir, EXTERNAL_FILE);
+    await writeFile(file, JSON.stringify(external), { mode: 0o600 });
+    await chmod(file, 0o600);
+    if (owner) {
+      await chown(secretsDir, owner.uid, owner.gid);
+      await chown(file, owner.uid, owner.gid);
+    }
+    if (!result.mounts.some((m) => m.dest === CREDENTIAL_DIR))
+      result.mounts.push({ src: secretsDir, dest: CREDENTIAL_DIR, options: 'ro' });
+    result.options.push('-e', `AFD_EXTERNAL_SECRETS_FILE=${CREDENTIAL_DIR}/${EXTERNAL_FILE}`);
+    result.cleanup = () => rm(secretsDir, { recursive: true, force: true });
+    result.secrets.push(...external);
   }
   // Short values would hide ordinary words in the output; the store's rules make them rare.
-  result.secrets = result.secrets.filter((v) => v.length >= 4);
+  result.secrets = [...new Set(result.secrets.filter((v) => v.length >= 4))];
   return result;
 }

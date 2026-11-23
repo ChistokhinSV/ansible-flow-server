@@ -45,7 +45,9 @@ import type { MetricsSink } from '../ops/metrics';
 import type { Git } from '../projects/git';
 import { getProject } from '../projects/store';
 import type { ProjectSync } from '../projects/sync';
+import { reveal } from '../secrets/credentials';
 import type { MasterKey } from '../secrets/masterKey';
+import { SecretResolver } from '../secrets/providers/resolver';
 import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
@@ -695,6 +697,8 @@ export class Executor implements Stepper {
 
     let workdir: Awaited<ReturnType<Workdirs['checkout']>> | undefined;
     let cleanup: (() => Promise<void>) | undefined;
+    /** AFS-241: reads the run's secrets from providers, once; closed as the run ends. */
+    let resolver: SecretResolver | undefined;
     try {
       output = createWriteStream(this.outputFile(r.id), { flags: 'a', mode: 0o600 });
       const project = await getProject(this.deps.db, r.project);
@@ -738,7 +742,14 @@ export class Executor implements Stepper {
       }
       // AFS-66: a registry credential signs in and pulls the image first; reading the image's
       // user (below) already needs the image.
-      const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials);
+      // AFS-241: the parts of its credentials taken from secret providers are read now, as the run
+      // really starts, once, before any container: a read that fails ends the run here.
+      resolver = new SecretResolver(this.deps.db, this.deps.key, {
+        log: say,
+        run: { id: r.id, number: r.number },
+      });
+      for (const id of r.credentials) await reveal(this.deps.db, this.deps.key, id, resolver);
+      const signIn = await registrySignIn(this.deps.db, this.deps.key, r.credentials, resolver);
       if (signIn && this.engine && !this.options.runner) {
         try {
           line(
@@ -760,11 +771,15 @@ export class Executor implements Stepper {
         r.credentials,
         join(this.options.dataDir, 'secrets-tmp', r.id),
         owner,
+        resolver,
       );
       cleanup = creds.cleanup;
       const inputs = { ...job.inputs, ...creds.vars };
+      // AFS-241: values read from providers, and each value inside a JSON one.
+      const external = resolver.hidden();
       hidden = [
         ...creds.secrets,
+        ...external,
         ...Object.entries(inputs)
           .filter(([name]) => /pass|secret|token|key/i.test(name))
           .map(([, v]) => String(v))
@@ -1161,6 +1176,8 @@ export class Executor implements Stepper {
       // AFS-116: the run's token ends with this turn (a run waiting for a person gets a new one).
       await revokeRunTokens(this.deps.db, r.id).catch(() => undefined);
       await cleanup?.().catch(() => undefined);
+      // AFS-241: Vault tokens the run signed in with are revoked; the values are dropped.
+      await resolver?.close().catch(() => undefined);
       await workdir?.release().catch(() => undefined);
       await new Promise<void>((resolve) => (output ? output.end(resolve) : resolve()));
     }

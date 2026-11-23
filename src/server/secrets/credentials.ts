@@ -19,6 +19,16 @@ import {
   SPEC,
 } from './kinds';
 import type { MasterKey } from './masterKey';
+import { SecretReadError } from './providers/http';
+import { SecretResolver } from './providers/resolver';
+import { getSecretProvider, listSecretProviders, resealSecretProviders } from './providers/store';
+import {
+  PROVIDER_KIND_NAME,
+  providerWords,
+  type RefShown,
+  refProblem,
+  type SecretRef,
+} from './providers/types';
 
 export type { CredentialKind } from './kinds';
 export { GIT_KINDS, KINDS } from './kinds';
@@ -37,6 +47,11 @@ export interface Credential {
   fields: Record<string, string>;
   /** The names of the secret parts it holds; for `env`, the names of its variables. */
   has: string[];
+  /**
+   * AFS-241: the secret parts taken from a secret provider, by name. The path is given only to
+   * the workspace's administrators; others see which provider.
+   */
+  refs?: Record<string, RefShown>;
   /** How many projects (for their repository) and launch configurations use it. */
   usedBy: number;
   /**
@@ -54,6 +69,8 @@ export interface Revealed {
   name: string;
   fields: Record<string, string>;
   secret: Record<string, string>;
+  /** AFS-241: the secret parts read from a provider: the provider in words, by part. */
+  from?: Record<string, string>;
 }
 
 export class CredentialError extends Error {
@@ -83,6 +100,8 @@ export interface CredentialInput {
   description?: string;
   fields?: Record<string, string>;
   secret: Record<string, string>;
+  /** AFS-241: secret parts taken from a secret provider, by name (they are not in `secret`). */
+  refs?: Record<string, SecretRef>;
 }
 
 type Db = Kysely<Schema>;
@@ -112,6 +131,8 @@ function checked(
   kind: CredentialKind,
   fields: Record<string, string> = {},
   secret: Record<string, string>,
+  /** AFS-241: the secret parts taken from a provider: they count as given. */
+  fromProvider: string[] = [],
 ): { fields: Record<string, string>; secret: Record<string, string> } {
   const spec = SPEC[kind];
   if (!spec) throw invalid(`There is no kind ${kind}: use one of ${KINDS.join(', ')}`);
@@ -123,8 +144,12 @@ function checked(
   if (kind === 'env') {
     const names = Object.keys(secret);
     if (Object.keys(fields).length) throw invalid('Variables have no other fields');
-    if (!names.length) throw invalid('Give at least one variable');
-    if (names.length > MAX_VARIABLES) throw invalid(`At most ${MAX_VARIABLES} variables`);
+    for (const name of fromProvider)
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(name))
+        throw invalid(`"${name.slice(0, 40)}" is not a variable name`);
+    if (!names.length && !fromProvider.length) throw invalid('Give at least one variable');
+    if (names.length + fromProvider.length > MAX_VARIABLES)
+      throw invalid(`At most ${MAX_VARIABLES} variables`);
     for (const name of names) {
       if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(name))
         throw invalid(`"${name.slice(0, 40)}" is not a variable name`);
@@ -149,26 +174,102 @@ function checked(
       throw invalid(`A ${kind} credential has no secret "${name.slice(0, 40)}"`);
     if (text(value, name, MAX_VALUE)) cleanSecret[name] = value;
   }
+  for (const name of fromProvider)
+    if (!spec.secret.includes(name))
+      throw invalid(`A ${kind} credential has no secret "${name.slice(0, 40)}"`, name);
   for (const name of spec.required)
-    if (!(cleanFields[name] ?? cleanSecret[name]))
+    if (!(cleanFields[name] ?? cleanSecret[name]) && !fromProvider.includes(name))
       throw invalid(`This credential needs ${LABEL[name] ?? name}.`, name);
   const keyProblem = cleanSecret.privateKey ? privateKeyProblem(cleanSecret.privateKey) : undefined;
   if (keyProblem) throw invalid(keyProblem, 'privateKey');
   return { fields: cleanFields, secret: cleanSecret };
 }
 
-const credentialOf = (row: Row, usedBy = 0): Credential => ({
-  id: row.id,
-  workspace: row.workspace_id,
-  name: row.name,
-  kind: row.kind as CredentialKind,
-  ...(row.description ? { description: row.description } : {}),
-  fields: JSON.parse(row.fields_json) as Record<string, string>,
-  has: JSON.parse(row.has_json) as string[],
-  usedBy,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+const refsOf = (row: Pick<Row, 'refs_json'>): Record<string, SecretRef> =>
+  row.refs_json ? (JSON.parse(row.refs_json) as Record<string, SecretRef>) : {};
+
+const credentialOf = (row: Row, usedBy = 0): Credential => {
+  const refs = refsOf(row);
+  return {
+    id: row.id,
+    workspace: row.workspace_id,
+    name: row.name,
+    kind: row.kind as CredentialKind,
+    ...(row.description ? { description: row.description } : {}),
+    fields: JSON.parse(row.fields_json) as Record<string, string>,
+    has: JSON.parse(row.has_json) as string[],
+    ...(Object.keys(refs).length
+      ? {
+          refs: Object.fromEntries(
+            Object.entries(refs).map(([name, { provider, ...path }]) => [name, { provider, path }]),
+          ),
+        }
+      : {}),
+    usedBy,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+/**
+ * AFS-241: credentials as one person may see them: each reference names its provider (name and
+ * kind); its path only when `paths` (the workspace's administrators, who fix a broken one).
+ */
+export async function shownRefs(db: Db, list: Credential[], paths: boolean): Promise<Credential[]> {
+  if (!list.some((c) => c.refs)) return list;
+  const providers = new Map((await listSecretProviders(db)).map((p) => [p.key, p]));
+  return list.map((c) =>
+    c.refs
+      ? {
+          ...c,
+          refs: Object.fromEntries(
+            Object.entries(c.refs).map(([name, r]) => {
+              const p = providers.get(r.provider);
+              const shown: RefShown = {
+                provider: r.provider,
+                ...(p ? { providerName: p.name, kind: p.kind } : {}),
+                ...(paths && r.path ? { path: r.path } : {}),
+              };
+              return [name, shown];
+            }),
+          ),
+        }
+      : c,
+  );
+}
+
+/**
+ * AFS-241: the references as kept: each to a provider that exists and is open to the workspace,
+ * in the shape its kind takes. Checked when saved; read only when a run starts.
+ */
+async function checkedRefs(
+  db: Db,
+  workspaceId: string,
+  refs: Record<string, SecretRef> | undefined,
+): Promise<Record<string, SecretRef>> {
+  const out: Record<string, SecretRef> = {};
+  for (const [name, ref] of Object.entries(refs ?? {})) {
+    if (!ref || typeof ref !== 'object' || typeof ref.provider !== 'string')
+      throw invalid(`${name}: name the secret provider it is read from`, name);
+    const provider = await getSecretProvider(db, ref.provider);
+    if (!provider?.workspaces.includes(workspaceId))
+      throw invalid(
+        `${name}: there is no secret provider "${String(ref.provider).slice(0, 40)}" open to this workspace`,
+        name,
+      );
+    const problem = refProblem(provider.kind, ref);
+    if (problem) throw invalid(`${name}: ${problem}`, name);
+    const clean: SecretRef = { provider: provider.key };
+    for (const [part, v] of Object.entries(ref))
+      if (part !== 'provider' && typeof v === 'string' && v.trim()) clean[part] = v.trim();
+    out[name] = clean;
+  }
+  return out;
+}
+
+/** A credential's stored part without what is taken from a provider. */
+const withoutRefs = (secret: Record<string, string>, refs: Record<string, SecretRef>) =>
+  Object.fromEntries(Object.entries(secret).filter(([n]) => !(n in refs)));
 
 async function uses(db: Db): Promise<Map<string, number>> {
   const rows = await db
@@ -241,7 +342,13 @@ export async function createCredential(
   input: CredentialInput,
 ): Promise<Credential> {
   const name = checkedName(input.name);
-  const { fields, secret } = checked(input.kind, input.fields, input.secret);
+  const refs = await checkedRefs(db, workspaceId, input.refs);
+  const { fields, secret } = checked(
+    input.kind,
+    input.fields,
+    withoutRefs(input.secret, refs),
+    Object.keys(refs),
+  );
   if (
     !(await db
       .selectFrom('workspace')
@@ -259,8 +366,9 @@ export async function createCredential(
     kind: input.kind,
     description: input.description?.trim() || null,
     fields_json: JSON.stringify(fields),
-    has_json: JSON.stringify(Object.keys(secret).sort()),
+    has_json: JSON.stringify([...new Set([...Object.keys(secret), ...Object.keys(refs)])].sort()),
     secret_enc: seal(key, JSON.stringify(secret), context(id)),
+    refs_json: Object.keys(refs).length ? JSON.stringify(refs) : null,
     created_at: at,
     updated_at: at,
   };
@@ -281,6 +389,8 @@ export interface CredentialChange {
   fields?: Record<string, string>;
   /** Replaces the secret part, whole: what is there cannot be read to be kept. */
   secret?: Record<string, string>;
+  /** AFS-241: replaces the parts taken from a secret provider, whole; null: none. */
+  refs?: Record<string, SecretRef> | null;
 }
 
 export async function updateCredential(
@@ -295,17 +405,26 @@ export async function updateCredential(
   const set: Partial<Row> = { updated_at: now() };
   if (change.name !== undefined) set.name = checkedName(change.name);
   if (change.description !== undefined) set.description = change.description?.trim() || null;
-  if (change.fields !== undefined || change.secret !== undefined) {
-    // The two parts are checked together: what one needs may be in the other.
-    const secret =
+  if (change.fields !== undefined || change.secret !== undefined || change.refs !== undefined) {
+    // The parts are checked together: what one needs may be in another.
+    const refs =
+      change.refs !== undefined
+        ? await checkedRefs(db, row.workspace_id, change.refs ?? {})
+        : refsOf(row);
+    const secret = withoutRefs(
       change.secret ??
-      (JSON.parse(open(key, row.secret_enc, context(id))) as Record<string, string>);
+        (JSON.parse(open(key, row.secret_enc, context(id))) as Record<string, string>),
+      refs,
+    );
     const fields = change.fields ?? (JSON.parse(row.fields_json) as Record<string, string>);
-    const good = checked(kind, fields, secret);
+    const good = checked(kind, fields, secret, Object.keys(refs));
     set.fields_json = JSON.stringify(good.fields);
-    if (change.secret !== undefined) {
-      set.has_json = JSON.stringify(Object.keys(good.secret).sort());
+    if (change.secret !== undefined || change.refs !== undefined) {
+      set.has_json = JSON.stringify(
+        [...new Set([...Object.keys(good.secret), ...Object.keys(refs)])].sort(),
+      );
       set.secret_enc = seal(key, JSON.stringify(good.secret), context(id));
+      set.refs_json = Object.keys(refs).length ? JSON.stringify(refs) : null;
     }
   }
   try {
@@ -351,16 +470,82 @@ export async function deleteCredential(db: Db, id: string): Promise<void> {
   });
 }
 
-/** A credential with its secret part. For the server's own use: never an answer to a request. */
-export async function reveal(db: Db, key: MasterKey, id: string): Promise<Revealed | undefined> {
+/**
+ * A credential with its secret part. For the server's own use: never an answer to a request.
+ * AFS-241: the parts taken from a provider are read through `resolver` (a run's, which reads each
+ * once per run); without one, through a resolver of this call only, closed before it returns. A
+ * read that fails throws a SecretReadError whose words name no path.
+ */
+export async function reveal(
+  db: Db,
+  key: MasterKey,
+  id: string,
+  resolver?: SecretResolver,
+): Promise<Revealed | undefined> {
   const row = await db.selectFrom('credential').selectAll().where('id', '=', id).executeTakeFirst();
   if (!row) return undefined;
+  const secret = JSON.parse(open(key, row.secret_enc, context(id))) as Record<string, string>;
+  const refs = refsOf(row);
+  const from: Record<string, string> = {};
+  if (Object.keys(refs).length) {
+    const own = resolver ? undefined : new SecretResolver(db, key);
+    const reading = (resolver ?? own) as SecretResolver;
+    try {
+      for (const [name, ref] of Object.entries(refs)) {
+        secret[name] = await reading.value(
+          { id: row.id, name: row.name, workspace: row.workspace_id },
+          name,
+          ref,
+        );
+        const provider = await getSecretProvider(db, ref.provider);
+        from[name] = provider ? providerWords(provider.kind, provider.name) : ref.provider;
+      }
+    } finally {
+      await own?.close();
+    }
+  }
   return {
     kind: row.kind as CredentialKind,
     name: row.name,
     fields: JSON.parse(row.fields_json) as Record<string, string>,
-    secret: JSON.parse(open(key, row.secret_enc, context(id))) as Record<string, string>,
+    secret,
+    ...(Object.keys(from).length ? { from } : {}),
   };
+}
+
+/**
+ * AFS-241: reads a reference not saved yet (a credential form's Test read) through a resolver of
+ * its own. Says whether it could be read, never the value.
+ */
+export async function testRef(
+  db: Db,
+  key: MasterKey,
+  workspaceId: string,
+  ref: SecretRef,
+  log?: { warn(o: Record<string, unknown>, m: string): void },
+): Promise<{ ok: boolean; message: string }> {
+  const resolver = new SecretResolver(db, key, log ? { log } : {});
+  try {
+    const provider = await getSecretProvider(db, String(ref?.provider ?? ''));
+    if (!provider?.workspaces.includes(workspaceId))
+      return { ok: false, message: 'There is no such secret provider open to this workspace' };
+    const problem = refProblem(provider.kind, ref);
+    if (problem) return { ok: false, message: problem };
+    await resolver.value({ id: 'test', name: 'tested', workspace: workspaceId }, 'test', ref);
+    return {
+      ok: true,
+      message: `Read from ${PROVIDER_KIND_NAME[provider.kind]} "${provider.name}" (the value is not shown)`,
+    };
+  } catch (e) {
+    if (e instanceof SecretReadError)
+      return {
+        ok: false,
+        message: e.message.split('Cannot read the credential "tested" (test): ').join(''),
+      };
+    throw e;
+  } finally {
+    await resolver.close();
+  }
 }
 
 /** What git sends as HTTP Basic sign-in for a credential a project may use for its source. */
@@ -452,11 +637,21 @@ export async function rotate(db: Db, from: MasterKey, to: MasterKey): Promise<nu
     const directories = await resealDirectories(trx, again);
     // AFS-61: the push hooks' secrets.
     const hooks = await resealHookSecrets(trx, again);
+    // AFS-241: the secret providers' tokens and keys.
+    const secretProviders = await resealSecretProviders(trx, again);
     await trx.deleteFrom('setting').where('name', '=', CHECK).execute();
     await trx
       .insertInto('setting')
       .values({ name: CHECK, value: seal(to, CHECK_TEXT, CHECK), updated_at: now() })
       .execute();
-    return rows.length + runs.length + settings.length + providers + directories + hooks;
+    return (
+      rows.length +
+      runs.length +
+      settings.length +
+      providers +
+      directories +
+      hooks +
+      secretProviders
+    );
   });
 }

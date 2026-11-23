@@ -2,6 +2,16 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- **Secret providers**: credentials can take a password, key, token or variable from HashiCorp Vault (AppRole or a token, KV version 2), CyberArk Conjur (a host's API key), CyberArk Central Credential Provider (AppID and a client certificate) or AWS Secrets Manager (an access key). Administrators keep the list under **Administration › Secret providers**, with each provider's own certificate authority, the workspaces that may use it, and **Test the provider**.
+- In a credential's form, each secret part is **Stored here** or **From a secret provider**, with **Test read**, which says whether it reads and never shows the value. The workspace's administrators see where each part is read from; others see which provider.
+- A run reads these values once as it starts (after its approval, at its schedule's time), hides them from its output and events (a JSON secret value by value too), names the provider in its output, and revokes the Vault token it signed in with when it ends. A read that fails ends the run before any container starts, saying the credential, the provider and why, never the path.
+- The audit log records each read for a run, and every test.
+- The API: `/api/v1/admin/secret-providers`, `refs` on credentials, `/api/v1/workspaces/<id>/secret-providers` and `/api/v1/workspaces/<id>/secret-refs/test`.
+
 ## 1.1.0 — Step by step runs, pause points, and who may run each action
 
 Carries Ansible Flow Designer 1.1.0.

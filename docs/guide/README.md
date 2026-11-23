@@ -37,6 +37,7 @@ endpoint for agents.
 | Page                                                | About                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------ |
 | [Configuration](configuration.md)                   | Every setting, from the environment or a `.env` file                     |
+| [Secret providers](secret-providers.md)             | Credentials that read their secrets from Vault, CyberArk or AWS          |
 | [HTTPS and the certificate](certificates.md)        | The server's certificate: request, install, replace, roll back           |
 | [People, groups and sign-in](people-and-sign-in.md) | Users, groups, access levels, tokens, OIDC and LDAP                      |
 | [The audit log](audit.md)                           | Who did what and when, filtered and exported                             |

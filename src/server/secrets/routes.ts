@@ -5,6 +5,7 @@
 //   /api/v1/credentials/:id
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
+import { accessOf } from '../access/grants';
 import { changedKeys } from '../audit/changes';
 import { administrator, signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
@@ -19,10 +20,12 @@ import {
   getCredential,
   KINDS,
   listCredentials,
+  shownRefs,
   updateCredential,
 } from './credentials';
 import { SealError } from './crypto';
 import type { MasterKey } from './masterKey';
+import { REF } from './providers/routes';
 
 export interface SecretDeps {
   db: Kysely<Schema>;
@@ -44,6 +47,8 @@ const map = (max: number) => ({
 });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
 const NONE = { error: 'not_found', message: 'No such credential' };
+/** AFS-241: the secret parts taken from a provider, by name. */
+const REFS = { type: 'object', maxProperties: 120, additionalProperties: REF };
 /** A request with a secret in it is small: the largest is a private key. */
 const BODY_LIMIT = 256 * 1024;
 
@@ -77,7 +82,9 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
     const workspace = await getWorkspace(db, request.params.id);
     if (!workspace)
       return reply.code(404).send({ error: 'not_found', message: 'No such workspace' });
-    const list = await listCredentials(db, workspace.id);
+    // AFS-241: a reference's path is for the workspace's administrators, who fix a broken one.
+    const paths = me.admin || (await accessOf(db, request))?.onWorkspace(workspace.id) === 'rw';
+    const list = await shownRefs(db, await listCredentials(db, workspace.id), paths);
     if (!me.admin) return list;
     // AFS-150: an administrator (who may delete one) is told what uses each, by name.
     const uses = await credentialUses(db, workspace.id);
@@ -100,6 +107,7 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
             description: text(1000),
             fields: map(500),
             secret: map(64 * 1024),
+            refs: REFS,
           },
         },
       },
@@ -110,7 +118,9 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
       const workspace = await getWorkspace(db, request.params.id);
       if (!workspace)
         return reply.code(404).send({ error: 'not_found', message: 'No such workspace' });
-      const made = await createCredential(db, key, workspace.id, request.body);
+      const made = (
+        await shownRefs(db, [await createCredential(db, key, workspace.id, request.body)], true)
+      )[0] as NonNullable<Awaited<ReturnType<typeof getCredential>>>;
       request.log.info(
         { by: me.login, workspace: workspace.key, credential: made.name, kind: made.kind },
         'Credential added',
@@ -120,8 +130,12 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
   );
 
   app.get<WithId>('/api/v1/credentials/:id', { schema: ID }, async (request, reply) => {
-    if (!signedIn(request, reply)) return reply;
-    return (await getCredential(db, request.params.id)) ?? reply.code(404).send(NONE);
+    const me = signedIn(request, reply);
+    if (!me) return reply;
+    const found = await getCredential(db, request.params.id);
+    if (!found) return reply.code(404).send(NONE);
+    const paths = me.admin || (await accessOf(db, request))?.onWorkspace(found.workspace) === 'rw';
+    return (await shownRefs(db, [found], paths))[0];
   });
 
   app.patch<WithId & { Body: CredentialChange }>(
@@ -138,6 +152,7 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
             description: { type: ['string', 'null'], maxLength: 1000 },
             fields: map(500),
             secret: map(64 * 1024),
+            refs: { ...REFS, type: ['object', 'null'] },
           },
         },
       },
@@ -146,14 +161,22 @@ export function registerCredentials(app: FastifyInstance, deps: SecretDeps): voi
       const me = administrator(request, reply);
       if (!me) return reply;
       const before = await getCredential(db, request.params.id);
-      const changed = await updateCredential(db, key, request.params.id, request.body);
+      const changed = (
+        await shownRefs(
+          db,
+          [await updateCredential(db, key, request.params.id, request.body)],
+          true,
+        )
+      )[0] as NonNullable<Awaited<ReturnType<typeof getCredential>>>;
       // AFS-153: the fields whose values changed; a secret sent is a new secret (it is never
       // read back to compare).
-      const { secret, ...open } = request.body;
+      const { secret, refs, ...open } = request.body;
       request.auditDetail = {
         changed: [
           ...changedKeys(open, before, changed),
           ...(secret && Object.keys(secret).length ? ['secret'] : []),
+          // AFS-241: that its references changed, not where they point.
+          ...(refs !== undefined ? ['refs'] : []),
         ],
       };
       request.log.info(

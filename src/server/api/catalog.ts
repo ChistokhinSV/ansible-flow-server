@@ -506,6 +506,17 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     K,
   )('Delete a credential (refused while used)'),
+  // AFS-241: secret parts taken from a secret provider.
+  'GET /api/v1/workspaces/:id/secret-providers': S(
+    'Credentials',
+    'administrators',
+    W,
+  )('The secret providers open to the workspace: what a credential may read its secrets from'),
+  'POST /api/v1/workspaces/:id/secret-refs/test': S(
+    'Credentials',
+    'administrators',
+    W,
+  )('Test read of a reference to a secret provider: whether it reads, never the value'),
 
   'GET /api/v1/projects/:id/launch-configs': S(
     'Launch configurations',
@@ -975,6 +986,39 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     'server',
   )('Whether the provider answers its discovery, and what it offers'),
+  // AFS-241: secret providers (HashiCorp Vault, CyberArk Conjur and CCP, AWS Secrets Manager).
+  'GET /api/v1/admin/secret-providers': S(
+    'Secret providers',
+    'administrators',
+    'server',
+  )('The secret providers credentials may read their secrets from (never their own secrets)'),
+  'POST /api/v1/admin/secret-providers': S(
+    'Secret providers',
+    'administrator session',
+    'server',
+  )(
+    'Add a secret provider: its kind, address, CA, timeout, its own settings, its secret part (never shown again) and the workspaces that may use it',
+  ),
+  'GET /api/v1/admin/secret-providers/:id': S(
+    'Secret providers',
+    'administrators',
+    'server',
+  )('One secret provider, with the credentials that read from it (`uses`)'),
+  'PATCH /api/v1/admin/secret-providers/:id': S(
+    'Secret providers',
+    'administrator session',
+    'server',
+  )('Change a secret provider; a secret part left out is kept, one given replaces it whole'),
+  'DELETE /api/v1/admin/secret-providers/:id': S(
+    'Secret providers',
+    'administrator session',
+    'server',
+  )('Remove a secret provider (refused while a credential reads from it)'),
+  'POST /api/v1/admin/secret-providers/:id/test': S(
+    'Secret providers',
+    'administrators',
+    'server',
+  )('Sign in to the provider; with `ref`, read that secret too. The value is never answered'),
   // AFS-31: LDAP and Active Directory directories.
   'GET /api/v1/admin/ldap-directories': S(
     'Sign-in',

@@ -169,6 +169,16 @@ export const ACTIONS: Record<string, Action> = {
   'PATCH /api/v1/admin/oidc-providers/:id': { action: 'oidc-provider.change', id: at() },
   'DELETE /api/v1/admin/oidc-providers/:id': { action: 'oidc-provider.delete', id: at() },
   'PUT /api/v1/admin/sign-in': { action: 'sign-in.change', id: 'none' },
+  // AFS-241: secret providers, and tests that read a secret (never its value).
+  'POST /api/v1/admin/secret-providers': { action: 'secret-provider.create', id: 'reply' },
+  'PATCH /api/v1/admin/secret-providers/:id': { action: 'secret-provider.change', id: at() },
+  'DELETE /api/v1/admin/secret-providers/:id': { action: 'secret-provider.delete', id: at() },
+  'POST /api/v1/admin/secret-providers/:id/test': { action: 'secret-provider.test', id: at() },
+  'POST /api/v1/workspaces/:id/secret-refs/test': {
+    action: 'credential.test-read',
+    id: 'none',
+    parent: 'workspace',
+  },
   // AFS-31: directories.
   'POST /api/v1/admin/ldap-directories': { action: 'ldap-directory.create', id: 'reply' },
   'PATCH /api/v1/admin/ldap-directories/:id': { action: 'ldap-directory.change', id: at() },
@@ -337,6 +347,14 @@ async function nameOf(
     case 'oidc-provider':
       return one(
         db.selectFrom('oidc_provider').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'secret-provider':
+      return one(
+        db
+          .selectFrom('secret_provider')
+          .select('name as n')
+          .where('id', '=', id)
+          .executeTakeFirst(),
       );
     case 'ldap-directory':
       return one(
