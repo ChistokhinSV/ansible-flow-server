@@ -50,7 +50,7 @@ import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
-import { withLimit } from './limit';
+import { runLimit, withLimit } from './limit';
 import { type InventoryAnswer, InventoryProbes, type InventoryQuestion } from './probes';
 import { type Job, type Outcome, pausedGone, type RunQueue, type StepRecord } from './queue';
 import { pullWithSignIn } from './registry';
@@ -574,6 +574,11 @@ export class Executor implements Stepper {
     /** AFS-177: a step-by-step run: what it was asked for, and what its driver said last. */
     const stepRec = r.step ? await queue.stepRecord(r.id).catch(() => undefined) : undefined;
     let control: StepRecord['control'] | undefined = stepRec?.control;
+    /** AFS-214: what a debug run (Debug this failure) asked the engine for, as it was asked. */
+    const stepFlags = {
+      ...(stepRec?.debug ? { debug: true } : {}),
+      ...(stepRec?.pauseOnFailure ? { pauseOnFailure: true } : {}),
+    };
     /** AFS-177: the step it is paused before now, kept in its record (a restart ends it). */
     let pausedAt: { node: string; title: string } | undefined;
     /** AFS-177: who sent Stop to it (the run says who stopped it). */
@@ -892,6 +897,9 @@ export class Executor implements Stepper {
                     every: stepRec.every,
                     points: control?.points ?? stepRec.points,
                     timeoutS: stepRec.timeoutS,
+                    // AFS-214: a debug run, and pause on failure: passed on for the designer's
+                    // engine (ADR-0040), which reads them once it has the debugger.
+                    ...stepFlags,
                     ...(control ? { control: { ...control, reply: null } } : {}),
                     ...(inside ? { inside } : {}),
                   },
@@ -934,8 +942,10 @@ export class Executor implements Stepper {
                 // AFS-205: a pause's line in plain words (an older designer's in its own).
                 line(stepRec ? plainStepLine(text) : text);
               };
+              // AFS-240: a run again of some hosts is limited by a file in the run's folder.
+              const limit = await runLimit(r.limit, job.limitHosts, folder(runId));
               return startProcess(
-                { ...spec, args: withLimit(rewriteMounts(spec.args, this.toHost), r.limit) },
+                { ...spec, args: withLimit(rewriteMounts(spec.args, this.toHost), limit) },
                 { ...processEnv, ...creds.processEnv, ...serverEnv },
                 said,
               );

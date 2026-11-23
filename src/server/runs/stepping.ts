@@ -38,6 +38,9 @@ export const STEP_SCHEMA = {
     every: { type: 'boolean' },
     points: { type: 'array', maxItems: MAX_POINTS, items: ULIDISH },
     timeoutMinutes: { type: 'integer', minimum: 1, maximum: 24 * 60 },
+    // AFS-214 (ADR-0038 §1): a debug run, and pause when a host fails.
+    debug: { type: 'boolean' },
+    pauseOnFailure: { type: 'boolean' },
   },
 };
 
@@ -59,7 +62,13 @@ export function stepAsked(
     return {
       error: `A pause waits at most ${maxMinutes} minutes on this server (AFS_RUN_STEP_TIMEOUT_MINUTES)`,
     };
-  return { every, points, timeoutS: minutes * 60 };
+  return {
+    every,
+    points,
+    timeoutS: minutes * 60,
+    ...(asked.debug ? { debug: true } : {}),
+    ...(asked.pauseOnFailure ? { pauseOnFailure: true } : {}),
+  };
 }
 
 /** What the executor answers for a run going here. */

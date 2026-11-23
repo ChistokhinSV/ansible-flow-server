@@ -73,6 +73,10 @@ export interface StepRequest {
   points?: string[];
   /** How long a pause waits, at most the server's setting. */
   timeoutMinutes?: number;
+  /** AFS-214 (ADR-0038 §1): a debug run: the debugger may look into its pauses. */
+  debug?: boolean;
+  /** AFS-214: pause when a host fails, before the run routes it on. */
+  pauseOnFailure?: boolean;
 }
 
 /**
@@ -88,6 +92,10 @@ export interface StepAsked {
    * (their login); else they are the launcher's.
    */
   pointsBy?: string;
+  /** AFS-214: a debug run (the designer's engine reads it, ADR-0040). */
+  debug?: boolean;
+  /** AFS-214: pauses when a host fails. */
+  pauseOnFailure?: boolean;
 }
 
 export interface LaunchForm {

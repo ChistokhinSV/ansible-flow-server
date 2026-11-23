@@ -385,6 +385,13 @@ export interface RunTable {
   step_json: string | null;
   /** AFS-177: the step it is paused before now (its title); null while it is not paused. */
   step_paused: string | null;
+  /**
+   * AFS-214: a run of another run again: {id, number, hosts, count} as JSON (hosts: the set it
+   * took, `all`, `not-ok`, `failed`, `unreachable`, `stopped` or `chosen`); null: launched.
+   */
+  relaunch_of_json: string | null;
+  /** AFS-240: the hosts it runs on (a subset of the run it is again), as a JSON list; null: all. */
+  limit_hosts_json: string | null;
 }
 
 /** AFS-175: a launch configuration marked as an action: what its runners see and choose. */

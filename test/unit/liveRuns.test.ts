@@ -301,6 +301,7 @@ describe("a step's host output, running again, and the flow filter", () => {
     await queue.finish(run.id, job?.token as string, 'failed', 'x');
   });
 
+  // The route, through the launch's checks, is tested in relaunch.test.ts (AFS-240).
   it('runs a run again: same commit and inputs, a new number, by whoever asks', async () => {
     const run = await queue.enqueue(
       launchOf('flows/hello.flow.yaml', { devices: ['fw-edge-01'], api_password: 'S3CR3T' }),
@@ -308,10 +309,7 @@ describe("a step's host output, running again, and the flow filter", () => {
       { id: 'u', login: 'omar' },
     );
     await queue.cancel(run.id, 'dana');
-    expect((await call('POST', `/runs/${run.id}/relaunch`)).status).toBe(403);
-    const reply = await call('POST', `/runs/${run.id}/relaunch`, admin);
-    expect(reply.status).toBe(201);
-    const again = (await reply.json()) as { id: string };
+    const again = (await queue.relaunch(run.id, { id: 'd', login: 'dana' })) as { id: string };
     expect(again).toMatchObject({
       state: 'queued',
       commit: run.commit,
@@ -333,7 +331,7 @@ describe("a step's host output, running again, and the flow filter", () => {
     }
     expect(job?.inputs).toEqual({ devices: ['fw-edge-01'], api_password: 'S3CR3T' });
     await queue.finish(job?.run.id as string, job?.token as string, 'failed');
-    expect((await call('POST', '/runs/nothing/relaunch', admin)).status).toBe(404);
+    expect(await queue.relaunch('nothing', { id: 'd', login: 'dana' })).toBeUndefined();
   });
 
   it('lists the runs of one flow', async () => {

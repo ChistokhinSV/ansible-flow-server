@@ -9,6 +9,32 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-214, AFS-240: a run that is another run again: which run, which of its hosts (the set and
+  // how many), and the hosts themselves, which the run's limit file is written from. AFS-239: the
+  // count of hosts that did not go well takes unreachable hosts in, for runs kept from before.
+  '0037_run_relaunch': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('run').addColumn('relaunch_of_json', 'text').execute();
+      await db.schema.alterTable('run').addColumn('limit_hosts_json', 'text').execute();
+      const k = db as unknown as Kysely<{
+        run: { id: string; view_json: string | null; failed_count: number | null };
+      }>;
+      const rows = await k
+        .selectFrom('run')
+        .select(['id', 'view_json'])
+        .where('view_json', 'like', '%"unreachable":["%')
+        .execute();
+      for (const row of rows) {
+        const counts = hostCounts(row.view_json);
+        if ('failed_count' in counts)
+          await k
+            .updateTable('run')
+            .set({ failed_count: counts.failed_count })
+            .where('id', '=', row.id)
+            .execute();
+      }
+    },
+  },
   // AFS-210: why a schedule was turned off by the server (its flow moved or deleted), for its page.
   // Cleared when someone turns it on or off again.
   '0034_schedule_off_why': {

@@ -6,7 +6,7 @@
 //   - the designer's flow tools that read (flow_list, flow_describe, flow_validate,
 //     flow_reference) on the server's projects (flowIO.ts);
 //   - the server's: projects, launch configurations, check and launch, runs (status, output, stop,
-//     list), approvals (list; decide only with a token that allows it), step-by-step runs
+//     list, run again: all hosts or the ones that did not go well, AFS-240), approvals (list; decide only with a token that allows it), step-by-step runs
 //     (run_launch's step; run_step only with a token that allows run control, AFS-177).
 // The server's tools call the server's own API in-process with the caller's token: the same access
 // checks, the same limits of a token made for one workspace, the same audit entries (source mcp).
@@ -30,6 +30,7 @@ const MAX_TEXT = 40_000;
 const INSTRUCTIONS = `Tools of an Ansible Flow Server: the flows of its projects (read-only) and their runs.
 Flows are named <workspace>/<project>/<file> (flow_list); read one with flow_describe. Flows change in git, not here.
 A run is launched from a launch configuration (launch_config_list): run_check says what a launch would run (commit, inputs, hosts) or what is in the way; run_launch queues it. Follow it with run_status and run_output; run_stop stops it.
+run_relaunch runs a run again: the same commit, inputs and credentials, all its hosts or only those that did not go well (hosts: "not-ok"), in check mode if asked; its approvals are asked again. run_status says how each host went.
 A run launched with step: true pauses before each step until someone says Step, Continue or Stop on its page; run_step says it for an agent, only with a token made to allow run control and when the user has told you to.
 A run of a flow with approvals waits at each until a person decides (approval_list). Approvals stay with people: approval_decide works only with a token made to allow it, and only for someone allowed to decide.
 You act as the token's owner: you see and do only what they may.`;
@@ -100,6 +101,52 @@ export const SERVER_TOOLS: ServerTool[] = [
       "Queues a run of a launch configuration (operator on the flow). A real run changes devices: say what will run and get the user's go-ahead first (run_check)",
     readOnly: false,
     inputSchema: object(LAUNCH, ['config']),
+  },
+  {
+    name: 'run_relaunch',
+    title: 'Run a run again',
+    description:
+      "Runs a run again as a new run (operator on the flow), through the launch's checks: the same commit (or the newest), inputs and credentials of its configuration; approvals are asked again. hosts: all, or only the hosts that did not go well (not-ok: failed, unreachable, stopped), or a set, or names. A real run changes devices: say what will run and get the user's go-ahead first",
+    readOnly: false,
+    inputSchema: object(
+      {
+        run: str('The run id'),
+        hosts: {
+          description:
+            'all (default); not-ok (failed, unreachable and stopped); failed; unreachable; stopped; or a list of host names of the run',
+          anyOf: [
+            { type: 'string', enum: ['all', 'not-ok', 'failed', 'unreachable', 'stopped'] },
+            { type: 'array', items: { type: 'string' }, minItems: 1 },
+          ],
+        },
+        includeHandled: {
+          type: 'boolean',
+          description: 'Add hosts whose failure the flow handled through a wired fail port',
+        },
+        mode: {
+          type: 'string',
+          enum: ['check', 'real'],
+          description: "check (nothing changes) or real; default: the run's mode",
+        },
+        commit: {
+          type: 'string',
+          enum: ['same', 'newest'],
+          description: "same (default): the run's commit; newest: the newest of its branch",
+        },
+        step: {
+          type: 'boolean',
+          description:
+            'Run step by step: pause before each step until someone says Step, Continue or Stop; false: not step by step; absent: as the run was',
+        },
+        points: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Step by step, pausing only before these steps (node ids, as run_status shows them)',
+        },
+      },
+      ['run'],
+    ),
   },
   {
     name: 'run_status',
@@ -355,6 +402,41 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
         if (r.status !== 201) return refused(r);
         const run = r.json as { id: string; number: number; state: string; flow: { name: string } };
         return json({ run: run.id, number: run.number, state: run.state, flow: run.flow.name });
+      },
+      run_relaunch: async ({ run, step, points, ...rest }) => {
+        const pointList = Array.isArray(points) ? points.map(String) : [];
+        // AFS-240: step: true pauses before every step, points only before those; false: none.
+        const stepBody =
+          pointList.length > 0
+            ? { step: { every: step === true, points: pointList } }
+            : step === true
+              ? { step: { every: true } }
+              : step === false
+                ? { step: null }
+                : {};
+        const r = await api(
+          authorization,
+          'POST',
+          `/api/v1/runs/${encodeURIComponent(String(run))}/relaunch`,
+          { ...rest, ...stepBody },
+        );
+        if (r.status !== 201) return refused(r);
+        const again = r.json as {
+          id: string;
+          number: number;
+          state: string;
+          mode: string;
+          flow: { name: string };
+          relaunchOf?: { hosts: string; count?: number };
+        };
+        return json({
+          run: again.id,
+          number: again.number,
+          state: again.state,
+          mode: again.mode,
+          flow: again.flow.name,
+          hosts: again.relaunchOf?.count ?? 'all',
+        });
       },
       run_status: async ({ run }) => {
         const id = encodeURIComponent(String(run));

@@ -294,6 +294,23 @@ describe('input values (AFS-182)', () => {
   });
 });
 
+describe('a debug run (AFS-214)', () => {
+  it("passes debug and pause on failure on in the step request, for the designer's engine", async () => {
+    const { ex, seen } = executor(async () => ({ rc: 0 }));
+    const run = await launch();
+    const step = { every: false, points: ['01M6GPM979RJPCDJ0XFF22GBSV'], timeoutS: 600 };
+    await database.db
+      .updateTable('run')
+      .set({ step_json: JSON.stringify({ ...step, debug: true, pauseOnFailure: true }) })
+      .where('id', '=', run.id)
+      .execute();
+    await ex.start();
+    await ended(run.id);
+    await ex.stop();
+    expect(seen[0]?.request.step).toMatchObject({ ...step, debug: true, pauseOnFailure: true });
+  });
+});
+
 describe('a run', () => {
   it("gets the commit's files, the flow's code fresh, its inputs and credentials, and ends", async () => {
     const { ex, seen } = executor(async (_request, hooks) => {

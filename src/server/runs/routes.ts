@@ -3,7 +3,7 @@
 //   GET  /api/v1/runs?project=&flow=&state=&config=&by=&q=&limit=&before=
 //   GET  /api/v1/runs/:id
 //   POST /api/v1/runs/:id/cancel
-//   POST /api/v1/runs/:id/relaunch    the same run again, as a new run
+//   (Run again, POST /api/v1/runs/:id/relaunch: relaunch.ts, AFS-240)
 //   GET  /api/v1/runs/:id/output       what Ansible wrote, secrets hidden
 //   GET  /api/v1/runs/:id/view         how it went, as the designer shows it
 //   GET  /api/v1/runs/:id/events       all of that, live (server-sent events)
@@ -475,23 +475,6 @@ export function registerRuns(
         run.state === 'cancelled' ? 'Run cancelled' : 'Run asked to stop',
       );
       return reply.code(202).send(run);
-    },
-  );
-
-  /** The same run again: same commit, flow, mode, inputs and credentials; a new number. */
-  app.post<{ Params: { id: string } }>(
-    '/api/v1/runs/:id/relaunch',
-    { schema: ID },
-    async (request, reply) => {
-      const me = signedIn(request, reply);
-      if (!me) return reply;
-      const run = await queue.relaunch(request.params.id, me);
-      if (!run) return reply.code(404).send(NONE);
-      request.log.info(
-        { by: me.login, run: run.id, number: run.number, of: request.params.id },
-        'Run queued again',
-      );
-      return reply.code(201).send(run);
     },
   );
 }
