@@ -335,9 +335,21 @@ export function WorkspaceAccess({
                   </td>
                   <td>
                     {/* AFS-206: actions they may run through a grant: one table says all. */}
-                    {w.admin
-                      ? 'every action'
-                      : w.actions?.map((a) => <div key={a.config}>{a.title}</div>)}
+                    {/* AFS-232: operators and rw of the workspace may run every action of it. */}
+                    {w.admin ? (
+                      'every action'
+                    ) : w.workspace === 'operator' || w.workspace === 'rw' ? (
+                      'every action of the workspace'
+                    ) : (
+                      <>
+                        {w.actions?.map((a) => (
+                          <div key={a.config}>{a.title}</div>
+                        ))}
+                        {w.flows.some((f) => f.level === 'operator' || f.level === 'rw') && (
+                          <div className="muted">those of the flows they operate</div>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td>{w.approve ? 'yes' : ''}</td>
                   <td className="muted">

@@ -1,9 +1,10 @@
 // AFS-175: actions (ADR-0036): approved launches for people who do not read flows. The Actions
 // page (cards), an action's short form (only what it asks, what will happen in words, Run), and
 // the plain progress view of a run of it. No canvas, no YAML, no Ansible words. And the action's
-// settings and grants, on its launch configuration's Settings tab.
+// settings, links and grants (AFS-201: on its own page, /actions/<id>/edit).
 import { type FormEvent, useEffect, useId, useState } from 'react';
-import { ActionLinks } from './actionLinks';
+import { actionEditAddress } from '../server/actions/types';
+import { ActionLinks, ValueLink } from './actionLinks';
 import {
   type Action,
   type ActionCard,
@@ -23,6 +24,20 @@ import { ago, Labelled, Loading, messageOf, PageHead, Scroll, useLoad } from './
 
 /** Where an action's form and a run's progress are. */
 export const actionAddress = (id: string) => `/actions/${encodeURIComponent(id)}`;
+export { actionEditAddress };
+
+/**
+ * AFS-201: the full link to an action with these values filled in (the empty ones left for the
+ * person who opens it), to hand to someone. An action never asks a secret, so none is in it.
+ */
+export function linkWithValues(origin: string, id: string, values: Record<string, string>): string {
+  const query = new URLSearchParams(
+    Object.entries(values)
+      .map(([name, value]) => [name, value.trim()] as [string, string])
+      .filter(([, value]) => value),
+  ).toString();
+  return `${origin}/a/${encodeURIComponent(id)}${query ? `?${query}` : ''}`;
+}
 export const progressAddress = (run: string) => `/actions/runs/${encodeURIComponent(run)}`;
 
 const names = (text: string) =>
@@ -354,6 +369,7 @@ export function ActionFormView({
   const [problems, setProblems] = useState<Record<string, string>>(firstProblems ?? {});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string>();
   const shown = only ? f.fields.filter((x) => only.includes(x.name)) : f.fields;
   const needsHosts = shown.some((x) => x.hosts);
   const hosts = useLoad(
@@ -486,8 +502,31 @@ export function ActionFormView({
             <button type="submit" className="primary" disabled={busy}>
               {busy ? 'Starting…' : 'Run'}
             </button>
+            {/* AFS-201: a person shares the action with what they filled in. */}
+            {f.fields.length > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      linkWithValues(window.location.origin, id, values),
+                    );
+                    setCopied('Copied: the link opens this action with these values.');
+                  } catch {
+                    setCopied('The link could not be copied here.');
+                  }
+                }}
+              >
+                Copy a link with these values
+              </button>
+            )}
             <Link to="/actions">Back to actions</Link>
           </div>
+          {copied && (
+            <p className="muted small" role="status">
+              {copied}
+            </p>
+          )}
         </form>
       )}
       <p className="muted small">
@@ -496,6 +535,12 @@ export function ActionFormView({
           <>
             {' '}
             <Link to={f.configPage}>Its launch configuration</Link>
+          </>
+        )}
+        {f.editPage && (
+          <>
+            {' '}
+            <Link to={f.editPage}>Change this action</Link>
           </>
         )}
       </p>
@@ -633,13 +678,15 @@ export function ActionRunPage({ run }: { run: string }) {
   );
 }
 
-// --- on a launch configuration's Settings tab
+// --- on the action's own page (AFS-201; it was on its launch configuration's Settings tab)
 
 interface FlowInput {
   name: string;
   type?: string | undefined;
   secret: boolean;
   description?: string | undefined;
+  /** AFS-201: the value it runs with now (the configuration's), as the launch form says it. */
+  text?: string | undefined;
 }
 
 interface AskedRow {
@@ -766,6 +813,15 @@ export function ConfigActionSection({
     event.preventDefault();
     if (busy) return;
     setError(undefined);
+    // AFS-232: an empty field by its label on the form, not by the API's name ("Summary").
+    if (!settings.title.trim()) {
+      setError('Title is needed: what the runners call it, in a few words.');
+      return;
+    }
+    if (!settings.summary.trim()) {
+      setError('What it does is needed: one sentence, as a runner would say it.');
+      return;
+    }
     // AFS-207: said here, in words, not as the server's "not the right kind of value".
     if (settings.reply && !settings.reply.credential) {
       setError(
@@ -800,373 +856,405 @@ export function ConfigActionSection({
 
   if (!state.data) return <Loading state={state} />;
   if (!manage && !action) return null;
+  // AFS-201: the values the inputs it does not ask run with (the configuration's).
+  const fixed = inputs.filter((i) => !action?.asked.some((a) => a.name === i.name));
   return (
-    <section className="panel" aria-labelledby={`${id}-action`}>
-      <div className="panel-head">
-        <h2 id={`${id}-action`}>Action</h2>
-        {manage && !editing && (
-          <button type="button" onClick={() => start(action)}>
-            {action ? 'Change the action' : 'Make it an action'}
-          </button>
-        )}
-      </div>
-      <p className="muted">
-        An action is a short form for people who run things but do not read flows: only what it
-        asks, in their words, and Run. The rest runs with this configuration's values.{' '}
-        <a href="/help/guide/actions.md" target="_blank" rel="noopener">
-          About actions
-        </a>
-      </p>
-      {saved && (
-        <p className="notice ok" role="status">
-          {saved}
+    <>
+      <section className="panel" aria-labelledby={`${id}-action`}>
+        <div className="panel-head">
+          <h2 id={`${id}-action`}>Settings</h2>
+          {manage && !editing && (
+            <button type="button" onClick={() => start(action)}>
+              {action ? 'Change the action' : 'Make it an action'}
+            </button>
+          )}
+        </div>
+        <p className="muted">
+          An action is a short form for people who run things but do not read flows: only what it
+          asks, in their words, and Run. The rest runs with its launch configuration's values.{' '}
+          <a href="/help/guide/actions.md" target="_blank" rel="noopener">
+            About actions
+          </a>
         </p>
-      )}
-      {action && !editing && (
-        <dl className="facts">
-          <div>
-            <dt>Title</dt>
-            <dd>
-              {action.title}
-              {!action.enabled && <span className="badge warn"> off</span>}
-            </dd>
-          </div>
-          <div>
-            <dt>What it does</dt>
-            <dd>{action.summary}</dd>
-          </div>
-          <div>
-            <dt>It asks</dt>
-            <dd>
-              {action.asked.length
-                ? action.asked.map((a) => `${a.label} (${a.name})`).join(', ')
-                : 'nothing'}
-            </dd>
-          </div>
-          <div>
-            <dt>Runs</dt>
-            <dd>
-              {action.mode === 'real' ? 'for real' : 'as a check'}
-              {action.confirm ? ', asks to confirm' : ''}
-              {action.runOnOpen ? '; a link with every value runs as it opens' : ''}
-            </dd>
-          </div>
-          {action.asked.some((a) => a.group || a.max || a.start) && (
+        {saved && (
+          <p className="notice ok" role="status">
+            {saved}
+          </p>
+        )}
+        {action && !editing && (
+          <dl className="facts">
             <div>
-              <dt>Hosts</dt>
+              <dt>Title</dt>
               <dd>
-                {action.asked
-                  .filter((a) => a.group || a.max || a.start)
-                  .map(
-                    (a) =>
-                      `${a.label}: ${a.max ? takesWords(a.max) : 'any number of hosts'}${a.group ? ` of group ${a.group}` : ''}, ${a.start ? `starts with ${a.start}` : 'starts empty'}`,
-                  )
-                  .join('; ')}
+                {action.title}
+                {!action.enabled && <span className="badge warn"> off</span>}
               </dd>
             </div>
-          )}
-          <div>
-            <dt>Result back</dt>
-            <dd>
-              {action.reply
-                ? `to ${SYSTEM_WORDS[action.reply.system]}, ${action.reply.when === 'failed' ? 'when a run from its link did not go well' : 'when a run from its link ends'}`
-                : 'nowhere'}
-            </dd>
-          </div>
-          {action.owner && (
             <div>
-              <dt>Set up by</dt>
-              <dd>{action.owner.name}</dd>
+              <dt>What it does</dt>
+              <dd>{action.summary}</dd>
             </div>
-          )}
-          <div>
-            <dt>Its page</dt>
-            <dd>
-              {/* AFS-207: a name, not the raw address. */}
-              <Link to={actionAddress(action.id)}>Open the form its runners see</Link>
-            </dd>
-          </div>
-        </dl>
-      )}
-      {editing && (
-        <form className="form" onSubmit={save} noValidate>
-          <Labelled label="Title" hint="What the runners call it, in a few words.">
-            {(props) => (
-              <input
-                {...props}
-                name="title"
-                maxLength={100}
-                value={settings.title}
-                onChange={(e) => setSettings({ ...settings, title: e.target.value })}
-              />
+            <div>
+              <dt>It asks</dt>
+              <dd>
+                {action.asked.length
+                  ? action.asked.map((a) => `${a.label} (${a.name})`).join(', ')
+                  : 'nothing'}
+              </dd>
+            </div>
+            {fixed.length > 0 && (
+              <div>
+                <dt>Runs with</dt>
+                <dd>
+                  {fixed.map((i, n) => (
+                    <span key={i.name}>
+                      {n > 0 && ', '}
+                      <code>{i.name}</code>{' '}
+                      {i.secret ? (
+                        <span className="muted">(secret, the configuration's)</span>
+                      ) : i.text ? (
+                        `= ${i.text.length > 60 ? `${i.text.slice(0, 60)}…` : i.text}`
+                      ) : (
+                        <span className="muted">(empty)</span>
+                      )}
+                    </span>
+                  ))}
+                </dd>
+              </div>
             )}
-          </Labelled>
-          <Labelled label="What it does" hint="One sentence, as a runner would say it.">
-            {(props) => (
-              <input
-                {...props}
-                name="summary"
-                maxLength={300}
-                value={settings.summary}
-                onChange={(e) => setSettings({ ...settings, summary: e.target.value })}
-              />
+            <div>
+              <dt>Runs</dt>
+              <dd>
+                {action.mode === 'real' ? 'for real' : 'as a check'}
+                {action.confirm ? ', asks to confirm' : ''}
+                {action.runOnOpen ? '; a link with every value runs as it opens' : ''}
+              </dd>
+            </div>
+            {action.asked.some((a) => a.group || a.max || a.start) && (
+              <div>
+                <dt>Hosts</dt>
+                <dd>
+                  {action.asked
+                    .filter((a) => a.group || a.max || a.start)
+                    .map(
+                      (a) =>
+                        `${a.label}: ${a.max ? takesWords(a.max) : 'any number of hosts'}${a.group ? ` of group ${a.group}` : ''}, ${a.start ? `starts with ${a.start}` : 'starts empty'}`,
+                    )
+                    .join('; ')}
+                </dd>
+              </div>
             )}
-          </Labelled>
-          <fieldset className="choices">
-            <legend>What it asks</legend>
-            <p className="muted small">
-              Ticked inputs are asked, with your label and help line; the others run with this
-              configuration's values and cannot be changed by a runner. Choices: names separated by
-              commas (only those can be picked). Secret-looking inputs are never asked.
-            </p>
-            {inputs.filter((i) => !i.secret).length === 0 && (
-              <p className="muted">The flow takes no inputs.</p>
+            <div>
+              <dt>Result back</dt>
+              <dd>
+                {action.reply
+                  ? `to ${SYSTEM_WORDS[action.reply.system]}, ${action.reply.when === 'failed' ? 'when a run from its link did not go well' : 'when a run from its link ends'}`
+                  : 'nowhere'}
+              </dd>
+            </div>
+            {action.owner && (
+              <div>
+                <dt>Set up by</dt>
+                <dd>{action.owner.name}</dd>
+              </div>
             )}
-            {inputs
-              .filter((i) => !i.secret)
-              .map((i) => {
-                const r = rows[i.name];
-                if (!r) return null;
-                const set = (change: Partial<AskedRow>) =>
-                  setRows({ ...rows, [i.name]: { ...r, ...change } });
-                return (
-                  <div key={i.name} className="asked-row">
-                    <label className="choice">
-                      <input
-                        type="checkbox"
-                        checked={r.on}
-                        onChange={(e) => set({ on: e.target.checked })}
-                      />
-                      Ask for <code>{i.name}</code>
-                      {i.type ? <span className="muted"> · {i.type}</span> : null}
-                    </label>
-                    {r.on && (
-                      <div className="pair">
-                        <Labelled label="Label">
-                          {(props) => (
-                            <input
-                              {...props}
-                              maxLength={80}
-                              value={r.label}
-                              onChange={(e) => set({ label: e.target.value })}
-                            />
-                          )}
-                        </Labelled>
-                        <Labelled label="Help line">
-                          {(props) => (
-                            <input
-                              {...props}
-                              maxLength={200}
-                              value={r.help}
-                              onChange={(e) => set({ help: e.target.value })}
-                            />
-                          )}
-                        </Labelled>
-                        {i.type !== 'dict' && i.type !== 'list' && (
-                          <Labelled
-                            label="Choices"
-                            hint={
-                              i.type === 'host_list'
-                                ? 'Empty: any host or group of the inventory, picked by name.'
-                                : 'Empty: anything is typed.'
-                            }
-                          >
+            <div>
+              <dt>Its page</dt>
+              <dd>
+                {/* AFS-207: a name, not the raw address. */}
+                <Link to={actionAddress(action.id)}>Open the form its runners see</Link>
+              </dd>
+            </div>
+          </dl>
+        )}
+        {editing && (
+          <form className="form" onSubmit={save} noValidate>
+            <Labelled label="Title" hint="What the runners call it, in a few words.">
+              {(props) => (
+                <input
+                  {...props}
+                  name="title"
+                  maxLength={100}
+                  value={settings.title}
+                  onChange={(e) => setSettings({ ...settings, title: e.target.value })}
+                />
+              )}
+            </Labelled>
+            <Labelled label="What it does" hint="One sentence, as a runner would say it.">
+              {(props) => (
+                <input
+                  {...props}
+                  name="summary"
+                  maxLength={300}
+                  value={settings.summary}
+                  onChange={(e) => setSettings({ ...settings, summary: e.target.value })}
+                />
+              )}
+            </Labelled>
+            <fieldset className="choices">
+              <legend>What it asks</legend>
+              <p className="muted small">
+                Ticked inputs are asked, with your label and help line; the others run with this
+                configuration's values and cannot be changed by a runner. Choices: names separated
+                by commas (only those can be picked). Secret-looking inputs are never asked.
+              </p>
+              {inputs.filter((i) => !i.secret).length === 0 && (
+                <p className="muted">The flow takes no inputs.</p>
+              )}
+              {inputs
+                .filter((i) => !i.secret)
+                .map((i) => {
+                  const r = rows[i.name];
+                  if (!r) return null;
+                  const set = (change: Partial<AskedRow>) =>
+                    setRows({ ...rows, [i.name]: { ...r, ...change } });
+                  return (
+                    <div key={i.name} className="asked-row">
+                      <label className="choice">
+                        <input
+                          type="checkbox"
+                          checked={r.on}
+                          onChange={(e) => set({ on: e.target.checked })}
+                        />
+                        Ask for <code>{i.name}</code>
+                        {i.type ? <span className="muted"> · {i.type}</span> : null}
+                      </label>
+                      {r.on && (
+                        <div className="pair">
+                          <Labelled label="Label">
                             {(props) => (
                               <input
                                 {...props}
-                                value={r.choices}
-                                onChange={(e) => set({ choices: e.target.value })}
+                                maxLength={80}
+                                value={r.label}
+                                onChange={(e) => set({ label: e.target.value })}
                               />
                             )}
                           </Labelled>
-                        )}
-                        {i.type === 'host_list' && !names(r.choices).length && (
-                          <Labelled
-                            label="Only hosts of group"
-                            hint="An inventory group: the form offers only its hosts, and takes no others. Empty: any."
-                          >
+                          <Labelled label="Help line">
                             {(props) => (
-                              <>
+                              <input
+                                {...props}
+                                maxLength={200}
+                                value={r.help}
+                                onChange={(e) => set({ help: e.target.value })}
+                              />
+                            )}
+                          </Labelled>
+                          {i.type !== 'dict' && i.type !== 'list' && (
+                            <Labelled
+                              label="Choices"
+                              hint={
+                                i.type === 'host_list'
+                                  ? 'Empty: any host or group of the inventory, picked by name.'
+                                  : 'Empty: anything is typed.'
+                              }
+                            >
+                              {(props) => (
                                 <input
                                   {...props}
-                                  maxLength={200}
-                                  spellCheck={false}
-                                  list={`${id}-groups`}
-                                  value={r.group}
-                                  onChange={(e) => set({ group: e.target.value })}
+                                  value={r.choices}
+                                  onChange={(e) => set({ choices: e.target.value })}
                                 />
-                                {/* AFS-207: the inventory's groups, offered as one types. */}
-                                <datalist id={`${id}-groups`}>
-                                  {Object.entries(inventory.data ?? {}).map(([g, n]) => (
-                                    <option key={g} value={g}>
-                                      {`${n} ${n === 1 ? 'host' : 'hosts'}`}
-                                    </option>
-                                  ))}
-                                </datalist>
-                              </>
-                            )}
-                          </Labelled>
-                        )}
-                        {i.type === 'host_list' && (
-                          <Labelled
-                            label="How many hosts"
-                            hint="A group counts by its hosts: with one host, a group of four is refused."
-                          >
-                            {(props) => (
-                              <select
-                                {...props}
-                                value={r.max === '' || r.max === '1' ? r.max : 'n'}
-                                onChange={(e) =>
-                                  set({ max: e.target.value === 'n' ? '5' : e.target.value })
-                                }
-                              >
-                                <option value="">any number</option>
-                                <option value="1">one host</option>
-                                <option value="n">up to a number</option>
-                              </select>
-                            )}
-                          </Labelled>
-                        )}
-                        {i.type === 'host_list' && r.max !== '' && r.max !== '1' && (
-                          <Labelled label="Up to">
-                            {(props) => (
-                              <input
-                                {...props}
-                                type="number"
-                                min={2}
-                                max={1000}
-                                value={r.max}
-                                onChange={(e) => set({ max: e.target.value })}
-                              />
-                            )}
-                          </Labelled>
-                        )}
-                        {i.type === 'host_list' && (
-                          <Labelled
-                            label="Starts with"
-                            hint="Empty (best): the runner picks. Never the configuration's value."
-                          >
-                            {(props) => (
-                              <input
-                                {...props}
-                                maxLength={2000}
-                                spellCheck={false}
-                                value={r.start}
-                                onChange={(e) => set({ start: e.target.value })}
-                              />
-                            )}
-                          </Labelled>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </fieldset>
-          <fieldset className="choices">
-            <legend>It runs</legend>
-            {(['check', 'real'] as const).map((m) => (
-              <label key={m} className="inline">
-                <input
-                  type="radio"
-                  name={`${id}-mode`}
-                  checked={settings.mode === m}
-                  onChange={() => setSettings({ ...settings, mode: m })}
-                />
-                {m === 'check' ? 'as a check (changes nothing)' : 'for real'}
-              </label>
-            ))}
-          </fieldset>
-          <label className="choice">
-            <input
-              type="checkbox"
-              checked={settings.confirm}
-              onChange={(e) => setSettings({ ...settings, confirm: e.target.checked })}
+                              )}
+                            </Labelled>
+                          )}
+                          {i.type === 'host_list' && !names(r.choices).length && (
+                            <Labelled
+                              label="Only hosts of group"
+                              hint="An inventory group: the form offers only its hosts, and takes no others. Empty: any."
+                            >
+                              {(props) => (
+                                <>
+                                  <input
+                                    {...props}
+                                    maxLength={200}
+                                    spellCheck={false}
+                                    list={`${id}-groups`}
+                                    value={r.group}
+                                    onChange={(e) => set({ group: e.target.value })}
+                                  />
+                                  {/* AFS-207: the inventory's groups, offered as one types. */}
+                                  <datalist id={`${id}-groups`}>
+                                    {Object.entries(inventory.data ?? {}).map(([g, n]) => (
+                                      <option key={g} value={g}>
+                                        {`${n} ${n === 1 ? 'host' : 'hosts'}`}
+                                      </option>
+                                    ))}
+                                  </datalist>
+                                </>
+                              )}
+                            </Labelled>
+                          )}
+                          {i.type === 'host_list' && (
+                            <Labelled
+                              label="How many hosts"
+                              hint="A group counts by its hosts: with one host, a group of four is refused."
+                            >
+                              {(props) => (
+                                <select
+                                  {...props}
+                                  value={r.max === '' || r.max === '1' ? r.max : 'n'}
+                                  onChange={(e) =>
+                                    set({ max: e.target.value === 'n' ? '5' : e.target.value })
+                                  }
+                                >
+                                  <option value="">any number</option>
+                                  <option value="1">one host</option>
+                                  <option value="n">up to a number</option>
+                                </select>
+                              )}
+                            </Labelled>
+                          )}
+                          {i.type === 'host_list' && r.max !== '' && r.max !== '1' && (
+                            <Labelled label="Up to">
+                              {(props) => (
+                                <input
+                                  {...props}
+                                  type="number"
+                                  min={2}
+                                  max={1000}
+                                  value={r.max}
+                                  onChange={(e) => set({ max: e.target.value })}
+                                />
+                              )}
+                            </Labelled>
+                          )}
+                          {i.type === 'host_list' && (
+                            <Labelled
+                              label="Starts with"
+                              hint="Empty (best): the runner picks. Never the configuration's value."
+                            >
+                              {(props) => (
+                                <input
+                                  {...props}
+                                  maxLength={2000}
+                                  spellCheck={false}
+                                  value={r.start}
+                                  onChange={(e) => set({ start: e.target.value })}
+                                />
+                              )}
+                            </Labelled>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </fieldset>
+            <fieldset className="choices">
+              <legend>It runs</legend>
+              {(['check', 'real'] as const).map((m) => (
+                <label key={m} className="inline">
+                  <input
+                    type="radio"
+                    name={`${id}-mode`}
+                    checked={settings.mode === m}
+                    onChange={() => setSettings({ ...settings, mode: m })}
+                  />
+                  {m === 'check' ? 'as a check (changes nothing)' : 'for real'}
+                </label>
+              ))}
+            </fieldset>
+            <label className="choice">
+              <input
+                type="checkbox"
+                checked={settings.confirm}
+                onChange={(e) => setSettings({ ...settings, confirm: e.target.checked })}
+              />
+              Run asks to confirm first
+            </label>
+            <label className="choice">
+              <input
+                type="checkbox"
+                checked={!!settings.runOnOpen}
+                onChange={(e) => setSettings({ ...settings, runOnOpen: e.target.checked })}
+              />
+              A link that gives every value runs as it opens, without a confirm page (opening the
+              link never runs it by itself: the page starts it, and says so)
+            </label>
+            <ReplyFields
+              workspace={workspace}
+              reply={settings.reply ?? null}
+              onChange={(reply) => setSettings({ ...settings, reply })}
             />
-            Run asks to confirm first
-          </label>
-          <label className="choice">
-            <input
-              type="checkbox"
-              checked={!!settings.runOnOpen}
-              onChange={(e) => setSettings({ ...settings, runOnOpen: e.target.checked })}
-            />
-            A link that gives every value runs as it opens, without a confirm page (opening the link
-            never runs it by itself: the page starts it, and says so)
-          </label>
-          <ReplyFields
-            workspace={workspace}
-            reply={settings.reply ?? null}
-            onChange={(reply) => setSettings({ ...settings, reply })}
-          />
-          <label className="choice">
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
-            />
-            On (off: nobody can run it; its words and who may run it are kept)
-          </label>
-          {error && (
-            <p className="notice error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="actions">
-            <button type="submit" className="primary" disabled={busy}>
-              {busy ? 'Saving…' : action ? 'Save the action' : 'Make it an action'}
-            </button>
-            <button type="button" onClick={() => setEditing(false)} disabled={busy}>
-              Cancel
-            </button>
-            {action && (
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={async () => {
-                  if (
-                    !(await ask(
-                      `Stop "${action.title}" being an action? Its runners lose it, and who may run it is forgotten. The launch configuration stays.`,
-                      { yes: 'Stop being an action', danger: true },
-                    ))
-                  )
-                    return;
-                  try {
-                    await api.removeConfigAction(config);
-                    setSaved('It is not an action any more.');
-                    setEditing(false);
-                    state.reload();
-                  } catch (e) {
-                    setError(messageOf(e));
-                  }
-                }}
-              >
-                Stop being an action
-              </button>
+            <label className="choice">
+              <input
+                type="checkbox"
+                checked={settings.enabled}
+                onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
+              />
+              On (off: nobody can run it; its words and who may run it are kept)
+            </label>
+            {error && (
+              <p className="notice error" role="alert">
+                {error}
+              </p>
             )}
-          </div>
-        </form>
+            <div className="actions">
+              <button type="submit" className="primary" disabled={busy}>
+                {busy ? 'Saving…' : action ? 'Save the action' : 'Make it an action'}
+              </button>
+              <button type="button" onClick={() => setEditing(false)} disabled={busy}>
+                Cancel
+              </button>
+              {action && (
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (
+                      !(await ask(
+                        `Stop "${action.title}" being an action? Its runners lose it, and who may run it is forgotten. The launch configuration stays.`,
+                        { yes: 'Stop being an action', danger: true },
+                      ))
+                    )
+                      return;
+                    try {
+                      await api.removeConfigAction(config);
+                      setSaved('It is not an action any more.');
+                      setEditing(false);
+                      state.reload();
+                    } catch (e) {
+                      setError(messageOf(e));
+                    }
+                  }}
+                >
+                  Stop being an action
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+      </section>
+      {action && manage && (
+        <section className="panel" aria-labelledby={`${id}-links`}>
+          <h2 id={`${id}-links`}>Links</h2>
+          {/* AFS-201: the full link with values, to hand to a person. */}
+          <ValueLink action={action} />
+          <ActionLinks
+            config={config}
+            action={action}
+            types={Object.fromEntries(inputs.map((i) => [i.name, i.type]))}
+            tokens={state.data.tokens ?? []}
+            onChange={state.reload}
+          />
+        </section>
       )}
       {action && manage && (
-        <ActionLinks
-          config={config}
-          action={action}
-          types={Object.fromEntries(inputs.map((i) => [i.name, i.type]))}
-          tokens={state.data.tokens ?? []}
-          onChange={state.reload}
-        />
+        <section className="panel" aria-labelledby={`${id}-grants`}>
+          <ActionGrants
+            id={`${id}-grants`}
+            config={config}
+            title={action.title}
+            onChange={state.reload}
+            grants={state.data.grants ?? []}
+            {...(state.data.people ? { people: state.data.people } : {})}
+          />
+        </section>
       )}
-      {action && manage && (
-        <ActionGrants
-          config={config}
-          title={action.title}
-          onChange={state.reload}
-          grants={state.data.grants ?? []}
-          {...(state.data.people ? { people: state.data.people } : {})}
-        />
-      )}
-    </section>
+    </>
   );
 }
 
@@ -1253,12 +1341,15 @@ function ReplyFields({
 }
 
 function ActionGrants({
+  id: headId,
   config,
   title,
   grants,
   people,
   onChange,
 }: {
+  /** AFS-201: its heading's id: it is a panel of the action's page. */
+  id: string;
   config: string;
   title: string;
   grants: NonNullable<Awaited<ReturnType<typeof api.configAction>>['grants']>;
@@ -1295,7 +1386,7 @@ function ActionGrants({
   };
   return (
     <>
-      <h3>Who may run it</h3>
+      <h2 id={headId}>Who may run it</h2>
       <p className="muted small">
         A grant here lets someone run this action and follow the runs they start, nothing else of
         the workspace. Operators of the flow and administrators may run it too. It is given to
@@ -1401,7 +1492,7 @@ export function WorkspaceActions({ workspace }: { workspace: string }) {
       <p className="muted small">
         Who may run each action of the workspace. Operators of its flow and administrators may run
         every one; a grant gives one action and nothing else of the workspace. Grants are given and
-        taken back on the action's launch configuration, Settings.
+        taken back on the action's own page.
       </p>
       <Loading state={actions} />
       {actions.data?.length === 0 && <p className="muted">No action in this workspace yet.</p>}
@@ -1419,9 +1510,7 @@ export function WorkspaceActions({ workspace }: { workspace: string }) {
               {actions.data.map((a) => (
                 <tr key={a.config}>
                   <td>
-                    <Link to={`/w/${workspace}/${a.projectKey}/launch/${a.config}/settings`}>
-                      {a.title}
-                    </Link>
+                    <Link to={actionEditAddress(a.config)}>{a.title}</Link>
                     {!a.enabled && <span className="muted"> · off</span>}
                   </td>
                   <td>

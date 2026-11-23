@@ -9,6 +9,7 @@ import {
   ActionFormView,
   ActionRefused,
   actionAddress,
+  linkWithValues,
   progressAddress,
   startAction,
   valueWords,
@@ -323,6 +324,107 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
         {copied ? 'Copied' : 'Copy'}
       </button>
     </div>
+  );
+}
+
+/**
+ * AFS-201: the full link with values filled in, to hand to a person (mail, chat, a ticket). The
+ * values are checked as the form checks them (the link's own check, which runs nothing), and the
+ * page says what the person will see: the confirm page, or the short form with what is left.
+ */
+export function ValueLink({ action }: { action: Action }) {
+  const id = useId();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const url = linkWithValues(window.location.origin, action.id, values);
+  const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
+  const [seen, setSeen] = useState<{ query: string; link?: ActionLink; error?: string }>();
+  useEffect(() => {
+    let gone = false;
+    // Asked once typing rests, not at every key.
+    const timer = setTimeout(() => {
+      api.actionLink(action.id, query).then(
+        (link) => !gone && setSeen({ query, link }),
+        (e) => !gone && setSeen({ query, error: messageOf(e) }),
+      );
+    }, 400);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+  }, [action.id, query]);
+  const now = seen?.query === query ? seen : undefined;
+  const problems = Object.fromEntries((now?.link?.problems ?? []).map((p) => [p.field, p.message]));
+  const label = (name: string) => action.asked.find((a) => a.name === name)?.label ?? name;
+  const sees = !now
+    ? 'Checking the values…'
+    : now.error
+      ? now.error
+      : now.link?.refused
+        ? now.link.refused
+        : now.link?.problems.length
+          ? 'A value is not right: the person would be asked to pick again.'
+          : now.link?.ready
+            ? action.runOnOpen
+              ? 'It runs as the link opens: the page starts it and says so.'
+              : 'A confirm page with these values and Run.'
+            : `The short form, asking only for ${(now.link?.missing.length
+                ? now.link.missing
+                : action.asked.filter((a) => !values[a.name]?.trim()).map((a) => a.name)
+              )
+                .map(label)
+                .join(', ')}.`;
+  return (
+    <>
+      <h3 id={`${id}-values`}>A link with values</h3>
+      <p className="muted small">
+        Fill in what the link gives; what you leave empty, the person who opens it fills in. It
+        opens the action with their own access: opening it runs nothing by itself.
+      </p>
+      <fieldset className="choices copy-link" aria-labelledby={`${id}-values`}>
+        <legend className="sr-only">Values in the link</legend>
+        {action.asked.length === 0 && (
+          <p className="muted">It asks nothing: the link opens its Run page.</p>
+        )}
+        {action.asked.map((a) => (
+          <Labelled
+            key={a.name}
+            label={a.label}
+            {...(a.help ? { hint: a.help } : {})}
+            {...(problems[a.name] ? { problem: problems[a.name] } : {})}
+          >
+            {(props) =>
+              a.choices?.length ? (
+                <select
+                  {...props}
+                  value={values[a.name] ?? ''}
+                  onChange={(e) => setValues({ ...values, [a.name]: e.target.value })}
+                >
+                  <option value="">(left for the person)</option>
+                  {a.choices.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  {...props}
+                  value={values[a.name] ?? ''}
+                  spellCheck={false}
+                  maxLength={2000}
+                  placeholder="(left for the person)"
+                  onChange={(e) => setValues({ ...values, [a.name]: e.target.value })}
+                />
+              )
+            }
+          </Labelled>
+        ))}
+        <p data-link-sees>
+          <strong>The person sees:</strong> {sees}
+        </p>
+        <CopyBlock text={url} label="the link with values" />
+      </fieldset>
+    </>
   );
 }
 

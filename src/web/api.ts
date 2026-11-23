@@ -21,6 +21,7 @@ import type {
   ActionGrant,
   ActionHosts,
   ActionLink,
+  ActionPlaceWords,
   ActionProgress,
   ActionSettings,
   ActionToken,
@@ -87,6 +88,7 @@ export type {
   ActionGrant,
   ActionHosts,
   ActionLink,
+  ActionPlaceWords,
   ActionProgress,
   ActionSettings,
   ActionToken,
@@ -794,6 +796,8 @@ export const api = {
         users: { id: string; login: string; name: string }[];
         groups: { id: string; name: string }[];
       };
+      /** AFS-201: where it is (its workspace, project, configuration), for who may see the flow. */
+      place?: ActionPlaceWords;
       mayManage: boolean;
     }>('GET', `/launch-configs/${encodeURIComponent(config)}/action`),
   setConfigAction: (config: string, settings: ActionSettings) =>

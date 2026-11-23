@@ -11,7 +11,7 @@ import { errorsLead, type FlowError } from '../server/flowErrors';
 import type { FactsReply } from '../server/launch/facts';
 import { type CredentialKind, KIND_NAME as KIND_LABEL } from '../server/secrets/kinds';
 import { atLeast, flowLevel, useProjectAccess } from './access';
-import { ConfigActionSection } from './actions';
+import { ConfigActionLine } from './actionEdit';
 import {
   ApiError,
   api,
@@ -1308,13 +1308,8 @@ export function LaunchConfigPage({
                 }}
               />
             </section>
-            {/* AFS-175: the configuration as an action, and who may run it. */}
-            <ConfigActionSection
-              config={c.id}
-              name={c.name}
-              inputs={form.data?.fields ?? []}
-              workspace={workspace}
-            />
+            {/* AFS-201: the configuration as an action: its settings are on the action's page. */}
+            <ConfigActionLine config={c.id} />
             <DeleteConfig config={c} to={base(workspace, key)} />
           </>
         ) : (
@@ -1323,12 +1318,7 @@ export function LaunchConfigPage({
               <SettingsFacts config={c} project={project.data} workspace={workspace} />
               <p className="muted">Changing them needs rw on this flow.</p>
             </section>
-            <ConfigActionSection
-              config={c.id}
-              name={c.name}
-              inputs={form.data?.fields ?? []}
-              workspace={workspace}
-            />
+            <ConfigActionLine config={c.id} />
           </>
         )
       ) : (

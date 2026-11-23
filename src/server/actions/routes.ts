@@ -76,7 +76,9 @@ import {
   type ActionForm,
   type ActionHosts,
   type ActionLink,
+  type ActionPlaceWords,
   type ActionSettings,
+  actionEditAddress,
   REPLY_PARAM,
   replyObject,
   SYSTEM_NAME,
@@ -387,6 +389,9 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
         ? {
             configPage: `/w/${place.workspaceKey}/${place.projectKey}/launch/${place.config}`,
           }
+        : {}),
+      ...(atLeast(access.onWorkspace(place.workspace), 'rw')
+        ? { editPage: actionEditAddress(place.config) }
         : {}),
       ...(action.runOnOpen ? { runOnOpen: true } : {}),
       ...(action.reply ? { replies: action.reply.system } : {}),
@@ -988,8 +993,19 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
     const action = await getAction(db, place.config);
     const access = await accessOf(db, request);
     const manage = !!access && atLeast(access.onWorkspace(place.workspace), 'rw');
+    // AFS-201: where it is, for its own page: to who may see the flow it runs.
+    const sees =
+      !!access && atLeast(access.onFlow(place.workspace, place.project, place.file), 'ro');
+    const where: ActionPlaceWords = {
+      workspaceKey: place.workspaceKey,
+      workspaceName: place.workspaceName,
+      projectKey: place.projectKey,
+      configName: place.configName,
+      flowFile: place.file,
+    };
     return {
       action: action ?? null,
+      ...(sees ? { place: where } : {}),
       // Who may run it: for who may change it (people's names are theirs to know).
       ...(manage ? { grants: await actionGrants(db, place.config) } : {}),
       // AFS-206: whom they may give it to: the people and groups of the workspace (anyone, for

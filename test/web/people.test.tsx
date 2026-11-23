@@ -196,8 +196,8 @@ describe('People and groups', () => {
       'operator',
       // AFS-152: levels in words; a flow by its title when its project's list has one.
       'upgrade: read and write in core',
-      // AFS-206: the actions an action grant gives (none here).
-      '',
+      // AFS-232: an operator of the workspace may run every action of it.
+      'every action of the workspace',
       'yes',
       'their own grant, group netops',
     ]);
@@ -436,7 +436,7 @@ describe('People and groups', () => {
       (await within(named).findByRole('link', { name: 'Restart an edge switch' })).getAttribute(
         'href',
       ),
-    ).toBe('/w/ops/core/launch/c1/settings');
+    ).toBe('/actions/c1/edit');
 
     fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'net-ops' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

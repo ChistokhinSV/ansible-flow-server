@@ -5,6 +5,7 @@
 // person's page starts with what they reach and ends with disable and delete; a group's page
 // starts with its members and the workspaces that name it.
 import { Fragment, useEffect, useId, useState } from 'react';
+import { actionEditAddress } from '../server/actions/types';
 import { PASSWORD_RULES, passwordProblem } from '../server/auth/passwordRules';
 import { flowTitle, LEVEL_NAME, throughWords, useFlowTitles } from './access';
 import { api, type Group, type User } from './api';
@@ -616,16 +617,22 @@ function Reach({ user }: { user: User }) {
                     ))}
                   </td>
                   <td>
-                    {/* AFS-206: the actions an action grant lets them run. */}
-                    {who.actions?.map((a) => (
-                      <div key={a.config}>
-                        <Link
-                          to={`/w/${workspace.key}/${a.projectKey}/launch/${a.config}/settings`}
-                        >
-                          {a.title}
-                        </Link>
-                      </div>
-                    ))}
+                    {/* AFS-206: the actions an action grant lets them run. AFS-232: operators and
+                        rw of the workspace may run every one of it. */}
+                    {who.level === 'operator' || who.level === 'rw' ? (
+                      'every action of the workspace'
+                    ) : (
+                      <>
+                        {who.actions?.map((a) => (
+                          <div key={a.config}>
+                            <Link to={actionEditAddress(a.config)}>{a.title}</Link>
+                          </div>
+                        ))}
+                        {who.flows.some((f) => f.level === 'operator' || f.level === 'rw') && (
+                          <div className="muted">those of the flows they operate</div>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td>{who.approve ? 'yes' : ''}</td>
                   <td className="muted">{who.through.map(throughWords).join(', ')}</td>
@@ -855,11 +862,7 @@ function NamedIn({ group }: { group: Group }) {
           <ul className="list plain">
             {actions.map((g) => (
               <li key={g.id}>
-                <Link
-                  to={`/w/${g.action.workspaceKey ?? ''}/${g.action.projectKey}/launch/${g.action.config}/settings`}
-                >
-                  {g.action.title}
-                </Link>{' '}
+                <Link to={actionEditAddress(g.action.config)}>{g.action.title}</Link>{' '}
                 <span className="muted">in {g.action.workspaceKey}</span>
               </li>
             ))}
