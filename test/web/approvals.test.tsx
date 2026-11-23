@@ -115,6 +115,17 @@ describe('approvals', () => {
     );
   });
 
+  it('AFS-211: with nothing waiting, one sentence says so', async () => {
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /approvals': () => ({ body: [] }),
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    expect(await screen.findByText('No run waits for a decision.')).toBeTruthy();
+    expect(screen.queryByText('Nothing waits for you.')).toBeNull();
+  });
+
   it("an approval without a message shows its step's intent (AFS-193)", async () => {
     const one = waiting('r1', true);
     const { message: _, ...rest } = one.gate as ReturnType<typeof gate> & { message?: string };
@@ -194,7 +205,7 @@ describe('approvals', () => {
       'section',
     ) as HTMLElement;
     expect(within(yours).getByText('Dana Ruiz')).toBeTruthy();
-    expect(within(yours).getByText(/decided by Change Board or Omar Haddad/)).toBeTruthy();
+    expect(within(yours).getByText(/Who decides: Change Board or Omar Haddad/)).toBeTruthy();
     expect(within(yours).getByText(/Inputs:/).textContent).toMatch(/target_version = 7\.4\.2/);
     expect(within(yours).getByText(/real run/)).toBeTruthy();
     // The badge reads again once the page has its list: both say the same.

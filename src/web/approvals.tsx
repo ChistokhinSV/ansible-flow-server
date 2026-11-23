@@ -2,6 +2,7 @@
 // on its page. Who may decide is the server's to say (`mayDecide`, else why not); a decision
 // takes a comment, kept with it and shown to everyone who looks at the run.
 import { type FormEvent, useEffect, useId, useState } from 'react';
+import { decidersWords } from '../server/approvals/types';
 import { api, type Gate } from './api';
 import { Link } from './router';
 import { Loading, messageOf, PageHead, span, Time, useLoad } from './ui';
@@ -123,10 +124,7 @@ function DecideForm({
 
 /** AFS-146: who may decide a gate, by name, as a phrase. */
 export function decidersText(gate: Gate): string {
-  const names = gate.deciders ?? gate.approvers;
-  if (!names.length) return 'An administrator';
-  if (names.length === 1) return names[0] as string;
-  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+  return decidersWords(gate.deciders ?? gate.approvers);
 }
 
 /** AFS-146: a run's inputs as the approver reads them, secrets already shown as ***. */
@@ -207,8 +205,9 @@ function GateCard({
               · times out <Time at={gate.deadline} />
             </>
           )}
-          {/* AFS-133, AFS-146: who may decide, always, by name. */} · decided by{' '}
-          {decidersText(gate)}
+          {/* AFS-133, AFS-146: who may decide, always, by name. AFS-211: as it is now, not as
+              if it were decided. */}{' '}
+          · Who decides: {decidersText(gate)}
         </p>
       ) : (
         <p className="muted">
@@ -327,10 +326,13 @@ export function ApprovalsPage() {
         help="approvals.md"
         title="Approvals"
         lead={
+          // AFS-211: one sentence when nothing waits, not two.
           list.data
             ? mine.length
               ? `${mine.length} waiting for you${others.length ? `, ${others.length} for others` : ''}.`
-              : 'Nothing waits for you.'
+              : others.length
+                ? `Nothing waits for you; ${others.length} for others.`
+                : 'No run waits for a decision.'
             : undefined
         }
       />
@@ -340,7 +342,6 @@ export function ApprovalsPage() {
         </p>
       )}
       <Loading state={list} />
-      {list.data && list.data.length === 0 && <p className="empty">No run waits for a decision.</p>}
       {mine.length > 0 && (
         <section aria-labelledby="yours">
           <h2 id="yours">Yours to decide</h2>

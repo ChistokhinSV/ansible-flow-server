@@ -24,7 +24,7 @@ import type { RunView } from '@ansible-flow/core/protocol';
 import { inputText, parseInput } from '@ansible-flow/core/run/launch';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { type Access, accessOf, atLeast } from '../access/grants';
-import { decidersOf, gatesOf } from '../approvals/gates';
+import { approveHolders, decidersOf, gatesOf } from '../approvals/gates';
 import { changedKeys } from '../audit/changes';
 import { administrator, inSession, signedIn } from '../auth/guards';
 import { FailureLimiter } from '../auth/limiter';
@@ -83,6 +83,10 @@ import {
   replyObject,
   SYSTEM_NAME,
 } from './types';
+
+/** "a, b or c". */
+const orWords = (names: string[]) =>
+  names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
 
 const STATUS: Record<ActionError['code'], number> = { invalid: 400, not_found: 404, taken: 409 };
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
@@ -353,11 +357,22 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
             .map((s) => s.node.title || s.node.key)
             .join(', ')}.`,
         );
+      // AFS-224: an approval with no approvers asks who holds approve: named, not guessed.
+      let holders: string[] | undefined;
       for (const { node } of steps)
         if (node.type === 'approval') {
-          const who = node.approval?.approvers?.length
-            ? node.approval.approvers.join(', ')
-            : 'someone who may approve';
+          const named = node.approval?.approvers ?? [];
+          if (!named.length)
+            holders ??= await approveHolders(db, {
+              workspace: place.workspace,
+              project: place.project,
+              flowFile: place.file,
+            });
+          const who = named.length
+            ? named.join(', ')
+            : holders?.length
+              ? orWords(holders)
+              : 'an administrator';
           happens.push(`It waits at ${node.title} until ${who} decides.`);
         }
     }

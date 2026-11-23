@@ -10,7 +10,7 @@
 
 import type { Kysely } from 'kysely';
 import type { ActionReply } from '../actions/types';
-import { waitingHosts } from '../approvals/gates';
+import { waitingHosts, wouldDecide } from '../approvals/gates';
 import type { Schema } from '../db/schema';
 import type { Logger } from '../log';
 import { STATE_WORDS } from '../runs/words';
@@ -302,7 +302,16 @@ export class Notifier {
       project: run.project.id,
       flowFile: run.flowFile,
     });
-    return { approvers, told, selfApprove };
+    // AFS-211: "who does not decide it" only of a launcher who would otherwise be asked.
+    const launcherLeftOut =
+      !selfApprove &&
+      (await wouldDecide(
+        this.db,
+        approval.approvers ?? [],
+        { workspace: run.workspace.id, project: run.project.id, flowFile: run.flowFile },
+        run.requestedBy,
+      ).catch(() => false));
+    return { approvers, told, selfApprove, launcherLeftOut };
   }
 
   /**
@@ -376,7 +385,7 @@ export class Notifier {
         message?: string;
         intent?: string;
       };
-      const { approvers, told, selfApprove } = await this.asked(run, approval);
+      const { approvers, told, launcherLeftOut } = await this.asked(run, approval);
       // AFS-193: what is decided: the approval's message (else its step's intent) and the hosts.
       const about = approval.message?.trim() || approval.intent?.trim();
       const hosts = waitingHosts(gate.carried_json, gate.node_key) ?? [];
@@ -398,7 +407,7 @@ export class Notifier {
           ? [`${hosts.length === 1 ? 'Host' : `Hosts (${hosts.length})`} waiting: ${shownHosts}`]
           : []),
         // AFS-193: a list or group address reaches who launched it too: they do not decide it.
-        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'})${selfApprove ? '' : `, who does not decide it`}.`,
+        `Launched by ${run.requestedName} (${run.mode === 'real' ? 'a real run' : 'a check run'})${launcherLeftOut ? ', who does not decide it' : ''}.`,
         ...(inputs.length ? ['Inputs:', ...inputs] : []),
         ...(gate.deadline ? [`Nobody deciding by ${readable(gate.deadline)}: it times out.`] : []),
         link ? `Decide: ${link}` : 'Decide on the Approvals page of the server.',

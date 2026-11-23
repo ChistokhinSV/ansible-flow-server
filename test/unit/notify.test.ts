@@ -460,7 +460,32 @@ for (const [name, config] of databases) {
       const mail = readable(smtp.received.at(-1)?.data ?? '');
       expect(mail).toContain('The engineer on duty confirms the maintenance window.');
       expect(mail).toContain('Hosts (2) waiting: fw-edge-01, fw-edge-02');
-      expect(mail).toMatch(/Launched by .+ \(a .+ run\), who does not decide it\./);
+      // AFS-211: dana would not be asked anyway: nothing is said of her deciding.
+      expect(mail).toMatch(/Launched by .+ \(a .+ run\)\.$/m);
+      expect(mail).not.toContain('who does not decide it');
+      // A launcher who holds approve is told apart: the list may reach them too.
+      const held = await createGrant(
+        db(),
+        ids.workspace as string,
+        { user: 'dana', level: 'approve' },
+        'dana',
+      );
+      try {
+        const again = await launch('dana');
+        const g2 = await openGate(db(), {
+          run: again.id,
+          node: { id: 'N-approve', key: 'change-approval', title: 'Approve the change' },
+          segment: 'start',
+          carried: {},
+        });
+        notifier.approvalWaiting(again.id, g2.id);
+        await notifier.idle();
+        expect(readable(smtp.received.at(-1)?.data ?? '')).toMatch(
+          /Launched by .+ \(a .+ run\), who does not decide it\./,
+        );
+      } finally {
+        await deleteGrant(db(), held.id);
+      }
     });
 
     it('a decision tells who launched the run, with the comment', async () => {

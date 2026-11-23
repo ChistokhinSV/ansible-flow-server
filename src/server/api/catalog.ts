@@ -698,6 +698,13 @@ export const ROUTES: Record<string, RouteDoc> = {
   )(
     'Drive a step-by-step run: `command` step (run the next step, pause again), continue (run on to a pause point), pause (pause before the next step), stop (end before the next step); `points`: new pause points (node ids)',
   ),
+  'GET /api/v1/projects/:id/approvers': S(
+    'Approvals',
+    'signed in',
+    P,
+  )(
+    'Who an approval of a flow (`path`) asks when its approvers are empty: the people and groups holding approve on the flow or its workspace, by name; and whether the workspace lets who launched a run decide it (`selfApprove`)',
+  ),
   'GET /api/v1/projects/:id/pause-points': S(
     'Runs',
     'signed in',
@@ -1187,6 +1194,7 @@ const NEEDS: Record<string, Who> = {
   // operator on its flow; administrators too).
   'POST /api/v1/runs/:id/step': 'operator',
   'GET /api/v1/projects/:id/pause-points': 'ro',
+  'GET /api/v1/projects/:id/approvers': 'ro',
   'PUT /api/v1/projects/:id/pause-points': 'operator',
   'POST /api/v1/runs/:id/relaunch': 'operator',
   // An approver sees what they decide: approve counts as ro; deciding is checked by the handler
@@ -1217,6 +1225,7 @@ const FLOW_QUERY: Record<string, string> = {
   'GET /api/v1/projects/:id/commits': 'path',
   'GET /api/v1/projects/:id/flows/commit': 'path',
   'GET /api/v1/projects/:id/pause-points': 'path',
+  'GET /api/v1/projects/:id/approvers': 'path',
   'PUT /api/v1/projects/:id/pause-points': 'path',
 };
 

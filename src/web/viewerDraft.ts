@@ -197,6 +197,19 @@ export function editDraft(options: {
    */
   let vars: RepoVars | undefined;
   let keys: Awaited<ReturnType<typeof projectKeys>>;
+  /**
+   * AFS-224: who an approval with an empty Approvers asks (approve holders of the flow or its
+   * workspace), told to the designer with its settings: its Approvers field names them.
+   */
+  let implied: string[] | undefined;
+  // AFS-136: a draft does not run (runs use saved commits): no Run buttons while editing.
+  const sendConfig = () =>
+    send({
+      type: 'config',
+      testMode: false,
+      embed: { mayRun: false, words: 'server' },
+      ...(implied ? { impliedApprovers: implied } : {}),
+    } as HostMessage);
   const withVars = (snapshot: NonNullable<Edit['snapshot']>) =>
     (vars ? vars.snapshot(snapshot as never) : snapshot) as unknown;
   const show = (snapshot: Edit['snapshot']) => {
@@ -231,6 +244,14 @@ export function editDraft(options: {
       });
       void projectKeys(d.project).then((k) => {
         keys = k;
+      });
+      void json(
+        'GET',
+        `/api/v1/projects/${encodeURIComponent(d.project)}/approvers?path=${encodeURIComponent(d.file)}`,
+      ).then((r) => {
+        if (!r.ok || !Array.isArray(r.data?.approvers)) return;
+        implied = (r.data.approvers as unknown[]).filter((a): a is string => typeof a === 'string');
+        if (ready) sendConfig();
       });
     }
     show(first.snapshot);
@@ -386,12 +407,7 @@ export function editDraft(options: {
         switch (message.type) {
           case 'ready':
             ready = true;
-            // AFS-136: a draft does not run (runs use saved commits): no Run buttons while editing.
-            send({
-              type: 'config',
-              testMode: false,
-              embed: { mayRun: false, words: 'server' },
-            } as HostMessage);
+            sendConfig();
             if (latest) {
               send({ type: 'snapshot', snapshot: withVars(latest) } as unknown as HostMessage);
               revealOnce();
