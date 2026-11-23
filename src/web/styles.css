@@ -1178,13 +1178,35 @@ ul.tight {
   font-size: 0.9rem;
   color: var(--muted);
 }
-/* Who is here gives way first: what happened last is the news. */
-.draft-line-who {
-  flex: 0 3 auto;
-  min-width: 4rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* AFS-209: who is here, as chips of initials (the name on hover): they never get cut. */
+.draft-chips {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+}
+.draft-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--fg);
+  background: var(--raised);
+  border: 2px solid var(--border);
+  cursor: default;
+}
+.draft-chip + .draft-chip {
+  margin-left: -0.35rem;
+}
+.draft-chip.warn {
+  border-color: var(--warn);
+}
+/* AFS-209: a save or discard coming, an error, an import's note: read whole, across the page. */
+.draft-notice {
+  margin: 0 0 0.5rem;
 }
 .draft-line-news {
   flex: 0 1 auto;

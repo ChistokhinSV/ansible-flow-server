@@ -425,14 +425,14 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )(
-    "Bring back a draft of the flow (`path`) discarded in the last 15 minutes (`draft`, its old id), as the flow's draft again; refused once the flow has a new draft",
+    "Bring back a draft of the flow (`path`) discarded in the last 15 minutes (`draft`, its old id), as the flow's draft again with its edits and who made them; when the flow has a new draft, merged into it (`merged`; `kept` lists the places where the new draft's value stayed); asked again, it answers the draft it went to",
   ),
   'GET /api/v1/drafts/:id/summary': S(
     'Editing',
     'signed in',
     D,
   )(
-    "What the draft changes against the commit it began at, step by step (and notes and the flow's fields), with who changed each place; `changed` says whether there is anything to save",
+    "What the draft changes against the commit it began at, step by step (and notes and the flow's fields), with who changed each place, the steps moved on the canvas and by whom (`moves`) and the files Save adds (`files`); `changed` says whether there is anything to save",
   ),
   'POST /api/v1/drafts/:id/leave': S(
     'Editing',

@@ -152,6 +152,8 @@ export function registerDrafts(
   };
 
   const streams = new Set<ServerResponse>();
+  /** AFS-209: the open event streams of each tab in a draft ("draft login tab"). */
+  const tabStreams = new Map<string, number>();
   app.addHook('preClose', async () => {
     for (const s of streams) s.end();
     streams.clear();
@@ -375,7 +377,22 @@ export function registerDrafts(
         raw.end();
       };
       streams.add(raw);
-      raw.on('close', finish);
+      // AFS-209: a tab closed (its stream ends) leaves the draft now, not when its "I am here"
+      // runs out: the others' pages stop counting it. Its frame says "I am here" again on a
+      // reconnect.
+      const tabKey = request.query.tab ? `${id} ${me.login} ${request.query.tab}` : undefined;
+      if (tabKey) tabStreams.set(tabKey, (tabStreams.get(tabKey) ?? 0) + 1);
+      raw.on('close', () => {
+        finish();
+        if (!tabKey) return;
+        const left = (tabStreams.get(tabKey) ?? 1) - 1;
+        if (left > 0) {
+          tabStreams.set(tabKey, left);
+          return;
+        }
+        tabStreams.delete(tabKey);
+        if (here.get(id)?.delete(`${me.login} ${request.query.tab}`)) tellPeople(id);
+      });
       return reply;
     },
   );

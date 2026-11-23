@@ -13,6 +13,7 @@ import {
   type Run,
 } from './api';
 import { ask } from './confirm';
+import { changeWords, subjectOf } from './draftWords';
 import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { MissingProject } from './help';
 import { FlowHistory, flowAt } from './history';
@@ -189,7 +190,12 @@ export function FlowPage({
     if (!project) return;
     try {
       const back = await api.restoreDraft(project.id, file, id);
-      setSaid(undefined);
+      // AFS-209: someone began a new draft meanwhile: the edits went into it, not lost.
+      setSaid(
+        back.merged
+          ? `The discarded edits are in the flow's new draft${back.kept?.length ? `, except where it changed the same places (its values stay): ${back.kept.join('; ')}` : ''}.`
+          : undefined,
+      );
       setEditing(back);
     } catch (e) {
       setSaid(messageOf(e));
@@ -668,6 +674,7 @@ export function FlowPage({
             draft={editing}
             title={title}
             me={me.login}
+            myName={me.name || me.login}
             tools={tools}
             tab={tab}
             frame={() => stage.current?.querySelector('iframe') ?? null}
@@ -885,37 +892,34 @@ export function coAuthorWords(names?: string[]): string {
   return ` with ${listWords(names)} as co-author${names.length > 1 ? 's' : ''}`;
 }
 
-/** AFS-186: one place a draft changes, in the activity's words ("changed Ping (timeout)"). */
-function changeWords(c: DraftSummary['changes'][number]): string {
-  const fields = [
-    ...new Set(
-      c.fields.map((f) =>
-        (f.split('.').at(-1) ?? f).replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2'),
-      ),
-    ),
-  ].slice(0, 3);
-  if (c.note !== undefined)
-    return `${c.kind} the note “${c.note.length > 40 ? `${c.note.slice(0, 39)}…` : c.note}”`;
-  if (!c.step) return `changed the flow's ${fields.join(', ') || 'settings'}`;
-  if (c.kind !== 'changed') return `${c.kind} ${c.step}`;
-  return fields.length ? `changed ${c.step} (${fields.join(', ')})` : `moved ${c.step}`;
-}
+/** AFS-209: the folders of a sample's files (`roles/x/tasks/main.yml` -> `roles/x`). */
+const fileGroups = (files: string[]) => [
+  ...new Set(files.map((f) => /^roles\/[^/]+/.exec(f)?.[0] ?? f)),
+];
 
 /**
  * AFS-186: what the Save dialog says a draft changes, a line per place with who changed it, and
- * the commit message made of it (what it changes, three places at most).
+ * the commit message made of it. AFS-209: in the forms' words; the steps moved, by whom; the
+ * files a sample adds; the message whole changes only ("and N more"), never cut with "…".
  */
 export function summaryWords(summary: DraftSummary): { lines: string[]; subject: string } {
-  const lines = summary.changes.map(
-    (c) => `${changeWords(c)}${c.by.length ? ` (${listWords(c.by)})` : ''}`,
-  );
+  const by = (names: string[]) => (names.length ? ` (${listWords(names)})` : '');
+  const lines = summary.changes.map((c) => `${changeWords(c)}${by(c.by)}`);
   if (summary.wires) lines.push(`changed ${summary.wires} wire${summary.wires === 1 ? '' : 's'}`);
-  const parts = summary.changes.map(changeWords);
+  const moved = summary.moves?.steps ?? 0;
+  const moves = moved ? `moved ${moved} step${moved === 1 ? '' : 's'}` : '';
+  if (moves) lines.push(`${moves} on the canvas${by(summary.moves?.by ?? [])}`);
+  const files = summary.files?.length ?? 0;
+  const groups = fileGroups(summary.files ?? []);
+  if (files)
+    lines.push(
+      `adds ${files} file${files === 1 ? '' : 's'} from the sample: ${groups.slice(0, 4).join(', ')}${groups.length > 4 ? ` and ${groups.length - 4} more` : ''}`,
+    );
+  const parts = summary.changes.map((c) => changeWords(c, true));
   if (!parts.length && summary.wires) parts.push('change the wires');
-  let subject = parts.slice(0, 3).join('; ');
-  if (parts.length > 3) subject += ` and ${parts.length - 3} more`;
-  subject = subject.replace(/^./, (c) => c.toUpperCase());
-  return { lines, subject: subject.length > 72 ? `${subject.slice(0, 71)}…` : subject };
+  if (!parts.length && moves) parts.push(moves);
+  if (files) parts.push(`add ${groups.length === 1 ? groups[0] : `${files} files`}`);
+  return { lines, subject: subjectOf(parts) };
 }
 
 /** AFS-149: a place both the draft and the branch changed, with each side's value. */
@@ -950,6 +954,16 @@ export function discardQuestion(
 
 /** AFS-186: how long the server keeps a discarded draft to bring back (drafts.ts). */
 const KEPT_MINUTES = 15;
+/** AFS-209: how often an open Save dialog reads again what the draft changes. */
+const SUMMARY_MS = 3000;
+
+/** AFS-209: a person's initials, for their chip ("Mia Ortega" -> "MO"). */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters =
+    words.length > 1 ? `${words[0]?.[0] ?? ''}${words.at(-1)?.[0] ?? ''}` : name.slice(0, 2);
+  return letters.toUpperCase() || '?';
+}
 
 /**
  * AFS-136: what is being typed in the designer (a field commits when it is left) is sent before
@@ -1029,6 +1043,7 @@ function Modal({
 function DraftBar({
   draft,
   me,
+  myName,
   tools,
   tab,
   frame,
@@ -1046,6 +1061,8 @@ function DraftBar({
 }: {
   draft: Draft;
   me: string;
+  /** AFS-209: this person's name, for their chip. */
+  myName: string;
   /** AFS-194: the flow's title, for the commit message offered. */
   title?: string;
   /** Where Save, Stop editing and Discard go (the head). */
@@ -1082,6 +1099,30 @@ function DraftBar({
   const [busy, setBusy] = useState(false);
   const [earlier, setEarlier] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
+  // AFS-209: the "N earlier" and "branch moved" popovers close on Escape and on a click elsewhere.
+  const lineBox = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!earlier && !branchOpen) return;
+    const close = () => {
+      setEarlier(false);
+      setBranchOpen(false);
+    };
+    const away = (e: MouseEvent) => {
+      if (!lineBox.current?.contains(e.target as Node)) close();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    // A click on the canvas (the designer's frame) takes the focus from this window.
+    window.addEventListener('blur', close);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+      window.removeEventListener('blur', close);
+    };
+  }, [earlier, branchOpen]);
   const messageId = useId();
   const others = listWords(people.map((p) => p.name));
   // AFS-171: while this page asks for the commit's message, the others are told a save is coming
@@ -1102,22 +1143,29 @@ function DraftBar({
     [draft.id],
   );
   // AFS-186: what it changes, read when Save opens; the message is made of it until typed in.
+  // AFS-209: read again while the dialog is open (others edit and move steps meanwhile), at once
+  // when someone's edit comes and every few seconds; once typed in, the message stays as typed.
   const typed = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `edits` only says when to read again
   useEffect(() => {
     if (!asking) return;
     let live = true;
-    void api
-      .draftSummary(draft.id)
-      .then((s) => {
-        if (!live) return;
-        setSummary(s);
-        if (!typed.current) setMessage(summaryWords(s).subject);
-      })
-      .catch(() => undefined);
+    const read = () =>
+      void api
+        .draftSummary(draft.id)
+        .then((s) => {
+          if (!live) return;
+          setSummary(s);
+          if (!typed.current) setMessage(summaryWords(s).subject);
+        })
+        .catch(() => undefined);
+    read();
+    const timer = setInterval(read, SUMMARY_MS);
     return () => {
       live = false;
+      clearInterval(timer);
     };
-  }, [asking, draft.id]);
+  }, [asking, draft.id, edits]);
   useEffect(() => {
     if (!hint) return;
     const t = setTimeout(() => setHint(undefined), 5000);
@@ -1131,25 +1179,16 @@ function DraftBar({
     told.current = false;
     onDone(words, discarded);
   };
+  // AFS-136: saving ends the draft for everyone in it: whoever else is here is named first.
+  // AFS-149: so are this person's other tabs. AFS-209: in Save's dialog, not a second one.
+  const also = [
+    ...(people.length
+      ? [`${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too`]
+      : []),
+    ...(myTabs > 1 ? ['you have it open in another tab too'] : []),
+  ];
   const save = async (picked?: Record<string, 'draft' | 'branch'>) => {
     if (busy) return;
-    // AFS-136: saving ends the draft for everyone in it: whoever else is here is named first.
-    // AFS-149: so are this person's other tabs.
-    const also = [
-      ...(people.length
-        ? [`${others} ${people.length === 1 ? 'is' : 'are'} editing this draft too`]
-        : []),
-      ...(myTabs > 1 ? ['you have it open in another tab too'] : []),
-    ];
-    if (
-      also.length &&
-      !picked &&
-      !(await ask(
-        `${also.join('; ').replace(/^./, (c) => c.toUpperCase())}. Saving makes the commit and ends the draft for everyone (what is being typed is sent first). Save now?`,
-        { yes: 'Save' },
-      ))
-    )
-      return;
     setBusy(true);
     setError(undefined);
     try {
@@ -1263,45 +1302,53 @@ function DraftBar({
         : `Saving puts the draft’s edits on top of ${outside.mine ? 'that change' : 'theirs'} step by step; where both changed the same place, you choose which to keep.`}
     </>
   ) : null;
-  // AFS-186: the one line in the head: a save or discard coming first, then what was said here,
-  // then the newest of the others' edits.
+  // AFS-186: a save or discard coming first, then what was said here (an error, an import's note).
+  // AFS-209: those are read in full, in a bar across the page over the canvas; the head keeps
+  // who is here, as chips, and the newest of the others' edits.
   const coming = savers.length
     ? `${listWords(savers)} ${savers.length === 1 ? 'is' : 'are'} about to save: your editing stops then; what you type is sent first.`
     : discarders.length
       ? `${listWords(discarders)} ${discarders.length === 1 ? 'is' : 'are'} about to discard the draft: your editing stops then; Bring back restores it.`
       : undefined;
   const whoWords = `${people.length ? `Here now: you, ${others}` : 'Only you here'}${myTabs > 1 ? ' (and your other tabs)' : ''}`;
+  const chip = (key: string, name: string, words: string, warn?: boolean) => (
+    <span key={key} className={`draft-chip${warn ? ' warn' : ''}`} title={words} aria-hidden="true">
+      {initials(name)}
+    </span>
+  );
+  const notice = coming ?? error ?? hint ?? news;
+  const bar = notice ? (
+    <div
+      className={`notice draft-notice${coming || error ? ' warn' : ''}`}
+      role={coming || error ? 'alert' : 'status'}
+    >
+      {coming ? <strong>{coming}</strong> : notice}
+    </div>
+  ) : null;
   const line = (
     <section
+      ref={lineBox}
       className="draft-line"
       aria-label="Editing together"
       data-together={people.length > 0 || myTabs > 1 ? '' : undefined}
     >
-      <span className="draft-line-who" title={whoWords}>
-        {whoWords}
-      </span>
-      <span
-        className={`draft-line-news${coming || error ? ' warn-text' : ''}`}
-        role="status"
-        // A long note (what an import did not map) is cut on the line: whole on hover.
-        title={
-          (coming ?? error ?? hint ?? (typeof news === 'string' ? news : undefined)) || undefined
-        }
-      >
-        {coming ? (
-          <strong>{coming}</strong>
-        ) : error ? (
-          error
-        ) : hint ? (
-          hint
-        ) : news ? (
-          news
-        ) : newest ? (
-          say(newest)
-        ) : (
-          'Edits are shared at once.'
+      <span className="draft-chips" title={whoWords}>
+        <span className="sr-only">{whoWords}</span>
+        {chip('me', myName, myTabs > 1 ? 'You (and your other tabs)' : 'You')}
+        {people.map((p) =>
+          chip(
+            p.login,
+            p.name,
+            `${p.name}${p.saving ? ': about to save' : p.discarding ? ': about to discard' : ''}`,
+            p.saving || p.discarding,
+          ),
         )}
       </span>
+      {newest ? (
+        <span className="draft-line-news" title={`${newest.by} ${newest.what}`}>
+          {say(newest)}
+        </span>
+      ) : null}
       {edits.length > 1 ? (
         <button
           type="button"
@@ -1365,6 +1412,7 @@ function DraftBar({
   return (
     <>
       {tools ? createPortal(buttons, tools) : buttons}
+      {bar}
       <Modal open={asking} label="Save the draft" onClose={closeSave}>
         {conflicts ? (
           <div className="draft-conflict" role="alert">
@@ -1426,9 +1474,15 @@ function DraftBar({
             }}
           >
             {branchWords ? <p className="notice warn">{branchWords}</p> : null}
+            {also.length ? (
+              <p className="notice warn" role="note">
+                {also.join('; ').replace(/^./, (c) => c.toUpperCase())}: Save ends the draft for
+                everyone (what is being typed is sent first).
+              </p>
+            ) : null}
             {summaryText?.lines.length ? (
               <div className="draft-summary">
-                <p>What the draft changes, and who changed it:</p>
+                <p>What the draft changes, and who changed it (as it is now):</p>
                 <ul>
                   {summaryText.lines.map((l) => (
                     <li key={l}>{l}</li>
