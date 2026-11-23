@@ -39,6 +39,7 @@ import { Schedules } from './schedules/schedules';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
 import { loadMasterKey, type MasterKey } from './secrets/masterKey';
+import { SecretResolver } from './secrets/providers/resolver';
 import { type CertificateInfo, certificateProblems, certificatesOf } from './tls/certificates';
 import { CertificateStore } from './tls/store';
 
@@ -293,9 +294,16 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     leases.unref();
     projects = new ProjectSync(db, git, log, async (project) => {
       if (!project.gitCredential) return undefined;
-      const revealed = await reveal(db, masterKey, project.gitCredential);
-      if (!revealed) throw new Error('The credential is gone');
-      return gitAuthOf(revealed);
+      // AFS-241: a part taken from a secret provider is read for this fetch only; what the
+      // provider said goes to this log.
+      const resolver = new SecretResolver(db, masterKey, { log });
+      try {
+        const revealed = await reveal(db, masterKey, project.gitCredential, resolver);
+        if (!revealed) throw new Error('The credential is gone');
+        return gitAuthOf(revealed);
+      } finally {
+        await resolver.close();
+      }
     });
     schedules = new Schedules({ db, git, sync: projects, queue: runs, log });
     // AFS-37: what Prometheus reads; the certificate in use changes when one is installed.
