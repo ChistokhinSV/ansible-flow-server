@@ -7,9 +7,10 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
+import { buildModel } from '@ansible-flow/core/flow/model';
 import { buildApp } from './app';
 import { timeOutDue } from './approvals/gates';
-import { pruneAudit, recordAudit } from './audit/store';
+import { auditStream, pruneAudit, recordAudit } from './audit/store';
 import { DirectorySync, LdapSignIn } from './auth/ldap/ldap';
 import { sweepSessions } from './auth/sessions';
 import { setupAddress, setupCode } from './auth/setup';
@@ -21,6 +22,7 @@ import { instanceId } from './db/settings';
 import { Environments } from './environments/environments';
 import { galaxyClient } from './environments/galaxy';
 import { serverDefault } from './environments/serverDefault';
+import { flowAt } from './launch/configs';
 import { pruneDevBundles } from './launch/dev';
 import type { Logger } from './log';
 import { serverMeta } from './meta';
@@ -39,6 +41,7 @@ import { Schedules } from './schedules/schedules';
 import { checkKey, gitAuthOf, reveal } from './secrets/credentials';
 import { SealError } from './secrets/crypto';
 import { loadMasterKey, type MasterKey } from './secrets/masterKey';
+import { Streamer } from './stream/streamer';
 import { type CertificateInfo, certificateProblems, certificatesOf } from './tls/certificates';
 import { CertificateStore } from './tls/store';
 
@@ -139,6 +142,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     log.info({ keys: sealedNow }, "Sealed the certificate's private keys with the master key");
   // Made once the database is open; the certificate's warnings reach it from then on.
   let notifier: Notifier | undefined;
+  let streamer: Streamer | undefined;
   let served =
     config.tls === 'on' ? await store.ensure(selfSignedNames(config), { by: 'server' }) : undefined;
   const warnOfExpiry = () => {
@@ -265,8 +269,35 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       },
     );
     notifier = notify;
-    runs.onEnded = (id) => notify.runEnded(id);
+    // AFS-53: audit entries and the start and end of runs go to the event streams.
+    const stream = new Streamer({
+      db,
+      key: masterKey,
+      log,
+      version: meta.version,
+      steps: async ({ project, commit, file }) => {
+        const flow = await flowAt(git, project, commit, file);
+        if (!flow.doc) return {};
+        return Object.fromEntries(
+          [...buildModel(flow.doc).nodes.values()].map(({ node }) => [
+            node.id,
+            { key: node.key, kind: node.type, title: node.title },
+          ]),
+        );
+      },
+      failing: (sink) => notify.streamFailing(sink),
+    });
+    streamer = stream;
+    auditStream.recorded = () => stream.wake();
+    auditStream.failed = (e) =>
+      log.error({ err: e }, 'An audit entry was not given to the event streams');
+    runs.onEnded = (id) => {
+      notify.runEnded(id);
+      stream.runEnded(id);
+    };
+    runs.onStarted = (id) => stream.runStarted(id);
     notify.start();
+    stream.start();
     if (served) notify.certificate(served.info);
     // A worker that stops answering lets its runs go: back to the queue, or lost (runs/queue.ts).
     leases = setInterval(() => {
@@ -359,6 +390,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
       instance: await instanceId(database.db),
       ...(served ? { https: { cert: served.certificate, key: served.key } } : {}),
       notifier: notify,
+      streamer: stream,
       schedules,
       environments,
       certificate: {
@@ -475,6 +507,14 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           (e) => log.error({ err: e }, 'Removing old notifications failed'),
         ),
       );
+      track(
+        stream.prune().then(
+          (n) => {
+            if (n) log.debug({ rows: n }, 'Removed event streaming rows sent or dropped');
+          },
+          (e) => log.error({ err: e }, 'Removing old event streaming rows failed'),
+        ),
+      );
       if (!executor) return;
       const output = executor.outputFile.bind(executor);
       track(
@@ -584,6 +624,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
           await stopPruning();
           // Messages being written or sent are finished; the rest wait in the outbox.
           await notifier?.stop();
+          await streamer?.stop();
           await database.close();
           log.info('Stopped');
         })();
@@ -605,6 +646,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     await app?.close().catch(() => undefined);
     await stopPruning();
     await notifier?.stop().catch(() => undefined);
+    await streamer?.stop().catch(() => undefined);
     await database.close().catch(() => undefined);
     throw e;
   }

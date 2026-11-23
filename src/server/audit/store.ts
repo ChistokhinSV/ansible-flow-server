@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { type Kysely, sql } from 'kysely';
 import type { AuditEntryTable, Schema } from '../db/schema';
+import { enqueueDeliveries } from '../stream/store';
 
 export const SOURCES = ['ui', 'api', 'mcp', 'git', 'cli', 'server'] as const;
 export type AuditSource = (typeof SOURCES)[number];
@@ -52,7 +53,30 @@ export async function recordAudit(db: Kysely<Schema>, entry: NewEntry): Promise<
       entry.detail && Object.keys(entry.detail).length ? JSON.stringify(entry.detail) : null,
   };
   await db.insertInto('audit_entry').values(row).execute();
+  // AFS-53: and to the event streams, from here, the one place entries are written. A stream
+  // that cannot take it never fails what was done: the entry is in the log.
+  await enqueueDeliveries(db, 'audit', row.id).then(
+    () => auditStream.recorded?.(),
+    (e: unknown) => auditStream.failed?.(e),
+  );
   return entryOf(row);
+}
+
+/** AFS-53: the streamer is woken when an entry is written, and told when its row was not. */
+export const auditStream: { recorded?: () => void; failed?: (e: unknown) => void } = {};
+
+/** The entries with these ids (AFS-53: what a stream sends), in no order. */
+export async function auditEntries(db: Kysely<Schema>, ids: string[]): Promise<AuditEntry[]> {
+  const found: AuditEntry[] = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const rows = await db
+      .selectFrom('audit_entry')
+      .selectAll()
+      .where('id', 'in', ids.slice(i, i + 500))
+      .execute();
+    found.push(...rows.map(entryOf));
+  }
+  return found;
 }
 
 const entryOf = (row: AuditEntryTable): AuditEntry => ({

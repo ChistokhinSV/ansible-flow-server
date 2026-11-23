@@ -4,6 +4,7 @@
 //   approval.decided       approved, rejected or timed out: who launched the run, and the notify list
 //   run.ended              as a launch configuration says: when its runs fail, or whenever they end
 //   certificate.expiring   the server certificate nears its end: the administrators, once per step
+//   stream.failing         an event stream sent nothing for 15 minutes: the administrators, once per spell
 // Events are written to the outbox (store.ts) and sent from there by the channels, with tries again
 // on failures that can pass. What happens never waits for its notification, and never fails
 // because of one: an error here is logged.
@@ -645,6 +646,40 @@ export class Notifier {
           message,
           dedupe: `certificate:${info.fingerprint}:${step}`,
         },
+        placesOf(await adminContacts(this.db)),
+      );
+    });
+  }
+
+  /**
+   * AFS-53: an event streaming destination has sent nothing for 15 minutes: the administrators
+   * are told, once for each time it starts failing (`since`).
+   */
+  streamFailing(sink: { id: string; name: string; since: string; error?: string }): void {
+    this.track('stream.failing', async () => {
+      const link = this.link('/admin/streams');
+      const subject = `Event stream "${sink.name}" has sent nothing since ${readable(sink.since)}`;
+      const lines = [
+        `${subject}.`,
+        ...(sink.error ? [`Last error: ${sink.error}`] : []),
+        'What it should get waits, up to its backlog limit; past it the oldest is dropped.',
+        ...(link ? [link] : []),
+      ];
+      const message: Message = {
+        subject,
+        text: lines.join('\n'),
+        payload: this.envelope('stream.failing', {
+          stream: {
+            id: sink.id,
+            name: sink.name,
+            since: sink.since,
+            ...(sink.error ? { error: sink.error } : {}),
+          },
+        }),
+      };
+      await enqueue(
+        this.db,
+        { kind: 'stream.failing', message, dedupe: `stream-failing:${sink.id}:${sink.since}` },
         placesOf(await adminContacts(this.db)),
       );
     });

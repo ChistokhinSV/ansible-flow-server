@@ -2,6 +2,17 @@
 
 All notable changes to Ansible Flow Server.
 
+## Unreleased
+
+### Added
+
+- **Event streaming** (Administration › Event streaming): audit entries and runs go, as they happen, to a syslog receiver or an OpenTelemetry collector. **Test** sends one message now and says how it went.
+- Syslog: RFC 5424 over TLS (RFC 5425), TCP or UDP, with the receiver's certificate authority, the facility (13, log audit, by default), the enterprise number of the structured data (32473 by default) and the byte order mark as settings. An audit entry is one message whose MSGID is its action; a run sends one line when it starts and one when it ends.
+- OpenTelemetry (OTLP/HTTP JSON): audit entries become log records; each run becomes a trace with a span for its time in the queue and one per step, with host counts per port. A run sent twice is one trace. Headers such as `Authorization` are kept encrypted. Flow inputs are never sent.
+- What a destination should get waits while it is down and is sent when it is back, up to 100,000 rows or 7 days (settings); past that the oldest are dropped, counted on the page and in the audit log. Administrators are told when a destination has sent nothing for 15 minutes (`stream.failing`).
+- Metrics: `afs_stream_backlog`, `afs_stream_oldest_pending_seconds`, `afs_stream_dropped_total` and `afs_stream_last_success_timestamp_seconds`, per destination.
+- The API: `/api/v1/admin/streams`.
+
 ## 1.1.0 — Step by step runs, pause points, and who may run each action
 
 Carries Ansible Flow Designer 1.1.0.

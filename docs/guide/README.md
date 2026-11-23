@@ -40,6 +40,7 @@ endpoint for agents.
 | [HTTPS and the certificate](certificates.md)        | The server's certificate: request, install, replace, roll back           |
 | [People, groups and sign-in](people-and-sign-in.md) | Users, groups, access levels, tokens, OIDC and LDAP                      |
 | [The audit log](audit.md)                           | Who did what and when, filtered and exported                             |
+| [Event streaming](event-streaming.md)               | Audit entries and runs to syslog (a SIEM) and OpenTelemetry              |
 | [Operations](operations.md)                         | Metrics, health checks, backup and restore, upgrades                     |
 | [Start the server](getting-started.md)              | Starting it by hand, what it answers at, compatibility with the designer |
 

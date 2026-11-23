@@ -25,12 +25,17 @@ scrape_configs:
 | `afs_environment_builds_going`                           | Execution environment builds queued or building                        |
 | `afs_environment_build_duration_seconds{outcome}`        | How long builds took (histogram)                                       |
 | `afs_certificate_expiry_seconds`                         | Until the server's certificate ends                                    |
+| `afs_stream_backlog{sink,type}`                          | Event streaming: rows waiting to go, per destination                   |
+| `afs_stream_oldest_pending_seconds{sink,type}`           | Event streaming: age of the oldest row waiting                         |
+| `afs_stream_dropped_total{sink,type}`                    | Event streaming: rows dropped over the backlog's bounds, or refused    |
+| `afs_stream_last_success_timestamp_seconds{sink,type}`   | Event streaming: when the destination last took something (0: never)   |
 | `afs_http_request_duration_seconds{method,route,status}` | Requests answered, by route pattern and status class                   |
 | `afs_info{version,designer}`                             | The server's and the designer's versions                               |
 | `afs_process_*`, `afs_nodejs_*`                          | The process: memory, CPU, event loop, garbage collection               |
 
 Without the token set, `/metrics` answers 404; with a wrong one, 401. No label holds a name someone
-typed (a flow, a host): only states, outcomes and route patterns.
+typed (a flow, a host): only states, outcomes, route patterns and the ids of event streaming
+destinations.
 
 ## Health checks
 

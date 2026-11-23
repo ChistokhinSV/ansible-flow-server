@@ -74,6 +74,7 @@ import type { Run } from '../server/runs/queue';
 import type { Schedule, ScheduleInput } from '../server/schedules/types';
 import type { SearchHit } from '../server/search/types';
 import type { Credential } from '../server/secrets/credentials';
+import type { Sink, SinkInput, SinkTest } from '../server/stream/types';
 import type { CertificateInfo, CertificateState } from '../server/tls/types';
 import { answerWords } from './answer';
 
@@ -131,6 +132,9 @@ export type {
   ScheduleInput,
   SearchHit,
   ServerDefault,
+  Sink,
+  SinkInput,
+  SinkTest,
   SmtpSecurity,
   SmtpSettings,
   TokenInfo,
@@ -965,6 +969,15 @@ export const api = {
     call<Delivery[]>('GET', `/notifications?${queryOf(filter)}`),
   retryDelivery: (id: string) =>
     call<void>('POST', `/notifications/${encodeURIComponent(id)}/retry`),
+
+  // Event streaming (administrators, AFS-53).
+  streams: () => call<Sink[]>('GET', '/admin/streams'),
+  addStream: (input: SinkInput) => call<Sink>('POST', '/admin/streams', input),
+  changeStream: (id: string, input: Partial<SinkInput>) =>
+    call<Sink>('PATCH', `/admin/streams/${encodeURIComponent(id)}`, input),
+  removeStream: (id: string) => call<void>('DELETE', `/admin/streams/${encodeURIComponent(id)}`),
+  testStream: (id: string) =>
+    call<SinkTest>('POST', `/admin/streams/${encodeURIComponent(id)}/test`),
 
   // The server certificate (administrators, AFS-54).
   certificate: () => call<CertificateState>('GET', '/admin/certificate'),

@@ -9,6 +9,63 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-53 (AFS-243, AFS-244): event streaming: its destinations, and an outbox with one row per
+  // destination, kind and audit entry or run.
+  '0036_event_streaming': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('stream_sink')
+        .addColumn('id', 'text', (c) => c.primaryKey())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('type', 'text', (c) => c.notNull())
+        .addColumn('enabled', 'integer', (c) => c.notNull().defaultTo(1))
+        .addColumn('audit', 'integer', (c) => c.notNull().defaultTo(1))
+        .addColumn('runs', 'integer', (c) => c.notNull().defaultTo(1))
+        .addColumn('config_json', 'text', (c) => c.notNull())
+        .addColumn('headers_enc', 'text')
+        .addColumn('max_backlog', 'integer', (c) => c.notNull())
+        .addColumn('max_age_days', 'integer', (c) => c.notNull())
+        .addColumn('last_success_at', 'text')
+        .addColumn('last_error', 'text')
+        .addColumn('last_error_at', 'text')
+        .addColumn('failing_since', 'text')
+        .addColumn('failing_told', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('dropped', 'bigint', (c) => c.notNull().defaultTo(0))
+        .addColumn('dropped_told_at', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('stream_delivery')
+        .addColumn('sink_id', 'text', (c) => c.notNull())
+        .addColumn('kind', 'text', (c) => c.notNull())
+        .addColumn('ref_id', 'text', (c) => c.notNull())
+        .addColumn('status', 'text', (c) => c.notNull())
+        .addColumn('attempts', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('next_at', 'text', (c) => c.notNull())
+        .addColumn('taken_by', 'text')
+        .addColumn('last_error', 'text')
+        .addColumn('created_at', 'text', (c) => c.notNull())
+        .addColumn('sent_at', 'text')
+        .addPrimaryKeyConstraint('stream_delivery_pk', ['sink_id', 'kind', 'ref_id'])
+        .execute();
+      await db.schema
+        .createIndex('stream_delivery_due')
+        .on('stream_delivery')
+        .columns(['sink_id', 'status', 'next_at'])
+        .execute();
+      await db.schema
+        .createIndex('stream_delivery_taken')
+        .on('stream_delivery')
+        .columns(['sink_id', 'taken_by'])
+        .execute();
+      await db.schema
+        .createIndex('stream_delivery_age')
+        .on('stream_delivery')
+        .columns(['status', 'created_at'])
+        .execute();
+    },
+  },
   // AFS-210: why a schedule was turned off by the server (its flow moved or deleted), for its page.
   // Cleared when someone turns it on or off again.
   '0034_schedule_off_why': {

@@ -47,6 +47,8 @@ import type { Schedules } from './schedules/schedules';
 import { registerSearch } from './search/routes';
 import type { MasterKey } from './secrets/masterKey';
 import { registerCredentials } from './secrets/routes';
+import { registerStreams } from './stream/routes';
+import type { Streamer } from './stream/streamer';
 import { type CertificateDeps, registerCertificate } from './tls/routes';
 import { webHandler } from './web';
 
@@ -82,6 +84,8 @@ export interface AppDeps {
   webDir?: string;
   /** AFS-29: what tells people of what happens; without it nobody is told. */
   notifier?: Notifier;
+  /** AFS-53: sends audit entries and runs to syslog and OpenTelemetry destinations. */
+  streamer?: Streamer;
   /** The address people use for the server (AFS_PUBLIC_URL), for links in messages. */
   /** AFS-32: execution environments and their builds. */
   environments?: Environments;
@@ -290,6 +294,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       key: deps.masterKey,
       notifier: deps.notifier,
       ...(deps.publicUrl ? { publicUrl: deps.publicUrl } : {}),
+    });
+  // AFS-53: event streaming's destinations.
+  if (deps.masterKey)
+    registerStreams(app, {
+      db: deps.database.db,
+      key: deps.masterKey,
+      ...(deps.streamer ? { streamer: deps.streamer } : {}),
     });
 
   app.get('/healthz', async () => ({ status: 'ok' }));

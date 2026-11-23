@@ -133,6 +133,11 @@ export const ACTIONS: Record<string, Action> = {
   'DELETE /api/v1/notifications/smtp': { action: 'notification.smtp-clear', id: 'none' },
   'POST /api/v1/notifications/webhook-key': { action: 'notification.webhook-key', id: 'none' },
   'POST /api/v1/notifications/test': { action: 'notification.test', id: 'none' },
+  // AFS-53: event streaming's destinations.
+  'POST /api/v1/admin/streams': { action: 'stream.create', id: 'reply' },
+  'PATCH /api/v1/admin/streams/:id': { action: 'stream.change', id: at() },
+  'DELETE /api/v1/admin/streams/:id': { action: 'stream.delete', id: at() },
+  'POST /api/v1/admin/streams/:id/test': { action: 'stream.test', id: at() },
   'POST /api/v1/launch-configs/:id/environment': {
     action: 'environment.create',
     id: 'reply',
@@ -341,6 +346,10 @@ async function nameOf(
     case 'ldap-directory':
       return one(
         db.selectFrom('ldap_directory').select('name as n').where('id', '=', id).executeTakeFirst(),
+      );
+    case 'stream':
+      return one(
+        db.selectFrom('stream_sink').select('name as n').where('id', '=', id).executeTakeFirst(),
       );
     case 'run': {
       const run = await db

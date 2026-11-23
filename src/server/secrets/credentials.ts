@@ -9,6 +9,7 @@ import { resealProviders } from '../auth/oidc/providers';
 import type { Schema } from '../db/schema';
 import { SEALED_SETTINGS, settingContext } from '../notify/settings';
 import { resealHookSecrets } from '../projects/store';
+import { resealSinks } from '../stream/store';
 import { open, seal } from './crypto';
 import {
   type CredentialKind,
@@ -452,11 +453,13 @@ export async function rotate(db: Db, from: MasterKey, to: MasterKey): Promise<nu
     const directories = await resealDirectories(trx, again);
     // AFS-61: the push hooks' secrets.
     const hooks = await resealHookSecrets(trx, again);
+    // AFS-53: the event streams' OTLP headers.
+    const streams = await resealSinks(trx, again);
     await trx.deleteFrom('setting').where('name', '=', CHECK).execute();
     await trx
       .insertInto('setting')
       .values({ name: CHECK, value: seal(to, CHECK_TEXT, CHECK), updated_at: now() })
       .execute();
-    return rows.length + runs.length + settings.length + providers + directories + hooks;
+    return rows.length + runs.length + settings.length + providers + directories + hooks + streams;
   });
 }
