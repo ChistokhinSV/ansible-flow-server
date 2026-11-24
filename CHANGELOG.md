@@ -44,6 +44,14 @@ Carries Ansible Flow Designer 1.2.0-rc.2.
 - Event streaming: the last error of a destination's old settings stayed under **Last error** after a change; a change clears it, and an error from before the destination sent again reads "Before it sent again".
 - Event streaming: the boxes of an OpenTelemetry header have labels, **Name** and **Value**, and examples.
 - Event streaming: the page gives the time a destination is failing since in UTC too, as the `stream.failing` e-mail does.
+- An action link with an empty value (NetBox's for a device without a primary address) opens the form asking for that value, instead of a form with nothing to fill in and a Run that did nothing.
+- An action switched off stays on its runner's **Actions**, said to be off and whom to ask; someone who may only run actions still lands on **Actions** and keeps its menu, and **Runs** still points there.
+- **Who may run it** on an action's page says read-and-write people of the flow may run it too, as they may.
+- **Test the provider** no longer calls the parts a read needs "(optional)", and its button keeps its name.
+- The launch form showed "No groups to pick from the inventory" when a credential of the configuration could not be read from its secret provider. The inventory's groups are read with the credentials it needs only, and when they cannot be read the form says why.
+- Changing a Vault provider from AppRole to a token asks for the token at once and drops the AppRole mount, role id and secret id, instead of being refused with "A token is needed".
+- A secret that cannot be read names the provider ("AWS Secrets Manager "Lab AWS" has no such secret"), not only its kind.
+- The audit log lists only what a change of a secret provider changed, names the provider a refused add was adding, and no longer shows "200" beside a failed provider test.
 - The flow pages now show the warnings that need the repository, such as a network module on hosts the inventory reaches with `ansible_connection: local`, as VS Code does.
 - Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
 - The lists of runs did not count hosts that could not be reached among the hosts that did not go well.

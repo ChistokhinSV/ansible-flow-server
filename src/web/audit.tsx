@@ -339,7 +339,8 @@ export function AuditPage() {
                       className={`badge ${e.result === 'ok' ? 'ok' : e.result === 'failed' ? 'bad' : 'warn'}`}
                     >
                       {e.result}
-                      {e.status && e.result !== 'ok' ? ` ${e.status}` : ''}
+                      {/* AFS-261: a failure answered with 200 (a provider test) shows no 200. */}
+                      {e.status && e.status >= 400 && e.result !== 'ok' ? ` ${e.status}` : ''}
                     </span>
                   </td>
                   <td className="detail">

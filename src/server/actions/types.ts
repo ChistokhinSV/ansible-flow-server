@@ -153,6 +153,8 @@ export interface ActionCard {
   workspace: { key: string; name: string };
   /** The newest run of it that I started. */
   lastRun?: ActionRunLine;
+  /** AFS-260: it is switched off: the words, with whom to ask. */
+  off?: string;
 }
 
 /** One field of an action's form. */

@@ -11,6 +11,8 @@ export interface InventoryAnswer {
   /** The inventory's groups and what each holds (only when asked). */
   groups?: string[];
   groupHosts?: Record<string, { count: number; hosts: string[] }>;
+  /** AFS-261: why the groups could not be read (a credential the inventory needs did not read). */
+  groupsError?: string;
   /** AFS-130: the hosts the launch's limit leaves of the targets' (none: nothing would run). */
   limited?: { pattern: string; hosts: string[]; count: number };
   /** The image the inventory was read in, as the run's log names it. */

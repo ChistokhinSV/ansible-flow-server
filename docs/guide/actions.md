@@ -58,8 +58,8 @@ administrators) when something goes wrong.
 On the action's page, **Who may run it**: a person by login or a group by name, then **Let them run
 it**. That grant gives the action and nothing else of the workspace: no flows, files,
 configurations, runs or search results, not even the workspace's name in the menu. **Take back**
-ends it at once. Operators of the flow and administrators may run it without a grant. The
-workspace's **Access** tab lists every action of the workspace and who may run it, and its
+ends it at once. Operators and read-and-write people of the flow, and administrators, may run it
+without a grant; the action's page says so under **Who may run it**. The workspace's **Access** tab lists every action of the workspace and who may run it, and its
 **Who can do what** has an Actions column; a person's **What they reach** lists theirs.
 
 Someone with read and write on the workspace gives the action to people and groups who already
@@ -98,8 +98,9 @@ says whether it runs for real, and a group by its number of hosts ("Switch: edge
 
 The same values as your run of a moment ago (30 seconds) are not run twice by accident: the page
 asks **Run again** or **Open that run**. A card on **Actions** marks an action that runs for real
-and opens your last run of it; an action switched off, or one you may not run, says so with whom
-to ask and **Back to actions**. **Search** (at the top of every page) finds the actions you may run.
+and opens your last run of it. An action switched off stays on your **Actions**, its card saying
+it is off and whom to ask; opened, it says so with **Back to actions**. One you may not run says
+so with whom to ask. **Search** (at the top of every page) finds the actions you may run.
 
 ![An action's form on a phone](images/action-form.png)
 

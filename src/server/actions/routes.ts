@@ -294,7 +294,7 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
     if (!access) return [];
     const granted = await grantedActions(db, user.id);
     const scope = user.token?.workspace;
-    const mine = (await enabledActions(db)).filter(
+    const mine = (await enabledActions(db, true)).filter(
       (a) => (!scope || scope === a.place.workspace) && mayRun(access, a.place, granted),
     );
     // My newest run of each, one query.
@@ -319,17 +319,24 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       if (run?.config && !last.has(run.config.id)) last.set(run.config.id, run);
       if (last.size === mine.length) break;
     }
-    const cards: ActionCard[] = mine.map((a) => {
+    const cards: ActionCard[] = [];
+    for (const a of mine) {
       const run = last.get(a.id);
-      return {
+      cards.push({
         id: a.id,
         title: a.title,
         summary: a.summary,
         mode: a.mode,
         workspace: { key: a.place.workspaceKey, name: a.place.workspaceName },
         ...(run ? { lastRun: runLine(run) } : {}),
-      };
-    });
+        // AFS-260: a switched-off action stays on its runner's page, said to be off.
+        ...(a.enabled
+          ? {}
+          : {
+              off: `Switched off for now: nobody can run it until it is turned on again${await askWords(a, user.login, ' when it will be')}`,
+            }),
+      });
+    }
     return cards;
   });
 
@@ -500,7 +507,10 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
           continue;
         }
         if (name === REPLY_PARAM) replyText = value;
-        else given[name] = value;
+        // AFS-260: an empty value (NetBox's for a device without an address) gives nothing:
+        // the input keeps its start value and, when required, the form asks for it.
+        else if (value.trim()) given[name] = value;
+        else if (!fields.some((f) => f.name === name)) given[name] = value;
       }
       const unknown = Object.keys(given).find((n) => !fields.some((f) => f.name === n));
       if (unknown)

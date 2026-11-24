@@ -115,7 +115,7 @@ export const AUDIT_ACTION_WORDS: Record<string, string> = {
   'secret-provider.change': 'changed a secret provider',
   'secret-provider.create': 'added a secret provider',
   'secret-provider.delete': 'removed a secret provider',
-  'secret-provider.read': 'read a secret for a run',
+  'secret-provider.read': 'read a secret for a run or its inventory',
   'secret-provider.test': 'tested a secret provider',
   'session.sign-in': 'signed in',
   'session.sign-out': 'signed out',

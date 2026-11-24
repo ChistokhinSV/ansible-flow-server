@@ -112,7 +112,11 @@ export function ActionLinkPage({ id }: { id: string }) {
     // Only what is missing or not right is asked; what the link gave right is listed.
     const only = change
       ? undefined
-      : f.fields.filter((x) => !l.given.includes(x.name) || problems[x.name]).map((x) => x.name);
+      : f.fields
+          .filter(
+            (x) => !l.given.includes(x.name) || problems[x.name] || l.missing.includes(x.name),
+          )
+          .map((x) => x.name);
     return (
       <>
         {head}

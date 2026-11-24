@@ -100,6 +100,22 @@ export function fromWords(from: Record<string, string>): string {
     .join('');
 }
 
+/**
+ * AFS-261: the credentials of one kind among these, in their order. Only those are opened, so a
+ * secret of another (a machine's password from a provider) is not read where it is not used.
+ */
+async function ofKind(db: Kysely<Schema>, ids: string[], kind: string): Promise<string[]> {
+  if (!ids.length) return [];
+  const rows = await db
+    .selectFrom('credential')
+    .select('id')
+    .where('id', 'in', ids)
+    .where('kind', '=', kind)
+    .execute();
+  const found = new Set(rows.map((r) => r.id));
+  return ids.filter((id) => found.has(id));
+}
+
 /** The registry sign-in among a run's credentials, if it has one (AFS-66). */
 export async function registrySignIn(
   db: Kysely<Schema>,
@@ -107,7 +123,7 @@ export async function registrySignIn(
   ids: string[],
   resolver?: SecretResolver,
 ): Promise<RegistrySignIn | undefined> {
-  for (const id of ids) {
+  for (const id of await ofKind(db, ids, 'registry')) {
     const c = await reveal(db, key, id, resolver);
     if (c?.kind === 'registry' && c.fields.host && c.fields.username && c.secret.password)
       return {
@@ -131,7 +147,7 @@ export async function inventoryEnv(
   resolver?: SecretResolver,
 ): Promise<{ options: string[]; processEnv: Record<string, string> }> {
   const out = { options: [] as string[], processEnv: {} as Record<string, string> };
-  for (const id of ids) {
+  for (const id of await ofKind(db, ids, 'env')) {
     const c = await reveal(db, key, id, resolver);
     if (c?.kind !== 'env') continue;
     for (const [name, value] of Object.entries(c.secret)) {

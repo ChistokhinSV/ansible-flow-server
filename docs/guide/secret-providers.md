@@ -25,8 +25,10 @@ writes it anywhere.
 3. **Certificate authority**: only when the provider's certificate is not from an authority the
    server already trusts (the system's, and `AFS_CA_FILE`). It is trusted for this provider only.
 4. Its own settings and its secret part:
-   - Vault: **Sign in with** AppRole or a token; the AppRole mount (`approle`), a namespace
-     (Enterprise), the KV mount references read by default (`secret`).
+   - Vault: **Sign in with** AppRole or a token; the AppRole mount (`approle`, asked only for
+     AppRole), a namespace (Enterprise), the KV mount references read by default (`secret`).
+     Changing a provider from AppRole to a token asks for the token at once; the role id, secret
+     id and AppRole mount are not kept.
    - Conjur: the account and the host's login (`host/afs`), and the host's API key.
    - CCP: the application id and, when CCP checks the client, the client certificate and its key.
    - AWS: the access key id and secret access key. Assuming a role is not offered yet.
@@ -36,7 +38,8 @@ writes it anywhere.
 5. **Workspaces that may use it**: only credentials of those workspaces may read from it.
 
 **Test the provider** signs in (Vault, Conjur, AWS) or reaches it with the client certificate
-(CCP). Give a reference too and it reads that secret; the value is never shown. A certificate the
+(CCP). Give a reference too and it reads that secret; the value is never shown. The parts a read
+needs (for Vault the path and the field) are labelled plainly, the rest "(optional)". A certificate the
 server does not trust is said in words that fit: with no authority given, add its authority to the
 provider; with one given, that authority does not sign the provider's certificate.
 
@@ -82,22 +85,29 @@ Who sees what:
 
   ```text
   Cannot read the credential "Lab switches" (password): HashiCorp Vault refused the read (403): "Corp Vault" may not read this secret
+  Cannot read the credential "Lab switches" (password): AWS Secrets Manager "Lab AWS" has no such secret (ResourceNotFoundException)
   ```
 
-  Conjur answers the same for a variable that is not there and one it may not read: "no such
-  variable, or "conjur-prod" may not read it". The provider's own message, which names the path,
-  goes only to the server's log.
+  Conjur answers the same for a variable that is not there and one it may not read:
+  `CyberArk Conjur "conjur-prod" has no such variable, or this server may not read it (404)`. The
+  provider's own message, which names the path, goes only to the server's log.
 - Values read are hidden from the run's output and from its events, like stored secrets. A JSON
   secret is hidden whole and value by value.
 - The run's output says where each part came from:
   `Credential: login "Lab switches" as netops, password from HashiCorp Vault "Corp Vault"`.
-- Every read is in the audit log as `secret-provider.read`, with the run, the credential and how
-  it went; tests are `secret-provider.test` and `credential.test-read`. A test that could not
+- Every read is in the audit log as `secret-provider.read`, with the run (or, for the launch
+  form's inventory, what it was read for), the credential and how it went; tests are
+  `secret-provider.test` and `credential.test-read`. A change of a provider lists only the parts
+  that changed (`settings`, `name`, `key`, `workspaces`, `secret`); a refused add names the
+  provider it was adding. A test that could not
   sign in or read is a _failed_ entry with why (`outcome`: `unreachable`, `auth`, `denied`,
   `not_found`, `tls`, ...); a reference the form got wrong is _refused_.
 
 A project's git credential and an inventory that needs a run's variables read the same way, once
-per use.
+per use. The launch form reads the inventory's groups with only the configuration's environment
+variables credentials and its container registry sign-in: a machine password a provider refuses
+does not hide the groups (a run of it then fails and says why). When the groups cannot be read,
+the form says why under the field.
 
 ## The API
 

@@ -634,6 +634,29 @@ describe('the launch form', () => {
     expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/facts')).toHaveLength(1);
   });
 
+  it('AFS-261: groups that cannot be read say why, once, instead of "No groups to pick"', async () => {
+    const why =
+      'The hosts could not be read from the inventory: Cannot read the credential "NetBox token" (NETBOX_TOKEN): HashiCorp Vault "Lab Vault" refused the read (403)';
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/facts': () => ({
+        body: {
+          groups: [],
+          groupHosts: {},
+          groupsError: why,
+          factsError: why,
+          environment: 'ee:1 (docker)',
+          commit: COMMIT,
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    expect(await screen.findByText(why)).toBeTruthy();
+    expect(screen.getAllByText(why)).toHaveLength(1);
+    expect(screen.queryByText('No groups to pick from the inventory.')).toBeNull();
+  });
+
   it('targets the inventory lacks and a limit that leaves none are said at the field (AFS-147)', async () => {
     routes = {
       ...common(dana),

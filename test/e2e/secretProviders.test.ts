@@ -107,10 +107,12 @@ suite('secret providers in the lab', () => {
       client.read({ provider: 'lab-vault', path: 'lab/missing', field: 'password' }),
     );
     assert.equal(missing.code, 'not_found');
+    // AFS-261: the words name the provider, not only its kind.
+    assert.match(missing.message, /^HashiCorp Vault "lab-vault" /);
     const field = await failure(
       client.read({ provider: 'lab-vault', path: 'lab/switch', field: 'nope' }),
     );
-    assert.match(field.message, /not the field/);
+    assert.match(field.message, /"lab-vault" has the secret but not the field/);
     await client.close();
     const bad = await failure(
       clientOf(
@@ -146,7 +148,10 @@ suite('secret providers in the lab', () => {
     );
     const missing = await failure(client.read({ provider: 'lab-conjur', variable: 'lab/missing' }));
     assert.equal(hidden.message, missing.message);
-    assert.match(missing.message, /no such variable, or "lab-conjur" may not read it \(404\)/);
+    assert.match(
+      missing.message,
+      /CyberArk Conjur "lab-conjur" has no such variable, or this server may not read it \(404\)/,
+    );
     const wrong = await failure(clientOf(conjur({ secret: { apiKey: 'notavalidkey' } })).test());
     assert.equal(wrong.code, 'auth');
   });
@@ -162,6 +167,7 @@ suite('secret providers in the lab', () => {
     );
     assert.equal(missing.code, 'not_found');
     assert.ok(!missing.message.includes('lab-switch-99'));
+    assert.match(missing.message, /^CyberArk CCP "lab-ccp" has no such account/);
     const noCert = await failure(
       clientOf(ccp({ settings: { ...ccp().settings, clientCert: '' }, secret: {} })).read({
         provider: 'lab-ccp',
@@ -201,6 +207,10 @@ suite('secret providers in the lab', () => {
     );
     const missing = await failure(client.read({ provider: 'lab-aws', secretId: 'lab/missing' }));
     assert.equal(missing.code, 'not_found');
+    assert.equal(
+      missing.message,
+      'AWS Secrets Manager "lab-aws" has no such secret (ResourceNotFoundException)',
+    );
     assert.match(await client.test(), /^Signed in/);
   });
 });

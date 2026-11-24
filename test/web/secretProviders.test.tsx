@@ -121,6 +121,45 @@ describe('secret providers', () => {
     expect(within(change).getByText(/role id and secret id are kept/)).toBeTruthy();
   });
 
+  it('AFS-261: switched to a token, the form asks for it and drops the AppRole parts', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /workspaces': () => ({ body: [network] }),
+      'GET /admin/secret-providers': () => ({
+        body: [{ ...vault, settings: { ...vault.settings, authMount: 'ar' } }],
+      }),
+      'PATCH /admin/secret-providers/p1': (body) => ({ body: { ...vault, ...(body as object) } }),
+    };
+    open('/admin/secret-providers');
+    const card = await screen.findByRole('article', { name: 'Corp Vault' });
+    // AFS-260: the reference's own parts are not called optional; Test keeps its name.
+    fireEvent.click(within(card).getByText('Test the provider'));
+    expect(within(card).getByLabelText('Path')).toBeTruthy();
+    expect(within(card).getByLabelText('KV mount (optional)')).toBeTruthy();
+    fireEvent.change(within(card).getByLabelText('Path'), { target: { value: 'lab/switch' } });
+    expect(within(card).getByRole('button', { name: 'Test' })).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Change' }));
+    const change = screen.getByRole('region', { name: 'Change Corp Vault' });
+    expect(within(change).getByLabelText('AppRole mount')).toBeTruthy();
+    fireEvent.change(within(change).getByLabelText('Sign in with'), { target: { value: 'token' } });
+    expect(within(change).queryByText(/are kept/)).toBeNull();
+    expect(within(change).queryByLabelText('AppRole mount')).toBeNull();
+    fireEvent.change(within(change).getByLabelText('Token'), {
+      target: { value: 'hvs.fictional-token' },
+    });
+    fireEvent.click(within(change).getByRole('button', { name: 'Save' }));
+    await screen.findByRole('button', { name: 'Add a provider' });
+    expect(sent('PATCH /admin/secret-providers/p1')).toEqual([
+      {
+        key: 'corp-vault',
+        name: 'Corp Vault',
+        settings: { address: 'https://vault.example.net:8200', auth: 'token' },
+        workspaces: ['w1'],
+        secret: { token: 'hvs.fictional-token' },
+      },
+    ]);
+  });
+
   it('a credential takes its password from a provider; Test read never shows a value', async () => {
     let list: unknown[] = [];
     routes = {

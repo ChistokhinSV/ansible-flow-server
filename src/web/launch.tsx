@@ -411,6 +411,7 @@ function InputField({
   problem,
   onChange,
   groups,
+  groupsWhy,
   counts,
   warning,
   origin,
@@ -430,6 +431,8 @@ function InputField({
    * each under the field (adds or takes out the group) and suggestions while typing.
    */
   groups?: string[] | 'reading';
+  /** AFS-261: why there are no groups to offer, when reading them failed. */
+  groupsWhy?: string;
 }) {
   const listId = useId();
   const known = field.targets && Array.isArray(groups) ? groups : [];
@@ -538,6 +541,10 @@ function InputField({
                       );
                     })}
                   </fieldset>
+                ) : groupsWhy ? (
+                  <small className="warn-text" role="status">
+                    {groupsWhy}
+                  </small>
                 ) : (
                   <small className="muted">No groups to pick from the inventory.</small>
                 )}
@@ -996,6 +1003,8 @@ export function LaunchConfigPage({
    * launch's image, so only for who may launch.
    */
   const [groups, setGroups] = useState<string[] | 'reading'>();
+  /** AFS-261: why the inventory's groups could not be read, said where they would be. */
+  const [groupsWhy, setGroupsWhy] = useState<string>();
   const [groupCounts, setGroupCounts] = useState<Record<string, { count: number }>>();
   /**
    * AFS-147: what the inventory says of the targets and the limit as typed now (read again a moment
@@ -1009,6 +1018,7 @@ export function LaunchConfigPage({
   if (changedAt !== readAt) {
     setReadAt(changedAt);
     setGroups(undefined);
+    setGroupsWhy(undefined);
     setGroupCounts(undefined);
     setLive(undefined);
   }
@@ -1040,11 +1050,15 @@ export function LaunchConfigPage({
       .then(
         (r) => {
           setGroups(r.groups ?? []);
+          setGroupsWhy(r.groupsError);
           if (r.groupHosts) setGroupCounts(r.groupHosts);
           // The start values' targets and the configuration's limit: what the form shows first.
           setLive({ key: targetsKey(formFields, start, formLimit), reply: r });
         },
-        () => setGroups([]),
+        (e) => {
+          setGroups([]);
+          setGroupsWhy(messageOf(e));
+        },
       );
   }, [tab, groups, configId, mayRead, formFields, mode, formLimit]);
   const typedLimit = limit ?? formLimit;
@@ -1486,9 +1500,14 @@ export function LaunchConfigPage({
                     settle(f.name);
                   }}
                   groups={groups}
+                  {...(groupsWhy ? { groupsWhy } : {})}
                   {...(form.data?.origins?.[f.name] ? { origin: form.data.origins[f.name] } : {})}
                   {...(groupCounts ? { counts: groupCounts } : {})}
-                  {...(f.targets && liveNow && !problemOf(f.name)
+                  {...(f.targets &&
+                  liveNow &&
+                  !problemOf(f.name) &&
+                  // said once: under the groups already
+                  !(groupsWhy && liveNow.factsError === groupsWhy)
                     ? { warning: <TargetsWarning reply={liveNow} name={f.name} /> }
                     : {})}
                 />

@@ -104,6 +104,8 @@ export function ActionsPage(_: { home?: boolean }) {
               <Link to={actionAddress(a.id)} className="card">
                 <strong>{a.title}</strong>
                 <span>{a.summary}</span>
+                {/* AFS-260: switched off, it stays here, said so, with whom to ask. */}
+                {a.off && <span className="notice warn small">{a.off}</span>}
                 <span className="muted">
                   {a.lastRun ? (
                     <>
@@ -1435,11 +1437,12 @@ function ActionGrants({
       <h2 id={headId}>Who may run it</h2>
       <p className="muted small">
         A grant here lets someone run this action and follow the runs they start, nothing else of
-        the workspace. Operators of the flow and administrators may run it too. It is given to
-        people and groups with access to this workspace; an administrator gives it to anyone.
+        the workspace. Whoever may operate or read and write the flow, and administrators, may run
+        it too. It is given to people and groups with access to this workspace; an administrator
+        gives it to anyone.
       </p>
       {grants.length === 0 ? (
-        <p className="muted">Nobody yet but operators and administrators.</p>
+        <p className="muted">Nobody yet but operators, read-and-write people and administrators.</p>
       ) : (
         <ul className="list plain">
           {grants.map((g) => {

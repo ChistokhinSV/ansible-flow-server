@@ -697,6 +697,9 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       };
     else if (typeof spec.id === 'object' && params[spec.id.param])
       object = { type, id: params[spec.id.param], ...withName(request.auditName) };
+    // AFS-261: a refused add is named by what the request was adding, when its route says.
+    else if (spec.id === 'reply' && status >= 400 && request.auditName)
+      object = { type, name: request.auditName };
     else if (spec.id === 'actor' && actor)
       object = { type, id: actor.id ?? undefined, name: actor.login };
     if (signingIn) {
