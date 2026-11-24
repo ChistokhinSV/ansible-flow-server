@@ -21,7 +21,7 @@ import { createProject, createWorkspace } from '../../src/server/projects/store'
 import { RunQueue } from '../../src/server/runs/queue';
 import { keyId, type MasterKey, newKey } from '../../src/server/secrets/masterKey';
 import { traceIdOf } from '../../src/server/stream/otlp';
-import { createSink } from '../../src/server/stream/store';
+import { createSink, getSink, updateSink } from '../../src/server/stream/store';
 import { Streamer } from '../../src/server/stream/streamer';
 
 const lab = process.env.AFS_TEST_STREAM_LAB;
@@ -137,6 +137,95 @@ describe.skipIf(!lab)('event streaming against the lab receivers', () => {
     'and over TLS (RFC 5425), checking the receiver against its CA',
     () => syslogCase('tls', 6514, readFileSync(caFile as string, 'utf8')),
     60_000,
+  );
+
+  it('says a collector on its gRPC port does not answer OTLP/HTTP', async () => {
+    await db().deleteFrom('stream_sink').execute();
+    const grpc = await createSink(db(), key, {
+      name: 'collector on gRPC',
+      type: 'otlp',
+      otlp: { endpoint: `http://${lab}:4317` },
+    });
+    expect(await streamer.test(grpc.id, 'olga')).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/^Not sent: The answer is not HTTP: OTLP\/HTTP .* 4318/),
+    });
+  });
+
+  /**
+   * What waits for a receiver that cannot take it, then goes when an administrator fixes it: at
+   * once, all of it, in the order it was written (rsyslog's file shows the order it arrived in).
+   */
+  const backlogCase = async (
+    wrong: { port: number; transport: 'tcp' | 'tls' },
+    right: { port: number; ca?: string },
+    error: RegExp,
+  ) => {
+    await db().deleteFrom('stream_sink').execute();
+    await db().deleteFrom('stream_delivery').execute();
+    const s = await createSink(db(), key, {
+      name: `rsyslog ${wrong.transport}`,
+      type: 'syslog',
+      runs: false,
+      syslog: { host: lab as string, ...wrong, windowSeconds: 1 },
+    });
+    // Plain: the marker's quotes are escaped in rsyslog's JSON.
+    const tag = `backlog-${wrong.transport}-${randomUUID().slice(0, 8)}`;
+    const ids: string[] = [];
+    for (let i = 0; i < 300; i++) {
+      ids.push(
+        (
+          await recordAudit(db(), {
+            actor: { id: 'u-91aa', login: 'olga' },
+            source: 'ui',
+            action: 'session.sign-in',
+            object: { type: 'session', name: `${tag} ${i}` },
+            result: 'ok',
+          })
+        ).id,
+      );
+      if (i % 100 === 0) await streamer.round();
+    }
+    const failing = await getSink(db(), s.id);
+    expect(failing?.status.backlog).toBe(300);
+    expect(failing?.status.lastError).toMatch(error);
+    expect((await streamer.test(s.id, 'olga'))?.message).toMatch(error);
+    const fixedAt = Date.now();
+    await updateSink(db(), key, s.id, { syslog: { host: lab as string, ...right } });
+    await streamer.round();
+    const sent = await until(async () => {
+      await new Promise((r) => setTimeout(r, 1100));
+      await streamer.round();
+      const st = (await getSink(db(), s.id))?.status;
+      return st?.backlog === 0 ? st : undefined;
+    });
+    expect(sent.lastSuccessAt).toBeDefined();
+    expect(Date.now() - fixedAt).toBeLessThan(15_000);
+    if (!read) return;
+    const got = (await until(() => {
+      const lines = linesWith('rsyslog/parsed.jsonl', tag) as
+        | { sd: Record<string, Record<string, string>> }[]
+        | undefined;
+      return lines && lines.length >= 300 ? lines : undefined;
+    })) as { sd: Record<string, Record<string, string>> }[];
+    expect(got.map((l) => l.sd['audit@32473']?.id)).toEqual(ids);
+  };
+
+  it(
+    'a wrong port: says nothing listens, then drains what waited at once, in order, when fixed',
+    () => backlogCase({ port: 10599, transport: 'tcp' }, { port: 10514 }, /Nothing listens on/),
+    90_000,
+  );
+
+  it.skipIf(!caFile)(
+    'TLS without the CA: says the certificate is not trusted, then drains when the CA is added',
+    () =>
+      backlogCase(
+        { port: 6514, transport: 'tls' },
+        { port: 6514, ca: readFileSync(caFile as string, 'utf8') },
+        /Its certificate is not trusted: add the authority/,
+      ),
+    90_000,
   );
 
   it('the collector takes audit log records, and Jaeger shows a run as one trace, even sent twice', async () => {

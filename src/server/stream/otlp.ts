@@ -8,6 +8,7 @@ import { gzipSync } from 'node:zlib';
 import type { RunSummary } from '@ansible-flow/core/run/events';
 import type { AuditEntry } from '../audit/store';
 import { auditLine, type RunFacts } from './syslog';
+import { problemOf } from './words';
 
 const hex = (text: string, chars: number) =>
   createHash('sha256').update(text).digest('hex').slice(0, chars);
@@ -136,7 +137,8 @@ export interface SpanOptions {
   maxHostEvents: number;
 }
 
-const FAILED_PORTS = new Set(['failed', 'unreachable', 'rejected']);
+/** Ports a host leaves a step by when it went wrong (a task's is `failed_hosts`). */
+const FAILED_PORTS = new Set(['failed_hosts', 'failed', 'unreachable', 'rejected']);
 const RESULT: Record<string, string> = {
   succeeded: 'success',
   failed: 'failure',
@@ -226,6 +228,10 @@ export function runSpans(run: RunTrace, steps: Record<string, StepName>, o: Span
     const step = steps[node] ?? { key: node, kind: 'step' };
     const ports = s?.nodes[node] ?? {};
     const problems = s?.problems?.[node] ?? {};
+    // AFS-248: a step no host reached did not run (a rollback in a run that went well has timings
+    // of 0 s): its span read as a rollback that happened.
+    if (!Object.values(ports).some((hosts) => hosts.length) && !Object.keys(problems).length)
+      continue;
     const counts: Record<string, number> = {};
     for (const [port, hosts] of Object.entries(ports))
       counts[`afs.step.port.${port}`] = hosts.length;
@@ -371,19 +377,18 @@ export function post(
             error: `HTTP ${status}${text ? `: ${text.replace(/\s+/g, ' ').slice(0, 300)}` : ''}`,
           });
         });
-        response.on('error', (e) => resolve({ ok: false, retry: true, error: e.message }));
+        response.on('error', (e) => resolve({ ok: false, retry: true, error: problemOf(e) }));
       },
     );
     request.on('timeout', () =>
       request.destroy(new Error(`Timed out: no answer in ${Math.round(timeoutMs / 1000)} s`)),
     );
     request.on('error', (e: NodeJS.ErrnoException) => {
-      const certificate = /CERT|SELF_SIGNED|UNABLE_TO_(VERIFY|GET_ISSUER)/.test(e.code ?? '');
       resolve({
         ok: false,
         // A certificate is wrong until someone changes it; the rows stay and are tried later anyway.
         retry: true,
-        error: certificate ? `Its certificate is not trusted (${e.code})` : (e.code ?? e.message),
+        error: problemOf(e, url.host),
       });
     });
     request.end(body);

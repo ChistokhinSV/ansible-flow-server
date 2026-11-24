@@ -99,6 +99,7 @@ const statusOf = (row: StreamSinkTable, b?: { n: number; oldest?: string }): Sin
   ...(row.last_error ? { lastError: row.last_error } : {}),
   ...(row.last_error_at ? { lastErrorAt: row.last_error_at } : {}),
   ...(row.failing_since ? { failingSince: row.failing_since } : {}),
+  ...(row.retry_at ? { nextTryAt: row.retry_at } : {}),
 });
 
 export async function listSinks(db: Db): Promise<Sink[]> {
@@ -378,6 +379,8 @@ export async function createSink(db: Db, key: MasterKey, input: SinkInput): Prom
       failing_told: 0,
       dropped: 0,
       dropped_told_at: null,
+      retry_at: null,
+      retries: 0,
       created_at: now,
       updated_at: now,
     })
@@ -427,9 +430,13 @@ export async function updateSink(
       max_backlog: common.maxBacklog,
       max_age_days: common.maxAgeDays,
       updated_at: iso(new Date()),
+      // AFS-248: changed, so tried again now, with what waits.
+      retry_at: null,
+      retries: 0,
     })
     .where('id', '=', id)
     .execute();
+  await dueNow(db, id);
   return getSink(db, id);
 }
 
@@ -470,8 +477,10 @@ export async function enqueueDeliveries(
   db: Db,
   kind: DeliveryKind,
   ref: string,
-  now = new Date(),
+  now?: Date,
 ): Promise<void> {
+  const at = now ?? new Date();
+  const made = now ?? stamp();
   let sinks = db
     .selectFrom('stream_sink')
     .select((eb) => [
@@ -480,8 +489,8 @@ export async function enqueueDeliveries(
       sql<string>`${ref}`.as('ref_id'),
       sql<string>`${'pending'}`.as('status'),
       sql<number>`0`.as('attempts'),
-      sql<string>`${iso(now)}`.as('next_at'),
-      sql<string>`${iso(now)}`.as('created_at'),
+      sql<string>`${iso(at)}`.as('next_at'),
+      sql<string>`${iso(made)}`.as('created_at'),
       eb.val(null as string | null).as('taken_by'),
     ])
     .where('enabled', '=', 1);
@@ -506,6 +515,16 @@ export async function enqueueDeliveries(
     .expression(sinks)
     .onConflict((c) => c.columns(['sink_id', 'kind', 'ref_id']).doNothing())
     .execute();
+}
+
+let lastStamp = 0;
+/**
+ * AFS-248: when a row was made, a millisecond after the one before it on this server: rows are
+ * sent in this order, and entries written in the same millisecond keep the order they were in.
+ */
+function stamp(): Date {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return new Date(lastStamp);
 }
 
 export interface Taken {
@@ -539,6 +558,8 @@ export async function takeDue(
     .where('kind', 'in', kinds)
     .where('next_at', '<=', iso(now))
     .orderBy('created_at')
+    .orderBy('kind')
+    .orderBy('ref_id')
     .limit(limit);
   await db
     .updateTable('stream_delivery')
@@ -560,6 +581,8 @@ export async function takeDue(
     .where('sink_id', '=', sink)
     .where('taken_by', '=', token)
     .orderBy('created_at')
+    .orderBy('kind')
+    .orderBy('ref_id')
     .execute();
   return rows.map((r) => ({ kind: r.kind as DeliveryKind, ref: r.ref_id, attempts: r.attempts }));
 }
@@ -602,13 +625,18 @@ export async function markInflight(db: Db, sink: string, keys: Key[], now = new 
   );
 }
 
-/** Retries wait 5 s, doubling to 5 minutes; they never give up while the backlog has room. */
-export const retryDelayMs = (attempts: number) =>
-  Math.min(5_000 * 2 ** Math.max(0, Math.min(attempts - 1, 10)), 5 * 60_000);
+/**
+ * A failing destination is tried again after 5 s, doubling to a minute; it never gives up while
+ * the backlog has room. AFS-248: the wait is the destination's, not each row's: rows that each
+ * waited their own backoff (up to 5 minutes) went out a few at a time, in no order, long after
+ * the receiver was back.
+ */
+export const retryDelayMs = (failures: number) =>
+  Math.min(5_000 * 2 ** Math.max(0, Math.min(failures - 1, 10)), 60_000);
 
 /**
- * Back to pending: after a failure, tried again after the backoff of the first row's tries (0:
- * now, for rows that were written on a connection that was lost).
+ * Back to pending, due after `delayMs` (0 for the streamer: the destination's wait holds them;
+ * rows written on a connection that was lost go again first, being the oldest).
  */
 export async function markRetry(
   db: Db,
@@ -633,6 +661,18 @@ export async function markRetry(
       .where('status', 'in', ['pending', 'inflight'])
       .execute(),
   );
+}
+
+/** AFS-248: the rows waiting for a sink, not taken by a server now, are due now. */
+async function dueNow(db: Db, sink: string, now = new Date()) {
+  await db
+    .updateTable('stream_delivery')
+    .set({ next_at: iso(now) })
+    .where('sink_id', '=', sink)
+    .where('status', '=', 'pending')
+    .where('taken_by', 'is', null)
+    .where('next_at', '>', iso(now))
+    .execute();
 }
 
 /** Not sent and never will be (the collector refused it, or what it was about is gone). */
@@ -745,22 +785,54 @@ export async function pruneStreamDeliveries(db: Db, days = 1, now = new Date()):
 export async function sinkSucceeded(db: Db, sink: string, now = new Date()) {
   await db
     .updateTable('stream_sink')
-    .set({ last_success_at: iso(now), failing_since: null, failing_told: 0 })
+    .set({
+      last_success_at: iso(now),
+      failing_since: null,
+      failing_told: 0,
+      retry_at: null,
+      retries: 0,
+    })
     .where('id', '=', sink)
     .execute();
 }
 
-/** A sink failed: when it is the first failure since a success, it is failing from now. */
-export async function sinkFailed(db: Db, sink: string, error: string, now = new Date()) {
+/**
+ * A sink failed: when it is the first failure since a success, it is failing from now. With
+ * `wait` (it could not take anything), nothing more goes to it until its retry time.
+ */
+export async function sinkFailed(
+  db: Db,
+  sink: string,
+  error: string,
+  now = new Date(),
+  wait = true,
+) {
+  const row = wait
+    ? await db.selectFrom('stream_sink').select('retries').where('id', '=', sink).executeTakeFirst()
+    : undefined;
+  const failures = Number(row?.retries ?? 0) + 1;
   await db
     .updateTable('stream_sink')
     .set((eb) => ({
       last_error: error.slice(0, 500),
       last_error_at: iso(now),
       failing_since: eb.fn.coalesce('failing_since', eb.val(iso(now))),
+      ...(wait
+        ? { retries: failures, retry_at: iso(new Date(now.getTime() + retryDelayMs(failures))) }
+        : {}),
     }))
     .where('id', '=', sink)
     .execute();
+}
+
+/** AFS-248: a sink is tried now (a test reached it): what waits for it is due now. */
+export async function retrySinkNow(db: Db, sink: string, now = new Date()) {
+  await db
+    .updateTable('stream_sink')
+    .set({ retry_at: null, retries: 0 })
+    .where('id', '=', sink)
+    .execute();
+  await dueNow(db, sink, now);
 }
 
 /**

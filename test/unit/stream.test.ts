@@ -50,6 +50,7 @@ import {
   sdValue,
   type Wire,
 } from '../../src/server/stream/syslog';
+import { problemOf } from '../../src/server/stream/words';
 import { selfSignedCertificate } from '../../src/server/tls/certificates';
 import { emptyPeople, emptyWorkspaces } from './helpers/clean';
 
@@ -364,6 +365,63 @@ describe('OpenTelemetry', () => {
     });
     expect(auditRecord(ENTRY)).toMatchObject({ severityNumber: 17, severityText: 'ERROR' });
     expect(auditRecord(ENTRY)).not.toHaveProperty('traceId');
+  });
+
+  it('leaves out a step no host reached: a rollback that did not run has no span', () => {
+    const run: RunTrace = {
+      ...TRACE,
+      state: 'succeeded',
+      summary: {
+        ...SUMMARY,
+        nodes: { ...SUMMARY.nodes, N3: {} },
+        timings: { ...SUMMARY.timings, N3: { start: 1795456885.2, end: 1795456885.2 } },
+      },
+    };
+    const names = (
+      runSpans(
+        run,
+        { N3: { key: 'rollback', kind: 'task' } },
+        {
+          hostNames: true,
+          maxHostEvents: 10,
+        },
+      ) as { name: string }[]
+    ).map((s) => s.name);
+    expect(names).toEqual(['RUN deploy-web', 'queue', 'STEP N1', 'STEP N2']);
+    // A task's failure port is failed_hosts: its span is an error.
+    const task = runSpans(
+      {
+        ...TRACE,
+        summary: {
+          ...SUMMARY,
+          nodes: { N5: { ok_hosts: ['web01'], failed_hosts: ['web02'] } },
+          timings: { N5: { start: 1795456865, end: 1795456870 } },
+          problems: {},
+        },
+      },
+      {},
+      { hostNames: false, maxHostEvents: 0 },
+    ) as { name: string; status: { code: number } }[];
+    expect(task.find((x) => x.name === 'STEP N5')?.status).toEqual({
+      code: 2,
+      message: '1 host(s) left by a failure port',
+    });
+  });
+
+  it('says why a destination failed in words, with the code for a search', () => {
+    expect(problemOf({ code: 'SELF_SIGNED_CERT_IN_CHAIN', message: 'self-signed' })).toBe(
+      'Its certificate is not trusted: add the authority (CA) that signed it (SELF_SIGNED_CERT_IN_CHAIN)',
+    );
+    expect(problemOf({ code: 'ECONNREFUSED', message: 'x' }, '192.0.2.10:10599')).toBe(
+      'Nothing listens on 192.0.2.10:10599: check the port, and that the receiver is up (ECONNREFUSED)',
+    );
+    expect(problemOf({ code: 'HPE_INVALID_CONSTANT', message: 'Parse Error' })).toMatch(
+      /^The answer is not HTTP: OTLP\/HTTP is usually on port 4318/,
+    );
+    expect(problemOf(new Error('connect timeout'), 'siem.example.net:6514')).toBe(
+      'Not reachable: no answer from siem.example.net:6514',
+    );
+    expect(problemOf('ECONNRESET')).toBe('The receiver closed the connection (ECONNRESET)');
   });
 
   it('posts gzipped JSON with its headers; tries again only where that can help', async () => {
@@ -888,8 +946,11 @@ for (const [name, config] of databases) {
         await streamer.round();
         const d = await getSink(db(), down.id);
         expect(d?.status).toMatchObject({ backlog: 1 });
-        expect(d?.status.lastError).toMatch(/Not reachable/);
+        expect(d?.status.lastError).toBe(
+          'Nothing listens on 127.0.0.1:1: check the port, and that the receiver is up (ECONNREFUSED)',
+        );
         expect(d?.status.failingSince).toBeDefined();
+        expect(d?.status.nextTryAt).toBeDefined();
         expect(told).toEqual([]);
         const r = await getSink(db(), refusing.id);
         expect(r?.status).toMatchObject({ backlog: 0, dropped: 1 });
@@ -905,6 +966,105 @@ for (const [name, config] of databases) {
       } finally {
         await streamer.stop();
         http.close();
+      }
+    });
+
+    it('drains what waited at once, oldest first, when the receiver is fixed, and keeps written rows over a restart', async () => {
+      await clear();
+      const rx = await receiver();
+      const options = {
+        db: db(),
+        key,
+        log,
+        version: '1.2.0',
+        hostname: 'flows-01',
+        everyMs: 60_000,
+      };
+      let streamer = new Streamer(options);
+      try {
+        // A wrong port: everything waits, and the destination waits as a whole.
+        const s = await createSink(db(), key, {
+          name: 'Lab',
+          type: 'syslog',
+          syslog: { host: '127.0.0.1', port: 1, transport: 'tcp', windowSeconds: 60 },
+        });
+        const ids: string[] = [];
+        for (let i = 0; i < 520; i++) {
+          ids.push((await audit(`session.sign-in`)).id);
+          if (i === 3) await streamer.round();
+        }
+        await streamer.round();
+        await streamer.round();
+        const failing = await getSink(db(), s.id);
+        expect(failing?.status).toMatchObject({ backlog: 520 });
+        expect(Date.parse(failing?.status.nextTryAt ?? '')).toBeGreaterThan(Date.now());
+        // Fixed: one round sends all of it (more than a batch), in the order it was written.
+        await updateSink(db(), key, s.id, { syslog: { host: '127.0.0.1', port: rx.port } });
+        expect((await getSink(db(), s.id))?.status.nextTryAt).toBeUndefined();
+        await streamer.round();
+        await until(() => rx.got().length === 520);
+        const sent = rx.got().map((m) => /\[audit@32473 id="([^"]+)"/.exec(m)?.[1]);
+        expect(sent).toEqual(ids);
+        // Written, not yet counted sent (the window is 60 s): a restart gives them back, and the
+        // next server sends them first, not minutes later.
+        await streamer.stop();
+        const statuses = await db()
+          .selectFrom('stream_delivery')
+          .select('status')
+          .where('sink_id', '=', s.id)
+          .execute();
+        expect(new Set(statuses.map((r) => r.status))).toEqual(new Set(['pending']));
+        const later = await audit('session.sign-out');
+        streamer = new Streamer(options);
+        await streamer.round();
+        await until(() => rx.got().length === 1041);
+        const again = rx
+          .got()
+          .slice(520)
+          .map((m) => /\[audit@32473 id="([^"]+)"/.exec(m)?.[1]);
+        expect(again).toEqual([...ids, later.id]);
+      } finally {
+        await streamer.stop();
+        rx.close();
+      }
+    });
+
+    it('sends what waits as soon as a test reaches a failing destination', async () => {
+      await clear();
+      const rx = await receiver();
+      const streamer = new Streamer({
+        db: db(),
+        key,
+        log,
+        version: '1.2.0',
+        hostname: 'flows-01',
+        everyMs: 60_000,
+      });
+      try {
+        const s = await createSink(db(), key, {
+          name: 'Lab',
+          type: 'syslog',
+          syslog: { host: '127.0.0.1', port: rx.port, transport: 'tcp', windowSeconds: 0 },
+        });
+        // It failed a moment ago (the receiver was restarting): it waits a minute.
+        await db()
+          .updateTable('stream_sink')
+          .set({
+            retry_at: new Date(Date.now() + 60_000).toISOString(),
+            retries: 5,
+            failing_since: new Date().toISOString(),
+          })
+          .where('id', '=', s.id)
+          .execute();
+        const entry = await audit();
+        await streamer.round();
+        expect(rx.got()).toEqual([]);
+        expect(await streamer.test(s.id, 'dana')).toMatchObject({ ok: true });
+        await until(() => rx.got().some((m) => m.includes(entry.id)));
+        await until(async () => (await getSink(db(), s.id))?.status.backlog === 0);
+      } finally {
+        await streamer.stop();
+        rx.close();
       }
     });
 

@@ -13,7 +13,18 @@ collector**. Administrators add the destinations on **Administration › Event s
 | OpenTelemetry | One log record each (OTLP) | One trace when a run ends                    |
 
 Each destination has **On**, **Audit entries** and **Runs**, and a **Test** button that sends one
-message now and says how it went. A change takes effect for the next batch.
+message now and says how it went, under the buttons. A change takes effect for the next batch, and
+what waits for the destination is sent at once.
+
+When sending fails, the page says why in words, with the code in brackets for a search:
+
+| Last error                                                    | What to do                           |
+| ------------------------------------------------------------- | ------------------------------------ |
+| Its certificate is not trusted: add the authority (CA) ...    | Paste the receiver's CA in Authority |
+| Its certificate is for another name ...                       | Use the name in the certificate      |
+| Nothing listens on host:port ...                              | Check the port and that it is up     |
+| Not reachable: no answer from host:port                       | Check the address and the firewall   |
+| The answer is not HTTP: OTLP/HTTP is usually on port 4318 ... | Use the OTLP/HTTP port, not gRPC     |
 
 ## Syslog
 
@@ -69,15 +80,16 @@ Each run becomes a trace when it ends:
 ```text
 RUN firewall-upgrade    148.7s  error  afs.hosts.total=4 ok=2 failed=2
   queue                   2.6s
-  STEP precheck          12.4s         afs.step.port.ok=4
-  STEP backup             7.5s  error  afs.step.port.ok=3 afs.step.port.failed=1
+  STEP precheck          12.4s         afs.step.port.ok_hosts=4
+  STEP backup             7.5s  error  afs.step.port.ok_hosts=3 afs.step.port.failed_hosts=1
   STEP approve           74.7s         afs.step.port.approved=3 afs.step.waited_s=70.1
-  STEP deploy            45.6s  error  afs.step.port.ok=2 afs.step.port.failed=1
+  STEP deploy            45.6s  error  afs.step.port.ok_hosts=2 afs.step.port.failed_hosts=1
 ```
 
 The root span has the run's number, mode, state, project, flow, commit and image, and the CI/CD
-attributes (`cicd.pipeline.*`); each step's span has its host counts per port and, for a step by
-step run, the time it waited. Per-host events are capped at 100 per span; the rest are counted in
+attributes (`cicd.pipeline.*`); each step's span has its host counts per port, named by the port
+(`afs.step.port.<port>`), and, for a step by step run, the time it waited. A step no host reached
+(a rollback in a run that went well) has no span. Per-host events are capped at 100 per span; the rest are counted in
 `afs.step.hosts_omitted`. The trace and span ids come from the run's id, so a run sent twice is
 one trace. Flow inputs are never sent.
 
@@ -86,8 +98,12 @@ refusal drops the batch, says why on the page, and is in the server's log.
 
 ## When a destination is down
 
-What a destination should get waits in the database, and is sent when it is back: tries again
-after 5 seconds, then twice as long each time, up to every 5 minutes, without giving up. The
+What a destination should get waits in the database, and is sent when it is back, oldest first,
+in batches of 500. The destination is tried again after 5 seconds, then twice as long each time,
+up to every minute, without giving up; the page shows the **next try**. Changing the destination,
+or a **Test** that reaches it, sends what waits at once. Lines written to a syslog receiver just
+before the server stops are sent again when it starts (a receiver removes repeats by the audit
+id). The
 waiting rows are bounded: at most **100,000 rows** and **7 days** by default (both are settings of
 each destination). Past either, the oldest are dropped and counted; the audit log says so once an
 hour (`stream.dropped`). The audit log itself keeps everything for its own keeping time.

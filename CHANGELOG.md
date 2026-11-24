@@ -53,6 +53,11 @@ Carries Ansible Flow Designer 1.2.0-rc.1.
 - The question before a run again of some hosts no longer says "1 of 3 is 33%" about failure percentages and rolling batches.
 - MCP `run_relaunch` refuses a `step` that is not true or false, or `points` that are not a list of step ids, instead of running without them.
 - Stopping a run that has already ended is refused (409) and no longer recorded in the audit log as a stop.
+- Event streaming: what waited for a destination that was down or set wrong goes as soon as it works again, all of it, oldest first, in batches of 500. It went a few rows a minute, in no order, and the first only 20 to 30 seconds after a change. Changing a destination, or a **Test** that reaches it, sends what waits at once; the page shows when a failing destination is tried next.
+- Event streaming: syslog lines written just before the server stops are sent again first when it starts, not minutes later.
+- Event streaming errors say what is wrong in words, on the page, in **Test** and in the `stream.failing` e-mail: "Its certificate is not trusted: add the authority (CA) that signed it", "Nothing listens on host:port", "The answer is not HTTP: OTLP/HTTP is usually on port 4318", with the code in brackets. A certificate problem no longer reads "Not reachable".
+- A run's trace has no span for a step no host reached, such as a rollback in a run that went well. A step whose hosts left by its failure port is an error in the trace.
+- The result of **Test** on the Event streaming page is under the destination's buttons, with **Dismiss**, not in the Last error column.
 - An action has a page of its own for its settings, links and who may run it (`/actions/<id>/edit`). The launch configuration's **Settings** keep one line that leads there; the action's form has **Change this action** for whoever may change it.
 - **A link with values**: on the action's page, fill in some or all of the values and copy the whole link to hand to someone. The page checks the values as the form does and says what the person will see: a confirm page, or the short form asking for what is left.
 - **Copy a link with these values** on an action's form, to share what you filled in.

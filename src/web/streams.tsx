@@ -407,6 +407,11 @@ function Health({ sink }: { sink: Sink }) {
           since <Time at={st.failingSince} />
         </div>
       )}
+      {sink.enabled && st.nextTryAt && (
+        <div className="muted">
+          next try <Time at={st.nextTryAt} />
+        </div>
+      )}
       {st.lastSuccessAt && (
         <div className="muted">
           last sent <Time at={st.lastSuccessAt} />
@@ -509,11 +514,6 @@ export function StreamsPage() {
                         <Time at={s.status.lastErrorAt} />
                       </div>
                     )}
-                    {tested?.id === s.id && (
-                      <p className={`notice ${tested.result.ok ? 'ok' : 'error'}`} role="status">
-                        {tested.result.message}
-                      </p>
-                    )}
                   </td>
                   <td>
                     <div className="actions">
@@ -523,6 +523,8 @@ export function StreamsPage() {
                           setError(undefined);
                           try {
                             setTested({ id: s.id, result: await api.testStream(s.id) });
+                            // A test that reached a failing destination sends what waits now.
+                            list.reload();
                           } catch (e) {
                             setError(messageOf(e));
                           }
@@ -550,6 +552,14 @@ export function StreamsPage() {
                         Remove
                       </button>
                     </div>
+                    {tested?.id === s.id && (
+                      <p className={`notice ${tested.result.ok ? 'ok' : 'error'}`} role="status">
+                        Test: {tested.result.message}{' '}
+                        <button type="button" className="link" onClick={() => setTested(undefined)}>
+                          Dismiss
+                        </button>
+                      </p>
+                    )}
                   </td>
                 </tr>
               ))}
