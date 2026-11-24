@@ -8,6 +8,8 @@ import { AnsiText } from './ansi';
 import {
   ApiError,
   api,
+  type HostAt,
+  type HostSets,
   type Project,
   type RelaunchBody,
   type Run,
@@ -660,6 +662,10 @@ export function failureWords(msg: string): string {
   return said;
 }
 
+/** AFS-256: where a stopped host stopped, as a word before the step: after, at (an approval), before. */
+const stoppedWord = (h: Pick<HostAt, 'after' | 'waiting'>) =>
+  h.after ? 'after' : h.waiting ? 'at' : 'before';
+
 interface HostLine {
   host: string;
   words: string;
@@ -668,14 +674,38 @@ interface HostLine {
   why?: { task: string; msg?: string };
 }
 
-/** Each host of a run and how it fares, those with a problem first. */
-function hostLines(view: RunView, state: Run['state'], against?: string): HostLine[] {
+/**
+ * Each host of a run and how it fares, those with a problem first. AFS-256: once the run has
+ * ended, its host sets (the server's) say which hosts could not be reached, and in a stopped run
+ * which failed and where the others stopped; a run stopped before its first step lists the hosts
+ * that waited there.
+ */
+export function hostLines(
+  view: RunView,
+  state: Run['state'],
+  against?: string,
+  sets?: HostSets,
+): HostLine[] {
   const summary = view.summary;
-  if (!summary) return [];
+  if (!summary && !sets?.total) return [];
   const problem = new Map<string, HostLine>();
-  for (const host of summary.unreachable)
-    problem.set(host, { host, words: 'not reachable', tone: 'bad-text' });
-  for (const f of summary.failures)
+  const why = (h: HostAt) =>
+    h.task
+      ? { why: { task: plainWhy(h.task), ...(h.msg ? { msg: failureWords(h.msg) } : {}) } }
+      : {};
+  for (const h of sets?.unreachable ?? [])
+    problem.set(h.host, { host: h.host, words: 'not reachable', tone: 'bad-text', ...why(h) });
+  for (const host of summary?.unreachable ?? [])
+    if (!problem.has(host)) problem.set(host, { host, words: 'not reachable', tone: 'bad-text' });
+  if (state === 'cancelled')
+    for (const h of sets?.failed ?? [])
+      problem.set(h.host, {
+        host: h.host,
+        words: h.title ? `failed at ${h.title}` : 'failed',
+        tone: 'bad-text',
+        ...why(h),
+      });
+  for (const f of summary?.failures ?? [])
     if (!problem.has(f.host))
       problem.set(f.host, {
         host: f.host,
@@ -683,7 +713,7 @@ function hostLines(view: RunView, state: Run['state'], against?: string): HostLi
         tone: 'bad-text',
         why: { task: plainWhy(f.task), ...(f.msg ? { msg: failureWords(f.msg) } : {}) },
       });
-  for (const [host, reason] of Object.entries(summary.outcome))
+  for (const [host, reason] of Object.entries(summary?.outcome ?? {}))
     if (!problem.has(host))
       problem.set(host, {
         host,
@@ -695,7 +725,7 @@ function hostLines(view: RunView, state: Run['state'], against?: string): HostLi
         tone: 'bad-text',
       });
   // A problem a step rescued into a port: the host went on, but that is where it went wrong.
-  for (const hosts of Object.values(summary.problems ?? {}))
+  for (const hosts of Object.values(summary?.problems ?? {}))
     for (const [host, p] of Object.entries(hosts)) {
       const line = problem.get(host);
       if (line && !line.why)
@@ -704,12 +734,26 @@ function hostLines(view: RunView, state: Run['state'], against?: string): HostLi
   // AFS-131: the run's own state says whether it ended: a stopped run's view can still read as
   // running (it was stopped while it waited, or before its last view was written).
   const going = state === 'running' || state === 'queued' || state === 'waiting';
-  const rest = summary.hosts
+  const stopped = new Map((sets?.stopped ?? []).map((h) => [h.host, h]));
+  const all = [
+    ...new Set([
+      ...(summary?.hosts ?? []),
+      ...(sets?.notOk ?? []),
+      ...(sets?.handled ?? []).map((h) => h.host),
+    ]),
+  ];
+  const rest = all
     .filter((h) => !problem.has(h))
     .map(
       (host): HostLine =>
         state === 'cancelled'
-          ? { host, words: 'stopped', tone: 'muted' }
+          ? {
+              host,
+              words: stopped.get(host)?.title
+                ? `stopped ${stoppedWord(stopped.get(host) as HostAt)} ${stopped.get(host)?.title}`
+                : 'stopped',
+              tone: 'muted',
+            }
           : // AFS-146: a run held at an approval: its hosts wait for the decision, they are
             // not in progress.
             state === 'waiting'
@@ -1270,7 +1314,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   const viewer = `/viewer.html?project=${encodeURIComponent(run.project)}&path=${encodeURIComponent(
     run.flow.file,
   )}&commit=${run.commit}&run=${run.id}&theme=${theme === 'system' ? 'auto' : theme}`;
-  const lines = view ? hostLines(view, run.state, run.decidedAgainst) : [];
+  const lines = view ? hostLines(view, run.state, run.decidedAgainst, offer?.sets) : [];
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
   const why = lines.find((l) => l.why);
   const by = personOf(run.requestedBy);

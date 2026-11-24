@@ -1,0 +1,68 @@
+# Test flow for AFS-256 (fictional sample ULIDs): Push baseline fails on hosts marked broken; its
+# failed hosts go to Rollback and a failed end, the others to Validate and Done. Hosts are local.
+schema_version: 2
+flow:
+  id: 01JEDGE0000000000000000000
+  key: edge-baseline
+  name: Edge baseline
+  version: 1
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+nodes:
+- id: 01JEDGN0000000000000000001
+  key: start
+  type: start
+  title: Start
+- id: 01JEDGN0000000000000000002
+  key: push
+  type: task
+  title: Push baseline
+  status: implemented
+  impl:
+    kind: module
+    ref: ansible.builtin.assert
+    params:
+      that:
+      - not (broken | default(false) | bool)
+      fail_msg: The baseline did not apply
+- id: 01JEDGN0000000000000000003
+  key: validate
+  type: task
+  title: Validate
+  status: implemented
+  impl:
+    kind: module
+    ref: ansible.builtin.debug
+    params:
+      msg: Validated {{ inventory_hostname }}
+- id: 01JEDGN0000000000000000004
+  key: rollback
+  type: task
+  title: Rollback
+  status: implemented
+  impl:
+    kind: module
+    ref: ansible.builtin.debug
+    params:
+      msg: Rolled back {{ inventory_hostname }}
+- id: 01JEDGN0000000000000000005
+  key: done
+  type: end
+  title: Done
+  outcome: success
+- id: 01JEDGN0000000000000000006
+  key: rolled-back
+  type: end
+  title: Rolled back
+  outcome: failed
+edges:
+- { id: 01JEDGE0000000000000000001, from: { node: 01JEDGN0000000000000000001, port: ok_hosts }, to: { node: 01JEDGN0000000000000000002, port: in } }
+- { id: 01JEDGE0000000000000000002, from: { node: 01JEDGN0000000000000000002, port: ok_hosts }, to: { node: 01JEDGN0000000000000000003, port: in } }
+- { id: 01JEDGE0000000000000000003, from: { node: 01JEDGN0000000000000000002, port: failed_hosts }, to: { node: 01JEDGN0000000000000000004, port: in } }
+- { id: 01JEDGE0000000000000000004, from: { node: 01JEDGN0000000000000000003, port: ok_hosts }, to: { node: 01JEDGN0000000000000000005, port: in } }
+- { id: 01JEDGE0000000000000000005, from: { node: 01JEDGN0000000000000000004, port: ok_hosts }, to: { node: 01JEDGN0000000000000000006, port: in } }
+- { id: 01JEDGE0000000000000000006, from: { node: 01JEDGN0000000000000000003, port: failed_hosts }, to: { node: 01JEDGN0000000000000000006, port: in } }
+- { id: 01JEDGE0000000000000000007, from: { node: 01JEDGN0000000000000000004, port: failed_hosts }, to: { node: 01JEDGN0000000000000000006, port: in } }

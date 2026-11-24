@@ -2899,6 +2899,14 @@ fieldset.name-chips {
   align-items: flex-start;
   gap: 0.1rem;
 }
+/* AFS-257: Run again that this person may not do: greyed, with who may under it. */
+.more-menu-list button[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+.more-menu-list button[aria-disabled="true"]:hover {
+  background: none;
+}
 .run-again-who {
   margin: 0;
   max-width: 24rem;

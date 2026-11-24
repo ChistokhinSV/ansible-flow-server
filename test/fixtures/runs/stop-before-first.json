@@ -1,0 +1,60 @@
+{
+  "state": "cancelled",
+  "error": "Stopped by mia before Push baseline",
+  "view": {
+    "id": "20261124T121858Z-4-d9ed31bf",
+    "mode": "check",
+    "state": "error",
+    "startedAt": "2026-11-24T12:18:58.268Z",
+    "environment": "afd-ee:2.19 (docker)",
+    "source": "local",
+    "flowVersion": 1,
+    "design": {
+      "01JEDGN0000000000000000001": "a3c6e15d",
+      "01JEDGN0000000000000000002": "46b4acef",
+      "01JEDGN0000000000000000003": "36d00294",
+      "01JEDGN0000000000000000004": "d3063d3e",
+      "01JEDGN0000000000000000005": "ee5e3435",
+      "01JEDGN0000000000000000006": "8ccce4b5"
+    },
+    "finishedAt": "2026-11-24T12:19:01.072Z",
+    "rc": 2,
+    "summary": {
+      "nodes": {},
+      "outcome": {},
+      "failures": [],
+      "unreachable": [],
+      "hosts": [],
+      "stoppedEarly": false,
+      "timings": {
+        "01JEDGN0000000000000000002": {
+          "start": 1795522739.807,
+          "end": 1795522739.807
+        }
+      },
+      "waited": {
+        "01JEDGN0000000000000000002": 0.5380001068115234
+      },
+      "problems": {}
+    },
+    "error": "Stopped before Push baseline",
+    "errorCode": "cancelled",
+    "stoppedAt": "01JEDGN0000000000000000002",
+    "step": {
+      "pauses": 1,
+      "stopped": {
+        "node": "01JEDGN0000000000000000002",
+        "hosts": [
+          "sw-edge-01",
+          "sw-edge-02",
+          "sw-edge-03",
+          "sw-edge-04"
+        ],
+        "reason": "driver"
+      },
+      "every": true,
+      "points": [],
+      "debug": true
+    }
+  }
+}

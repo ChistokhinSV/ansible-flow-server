@@ -1,0 +1,54 @@
+{
+  "state": "cancelled",
+  "error": "Stopped by dana while it waited for approval at Change approval",
+  "view": {
+    "id": "20261124T122143Z-1-6db653a6-start",
+    "mode": "real",
+    "state": "error",
+    "startedAt": "2026-11-24T12:21:43.540Z",
+    "environment": "afd-ee:2.19 (docker)",
+    "source": "local",
+    "flowVersion": 1,
+    "design": {
+      "01JGATN0000000000000000001": "596fa42f",
+      "01JGATN0000000000000000002": "34eadb99",
+      "01JGATN0000000000000000003": "e1adfe84",
+      "01JGATN0000000000000000004": "0b7d87ae",
+      "01JGATN0000000000000000005": "1c1d3327",
+      "01JGATN0000000000000000006": "c7353aa1",
+      "01JGATN0000000000000000007": "3970bde7"
+    },
+    "finishedAt": "2026-11-24T12:21:45.686Z",
+    "summary": {
+      "nodes": {
+        "01JGATN0000000000000000002": {
+          "ok_hosts": [
+            "localhost"
+          ]
+        }
+      },
+      "outcome": {},
+      "failures": [],
+      "unreachable": [],
+      "hosts": [
+        "localhost"
+      ],
+      "stoppedEarly": false,
+      "timings": {
+        "01JGATN0000000000000000002": {
+          "start": 1795522905.088,
+          "end": 1795522905.172
+        },
+        "01JGATN0000000000000000003": {
+          "start": 1795522905.175,
+          "end": 1795522905.197
+        }
+      },
+      "problems": {}
+    },
+    "approvals": {},
+    "stoppedAt": "01JGATN0000000000000000003",
+    "errorCode": "cancelled",
+    "error": "Stopped by dana before it went on"
+  }
+}

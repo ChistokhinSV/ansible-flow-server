@@ -1,0 +1,97 @@
+{
+  "state": "cancelled",
+  "error": "Stopped by mia before Validate",
+  "view": {
+    "id": "20261124T121851Z-3-2fdb5faf",
+    "mode": "check",
+    "state": "error",
+    "startedAt": "2026-11-24T12:18:51.012Z",
+    "environment": "afd-ee:2.19 (docker)",
+    "source": "local",
+    "flowVersion": 1,
+    "design": {
+      "01JEDGN0000000000000000001": "a3c6e15d",
+      "01JEDGN0000000000000000002": "46b4acef",
+      "01JEDGN0000000000000000003": "36d00294",
+      "01JEDGN0000000000000000004": "d3063d3e",
+      "01JEDGN0000000000000000005": "ee5e3435",
+      "01JEDGN0000000000000000006": "8ccce4b5"
+    },
+    "finishedAt": "2026-11-24T12:18:56.223Z",
+    "rc": 2,
+    "summary": {
+      "nodes": {
+        "01JEDGN0000000000000000002": {
+          "ok_hosts": [
+            "sw-edge-01",
+            "sw-edge-03",
+            "sw-edge-04"
+          ],
+          "failed_hosts": [
+            "sw-edge-02"
+          ]
+        }
+      },
+      "outcome": {},
+      "failures": [],
+      "unreachable": [],
+      "hosts": [
+        "sw-edge-01",
+        "sw-edge-02",
+        "sw-edge-03",
+        "sw-edge-04"
+      ],
+      "stoppedEarly": false,
+      "timings": {
+        "01JEDGN0000000000000000002": {
+          "start": 1795522732.654,
+          "end": 1795522734.745
+        },
+        "01JEDGN0000000000000000003": {
+          "start": 1795522735.31,
+          "end": 1795522735.31
+        }
+      },
+      "waited": {
+        "01JEDGN0000000000000000002": 1.9900000095367432,
+        "01JEDGN0000000000000000003": 0.3299999237060547
+      },
+      "problems": {
+        "01JEDGN0000000000000000002": {
+          "sw-edge-02": {
+            "task": "[push] Push baseline",
+            "status": "failed",
+            "msg": "The baseline did not apply"
+          }
+        }
+      }
+    },
+    "error": "Stopped before Validate",
+    "errorCode": "cancelled",
+    "stoppedAt": "01JEDGN0000000000000000003",
+    "step": {
+      "pauses": 4,
+      "retries": [
+        {
+          "node": "01JEDGN0000000000000000002",
+          "hosts": [
+            "sw-edge-02"
+          ],
+          "attempt": 2
+        }
+      ],
+      "stopped": {
+        "node": "01JEDGN0000000000000000003",
+        "hosts": [
+          "sw-edge-01",
+          "sw-edge-03",
+          "sw-edge-04"
+        ],
+        "reason": "driver"
+      },
+      "every": true,
+      "points": [],
+      "debug": true
+    }
+  }
+}

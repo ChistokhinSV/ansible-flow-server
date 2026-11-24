@@ -1,0 +1,87 @@
+{
+  "state": "cancelled",
+  "error": "Stopped by mia before Push baseline",
+  "view": {
+    "id": "20261124T121836Z-1-b08aeb06",
+    "mode": "check",
+    "state": "error",
+    "startedAt": "2026-11-24T12:18:36.893Z",
+    "environment": "afd-ee:2.19 (docker)",
+    "source": "local",
+    "flowVersion": 1,
+    "design": {
+      "01JEDGN0000000000000000001": "a3c6e15d",
+      "01JEDGN0000000000000000002": "46b4acef",
+      "01JEDGN0000000000000000003": "36d00294",
+      "01JEDGN0000000000000000004": "d3063d3e",
+      "01JEDGN0000000000000000005": "ee5e3435",
+      "01JEDGN0000000000000000006": "8ccce4b5"
+    },
+    "finishedAt": "2026-11-24T12:18:41.279Z",
+    "rc": 2,
+    "summary": {
+      "nodes": {
+        "01JEDGN0000000000000000002": {
+          "ok_hosts": [
+            "sw-edge-01",
+            "sw-edge-03",
+            "sw-edge-04"
+          ],
+          "failed_hosts": [
+            "sw-edge-02"
+          ]
+        }
+      },
+      "outcome": {},
+      "failures": [],
+      "unreachable": [],
+      "hosts": [
+        "sw-edge-01",
+        "sw-edge-02",
+        "sw-edge-03",
+        "sw-edge-04"
+      ],
+      "stoppedEarly": false,
+      "timings": {
+        "01JEDGN0000000000000000002": {
+          "start": 1795522718.928,
+          "end": 1795522719.803
+        }
+      },
+      "waited": {
+        "01JEDGN0000000000000000002": 1.196000099182129
+      },
+      "problems": {
+        "01JEDGN0000000000000000002": {
+          "sw-edge-02": {
+            "task": "[push] Push baseline",
+            "status": "failed",
+            "msg": "The baseline did not apply"
+          }
+        }
+      }
+    },
+    "error": "Stopped after Push baseline",
+    "errorCode": "cancelled",
+    "stoppedAt": "01JEDGN0000000000000000002",
+    "step": {
+      "pauses": 2,
+      "stopped": {
+        "node": "01JEDGN0000000000000000002",
+        "hosts": [
+          "sw-edge-01",
+          "sw-edge-03",
+          "sw-edge-04"
+        ],
+        "reason": "driver",
+        "after": true,
+        "failed": [
+          "sw-edge-02"
+        ]
+      },
+      "every": true,
+      "points": [],
+      "debug": true
+    }
+  }
+}

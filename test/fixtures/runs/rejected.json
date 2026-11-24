@@ -1,0 +1,69 @@
+{
+  "state": "failed",
+  "error": "Rejected at Change approval by sam: Not in the window",
+  "view": {
+    "id": "20261124T122150Z-2-83af7f8b-approve-rejected",
+    "mode": "real",
+    "state": "done",
+    "startedAt": "2026-11-24T12:21:50.751Z",
+    "environment": "afd-ee:2.19 (docker)",
+    "source": "local",
+    "flowVersion": 1,
+    "design": {
+      "01JGATN0000000000000000001": "596fa42f",
+      "01JGATN0000000000000000002": "34eadb99",
+      "01JGATN0000000000000000003": "e1adfe84",
+      "01JGATN0000000000000000004": "0b7d87ae",
+      "01JGATN0000000000000000005": "1c1d3327",
+      "01JGATN0000000000000000006": "c7353aa1",
+      "01JGATN0000000000000000007": "3970bde7"
+    },
+    "finishedAt": "2026-11-24T12:21:52.565Z",
+    "rc": 2,
+    "summary": {
+      "nodes": {
+        "01JGATN0000000000000000002": {
+          "ok_hosts": [
+            "localhost"
+          ]
+        },
+        "01JGATN0000000000000000003": {
+          "rejected": [
+            "localhost"
+          ]
+        }
+      },
+      "outcome": {
+        "localhost": "Rejected at [approve] Change approval. Ended at [not-approved] Not approved (outcome: failed)"
+      },
+      "failures": [],
+      "unreachable": [],
+      "hosts": [
+        "localhost"
+      ],
+      "stoppedEarly": false,
+      "timings": {
+        "01JGATN0000000000000000002": {
+          "start": 1795522908.933,
+          "end": 1795522909.015
+        },
+        "01JGATN0000000000000000003": {
+          "start": 1795522909.021,
+          "end": 1795522912.023
+        }
+      },
+      "problems": {}
+    },
+    "approvals": {
+      "01JGATN0000000000000000003": {
+        "status": "rejected",
+        "hosts": [
+          "localhost"
+        ],
+        "by": "sam",
+        "at": "2026-11-24T12:21:49.762Z",
+        "comment": "Not in the window"
+      }
+    }
+  }
+}

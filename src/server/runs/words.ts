@@ -113,8 +113,9 @@ export function exitWords(rc: number | undefined, error?: string): string {
  */
 function codeAfter(rc: number | undefined, unreachable = false): string {
   if (rc === undefined) return '';
-  // Ansible ends with 4 when hosts could not be reached, too: that is what it meant here.
-  const meaning = unreachable && rc === 4 ? EXIT_CODES[3] : EXIT_CODES[rc];
+  // Ansible ends with 4 when hosts could not be reached, too, and with 2 when the flow's outcome
+  // play failed them for it (AFS-256): that is what it meant here.
+  const meaning = unreachable && (rc === 4 || rc === 2) ? EXIT_CODES[3] : EXIT_CODES[rc];
   const lower = meaning?.startsWith('Ansible ')
     ? meaning
     : meaning && `${meaning.charAt(0).toLowerCase()}${meaning.slice(1)}`;
@@ -141,13 +142,27 @@ export function failedWhy(
     ...s.unreachable,
   ]);
   if (!failed.size) return code;
+  // AFS-256: a host the outcome play failed because Ansible could not reach it (an unreachable
+  // port that is not enabled) was not reached: its problems say UNREACHABLE and nothing else.
+  const problemsOf = (host: string) =>
+    Object.values(s.problems ?? {}).flatMap((byHost) => (byHost[host] ? [byHost[host]] : []));
+  const unreachable = new Set(
+    [...failed].filter(
+      (h) =>
+        s.unreachable.includes(h) ||
+        (!s.failures.some((f) => f.host === h) &&
+          problemsOf(h).length > 0 &&
+          problemsOf(h).every((p) => p.status === 'unreachable')),
+    ),
+  );
+  const failedOnly = new Set([...failed].filter((h) => !unreachable.has(h)));
   const steps = [
     ...new Set(
       [
-        ...s.failures.map((f) => f.node),
+        ...s.failures.filter((f) => failedOnly.has(f.host)).map((f) => f.node),
         // A problem a step rescued into a port counts where the host then failed.
         ...Object.entries(s.problems ?? {})
-          .filter(([, hosts]) => Object.keys(hosts).some((h) => failed.has(h)))
+          .filter(([, hosts]) => Object.keys(hosts).some((h) => failedOnly.has(h)))
           .map(([node]) => node),
       ]
         .map((id) => titleOf(nodes, id))
@@ -155,12 +170,15 @@ export function failedWhy(
     ),
   ];
   const total = Math.max(s.hosts.length, failed.size);
+  const of = (n: number) => `${n} of ${total} ${total === 1 ? 'host' : 'hosts'}`;
   const at = steps.length ? ` at ${list(steps)}` : '';
   // Only unreachable hosts: that, with their names, says more than "failed".
-  const unreachable = !steps.length && [...failed].every((h) => s.unreachable.includes(h));
-  if (unreachable)
-    return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} could not be reached: ${list([...failed])}${codeAfter(rc, true)}`;
-  return `${failed.size} of ${total} ${total === 1 ? 'host' : 'hosts'} failed${at}${codeAfter(rc)}`;
+  if (!failedOnly.size)
+    return `${of(unreachable.size)} could not be reached: ${list([...unreachable])}${codeAfter(rc, true)}`;
+  const notReached = unreachable.size
+    ? `, ${unreachable.size} could not be reached (${list([...unreachable])})`
+    : '';
+  return `${of(failedOnly.size)} failed${at}${notReached}${codeAfter(rc)}`;
 }
 
 /** "Stopped by Dana Whitfield during Upgrade", from the worker's "Stopped on request …". */
