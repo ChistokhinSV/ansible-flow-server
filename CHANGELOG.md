@@ -39,6 +39,7 @@ Carries Ansible Flow Designer 1.2.0-rc.2.
 
 ### Fixed
 
+- The question before **Only the hosts that did not go well** says approvals are asked again only when the flow has an approval, and two hosts read "Both hosts did not go well", not "All 2 hosts".
 - Event streaming: a destination that was down got a run's `run.started` line with a later time than the others; every destination now gets the same time, the moment the run started.
 - Event streaming: changing a destination away from an address that does not answer sent what waited about 19 seconds later; it is sent at once.
 - Event streaming: the last error of a destination's old settings stayed under **Last error** after a change; a change clears it, and an error from before the destination sent again reads "Before it sent again".

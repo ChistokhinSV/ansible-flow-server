@@ -68,7 +68,7 @@ export function onlyQuestion(run: Run, offer: RelaunchOffer): string {
   const real = run.mode === 'real' ? ' for real' : ' as a check run';
   const risks = offer.risks.length ? ` ${offer.risks.join('. ')}.` : '';
   const changes = run.mode === 'real' ? ' It changes the hosts it reaches.' : '';
-  return `Run #${run.number} again${real} on ${hostsWord(hosts.length)}: ${list(hosts)} (commit ${run.commit.slice(0, 12)}, the same inputs, the credentials of its configuration)?${changes}${steppedWords(run)} Approvals are asked again.${risks}`;
+  return `Run #${run.number} again${real} on ${hostsWord(hosts.length)}: ${list(hosts)} (commit ${run.commit.slice(0, 12)}, the same inputs, the credentials of its configuration)?${changes}${steppedWords(run)}${offer.approvals.length ? ' Approvals are asked again.' : ''}${risks}`;
 }
 
 /** AFS-251: a run again keeps step by step: the question says so, as Launch's does. */

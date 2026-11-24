@@ -1186,8 +1186,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   // (its start time would ask for the new run's view before it has one).
   const started = !!run?.startedAt && run.id === id;
   // AFS-258: a run that ended before it ran anything (it could not read its credential, say) has
-  // no view: not asked for (its events say so too).
-  const viewless = !going && !!run?.error && !run?.hosts;
+  // no view: not asked for (its events say so too). A run stopped before its first step has hosts
+  // to list (AFS-256): stopped runs are always asked.
+  const viewless = !going && !!run?.error && !run?.hosts && run?.state !== 'cancelled';
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the run's state changes
   useEffect(() => {
     if (!started || viewless) return;

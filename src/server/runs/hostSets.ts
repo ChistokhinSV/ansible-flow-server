@@ -441,7 +441,7 @@ export function outcomeLine(sets: HostSets): string | undefined {
   }
   const head =
     n === sets.total
-      ? `${n === 1 ? 'The host' : `All ${n} hosts`} did not go well`
+      ? `${n === 1 ? 'The host' : n === 2 ? 'Both hosts' : `All ${n} hosts`} did not go well`
       : `${n} of ${plural(sets.total, 'host')} did not go well`;
   return `${head}: ${parts.join(', ')}${handled}`;
 }
