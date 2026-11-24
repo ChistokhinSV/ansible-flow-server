@@ -412,6 +412,23 @@ describe('run again', () => {
     expect(refused.status).toBe(403);
     expect(((await refused.json()) as { message: string }).message).toContain('needs rw');
     expect((await post(other.id, {}, tokens.rita)).status).toBe(201);
+    // AFS-253: the offer says so first, to whom it applies: the page offers nothing refused.
+    const mayOf = async (id: string, token = tokens.omar) =>
+      (
+        (await (
+          await fetch(`${url}/api/v1/runs/${id}/relaunch`, {
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).json()) as { may: unknown }
+      ).may;
+    expect(await mayOf(other.id)).toEqual({
+      again: false,
+      change: true,
+      debug: false,
+      why: `Run #${other.number} ran another branch or commit than its launch configuration names: people who may change this flow run it again`,
+    });
+    expect(await mayOf(other.id, tokens.rita)).toEqual({ again: true, change: true, debug: true });
+    expect(await mayOf((await ended()).id)).toEqual({ again: true, change: true, debug: false });
 
     const run = await ended();
     const next = source.commit({ 'README.md': 'Newer\n' });

@@ -162,7 +162,11 @@ as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find o
 **Run again ▾** on a run that has ended, for operators of its flow:
 
 Each item has a line under it that says what it takes; **Only the N hosts** names them with their
-set: "sw-edge-02 (failed), sw-edge-05 (unreachable)".
+set: "sw-edge-02 (failed), sw-edge-05 (unreachable)". The menu offers only what you may do: a run of
+another branch or commit than its configuration names (or a dev run) runs again only for people
+with rw on the flow, and an operator sees, in place of the menu, a line saying so. `GET
+/runs/:id/relaunch` says the same in `may` (`again`, `change`, `debug`, and `why` when it may not
+run again).
 
 - **Run again**: the same commit, inputs and limit, as a new run. Its tooltip says which inputs it
   reuses (and so does the link to the old run on the new run's page); on a real run it asks first,

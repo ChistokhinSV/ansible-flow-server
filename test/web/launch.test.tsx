@@ -265,6 +265,22 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     expect(document.querySelector('[data-origin="devices"]')).toBeNull();
   });
 
+  it('Launch: the host list says what it is once, also as the designer words it (AFS-253)', async () => {
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1/form?': () => ({
+        body: {
+          ...form,
+          origins: { devices: 'The hosts the run starts on.' },
+        },
+      }),
+    };
+    page('launch');
+    await screen.findByLabelText(/^devices/);
+    expect(document.querySelector('[data-origin="devices"]')).toBeNull();
+    expect(document.body.textContent?.match(/the run starts on/g) ?? []).toEqual([]);
+  });
+
   it('Launch: a flow with errors names them, each a link to its step (AFS-164)', async () => {
     const errors = [
       { node: 'n1', step: 'Ping', message: 'No module is bound' },

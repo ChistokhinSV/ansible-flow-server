@@ -395,4 +395,18 @@ export interface RelaunchOffer {
   risks: string[];
   /** The flow's approvals, by title: a run again asks each again. */
   approvals: string[];
+  /** AFS-253: what the person asking may do (absent from servers before it: offer it all). */
+  may?: RelaunchMay;
+}
+
+/** AFS-253: what one person may do with Run again ▾ on a run. */
+export interface RelaunchMay {
+  /** Run again, and Only the hosts that did not go well. */
+  again: boolean;
+  /** Change and run: the launch form of its configuration. */
+  change: boolean;
+  /** Debug this failure. */
+  debug: boolean;
+  /** Why they may not run it again, in words. */
+  why?: string;
 }

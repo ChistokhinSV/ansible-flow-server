@@ -29,6 +29,7 @@ import {
   MAX_LIMIT_HOSTS,
   outcomeLine,
   type RelaunchBody,
+  type RelaunchMay,
   type RelaunchOffer,
   stepIds,
   type ViewOfHosts,
@@ -210,10 +211,54 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
         ...(line ? { line } : {}),
         risks: limitRisks(nodes),
         approvals: approvalTitles(nodes),
+        may: await mayOf(request, run),
       };
       return offer;
     },
   );
+
+  /**
+   * AFS-253: what this person may do with Run again ▾, by the rules `settle` applies (a run at its
+   * own commit): Run again and Only the hosts, Change and run, Debug this failure; and when they
+   * may not run it again, why, in words for the page.
+   */
+  const mayOf = async (request: FastifyRequest, run: Run): Promise<RelaunchMay> => {
+    const none = (why: string): RelaunchMay => ({ again: false, change: false, debug: false, why });
+    const project = await getProject(deps.db, run.project);
+    if (!project) return none('The project is gone');
+    const access = await accessOf(deps.db, request);
+    const level = access?.onFlow(project.workspace, project.id, run.flow.file);
+    if (!atLeast(level, 'operator')) return none('Operators of this flow run it again');
+    const config = run.config ? await configs.get(run.config.id) : undefined;
+    if (!config || config.flowFile !== run.flow.file)
+      return none(
+        config
+          ? `The launch configuration ${config.name} runs ${config.flowFile} now: launch it from there`
+          : `The launch configuration of run #${run.number} is gone: launch the flow from one of its configurations`,
+      );
+    const row = await deps.db
+      .selectFrom('run')
+      .select(['dev_bundle'])
+      .where('id', '=', run.id)
+      .executeTakeFirst();
+    const dev = !!row?.dev_bundle;
+    const configRef = config.gitRef ?? project.gitRef;
+    const asConfigured = config.commit
+      ? !run.ref && run.commit.startsWith(config.commit.toLowerCase())
+      : run.ref === configRef;
+    const again = atLeast(level, 'rw') || (!dev && asConfigured);
+    const debug = again && !(await debugRefusal(deps.db, project.workspace, level, run.flow.file));
+    return {
+      again,
+      change: true,
+      debug,
+      ...(again
+        ? {}
+        : {
+            why: `Run #${run.number} ran ${dev ? 'unpushed work (a dev run)' : 'another branch or commit than its launch configuration names'}: people who may change this flow run it again`,
+          }),
+    };
+  };
 
   /** Settles a run again, or says what stands in its way. */
   const settle = async (

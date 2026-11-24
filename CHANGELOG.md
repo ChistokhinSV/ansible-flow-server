@@ -53,6 +53,8 @@ Carries Ansible Flow Designer 1.2.0-rc.1.
 - The question before a run again of some hosts no longer says "1 of 3 is 33%" about failure percentages and rolling batches.
 - MCP `run_relaunch` refuses a `step` that is not true or false, or `points` that are not a list of step ids, instead of running without them.
 - Stopping a run that has already ended is refused (409) and no longer recorded in the audit log as a stop.
+- **Run again ▾** no longer offers what the server refuses: an operator of a run that ran another branch or commit than its configuration names sees a line saying who may run it again, not items that fail with "needs rw".
+- The launch form says once what a host list is ("The hosts the run starts on" was said twice under `devices`).
 - Event streaming: what waited for a destination that was down or set wrong goes as soon as it works again, all of it, oldest first, in batches of 500. It went a few rows a minute, in no order, and the first only 20 to 30 seconds after a change. Changing a destination, or a **Test** that reaches it, sends what waits at once; the page shows when a failing destination is tried next.
 - Event streaming: syslog lines written just before the server stops are sent again first when it starts, not minutes later.
 - Event streaming errors say what is wrong in words, on the page, in **Test** and in the `stream.failing` e-mail: "Its certificate is not trusted: add the authority (CA) that signed it", "Nothing listens on host:port", "The answer is not HTTP: OTLP/HTTP is usually on port 4318", with the code in brackets. A certificate problem no longer reads "Not reachable".
