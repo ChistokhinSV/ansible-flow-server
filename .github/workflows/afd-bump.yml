@@ -84,8 +84,38 @@ jobs:
           fi
           echo "newest=$newest" >> "$GITHUB_OUTPUT"
           branch="afd-packages-$newest"
+          # npm's `latest` is the newest release; a release candidate this server already runs (taken
+          # by hand from `next`) is newer, and going back to `latest` would drop what it uses.
+          # Semantic version order: a pre-release (1.2.0-rc.3) comes before its release (1.2.0).
+          older=$(HAVE="$have" NEWEST="$newest" node -e '
+            const parse = (v) => {
+              const [core, pre] = v.split("-", 2);
+              return { nums: core.split(".").map(Number), pre };
+            };
+            const cmpPre = (a, b) => {
+              if (a === b) return 0;
+              if (a === undefined) return 1;
+              if (b === undefined) return -1;
+              const x = a.split("."), y = b.split(".");
+              for (let i = 0; i < Math.max(x.length, y.length); i++) {
+                if (x[i] === undefined) return -1;
+                if (y[i] === undefined) return 1;
+                const n = /^\d+$/.test(x[i]) && /^\d+$/.test(y[i]);
+                const d = n ? Number(x[i]) - Number(y[i]) : x[i].localeCompare(y[i]);
+                if (d) return Math.sign(d);
+              }
+              return 0;
+            };
+            const a = parse(process.env.NEWEST), b = parse(process.env.HAVE);
+            let c = 0;
+            for (let i = 0; i < 3 && !c; i++) c = Math.sign((a.nums[i] ?? 0) - (b.nums[i] ?? 0));
+            if (!c) c = cmpPre(a.pre, b.pre);
+            console.log(c <= 0 ? "yes" : "no");
+          ')
           if [ "$have" = "$newest" ]; then
             echo "Already on $newest"
+          elif [ "$older" = "yes" ]; then
+            echo "::notice::npm's newest release $newest is not newer than $have, which this server runs: nothing to take"
           elif git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
             echo "A pull request for $newest is open already"
           else
