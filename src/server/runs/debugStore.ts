@@ -37,6 +37,14 @@ export interface DebugPause {
  * Keeps an answer of a pause (one per op, host and expressions: a later one replaces it); false
  * when the run's 1 MB is used up (nothing more is kept).
  */
+// Entries kept in the same millisecond (scopes, then a watch) came back in random id order: the
+// time each one is kept with never goes back nor repeats in this process, so they keep their order.
+let lastKept = 0;
+const keptAt = (now: Date): string => {
+  lastKept = Math.max(now.getTime(), lastKept + 1);
+  return new Date(lastKept).toISOString();
+};
+
 export async function keepDebug(
   db: Kysely<Schema>,
   run: string,
@@ -81,7 +89,7 @@ export async function keepDebug(
           : null,
       answer_json: answerJson,
       size,
-      created_at: now.toISOString(),
+      created_at: keptAt(now),
     })
     .execute();
   return true;
