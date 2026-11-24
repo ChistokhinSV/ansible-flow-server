@@ -41,6 +41,11 @@ export const whoGoesOn = (run: RunRecord): string | undefined =>
   run.requestedBy
     ? `${run.requestedBy.name || run.requestedBy.login} or an operator of this flow`
     : undefined;
+/** AFS-253: who goes on from a debug run's pause: who launched it, or an administrator. */
+export const whoDebugs = (run: RunRecord): string | undefined =>
+  run.requestedBy
+    ? `${run.requestedBy.name || run.requestedBy.login} or an administrator`
+    : undefined;
 /** AFS-139: a run that has not ended yet. */
 export const going = (state: string | undefined): boolean =>
   state === 'queued' || state === 'running' || state === 'waiting';

@@ -240,6 +240,22 @@ for (const [width, height] of SIZES)
         });
         if (bar) found.push(bar);
       }
+      // AFS-250: a debug run's reason line and buttons are in sight without scrolling: on a phone
+      // in the Debugger tab (Run · Debugger · Output), from tablet width up beside the canvas.
+      if (name === 'debugRun') {
+        const reason = await page.locator('[data-debug-reason]').boundingBox();
+        const stop = await page.locator('[data-debugger] [data-step-command="stop"]').boundingBox();
+        if (!reason || !stop || stop.y + stop.height > height)
+          found.push(`the Debugger's buttons are not in the window: ${JSON.stringify(stop)}`);
+        const tabs = await page.getByRole('tablist').count();
+        if (width <= 860 && tabs !== 1) found.push('no Run · Debugger · Output tabs');
+        if (width > 860 && tabs !== 0) found.push(`tabs at ${width}px`);
+        if (width > 860) {
+          const frame = await page.locator('iframe.flow-frame').boundingBox();
+          if (!frame || !reason || reason.x < frame.x + frame.width - 1)
+            found.push('the Debugger is not beside the canvas');
+        }
+      }
       expect(found, `${path} at ${width}px`).toEqual([]);
     });
 

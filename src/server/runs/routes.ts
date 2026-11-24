@@ -24,6 +24,7 @@ import type { Schema } from '../db/schema';
 import { readBefore } from './cursor';
 import type { RunHub, RunNews } from './hub';
 import { ACTIVE, type Run, type RunQueue, type RunState, STATES } from './queue';
+import { forReader } from './stepping';
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
@@ -429,7 +430,8 @@ export function registerRuns(
       },
     },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
+      const me = signedIn(request, reply);
+      if (!me) return reply;
       if (request.query.before && !readBefore(request.query.before))
         return reply.code(400).send({
           error: 'invalid',
@@ -438,7 +440,10 @@ export function registerRuns(
         });
       // Only the runs of what this person may see: the filters narrow that, never widen it.
       const visible = db ? (await accessOf(db, request))?.visible() : undefined;
-      return named(await queue.list({ ...request.query, ...(visible ? { visible } : {}) }));
+      // AFS-253: a debug run's point conditions are its driver's.
+      return (
+        await named(await queue.list({ ...request.query, ...(visible ? { visible } : {}) }))
+      ).map((r) => forReader(r, me));
     },
   );
 
@@ -446,8 +451,10 @@ export function registerRuns(
     '/api/v1/runs/:id',
     { schema: ID },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
-      return (await nameOne(await queue.get(request.params.id))) ?? reply.code(404).send(NONE);
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const run = await nameOne(await queue.get(request.params.id));
+      return run ? forReader(run, me) : reply.code(404).send(NONE);
     },
   );
 

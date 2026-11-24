@@ -650,6 +650,18 @@ export const api = {
       `/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
       { points, ...(failures ? { failures } : {}) },
     ),
+  /** AFS-250: your watch expressions on a flow, kept by the server for you. */
+  watches: (project: string, path: string) =>
+    call<{ exprs: string[] }>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/watches?path=${encodeURIComponent(path)}`,
+    ),
+  setWatches: (project: string, path: string, exprs: string[]) =>
+    call<{ exprs: string[] }>(
+      'PUT',
+      `/projects/${encodeURIComponent(project)}/watches?path=${encodeURIComponent(path)}`,
+      { exprs },
+    ),
   /** How the run went, as the canvas shows it (its hosts and where they left each step). */
   runView: (id: string) => call<RunView>('GET', `/runs/${encodeURIComponent(id)}/view`),
   /** AFS-170: what one host did in the run, step by step. */

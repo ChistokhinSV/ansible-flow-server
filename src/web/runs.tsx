@@ -18,7 +18,7 @@ import {
 } from './api';
 import { APPROVALS_CHANGED, RunApprovals } from './approvals';
 import { ask } from './confirm';
-import { DebugKept, DebugPanel } from './debugger';
+import { DebugKept, DebugPanel, useNarrow } from './debugger';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { decidedOutcomes, quietEndOrigins } from './outputText';
@@ -132,11 +132,15 @@ export function RunList({
                       className="badge"
                       title={
                         run.pausedBefore
-                          ? `Paused before ${run.pausedBefore}: it goes on when someone says Step or Continue`
-                          : 'Pauses before its steps until someone says Step or Continue'
+                          ? `Paused at ${run.pausedBefore}: it goes on when someone says Step or Continue`
+                          : run.step.debug
+                            ? 'A debug run: pauses at its pause points and where a host fails'
+                            : 'Pauses before its steps until someone says Step or Continue'
                       }
+                      {...(run.step.debug ? { 'data-debug-badge': true } : {})}
                     >
-                      step by step
+                      {/* AFS-249: a debug run says so in the lists, as on its page. */}
+                      {run.step.debug ? 'debug run' : 'step by step'}
                     </span>
                   </>
                 )}
@@ -582,12 +586,15 @@ const WORDS: Record<string, [string, string]> = {
  * How long, after the state's badge: "running · for 6 min", "went well · in 2 min". AFS-143: the
  * badge says the state; this does not say it again.
  */
-function standing(run: Run): string {
+function standing(run: Run, pause?: { kind?: string }): string {
   const from = run.startedAt ?? run.createdAt;
   switch (run.state) {
     case 'running':
-      // AFS-205: "paused · before Push baseline", not how long it has gone.
-      return run.pausedBefore ? `before ${run.pausedBefore}` : `for ${span(from)}`;
+      // AFS-205: "paused · before Push baseline", not how long it has gone. AFS-249: a debug run
+      // paused where a host failed is after the step, as its reason line says.
+      return run.pausedBefore
+        ? `${pause?.kind === 'failure' ? 'after' : 'before'} ${run.pausedBefore}`
+        : `for ${span(from)}`;
     case 'succeeded':
       return `in ${span(from, run.endedAt)}`;
     case 'failed':
@@ -1158,7 +1165,12 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   // frame); from elsewhere it opens this page at #output. The output is marked for a moment, so it
   // is plain where the eye should go.
   const [shownOutput, setShownOutput] = useState(0);
+  // AFS-250: on a phone (and a narrow tablet, where the parts would stack) a debug run's page has
+  // tabs, Run · Debugger · Output, the Debugger first.
+  const phone = useNarrow('(max-width: 860px)');
+  const [tab, setTab] = useState<RunTab>('debugger');
   const toOutput = () => {
+    setTab('output');
     below.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
     below.current?.focus({ preventScroll: true });
     setShownOutput((n) => n + 1);
@@ -1268,6 +1280,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   // its launcher and administrators drive it and see variables, others the reason line.
   const debugging = stepBar && !!run.step?.debug;
   const debugDriver = me.admin || run.requestedBy.login === me.login;
+  const tabbed = debugging && phone;
+  const shows = (t: RunTab) => !tabbed || tab === t;
 
   return (
     <>
@@ -1308,8 +1322,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           </div>
           <p>
             <StateBadge state={shownState(run)} against={run.decidedAgainst} />
-            {standing(run) && ` ${standing(run)}`} · started by {by} ·{' '}
-            {run.mode === 'real' ? 'real run' : 'check run'}
+            {standing(run, (step ?? view?.step)?.paused) &&
+              ` ${standing(run, (step ?? view?.step)?.paused)}`}{' '}
+            · started by {by} · {run.mode === 'real' ? 'real run' : 'check run'}
             {lines.length > 0 && (
               <>
                 {' '}
@@ -1438,6 +1453,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           )}
         </div>
       </header>
+      {tabbed && <RunTabs tab={tab} onTab={setTab} />}
       {/* AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop. */}
       {stepBar && !debugging && (
         <div className="run-below run-notes">
@@ -1475,8 +1491,14 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           )}
         </div>
       )}
-      <div className="run-body" ref={body}>
-        <section className="run-flow" aria-label="The run on the flow's canvas">
+      <div className={debugging ? 'run-body debugging' : 'run-body'} ref={body}>
+        <section
+          className="run-flow"
+          aria-label="The run on the flow's canvas"
+          id="run-canvas"
+          hidden={!shows('run')}
+          {...(tabbed ? { role: 'tabpanel', 'aria-labelledby': 'run-tab-run' } : {})}
+        >
           {run.startedAt ? (
             <iframe
               key={`${run.id}:${theme}`}
@@ -1493,19 +1515,28 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             run={run}
             step={step ?? view?.step}
             mayDrive={debugDriver}
+            mayStop={mayAct}
             launcher={by}
+            hidden={!shows('debugger')}
             onRun={setRun}
             onError={setError}
           />
         )}
-        <aside className="run-side" aria-label="Run details">
+        <aside
+          className="run-side"
+          aria-label="Run details"
+          id="run-details"
+          hidden={!shows('run')}
+        >
           <RunApprovals
             run={run.id}
             changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`}
           />
           <Hosts run={run.id} lines={lines} />
           {/* AFS-179: a debug run that ended: what its pauses showed, for who could look then. */}
-          {!!run.step?.debug && !going && debugDriver && <DebugKept run={run} />}
+          {!!run.step?.debug && !going && debugDriver && (
+            <DebugKept run={run} logs={view?.step?.logs ?? []} />
+          )}
           {view?.summary?.outputs || view?.summary?.outputsTooLarge ? (
             <Outputs summary={view.summary} />
           ) : null}
@@ -1627,6 +1658,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         id="output"
         className={`run-below run-output${shownOutput ? ' run-output-shown' : ''}`}
         aria-labelledby="output-head"
+        hidden={!shows('output')}
       >
         <div className="section-head">
           <h2 id="output-head">Terminal output</h2>
@@ -1650,5 +1682,49 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         )}
       </section>
     </>
+  );
+}
+
+/** AFS-250: the parts of a debug run's page on a phone. */
+type RunTab = 'run' | 'debugger' | 'output';
+const RUN_TABS: { id: RunTab; label: string; controls: string }[] = [
+  { id: 'run', label: 'Run', controls: 'run-canvas run-details' },
+  { id: 'debugger', label: 'Debugger', controls: 'run-debugger' },
+  { id: 'output', label: 'Output', controls: 'output' },
+];
+
+/** AFS-250: Run · Debugger · Output, with the arrow keys between them. */
+function RunTabs({ tab, onTab }: { tab: RunTab; onTab(tab: RunTab): void }) {
+  return (
+    <div className="run-tabs" role="tablist" aria-label="Parts of the run's page">
+      {RUN_TABS.map((t, i) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`run-tab-${t.id}`}
+          aria-selected={tab === t.id}
+          aria-controls={t.controls}
+          tabIndex={tab === t.id ? 0 : -1}
+          onClick={() => onTab(t.id)}
+          onKeyDown={(e) => {
+            const to =
+              e.key === 'ArrowRight'
+                ? (i + 1) % RUN_TABS.length
+                : e.key === 'ArrowLeft'
+                  ? (i - 1 + RUN_TABS.length) % RUN_TABS.length
+                  : undefined;
+            if (to === undefined) return;
+            e.preventDefault();
+            const next = RUN_TABS[to];
+            if (!next) return;
+            onTab(next.id);
+            document.getElementById(`run-tab-${next.id}`)?.focus();
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }

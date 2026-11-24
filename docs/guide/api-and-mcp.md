@@ -75,7 +75,9 @@ the audit log with the source `mcp`.
   `"mcpApprovals": true` when making a token), and then only where its owner may decide.
 - **Step-by-step runs stay with people too:** `run_step` is offered only to a token made with
   "An agent with this token may drive step-by-step runs over MCP" (`"mcpRunControl": true`), and
-  then only where its owner may stop the run. See [Step by step](runs.md#step-by-step).
+  then only where its owner may stop the run. See [Step by step](runs.md#step-by-step). The same
+  option lets `run_inspect` read the variables of a paused debug run, Watch and Evaluate, and
+  `run_step` Retry, in the debug runs its owner may drive ([Debug a run](debugging.md)).
 - A launch configuration is named by its id or as `<workspace>/<project>/<name>`.
 - `run_list` takes a `project`, a `config` (a launch configuration), `by` (a login) or `mine`
   (the runs the token's owner asked for), and a `state`. When there are more runs, its answer

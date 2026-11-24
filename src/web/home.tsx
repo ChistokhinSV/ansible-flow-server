@@ -111,7 +111,16 @@ export function Home({ me }: { me: User }) {
   // AFS-147: every run of the day is counted somewhere: stopped and still going too.
   const stopped = todays.filter((r) => r.state === 'cancelled').length;
   // AFS-205: a step-by-step run paused before a step waits for someone, it does not go.
-  const paused = todays.filter((r) => r.state === 'running' && r.pausedBefore).length;
+  const pausedRuns = todays.filter((r) => r.state === 'running' && r.pausedBefore);
+  const paused = pausedRuns.length;
+  // AFS-249: debug runs are said as debug runs, not "step by step".
+  const pausedDebug = pausedRuns.filter((r) => r.step?.debug).length;
+  const pausedWords =
+    pausedDebug === 0
+      ? `${paused} paused step by step`
+      : pausedDebug === paused
+        ? `${plural(paused, 'debug run', 'debug runs')} paused`
+        : `${paused} paused`;
   const going = todays.filter(
     (r) => (r.state === 'running' && !r.pausedBefore) || r.state === 'queued',
   ).length;
@@ -187,7 +196,7 @@ export function Home({ me }: { me: User }) {
           {paused ? (
             <>
               {', '}
-              <Link to="/runs?state=paused">{paused} paused step by step</Link>
+              <Link to="/runs?state=paused">{pausedWords}</Link>
             </>
           ) : null}
           .
@@ -211,7 +220,7 @@ export function Home({ me }: { me: User }) {
           >
             {yourPaused.length === 1
               ? `Your run #${yourPaused[0]?.number} of ${yourPaused[0]?.flow.name} is paused before ${yourPaused[0]?.pausedBefore}`
-              : `${yourPaused.length} runs of yours are paused step by step`}
+              : `${yourPaused.length} runs of yours are paused`}
           </Link>
           : Step or Continue goes on.
         </>

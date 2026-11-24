@@ -40,6 +40,7 @@ import {
   runToShow,
   stepTitle,
   stopQuestion,
+  whoDebugs,
   whoGoesOn,
 } from './viewerRuns';
 import { filesAddress, flowInventory, openCodeIn, projectKeys, repoVars } from './viewerVars';
@@ -228,11 +229,31 @@ async function start(): Promise<void> {
   };
   // AFS-177: step-by-step runs, pause points, Step/Continue/Pause/Stop for who may launch and stop:
   // on the flow and on a run's page, not on the flow at an older commit.
-  const stepping = operate && (!commit || !!runId);
+  let stepping = operate && (!commit || !!runId);
   // AFS-179: debug runs (Run > Debug, a point's settings, the failure filters, Retry) for who may
   // start them.
-  const debugging =
+  let debugging =
     stepping && mayDebugFlow(access?.ok ? (access.data as ProjectAccess) : undefined, path);
+  // AFS-253: a debug run's page: only who drives it (who launched it, an administrator) has its
+  // pause points and Step on the canvas, which the server refuses to others. An operator of the
+  // flow stops it with Stop in the page's Debugger panel.
+  const driverAsked: Promise<void> =
+    stepping && runId
+      ? Promise.all([
+          get(`/api/v1/runs/${encodeURIComponent(runId)}`),
+          get('/api/v1/session'),
+        ]).then(
+          ([run, me]) => {
+            if (!run.ok || !run.data?.step?.debug) return;
+            const drives =
+              me.ok && (!!me.data?.admin || me.data?.login === run.data?.requestedBy?.login);
+            if (drives) return;
+            stepping = false;
+            debugging = false;
+          },
+          () => undefined,
+        )
+      : Promise.resolve();
   /** AFS-177: this person's pause points on the flow, kept by the server. */
   let points: PointSpec[] = [];
   /** AFS-179: this person's failure filters on the flow (debug runs). */
@@ -316,7 +337,12 @@ async function start(): Promise<void> {
       const seen = JSON.parse((event as MessageEvent).data);
       lastRunning = seen?.summary?.running;
       // AFS-205: a reader (who may not go on) is told who may.
-      const who = !stepping && record && seen?.step ? whoGoesOn(record) : undefined;
+      const who =
+        !stepping && record && seen?.step
+          ? seen.step.debug
+            ? whoDebugs(record)
+            : whoGoesOn(record)
+          : undefined;
       const view = who ? { ...seen, step: { ...seen.step, who } } : seen;
       void decidable(id, view).then((approvals) =>
         // Named by the server's run id, as the run list names it, so the canvas knows it there.
@@ -426,6 +452,58 @@ async function start(): Promise<void> {
     },
   });
 
+  /** What the canvas gets once it is ready (after a debug run's page knows who drives it). */
+  const ready = () => {
+    // `embed` typed loosely, so this builds against a designer that does not have it yet.
+    send({
+      type: 'config',
+      testMode: false,
+      viewer: true,
+      embed,
+      ...(stepping ? { stepRuns: true } : {}),
+      ...(debugging ? { debugRuns: true } : {}),
+    } as HostMessage);
+    // AFS-205: on a run's page, the run's own pause points (as its launcher left them);
+    // on the flow's page, yours.
+    if (stepping && runId)
+      void get(`/api/v1/runs/${encodeURIComponent(runId)}`).then(
+        (reply) => {
+          if (!reply.ok) return;
+          if (reply.data?.step) {
+            runPoints = (reply.data.step.points as PointSpec[] | undefined) ?? [];
+            runDebug = !!reply.data.step.debug;
+            points = runPoints;
+            failures = runDebug
+              ? (reply.data.step.failures as FailureFilters | undefined)
+              : undefined;
+            send(pointsMessage(points, failures));
+          }
+        },
+        () => undefined,
+      );
+    else if (stepping)
+      void get(
+        `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
+      ).then(
+        (reply) => {
+          if (!reply.ok) return;
+          points = (reply.data?.points as PointSpec[] | undefined) ?? [];
+          failures = reply.data?.failures as FailureFilters | undefined;
+          send(pointsMessage(points, failures));
+        },
+        () => undefined,
+      );
+    send({ type: 'catalogStatus', status: { state: 'idle' } });
+    send({ type: 'snapshot', snapshot: flow.data.snapshot });
+    // AFS-164: the step a link names (an error on it): selected, its level open.
+    if (node) send({ type: 'reveal', node });
+    if (runId) {
+      void runs();
+      showRun(runId, false);
+    } else if (commit) void runs();
+    else void showLatest();
+  };
+
   const bar = document.createElement('div');
   bar.className = 'viewer-bar';
   bar.setAttribute('role', 'status');
@@ -517,54 +595,7 @@ async function start(): Promise<void> {
         }
         switch (message.type) {
           case 'ready':
-            // `embed` typed loosely, so this builds against a designer that does not have it yet.
-            send({
-              type: 'config',
-              testMode: false,
-              viewer: true,
-              embed,
-              ...(stepping ? { stepRuns: true } : {}),
-              ...(debugging ? { debugRuns: true } : {}),
-            } as HostMessage);
-            // AFS-205: on a run's page, the run's own pause points (as its launcher left them);
-            // on the flow's page, yours.
-            if (stepping && runId)
-              void get(`/api/v1/runs/${encodeURIComponent(runId)}`).then(
-                (reply) => {
-                  if (!reply.ok) return;
-                  if (reply.data?.step) {
-                    runPoints = (reply.data.step.points as PointSpec[] | undefined) ?? [];
-                    runDebug = !!reply.data.step.debug;
-                    points = runPoints;
-                    failures = runDebug
-                      ? (reply.data.step.failures as FailureFilters | undefined)
-                      : undefined;
-                    send(pointsMessage(points, failures));
-                  }
-                },
-                () => undefined,
-              );
-            else if (stepping)
-              void get(
-                `/api/v1/projects/${encodeURIComponent(project)}/pause-points?path=${encodeURIComponent(path)}`,
-              ).then(
-                (reply) => {
-                  if (!reply.ok) return;
-                  points = (reply.data?.points as PointSpec[] | undefined) ?? [];
-                  failures = reply.data?.failures as FailureFilters | undefined;
-                  send(pointsMessage(points, failures));
-                },
-                () => undefined,
-              );
-            send({ type: 'catalogStatus', status: { state: 'idle' } });
-            send({ type: 'snapshot', snapshot: flow.data.snapshot });
-            // AFS-164: the step a link names (an error on it): selected, its level open.
-            if (node) send({ type: 'reveal', node });
-            if (runId) {
-              void runs();
-              showRun(runId, false);
-            } else if (commit) void runs();
-            else void showLatest();
+            void driverAsked.then(() => ready());
             return;
           case 'run':
             // AFS-67: the designer's launch dialog, backed by a launch configuration of the flow.

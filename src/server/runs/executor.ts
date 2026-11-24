@@ -56,7 +56,7 @@ import type { Caller } from '../secrets/providers/clients';
 import { SecretResolver } from '../secrets/providers/resolver';
 import { type CatalogState, ModuleCatalogs } from './catalogs';
 import { AGENT_FAILURES, CredentialProblem, registrySignIn, runCredentials } from './credentials';
-import { keepDebug } from './debugStore';
+import { type KeptOp, keepDebug } from './debugStore';
 import { hostPaths, rewriteMounts, sameAs, type ToHost } from './hostPaths';
 import type { RunHub } from './hub';
 import { runLimit, withLimit } from './limit';
@@ -582,15 +582,19 @@ export class Executor implements Stepper {
     const { op, ...args } = ask;
     const pause = going.driver.paused();
     const answer = await going.driver.inspect(op, args);
-    if (pause && !answer.error && !answer.gone && (op === 'scopes' || op === 'watch'))
+    // AFS-249: a scope opened (its first page) is kept too, so a run that ended shows the values
+    // its pauses showed, not only their types and sizes.
+    const opened = op === 'vars' && !!args.scope && !args.path?.length && !args.start;
+    if (pause && !answer.error && !answer.gone && (op === 'scopes' || op === 'watch' || opened))
       await keepDebug(
         this.deps.db,
         run,
         { pause: pause.id, node: pause.node, play: pause.play },
         {
-          op,
+          op: op as KeptOp,
           ...(ask.host ? { host: ask.host } : {}),
           ...(ask.exprs ? { exprs: ask.exprs } : {}),
+          ...(opened && args.scope ? { scope: args.scope } : {}),
           answer,
         },
       ).catch((e) => this.deps.log.warn({ err: e, run }, 'What a pause showed was not kept'));
