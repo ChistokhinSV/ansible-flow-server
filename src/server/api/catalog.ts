@@ -1493,6 +1493,34 @@ const REFUSED: Record<string, string> = {
   'GET /api/v1/runs/:id/debug':
     'Only who launched this debug run, or an administrator, reads what its pauses showed',
 };
+/**
+ * AFS-258: Step, Continue, Pause and Retry of a debug run are its launcher's (and administrators'):
+ * an operator is refused too, so "This needs operator" is not the reason. Stop stays an operator's.
+ */
+async function stepRefusal(
+  db: Kysely<Schema>,
+  request: FastifyRequest,
+): Promise<string | undefined> {
+  const id = (request.params as { id?: string } | undefined)?.id;
+  const command = (request.body as { command?: string } | undefined)?.command;
+  if (!id || command === 'stop') return undefined;
+  const run = await db
+    .selectFrom('run')
+    .select(['requested_login', 'step_json'])
+    .where('id', '=', id)
+    .executeTakeFirst();
+  if (!run?.step_json) return undefined;
+  const debug = (() => {
+    try {
+      return !!(JSON.parse(run.step_json) as { debug?: boolean }).debug;
+    } catch {
+      return false;
+    }
+  })();
+  return debug
+    ? `Only ${run.requested_login} (who launched it) or an administrator drives this debug run`
+    : undefined;
+}
 for (const [route, who] of Object.entries(NEEDS)) {
   const doc = ROUTES[route];
   if (doc) doc.who = who;
@@ -1889,9 +1917,12 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
     // not exist (AFS-135), so neither a key nor an id can be tried for.
     if (!access.sees(target.workspace, target.project))
       return reply.code(404).send({ error: 'not_found', message: missingOf(doc.reach) });
+    const runWords =
+      key === 'POST /api/v1/runs/:id/step' ? await stepRefusal(deps.db, request) : undefined;
     return reply.code(403).send({
       error: 'forbidden',
-      message: REFUSED[key] ?? `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,
+      message:
+        runWords ?? REFUSED[key] ?? `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,
     });
   });
 

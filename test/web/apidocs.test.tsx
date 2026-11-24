@@ -5,6 +5,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   HASH_MESSAGE,
+  holdableClock,
   kindOf,
   NotSent,
   placeOf,
@@ -137,6 +138,29 @@ describe('Try it', () => {
     ).rejects.toBeInstanceOf(NotSent);
     expect(no.asked[0]).toMatch(/as the pasted token/);
     expect(no.sent).toEqual([]);
+  });
+
+  it('AFS-258: the time of a request leaves out the question before it', async () => {
+    let real = 1000;
+    const clock = { now: () => real };
+    const held = holdableClock(clock);
+    const send = tryFetch({
+      fetch: async () => {
+        real += 40;
+        return new Response('{}', { status: 200 });
+      },
+      ask: async () => {
+        // The person reads the question for 6 s.
+        real += 6000;
+        expect(clock.now()).toBe(1000);
+        return true;
+      },
+      origin,
+      hold: () => held.hold(),
+    });
+    const start = clock.now();
+    await send(`${origin}/api/v1/runs/r1/cancel`, { method: 'POST', body: '{}' });
+    expect(clock.now() - start).toBe(40);
   });
 
   it('sends to this server only', async () => {

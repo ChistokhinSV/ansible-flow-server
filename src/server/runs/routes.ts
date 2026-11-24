@@ -24,7 +24,7 @@ import type { Schema } from '../db/schema';
 import { readBefore } from './cursor';
 import type { RunHub, RunNews } from './hub';
 import { ACTIVE, type Run, type RunQueue, type RunState, STATES } from './queue';
-import { forReader } from './stepping';
+import { forReader, mayDebugRun, outputForReader, viewForReader } from './stepping';
 
 const text = (max: number, min = 0) => ({ type: 'string', minLength: min, maxLength: max });
 const ID = { params: { type: 'object', properties: { id: text(64, 1) }, required: ['id'] } };
@@ -173,6 +173,11 @@ export function registerRuns(
       ...(serverDefault ? { serverDefault: true as const } : {}),
     };
   };
+  /** AFS-259: who reads all of a run: anyone, but all of a debug run only its driver. */
+  const readsAll = (
+    run: { step?: { debug?: boolean }; requestedBy: { login: string } },
+    me: { login: string; admin: boolean },
+  ) => !run.step?.debug || mayDebugRun(me, run.requestedBy.login);
   app.addHook('preClose', async () => {
     for (const stream of streams) stream.end();
     streams.clear();
@@ -181,7 +186,8 @@ export function registerRuns(
     '/api/v1/runs/:id/output',
     { schema: ID },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
+      const me = signedIn(request, reply);
+      if (!me) return reply;
       const run = await queue.get(request.params.id);
       if (!run) return reply.code(404).send(NONE);
       const file = outputFile?.(run.id);
@@ -189,7 +195,9 @@ export function registerRuns(
       if (!file || !existsSync(file)) return reply.send('');
       // Kept with Ansible's colour codes for the run page (AFS-96); as text, plain. The file is
       // bounded (MAX_OUTPUT), so it is read whole.
-      return reply.send(stripAnsi(await readFile(file, 'utf8')));
+      const text = stripAnsi(await readFile(file, 'utf8'));
+      // AFS-259: a debug run's log point lines are its driver's.
+      return reply.send(readsAll(run, me) ? text : outputForReader(text));
     },
   );
 
@@ -197,11 +205,14 @@ export function registerRuns(
     '/api/v1/runs/:id/view',
     { schema: ID },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
-      if (!(await queue.get(request.params.id))) return reply.code(404).send(NONE);
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const run = await queue.get(request.params.id);
+      if (!run) return reply.code(404).send(NONE);
       const view = hub?.live(request.params.id) ?? (await queue.view(request.params.id));
+      // AFS-259: a debug run's point conditions, log messages and log lines are its driver's.
       return (
-        view ??
+        (view && viewForReader(view, run, me)) ??
         reply
           .code(404)
           .send({ error: 'not_found', message: 'The run has not started, or never ran' })
@@ -288,10 +299,16 @@ export function registerRuns(
       },
     },
     async (request, reply) => {
-      if (!signedIn(request, reply)) return reply;
+      const me = signedIn(request, reply);
+      if (!me) return reply;
       const id = request.params.id;
       let run = await nameOne(await queue.get(id));
       if (!run) return reply.code(404).send(NONE);
+      // AFS-259: someone who does not drive a debug run gets its record, view and output without
+      // the points' conditions and log messages, and without the log points' lines.
+      const all = readsAll(run, me);
+      const reader = run;
+      const viewFor = (v: unknown) => viewForReader(v, reader, me);
 
       reply.hijack();
       const raw = reply.raw;
@@ -306,9 +323,12 @@ export function registerRuns(
       const send = (event: string, data: unknown) => {
         if (streaming) raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
+      const sendView = (v: unknown) => send('view', viewFor(v));
       const file = outputFile?.(id);
       let next = request.query.from ?? 0;
       let sending = Promise.resolve();
+      /** The run has ended: what is left of the output goes, a last line without its newline too. */
+      let ended = false;
       /** Sends the output written since `next`, one piece after another. */
       const flush = () => {
         sending = sending.then(async () => {
@@ -316,16 +336,26 @@ export function registerRuns(
           for (;;) {
             const piece = await readFrom(file, next, 256 * 1024);
             if (!piece.text) return;
-            next = piece.next;
-            send('output', { text: piece.text, next });
+            if (all) {
+              next = piece.next;
+              send('output', { text: piece.text, next });
+              continue;
+            }
+            // A reader gets whole lines, so no log point line is cut where it would be read; the
+            // end of a run that ended goes as it is.
+            const end = piece.text.lastIndexOf('\n') + 1;
+            const whole = end > 0 ? piece.text.slice(0, end) : ended ? piece.text : '';
+            if (!whole) return;
+            next += Buffer.byteLength(whole, 'utf8');
+            send('output', { text: outputForReader(whole), next });
           }
         });
         return sending;
       };
 
-      send('run', run);
+      send('run', forReader(run, me));
       const view = hub?.live(id) ?? (await queue.view(id));
-      if (view) send('view', view);
+      if (view) sendView(view);
       // A first look at a long output gets its end, and is told what it does not get.
       if (file && request.query.from === undefined) {
         const size = await stat(file).then(
@@ -354,9 +384,10 @@ export function registerRuns(
       const finish = async () => {
         if (ending) return;
         ending = true;
+        ended = true;
         await flush();
         const last = await queue.view(id);
-        if (last) send('view', last);
+        if (last) sendView(last);
         send('end', { state: run?.state });
         stop();
         raw.end();
@@ -369,7 +400,7 @@ export function registerRuns(
       streams.add(raw);
       raw.on('close', stop);
       unsubscribe = hub?.subscribe(id, (news: RunNews) => {
-        if (news.kind === 'view') send('view', news.view);
+        if (news.kind === 'view') sendView(news.view);
         else if (news.kind === 'output') void flush();
       });
       // The record is looked at too: a run another server has, a cancel, a run that ended.
@@ -380,7 +411,7 @@ export function registerRuns(
           changed = at;
           run = await nameOne(await queue.get(id));
           if (!run) return finish();
-          send('run', run);
+          send('run', forReader(run, me));
           if (!ACTIVE.includes(run.state as RunState)) await finish();
         })().catch(() => undefined);
       }, LOOK_MS);

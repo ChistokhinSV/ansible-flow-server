@@ -1073,8 +1073,12 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         // AFS-177: where a step-by-step run is paused, as soon as it pauses (not every 5 s).
         let lastStep = '';
         events.addEventListener('view', (event) => {
+          const said = JSON.parse((event as MessageEvent).data) as RunView;
+          // AFS-258: the view of a run that ended comes here (not from /view, which has none for a
+          // run that never started).
+          setView(said);
           if (!found.step) return;
-          const next = (JSON.parse((event as MessageEvent).data) as RunView).step;
+          const next = said.step;
           const text = JSON.stringify(next ?? null);
           if (text === lastStep) return;
           lastStep = text;
@@ -1137,9 +1141,12 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   // AFS-147: of this run: right after Run again the run shown is still the one before for a moment
   // (its start time would ask for the new run's view before it has one).
   const started = !!run?.startedAt && run.id === id;
+  // AFS-258: a run that ended before it ran anything (it could not read its credential, say) has
+  // no view: not asked for (its events say so too).
+  const viewless = !going && !!run?.error && !run?.hosts;
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the run's state changes
   useEffect(() => {
-    if (!started) return;
+    if (!started || viewless) return;
     let current = true;
     const read = () =>
       api.runView(id).then(
@@ -1272,6 +1279,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   )}&commit=${run.commit}&run=${run.id}&theme=${theme === 'system' ? 'auto' : theme}`;
   const lines = view ? hostLines(view, run.state, run.decidedAgainst) : [];
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
+  // AFS-258: a run paused before its first step counts the hosts waiting there.
+  const hostCount = lines.length || ((step ?? view?.step)?.paused?.hosts.length ?? 0);
   const why = lines.find((l) => l.why);
   const by = personOf(run.requestedBy);
   // AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop.
@@ -1325,10 +1334,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             {standing(run, (step ?? view?.step)?.paused) &&
               ` ${standing(run, (step ?? view?.step)?.paused)}`}{' '}
             · started by {by} · {run.mode === 'real' ? 'real run' : 'check run'}
-            {lines.length > 0 && (
+            {hostCount > 0 && (
               <>
                 {' '}
-                · {lines.length} {lines.length === 1 ? 'host' : 'hosts'}
+                · {hostCount} {hostCount === 1 ? 'host' : 'hosts'}
                 {failed > 0 && (
                   <span className="bad-text">
                     , {failed}{' '}

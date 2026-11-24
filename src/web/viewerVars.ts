@@ -75,8 +75,15 @@ export function repoVars(options: {
   inventory: () => Promise<string>;
   send: (message: HostMessage) => void;
   read?: VarsReader;
+  /**
+   * AFS-258: whether the person may read the project's files (a grant on some flows only does
+   * not): else the index is never asked for, and the canvas answers from the flow alone.
+   */
+  readsFiles?: boolean;
 }): RepoVars {
   const read = options.read ?? readVars;
+  /** No index had: not asked again for this commit (a flow that changes would ask again each time). */
+  let refused = options.readsFiles === false;
   let commit = options.commit;
   let inventory: Promise<string> | undefined;
   let last: Snapshot | undefined;
@@ -98,7 +105,15 @@ export function repoVars(options: {
         }
       : s;
 
+  let toldNone = false;
   const load = (doc: FlowDocument) => {
+    if (refused) {
+      // The canvas is told once that there is no index (as after a refusal).
+      if (!toldNone && options.readsFiles === false)
+        options.send({ type: 'varIndex', index: null, openFiles: false });
+      toldNone = true;
+      return;
+    }
     const inputs = indexInputs(doc.nodes);
     const key = JSON.stringify([commit, inputs.roles, inputs.files]);
     if (key === asked) return;
@@ -111,6 +126,7 @@ export function repoVars(options: {
       .then((got) => {
         // A newer ask went out meanwhile: its answer is the one that counts.
         if (key !== asked) return;
+        if (got === undefined) refused = true;
         index = got;
         options.send({ type: 'varIndex', index: got ?? null, openFiles: !!got });
         if (got && last) options.send({ type: 'snapshot', snapshot: merged(last) });
@@ -126,6 +142,7 @@ export function repoVars(options: {
     at(next) {
       if (next === commit) return;
       commit = next;
+      refused = options.readsFiles === false;
       if (last?.doc) load(last.doc as FlowDocument);
     },
   };

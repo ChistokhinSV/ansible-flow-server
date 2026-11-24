@@ -93,6 +93,13 @@ export function GuidePage({ page }: { page: string }) {
               {children}
             </a>
           );
+        // AFS-258: a page of this server (/docs/api, /runs): there, in the application.
+        if (/^\/(?!\/)/.test(href))
+          return (
+            <Link key={key} to={href}>
+              {children}
+            </Link>
+          );
         const [file = '', part] = href.split('#');
         if (isGuidePage(file))
           return (

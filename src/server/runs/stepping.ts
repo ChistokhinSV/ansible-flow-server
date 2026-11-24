@@ -207,6 +207,63 @@ export function forReader<
   return { ...run, step: { ...run.step, points: run.step.points.map(pointNode) } };
 }
 
+/**
+ * AFS-259: an expression as the run takes it, without the {{ }} around it (the page strips them
+ * too); braces on one side only go as well, so the run answers about the expression. {% %} stays,
+ * for the run to refuse.
+ */
+export function bareExpr(expr: string): string {
+  let e = expr.trim();
+  const opens = e.startsWith('{{');
+  const closes = e.endsWith('}}');
+  if (opens) e = e.slice(2);
+  if (closes && (opens || !e.includes('{{'))) e = e.slice(0, -2);
+  return e.trim() || expr;
+}
+
+/**
+ * AFS-259: a debug run's view as someone who does not drive it reads it (GET /view, /events): the
+ * points' steps and hit counts, not their conditions and log messages, and none of the log points'
+ * lines (rendered from the hosts' values). Other views are as they are.
+ */
+export function viewForReader<V>(
+  view: V,
+  run: { step?: { debug?: boolean }; requestedBy: { login: string } },
+  me: Pick<SessionUser, 'login' | 'admin'>,
+): V {
+  if (!run.step?.debug || mayDebugRun(me, run.requestedBy.login)) return view;
+  const step = (view as { step?: Record<string, unknown> } | undefined)?.step;
+  if (!step) return view;
+  const { logs: _logs, settings, ...rest } = step;
+  const kept = Array.isArray(settings)
+    ? settings.map((p) => {
+        const { condition: _c, log: _l, ...point } = p as Record<string, unknown>;
+        return point;
+      })
+    : undefined;
+  return { ...view, step: { ...rest, ...(kept ? { settings: kept } : {}) } } as V;
+}
+
+/**
+ * AFS-259: a log point's line in a debug run's output ("Log point Pre-checks · sw-edge-01: …", the
+ * engine's afd_step strategy writes them) as someone who does not drive the run reads it: where,
+ * not what it wrote.
+ */
+// Ansible's colour codes (ESC [ ... m) may come before it.
+const LOG_LINE = new RegExp(
+  `^((?:${String.fromCharCode(27)}\\[[0-9;]*m)*)Log point ((?:.*? · [^\\s:]+)|[^:]*): (?:the (?:condition|log message|point) failed: )?.*$`,
+  'gm',
+);
+export function outputForReader(text: string): string {
+  // The host comes after " · " (a step's title may hold ": " itself); a line without one names
+  // only the step.
+  return text.replace(
+    LOG_LINE,
+    (_all, colour: string, where: string) =>
+      `${colour}Log point ${where}: (only who launched the run reads this)`,
+  );
+}
+
 export interface StepRouteDeps {
   queue: RunQueue;
   db: Kysely<Schema>;
@@ -364,7 +421,13 @@ export function registerStepping(app: FastifyInstance, deps: StepRouteDeps): voi
         });
       if (!ACTIVE.includes(run.state))
         return reply.code(410).send({ error: 'gone', message: 'The run has ended' });
-      const answer = await deps.stepper?.inspect?.(run.id, ask);
+      // AFS-259: an expression is taken with or without the {{ }} around it, as on the page.
+      const asked: InspectAsk = {
+        ...ask,
+        ...(ask.expr !== undefined ? { expr: bareExpr(ask.expr) } : {}),
+        ...(ask.exprs ? { exprs: ask.exprs.map(bareExpr) } : {}),
+      };
+      const answer = await deps.stepper?.inspect?.(run.id, asked);
       if (!answer) {
         if (run.state === 'queued' || run.state === 'waiting')
           return reply
@@ -380,6 +443,9 @@ export function registerStepping(app: FastifyInstance, deps: StepRouteDeps): voi
           error: 'gone',
           message: 'That pause has ended: the run went on',
         });
+      // AFS-258: an expression the run refused (a lookup) is audited as refused, not as ok.
+      if (answer.refused || (answer.results?.length && answer.results.every((r) => r.refused)))
+        request.auditResult = 'refused';
       return answer;
     },
   );

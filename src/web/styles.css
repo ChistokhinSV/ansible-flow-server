@@ -4308,3 +4308,15 @@ fieldset.copy-link h4 {
     border-top: 0;
   }
 }
+
+/* AFS-258: a kept pause's time stays on one line ("23 Nov, 10:15" did not wrap in the date). */
+.debug-kept-time time {
+  white-space: nowrap;
+}
+/* AFS-258: a debug run's Run tab on a phone: the canvas has most of the window (it was a sliver
+   under the failure bar and the canvas's side panel). */
+@media (max-width: 860px) {
+  .run-body.debugging .run-flow {
+    min-height: max(78vh, 420px);
+  }
+}

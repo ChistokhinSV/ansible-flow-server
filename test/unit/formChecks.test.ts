@@ -35,6 +35,20 @@ describe('plain words for refusals', () => {
     ).toEqual({ message: 'Mode: one of check, real.', field: 'mode' });
   });
 
+  it('AFS-259: says a field the request does not take as a field, by the name sent', () => {
+    const extra = (name: string) =>
+      plainInvalid([
+        { instancePath: '', keyword: 'additionalProperties', params: { additionalProperty: name } },
+      ]).message;
+    expect(extra('gitRef')).toBe(
+      'This request does not take a field named gitRef: a launch names its branch, tag or commit in ref.',
+    );
+    expect(extra('days')).toBe(
+      'This request does not take a field named days: how long a token lasts is sent as expiresInDays.',
+    );
+    expect(extra('colour')).toBe('This request does not take a field named colour.');
+  });
+
   it('says what is wrong with a cron, part by part', () => {
     expect(plainCron('CronPattern: Invalid value for minute: 61')).toBe(
       'The minute part is out of range: it takes 0 to 59.',

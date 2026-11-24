@@ -581,6 +581,8 @@ describe('a run', () => {
           decidedAgainst: 'rejected',
           error: 'Rejected at Change approval by Sam Reyes: no NOC slot',
           endedAt: '2026-11-13T12:03:02.000Z',
+          // It ran up to the approval: its record counts its hosts.
+          hosts: { total: 1, failed: 1 },
         },
       }),
       'GET /runs/r1/view': () =>
@@ -1082,5 +1084,34 @@ describe('a debug run', () => {
     expect(within(tabs).getByRole('tab', { name: 'Run' }).getAttribute('aria-selected')).toBe(
       'true',
     );
+  });
+});
+
+describe('AFS-258: round 2', () => {
+  it('a run that ended before it ran anything does not ask for its view', async () => {
+    const asked: string[] = [];
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs/r1': () => {
+        asked.push('run');
+        return {
+          body: {
+            ...run,
+            state: 'failed',
+            error: 'The credential could not be read',
+            endedAt: '2026-11-13T12:03:02.000Z',
+          },
+        };
+      },
+      'GET /runs/r1/view': () => {
+        asked.push('view');
+        return { status: 404, body: { message: 'The run has not started, or never ran' } };
+      },
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    expect(await screen.findByText('The credential could not be read')).toBeTruthy();
+    await new Promise((done) => setTimeout(done, 50));
+    expect(asked).not.toContain('view');
   });
 });

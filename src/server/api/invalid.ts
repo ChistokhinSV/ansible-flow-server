@@ -27,6 +27,13 @@ function fieldOf(problem: SchemaProblem): string | undefined {
   return parts.at(-1);
 }
 
+/** AFS-259: fields people send by another name: what the request takes instead. */
+const TAKEN_AS: Record<string, string> = {
+  gitRef: 'a launch names its branch, tag or commit in ref',
+  limit: 'a run again names its hosts in hosts (not-ok, failed, unreachable or a list)',
+  days: 'how long a token lasts is sent as expiresInDays',
+};
+
 const plural = (n: unknown, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** The first schema problem in words; the field it is about when there is one. */
@@ -73,10 +80,17 @@ export function plainInvalid(problems: readonly SchemaProblem[]): {
     case 'format':
       words = `${label} is not in the right form.`;
       break;
-    case 'additionalProperties':
+    case 'additionalProperties': {
+      // AFS-259: said as a field the request does not take, by the name it was sent with: "Git
+      // ref is not known here" read as if the branch did not exist.
+      const name = typeof p.additionalProperty === 'string' ? p.additionalProperty : undefined;
+      const hint = name ? TAKEN_AS[name] : undefined;
       return {
-        message: `${typeof p.additionalProperty === 'string' ? fieldLabel(p.additionalProperty) : 'A field'} is not known here.`,
+        message: name
+          ? `This request does not take a field named ${name}${hint ? `: ${hint}` : ''}.`
+          : 'This request has a field it does not take.',
       };
+    }
     case 'type':
       words = `${label} is not the right kind of value.`;
       break;

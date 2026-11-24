@@ -54,6 +54,34 @@ export interface TryDeps {
   ask: (question: string) => Promise<boolean>;
   /** The page's own origin: requests go nowhere else. */
   origin: string;
+  /**
+   * AFS-258: holds the page's clock while the question is open (Scalar times a request around
+   * this fetch): the time shown is the request's, not the time it took to answer the question.
+   * Gives back what lets it go on.
+   */
+  hold?: () => () => void;
+}
+
+/**
+ * AFS-258: a clock (performance) that can be held: while held it stands still, and after it goes on
+ * from there, so a time measured across a hold leaves the hold out. It never goes back.
+ */
+export function holdableClock(clock: { now(): number }): { hold(): () => void } {
+  const real = clock.now.bind(clock);
+  let away = 0;
+  let heldAt: number | undefined;
+  clock.now = () => heldAt ?? real() - away;
+  return {
+    hold() {
+      if (heldAt !== undefined) return () => undefined;
+      const start = real();
+      heldAt = start - away;
+      return () => {
+        away += real() - start;
+        heldAt = undefined;
+      };
+    },
+  };
 }
 
 /** Said when the person chose not to send a request. */
@@ -80,11 +108,14 @@ export function tryFetch(deps: TryDeps): typeof fetch {
     if (auth !== null && emptyBearer(auth)) headers.delete('authorization');
     const method = request.method.toUpperCase();
     if (!READS.has(method)) {
-      const said = await deps.ask(
-        `Send ${method} ${url.pathname}? It is a real request to this server${
-          headers.has('authorization') ? ', as the pasted token' : ', as you'
-        }: it may change or delete something.`,
-      );
+      const release = deps.hold?.();
+      const said = await deps
+        .ask(
+          `Send ${method} ${url.pathname}? It is a real request to this server${
+            headers.has('authorization') ? ', as the pasted token' : ', as you'
+          }: it may change or delete something.`,
+        )
+        .finally(() => release?.());
       if (!said) throw new NotSent(method, url.pathname);
     }
     return deps.fetch(
