@@ -1,0 +1,78 @@
+{
+  "state": "failed",
+  "error": "1 of 2 hosts failed at Check the host answers (Ansible ended with code 2: one or more hosts failed)",
+  "view": {
+    "id": "20261124T121903Z-5-ca1d3a48",
+    "mode": "check",
+    "state": "done",
+    "startedAt": "2026-11-24T12:19:03.474Z",
+    "environment": "afd-ee:2.19 (docker)",
+    "source": "local",
+    "flowVersion": 1,
+    "design": {
+      "01M6GPM95RHBYFR7H44Z8GD2HB": "1838033a",
+      "01M6GPM95RHBYFR7H44Z8GD2HC": "c0f7c07b",
+      "01M6GPM979RJPCDJ0XFF22GBSV": "51b03bab",
+      "01M6GPM99KC9TX091MCH61REQV": "27d26d05",
+      "01M6GPM9B1D563X8PKD5041JHV": "ad09b8db",
+      "01M6GPM9CA039FX7GVNYTH6JEP": "992fb17e"
+    },
+    "finishedAt": "2026-11-24T12:19:17.726Z",
+    "rc": 2,
+    "summary": {
+      "nodes": {
+        "01M6GPM979RJPCDJ0XFF22GBSV": {
+          "ok_hosts": [
+            "localhost"
+          ],
+          "unreachable": [
+            "c6-ghost"
+          ]
+        },
+        "01M6GPM99KC9TX091MCH61REQV": {
+          "ok_hosts": [
+            "localhost"
+          ]
+        },
+        "01M6GPM9B1D563X8PKD5041JHV": {
+          "ok_hosts": [
+            "localhost"
+          ]
+        }
+      },
+      "outcome": {
+        "c6-ghost": "Stopped at [ping] Check the host answers: host unreachable (the unreachable port is not enabled)"
+      },
+      "failures": [],
+      "unreachable": [],
+      "hosts": [
+        "c6-ghost",
+        "localhost"
+      ],
+      "stoppedEarly": false,
+      "timings": {
+        "01M6GPM979RJPCDJ0XFF22GBSV": {
+          "start": 1795522745.335,
+          "end": 1795522755.518
+        },
+        "01M6GPM99KC9TX091MCH61REQV": {
+          "start": 1795522755.523,
+          "end": 1795522756.875
+        },
+        "01M6GPM9B1D563X8PKD5041JHV": {
+          "start": 1795522756.88,
+          "end": 1795522756.97
+        }
+      },
+      "problems": {
+        "01M6GPM979RJPCDJ0XFF22GBSV": {
+          "c6-ghost": {
+            "task": "[ping] Check the host answers",
+            "status": "unreachable",
+            "msg": "Task failed: Failed to connect to the host via ssh: ssh: connect to host 192.0.2.10 port 22: Connection timed out"
+          }
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,7 @@ import { getDevBundle } from '../launch/dev';
 import { type PrepareDeps, prepareLaunch, type StepAsked, withoutSecrets } from '../launch/prepare';
 import { getProject } from '../projects/store';
 import {
+  named as aHost,
   chosenHosts,
   type FlowEdge,
   type FlowStep,
@@ -246,18 +247,17 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
     const asConfigured = config.commit
       ? !run.ref && run.commit.startsWith(config.commit.toLowerCase())
       : run.ref === configRef;
-    const again = atLeast(level, 'rw') || (!dev && asConfigured);
-    const debug = again && !(await debugRefusal(deps.db, project.workspace, level, run.flow.file));
-    return {
-      again,
-      change: true,
-      debug,
-      ...(again
-        ? {}
-        : {
-            why: `Run #${run.number} ran ${dev ? 'unpushed work (a dev run)' : 'another branch or commit than its launch configuration names'}: people who may change this flow run it again`,
-          }),
-    };
+    const runs = atLeast(level, 'rw') || (!dev && asConfigured);
+    const debugWhy = await debugRefusal(deps.db, project.workspace, level, run.flow.file);
+    // AFS-257: Run again of a debug run is a debug run (settle asks the same of it).
+    const again = runs && !(run.step?.debug && debugWhy);
+    const debug = runs && !debugWhy;
+    const why = !runs
+      ? `Run #${run.number} ran ${dev ? 'unpushed work (a dev run)' : 'another branch or commit than its launch configuration names'}: people who may change this flow run it again`
+      : !again
+        ? `Run #${run.number} is a debug run: running it again debugs it again, which needs rw on ${run.flow.file} (or operator, where the workspace lets operators debug)`
+        : undefined;
+    return { again, change: true, debug, ...(why ? { why } : {}) };
   };
 
   /** Settles a run again, or says what stands in its way. */
@@ -404,8 +404,16 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
     let names: string[] | undefined;
     if (choice !== 'all') {
       const view = (await queue.view(id)) as ViewOfHosts | undefined;
+      const sets = await setsOf(old, view, nodes);
+      // AFS-256: the hosts the run reached, as the sets count them (never one with no name).
       const hosts = [
-        ...new Set([...(view?.summary?.hosts ?? []), ...(view?.step?.stopped?.hosts ?? [])]),
+        ...new Set(
+          [
+            ...(view?.summary?.hosts ?? []),
+            ...(view?.step?.stopped?.hosts ?? []),
+            ...sets.notOk,
+          ].filter(aHost),
+        ),
       ];
       if (!hosts.length)
         return refuse(
@@ -413,7 +421,6 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
           `Run #${old.number} has no hosts to choose from: it reached none`,
           'hosts',
         );
-      const sets = await setsOf(old, view, nodes);
       if (Array.isArray(choice)) {
         names = [...new Set(choice)];
         const unknown = names.find((n) => !hosts.includes(n));
@@ -423,7 +430,7 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
             `${unknown.slice(0, 200)} was not a host of run #${old.number}`,
             'hosts',
           );
-      } else names = chosenHosts(sets, choice, !!body.includeHandled);
+      } else names = chosenHosts(sets, choice, !!body.includeHandled).filter(aHost);
       if (!names.length)
         return refuse(
           422,
@@ -432,7 +439,7 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
         );
       if (names.length > MAX_LIMIT_HOSTS)
         return refuse(422, `A run again takes at most ${MAX_LIMIT_HOSTS} hosts`, 'hosts');
-      if (names.some((n) => /[\n\r\0]/.test(n)))
+      if (names.some((n) => !aHost(n) || /[\n\r\0]/.test(n)))
         return refuse(422, 'A host name of this run cannot be put in a limit', 'hosts');
       relaunchOf = {
         id: old.id,

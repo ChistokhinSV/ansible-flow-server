@@ -1,11 +1,29 @@
 // AFS-214, AFS-213: a failed run's page: how its hosts went in one line, and Run again ▾: only
 // the hosts that did not go well, Debug this failure (check by default, real asked first).
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse } from 'yaml';
+import {
+  type FlowEdge,
+  type FlowStep,
+  hostSets,
+  outcomeLine,
+  type ViewOfHosts,
+} from '../../src/server/runs/hostSets';
 import type { HostSets, RelaunchOffer, Run } from '../../src/web/api';
 import { App } from '../../src/web/app';
 import { fillFrom } from '../../src/web/launch';
-import { debugBody, onlyQuestion, relaunchWords, steppedWords } from '../../src/web/runAgain';
+import {
+  debugBody,
+  debuggable,
+  debugPoints,
+  namedSets,
+  onlyQuestion,
+  relaunchWords,
+  steppedWords,
+} from '../../src/web/runAgain';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const APPLY = '01JZAPPLY0000000000000000A';
@@ -151,7 +169,9 @@ describe('Run again ▾', () => {
       within(await openMenu()).getByRole('menuitem', { name: 'Debug this failure…' }),
     );
     const dialog = await screen.findByRole('dialog', { name: 'Debug this failure' });
-    expect(dialog.textContent).toContain('Pauses before Apply config; pauses when a host fails.');
+    expect(dialog.textContent).toContain(
+      'Pauses before Apply config, where they went wrong, and when a host fails.',
+    );
     expect(dialog.textContent).toContain('commit 3f9c2a1d0b4e');
     expect(
       (within(dialog).getByRole('radio', { name: /^Check mode/ }) as HTMLInputElement).checked,
@@ -187,7 +207,13 @@ describe('Run again ▾', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((b) => b.querySelector('span')?.textContent),
-    ).toEqual(['Debug this failure…']);
+    ).toEqual(['Run again', 'Debug this failure…']);
+    // AFS-257: Run again stays, greyed, with who may run it again under it.
+    const refused = within(menu).getAllByRole('menuitem')[0] as HTMLElement;
+    expect(refused.getAttribute('aria-disabled')).toBe('true');
+    expect(refused.textContent).toContain('x');
+    fireEvent.click(refused);
+    expect(posted).toEqual([]);
     first.unmount();
     const why =
       'Run #41 ran another branch or commit than its launch configuration names: people who may change this flow run it again';
@@ -308,5 +334,107 @@ describe('Debug this failure, closed', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run again ▾' }));
+  });
+});
+
+// AFS-256, AFS-257 (round 2 of the 1.2 exploration): the sets of real runs, as the server reads
+// the engine's records (test/fixtures/runs), and Run again of a debug run.
+describe('Run again ▾ of real runs', () => {
+  const fixtures = join(__dirname, '../fixtures');
+  const flow = (file: string) =>
+    parse(readFileSync(join(fixtures, file), 'utf8')) as { nodes: FlowStep[]; edges: FlowEdge[] };
+  const setsOf = (name: string, file: string) => {
+    const kept = JSON.parse(readFileSync(join(fixtures, 'runs', `${name}.json`), 'utf8')) as {
+      state: string;
+      view: ViewOfHosts;
+    };
+    const doc = flow(file);
+    return hostSets(kept.view, doc.nodes, kept.state === 'cancelled', doc.edges);
+  };
+
+  it('Stop at a failure pause: Debug this failure pauses before the step that failed, on named hosts only', () => {
+    const stopped = setsOf('stop-at-failure', 'edge-baseline.flow.yaml');
+    expect(debugBody(stopped, false)).toEqual({
+      hosts: 'not-ok',
+      mode: 'check',
+      commit: 'same',
+      step: {
+        every: false,
+        points: ['01JEDGN0000000000000000002'],
+        debug: true,
+        pauseOnFailure: true,
+      },
+    });
+    expect(namedSets(stopped)).toBe(
+      'sw-edge-01 (stopped), sw-edge-02 (failed), sw-edge-03 (stopped), sw-edge-04 (stopped)',
+    );
+    // Retry, Step, Stop: before Validate and before Rollback, where each host was going.
+    expect(debugPoints(setsOf('retry-step-stop', 'edge-baseline.flow.yaml')).titles).toEqual([
+      'Validate',
+      'Rollback',
+    ]);
+  });
+
+  it('a rejected run: its host was not approved, and there is no Debug this failure', async () => {
+    const rejected = setsOf('rejected', 'gate-baseline.flow.yaml');
+    expect(namedSets(rejected)).toBe('localhost (not approved)');
+    expect(debuggable(rejected)).toEqual([]);
+    routes['GET /runs/r1/relaunch'] = () => ({
+      body: { ...offer, sets: rejected, line: outcomeLine(rejected) },
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    await screen.findByText('The host did not go well: 1 not approved at Change approval');
+    expect(
+      within(await openMenu())
+        .getAllByRole('menuitem')
+        .map((b) => b.querySelector('span')?.textContent),
+    ).toEqual(['Run again', 'Only the host that did not go well']);
+  });
+
+  it('a stopped run lists its hosts and where they stopped, also before its first step', async () => {
+    const first = setsOf('stop-before-first', 'edge-baseline.flow.yaml');
+    routes['GET /runs/r1'] = () => ({
+      body: { ...run, state: 'cancelled', error: 'Stopped by Mia before Push baseline' },
+    });
+    routes['GET /runs/r1/relaunch'] = () => ({
+      body: { ...offer, sets: first, line: outcomeLine(first) },
+    });
+    routes['GET /runs/r1/view'] = () => ({
+      body: JSON.parse(readFileSync(join(fixtures, 'runs', 'stop-before-first.json'), 'utf8')).view,
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const hosts = await screen.findByRole('region', { name: 'Hosts' });
+    await waitFor(() =>
+      expect(hosts.textContent).toContain('sw-edge-04stopped before Push baseline'),
+    );
+  });
+
+  it('AFS-257: Run again of a debug run says it is one, and asks first', async () => {
+    const asked: string[] = [];
+    vi.spyOn(window, 'confirm').mockImplementation((text) => {
+      asked.push(String(text));
+      return true;
+    });
+    routes['GET /runs/r1'] = () => ({
+      body: {
+        ...run,
+        mode: 'check',
+        step: { every: true, points: [], timeoutS: 600, debug: true },
+      },
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    await screen.findByText(offer.line as string);
+    const menu = await openMenu();
+    expect(menu.querySelector('[data-again-note]')?.textContent).toBe(
+      'All its hosts, the same commit and inputs: a debug run, as #41 was',
+    );
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Run again' }));
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(asked[0]).toContain(
+      'It is a debug run, as run #41 was: it pauses before each step and when a host fails.',
+    );
   });
 });

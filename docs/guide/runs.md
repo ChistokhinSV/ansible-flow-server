@@ -164,13 +164,17 @@ as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find o
 Each item has a line under it that says what it takes; **Only the N hosts** names them with their
 set: "sw-edge-02 (failed), sw-edge-05 (unreachable)". The menu offers only what you may do: a run of
 another branch or commit than its configuration names (or a dev run) runs again only for people
-with rw on the flow, and an operator sees, in place of the menu, a line saying so. `GET
+with rw on the flow, and so does a debug run for people who may debug it (rw, or operators where
+the workspace lets them). An operator sees **Run again** greyed, with a line under it saying who may
+run it again, or that line in place of the menu when nothing else is left. `GET
 /runs/:id/relaunch` says the same in `may` (`again`, `change`, `debug`, and `why` when it may not
 run again).
 
 - **Run again**: the same commit, inputs and limit, as a new run. Its tooltip says which inputs it
   reuses (and so does the link to the old run on the new run's page); on a real run it asks first,
-  as Launch does, and says the approvals are asked again; so does a run that reached no host.
+  as Launch does, and says the approvals are asked again; so does a run that reached no host. A
+  step-by-step or debug run runs again the same way: the line under the item says so ("a debug
+  run, as #9 was"), and it asks first.
 - **Change and run…**: the configuration's **Launch** tab, filled in from the run (its inputs, mode,
   limit, step by step, and its commit for who may pick one), with a line naming what differs from
   the configuration. Secret inputs are not filled in: type them again. A run again of some hosts
@@ -181,26 +185,31 @@ run again).
   run's **What ran** shows its limit as those hosts ("only sw-edge-02"), and `GET /runs/:id` gives
   them as `hostLimit` (`count`, and the first 20 `hosts`).
 - **Debug this failure…** (rw on the flow): those hosts, step by step, at the failed run's commit,
-  pausing before the step they went wrong at and when a host fails, with the debugger. A check run
+  pausing before the step they went wrong at (the dialog names it) and when a host fails, with the
+  debugger. A host an approval did not let on is left out (nobody saw it fail), and a run whose
+  hosts were only not approved does not offer it. A check run
   by default: it changes nothing, though the failure may not show the same way. **Real run** asks
   first, names the hosts, and says that its approvals are asked again.
 
 **How the hosts went.** A run's hosts fall into sets, read from how the run went:
 
-| Set           | Hosts                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `failed`      | Ended badly: at an open fail port or a failed end, or a failure nothing rescued       |
-| `unreachable` | Ansible could not reach them (also when that failed them at a step)                   |
-| `stopped`     | The run ended before they reached an end (Stop, a pause nobody answered, a rejection) |
-| `handled`     | Had a failure that a wired fail port took to an end that did not fail: they went well |
-| `notOk`       | `failed`, `unreachable` and `stopped`: the hosts that did not go well                 |
+| Set           | Hosts                                                                                                                                                           |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `failed`      | Ended badly: at an open fail port or a failed end, or a failure nothing rescued; also "not approved" where an approval was rejected (or nobody decided in time) |
+| `unreachable` | Ansible could not reach them (also when that failed them at a step)                                                                                             |
+| `stopped`     | The run ended before they reached an end (Stop, a pause nobody answered, Stop while it waited for an approval)                                                  |
+| `handled`     | Had a failure that a wired fail port took to an end that did not fail: they went well                                                                           |
+| `notOk`       | `failed`, `unreachable` and `stopped`: the hosts that did not go well                                                                                           |
 
 Where a host went wrong is the earliest step it failed at: inside a subflow, the step inside it;
 a rolling subflow as a whole, since it runs as one play. A run that ended as the flow says (its
 hosts at its ends) has no `stopped` hosts. In a stopped run, hosts already at an end went well; a
-host that failed a step nothing rescued (Stop at a failure pause) failed there; the others stopped,
-before the step they waited at, or after the step they had passed ("3 stopped before the end
-(after Push baseline)"). A run stopped before its first step counts all its hosts as stopped.
+host that failed the step the run stopped at (Stop at a failure pause, after Retry too) failed
+there, even when its fail port is wired; the others stopped, before the step they waited at, after
+the step they had passed ("1 failed at Push baseline, 3 stopped before the end (after Push
+baseline)"), before the step a port was taking them to ("3 before Validate, 1 before Rollback"), or
+at the approval the run waited at. A run stopped before its first step counts all its hosts as
+stopped, and **Hosts** lists them. A rejected run says "1 not approved at Change approval".
 Hosts the run never reached are not listed. The lists of runs count unreachable hosts among those that did not go well.
 
 **Every run again goes through the launch's checks:** the launch configuration as it is now (its

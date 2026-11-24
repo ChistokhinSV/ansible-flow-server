@@ -1079,10 +1079,12 @@ export class Executor implements Stepper {
           // Stop on its page (cancel) of a paused run reaches it as the driver's stop too.
           const login = stepStopBy ?? (await queue.get(r.id).catch(() => undefined))?.cancelledBy;
           const by = login ? await queue.personName(login).catch(() => login) : undefined;
+          // AFS-256: Stop at a failure pause stops after the step its hosts ran, not before it.
+          const where = stepStopped.after ? 'after' : 'before';
           const words =
             stepStopped.reason === 'timeout'
-              ? (view.error ?? `Stopped before ${title}`)
-              : `Stopped${by ? ` by ${by}` : ''} before ${title}`;
+              ? (view.error ?? `Stopped ${where} ${title}`)
+              : `Stopped${by ? ` by ${by}` : ''} ${where} ${title}`;
           return await finish('cancelled', words, view, words);
         }
         // AFS-133: hosts that failed after a rejection (or a timeout) failed because of it: the

@@ -1,6 +1,9 @@
 // AFS-214, AFS-213, AFS-240: a run's hosts in sets (failed, unreachable, stopped, handled), where
 // each went wrong, the outcome line, and the limit file a run again of some hosts gets.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import {
   chosenHosts,
   type FlowEdge,
@@ -10,6 +13,7 @@ import {
   limitLine,
   outcomeLine,
   stepIds,
+  type ViewOfHosts,
 } from '../../src/server/runs/hostSets';
 import { approvalTitles, limitRisks } from '../../src/server/runs/relaunch';
 
@@ -378,5 +382,133 @@ describe('what a host limit changes', () => {
     expect(limitRisks(NODES)).toEqual([
       'Failure percentages and rolling batches (Upgrade) count only the hosts in the limit',
     ]);
+  });
+});
+
+// AFS-256: what the real engine (1.2.0-rc.2, afd-ee:2.19) recorded for each way a run ends, kept by
+// hostSetsDocker.test.ts (AFS_CAPTURE_VIEWS=1): the sets and the line read from those records.
+describe('host sets of real runs (AFS-256)', () => {
+  const fixtures = join(__dirname, '../fixtures');
+  const flow = (file: string) =>
+    parse(readFileSync(join(fixtures, file), 'utf8')) as { nodes: FlowStep[]; edges: FlowEdge[] };
+  const edge = flow('edge-baseline.flow.yaml');
+  const gate = flow('gate-baseline.flow.yaml');
+  const hello = flow('hello.flow.yaml');
+  const real = (name: string, doc = edge) => {
+    const kept = JSON.parse(readFileSync(join(fixtures, 'runs', `${name}.json`), 'utf8')) as {
+      state: string;
+      view: ViewOfHosts;
+    };
+    const sets = hostSets(kept.view, doc.nodes, kept.state === 'cancelled', doc.edges);
+    return { sets, line: outcomeLine(sets), view: kept.view };
+  };
+  const ALL = ['sw-edge-01', 'sw-edge-02', 'sw-edge-03', 'sw-edge-04'];
+
+  it('Stop at a failure pause: the failed host failed at the step, counted once, never a host with no name', () => {
+    const { sets, line, view } = real('stop-at-failure');
+    // The engine names the hosts that failed at the pause.
+    expect(view.step?.stopped?.failed).toEqual(['sw-edge-02']);
+    expect(sets.total).toBe(4);
+    expect(sets.notOk).toEqual(ALL);
+    expect(sets.failed).toEqual([
+      {
+        host: 'sw-edge-02',
+        node: '01JEDGN0000000000000000002',
+        title: 'Push baseline',
+        task: '[push] Push baseline',
+        msg: 'The baseline did not apply',
+      },
+    ]);
+    expect(sets.stopped.map((h) => [h.host, h.title, h.after])).toEqual([
+      ['sw-edge-01', 'Push baseline', true],
+      ['sw-edge-03', 'Push baseline', true],
+      ['sw-edge-04', 'Push baseline', true],
+    ]);
+    expect(line).toBe(
+      'All 4 hosts did not go well: 1 failed at Push baseline, 3 stopped before the end (after Push baseline)',
+    );
+    expect(chosenHosts(sets, 'not-ok')).toEqual(ALL);
+  });
+
+  it('Retry, then Stop, every host failing: each failed at the step', () => {
+    const { sets, line } = real('retry-stop-all');
+    expect(sets.total).toBe(4);
+    expect(sets.failed.map((h) => h.host)).toEqual(ALL);
+    expect(sets.stopped).toEqual([]);
+    expect(line).toBe('All 4 hosts did not go well: 4 failed at Push baseline');
+  });
+
+  it('Retry, Step past the failure, Stop: the failed host stopped on its way to Rollback', () => {
+    const { sets, line } = real('retry-step-stop');
+    expect(sets.notOk).toEqual(ALL);
+    expect(sets.stopped.map((h) => [h.host, h.title, !!h.after])).toEqual([
+      ['sw-edge-01', 'Validate', false],
+      ['sw-edge-02', 'Rollback', false],
+      ['sw-edge-03', 'Validate', false],
+      ['sw-edge-04', 'Validate', false],
+    ]);
+    expect(line).toBe(
+      'All 4 hosts did not go well: 4 stopped before the end (3 before Validate, 1 before Rollback)',
+    );
+  });
+
+  it('Stop before the first step: the hosts waiting there', () => {
+    const { sets, line } = real('stop-before-first');
+    expect(sets.total).toBe(4);
+    expect(line).toBe(
+      'All 4 hosts did not go well: 4 stopped before the end (before Push baseline)',
+    );
+  });
+
+  it('Stop while it waits for an approval: the host stopped at it, it did not go well', () => {
+    const { sets, line } = real('stop-at-approval', gate);
+    expect(sets.notOk).toEqual(['localhost']);
+    expect(sets.stopped).toEqual([
+      {
+        host: 'localhost',
+        node: '01JGATN0000000000000000003',
+        title: 'Change approval',
+        waiting: true,
+      },
+    ]);
+    expect(line).toBe('The host did not go well: 1 stopped before the end (at Change approval)');
+  });
+
+  it('a rejected run: its host was not approved at the approval', () => {
+    const { sets, line } = real('rejected', gate);
+    expect(sets.failed).toEqual([
+      {
+        host: 'localhost',
+        node: '01JGATN0000000000000000003',
+        title: 'Change approval',
+        notApproved: 'rejected',
+      },
+    ]);
+    expect(line).toBe('The host did not go well: 1 not approved at Change approval');
+  });
+
+  it('a host Ansible could not reach is unreachable, not failed', () => {
+    const { sets, line } = real('unreachable', hello);
+    expect(sets.unreachable.map((h) => [h.host, h.title])).toEqual([
+      ['c6-ghost', 'Check the host answers'],
+    ]);
+    expect(sets.failed).toEqual([]);
+    expect(line).toBe('1 of 2 hosts did not go well: 1 unreachable');
+  });
+
+  it('never takes a host with no name, whatever an engine says', () => {
+    const sets = hostSets(
+      {
+        summary: { hosts: ['a', ''], nodes: {}, outcome: {}, failures: [], unreachable: [] },
+        step: {
+          stopped: { node: APPLY, after: true, hosts: ['a'], failed: [null, '', 'b'] as never },
+        },
+      },
+      NODES,
+      true,
+      EDGES,
+    );
+    expect(sets.total).toBe(2);
+    expect(sets.notOk).toEqual(['a', 'b']);
   });
 });

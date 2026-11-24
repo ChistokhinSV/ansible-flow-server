@@ -1,0 +1,67 @@
+# Test flow for AFS-256 (fictional sample ULIDs): a check, an approval, the change; rejected hosts
+# go to a failed end. Every step runs on the host itself, so a real run changes nothing.
+schema_version: 2
+flow:
+  id: 01JGATE0000000000000000000
+  key: gate-baseline
+  name: Gate baseline
+  version: 1
+  inputs:
+    devices:
+      type: host_list
+      required: true
+      targets: true
+nodes:
+- id: 01JGATN0000000000000000001
+  key: start
+  type: start
+  title: Start
+- id: 01JGATN0000000000000000002
+  key: check
+  type: task
+  title: Check the window
+  status: implemented
+  impl:
+    kind: module
+    ref: ansible.builtin.debug
+    params:
+      msg: Window open on {{ inventory_hostname }}
+- id: 01JGATN0000000000000000003
+  key: approve
+  type: approval
+  title: Change approval
+  approval:
+    approvers: [change-board]
+- id: 01JGATN0000000000000000004
+  key: change
+  type: task
+  title: Apply the change
+  status: implemented
+  impl:
+    kind: module
+    ref: ansible.builtin.debug
+    params:
+      msg: Changed {{ inventory_hostname }}
+- id: 01JGATN0000000000000000005
+  key: done
+  type: end
+  title: Done
+  outcome: success
+- id: 01JGATN0000000000000000006
+  key: not-approved
+  type: end
+  title: Not approved
+  outcome: failed
+- id: 01JGATN0000000000000000007
+  key: failed
+  type: end
+  title: Failed
+  outcome: failed
+edges:
+- { id: 01JGATE0000000000000000001, from: { node: 01JGATN0000000000000000001, port: ok_hosts }, to: { node: 01JGATN0000000000000000002, port: in } }
+- { id: 01JGATE0000000000000000002, from: { node: 01JGATN0000000000000000002, port: ok_hosts }, to: { node: 01JGATN0000000000000000003, port: in } }
+- { id: 01JGATE0000000000000000003, from: { node: 01JGATN0000000000000000003, port: approved }, to: { node: 01JGATN0000000000000000004, port: in } }
+- { id: 01JGATE0000000000000000004, from: { node: 01JGATN0000000000000000003, port: rejected }, to: { node: 01JGATN0000000000000000006, port: in } }
+- { id: 01JGATE0000000000000000005, from: { node: 01JGATN0000000000000000004, port: ok_hosts }, to: { node: 01JGATN0000000000000000005, port: in } }
+- { id: 01JGATE0000000000000000006, from: { node: 01JGATN0000000000000000002, port: failed_hosts }, to: { node: 01JGATN0000000000000000007, port: in } }
+- { id: 01JGATE0000000000000000007, from: { node: 01JGATN0000000000000000004, port: failed_hosts }, to: { node: 01JGATN0000000000000000007, port: in } }

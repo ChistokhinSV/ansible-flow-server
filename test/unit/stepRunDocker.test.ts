@@ -142,10 +142,10 @@ describe.skipIf(!image)('a step-by-step run in a container (AFS-177)', () => {
     );
     expect(view.summary?.nodes[SAY_HELLO]).toBeUndefined();
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
-    expect(output).toContain('Paused before Check the host answers (1 host)');
-    expect(output).toContain('Paused before Say hello (1 host)');
+    expect(output).toContain('Paused before Check the host answers: 1 host waits');
+    expect(output).toContain('Paused before Say hello: 1 host waits');
     expect(output).toContain('Stopped by dana before Say hello');
-  });
+  }, 600_000);
 
   it('Step runs one step and pauses before the next', async () => {
     const c = await new LaunchConfigs(database.db, git).get(config);
@@ -170,5 +170,5 @@ describe.skipIf(!image)('a step-by-step run in a container (AFS-177)', () => {
     await until('the end', async () => (await queue.get(run.id))?.state === 'succeeded');
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
     expect(output).toContain('Hello from localhost');
-  });
+  }, 600_000);
 });

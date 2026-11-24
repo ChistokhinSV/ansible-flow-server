@@ -5,18 +5,26 @@
 //                failure nothing rescued (the run stopped there, or the host dropped out)
 //   unreachable  Ansible dropped it as unreachable with no route
 //   stopped      the run ended before the host reached an end (Stop, a pause nobody answered, the
-//                server stopping, an approval rejected): neither failed nor at an end. Only a run
-//                that ended before its outcome play has these: once the outcome play ran, a host
-//                it did not fail went well (AFS-247: hosts at a success end are not in `nodes`,
-//                which counts the ports hosts leave by, so they cannot be looked for there)
+//                server stopping, Stop while it waited for an approval): neither failed nor at an
+//                end. Only a run that ended before its outcome play has these: once the outcome
+//                play ran, a host it did not fail went well (AFS-247: hosts at a success end are
+//                not in `nodes`, which counts the ports hosts leave by, so they cannot be looked
+//                for there)
 //   handled      had a problem, but a wired fail port took it to an end that did not fail: the flow
 //                handled it, so it went well (left out of not-ok unless asked for)
 //   not-ok       failed + unreachable + stopped: what "the hosts that did not go well" are
 //
 // A host whose failure was Ansible's UNREACHABLE is unreachable, also where a play failed it
-// for that (an unreachable port that is not enabled). In a stopped run, a host that failed a step
-// and left it by no port failed there (Stop at a failure pause); one that left the step the run
-// stopped at by a port stopped after it, not before.
+// for that (an unreachable port that is not enabled). A host an approval did not let on (rejected,
+// or nobody decided in time) that an end then failed is failed, "not approved" at that approval.
+//
+// AFS-256, from the real engine's records: in a stopped run, a host that failed the step the run
+// stopped after (Stop at a failure pause, after Retry too) failed there, whether or not its fail
+// port is wired: it never went on. One that left that step by a port stopped after it; one that
+// left an earlier step by a port stopped before the step that port leads to (a failed host on its
+// way to Rollback); one that reached an approval the run was stopped at stopped at it. The engine
+// names the hosts that failed at the pause by name (`step.stopped.failed`); a set never holds a
+// host with no name.
 //
 // Hosts the run never reached are not in the summary, so they cannot be listed; a run stopped
 // before its first step names the hosts waiting there (its step state).
@@ -39,6 +47,13 @@ interface Problem {
   task?: string;
   status?: string;
   msg?: string;
+}
+
+interface PauseFailure {
+  host: string;
+  task?: string;
+  msg?: string;
+  unreachable?: boolean;
 }
 
 /** The part of a run's view this reads (the designer's RunView). */
@@ -64,7 +79,8 @@ export interface ViewOfHosts {
       node?: string;
       hosts?: string[];
       after?: boolean;
-      failed?: { host: string; task?: string; msg?: string; unreachable?: boolean }[];
+      /** The hosts that failed at the pause: by name (the engine), or with the task (older). */
+      failed?: (string | PauseFailure)[];
     };
   };
   stoppedAt?: string;
@@ -80,6 +96,10 @@ export interface HostAt {
   msg?: string;
   /** A stopped host that had passed `node` (it stopped after it, before the next step). */
   after?: true;
+  /** AFS-256: a stopped host that waited at `node`, an approval, when the run was stopped. */
+  waiting?: true;
+  /** AFS-256: a failed host that `node`, an approval, did not let on (rejected or timed out). */
+  notApproved?: 'rejected' | 'timed out';
 }
 
 /** A wire of the flow's top level: which hosts reach an end (a stopped run's finished hosts). */
@@ -101,6 +121,11 @@ export interface HostSets {
 
 export const HOST_CHOICES = ['all', 'not-ok', 'failed', 'unreachable', 'stopped'] as const;
 export type HostChoice = (typeof HOST_CHOICES)[number];
+
+/** AFS-256: a host name a set or a limit may hold: never a missing or empty one. */
+export function named(host: unknown): host is string {
+  return typeof host === 'string' && host.trim() !== '';
+}
 
 /** The steps of every level, each with the rolling subflow it runs in (the outermost one). */
 function index(
@@ -135,13 +160,19 @@ export function hostSets(
 ): HostSets {
   const s = view?.summary ?? {};
   const stepStopped = view?.step?.stopped;
+  // AFS-256: the engine names the hosts that failed at the pause; older designers said more.
+  const failedAtPause = (stepStopped?.failed ?? [])
+    .map((f): Partial<PauseFailure> => (typeof f === 'string' ? { host: f } : (f ?? {})))
+    .filter((f): f is PauseFailure => named(f.host));
   // A run stopped before its first step has no host in its summary: the hosts waiting there.
   const hosts = [
-    ...new Set([
-      ...(s.hosts ?? []),
-      ...(stepStopped?.hosts ?? []),
-      ...(stepStopped?.failed ?? []).map((f) => f.host),
-    ]),
+    ...new Set(
+      [
+        ...(s.hosts ?? []),
+        ...(stepStopped?.hosts ?? []),
+        ...failedAtPause.map((f) => f.host),
+      ].filter(named),
+    ),
   ];
   const steps = index(nodes);
   /** The pause point for a step: the step, or the rolling subflow it is in. */
@@ -184,6 +215,36 @@ export function hostSets(
     return found ? { node: found[0], problem: found[1][host] as Problem } : undefined;
   };
 
+  /**
+   * AFS-256: the step a host was on its way to: where the port it last left a top-level step by
+   * leads (not an end). Undefined when no wire says.
+   */
+  const nextStep = (host: string): string | undefined => {
+    const last = Object.entries(s.nodes ?? {})
+      .flatMap(([node, ports]) =>
+        Object.entries(ports)
+          .filter(([, list]) => list.includes(host))
+          .map(([port]) => [node, port] as const),
+      )
+      .sort(([a], [b]) => (s.timings?.[b]?.start ?? 0) - (s.timings?.[a]?.start ?? 0))[0];
+    if (!last) return undefined;
+    const to = edges.find((e) => e.from.node === last[0] && e.from.port === last[1])?.to.node;
+    return to && steps.get(to)?.step.type !== 'end' ? to : undefined;
+  };
+  /** The approval that did not let the host on, and how: rejected, or nobody decided in time. */
+  const notLetOn = (host: string): HostAt | undefined => {
+    for (const [node, ports] of Object.entries(s.nodes ?? {})) {
+      if (steps.get(node)?.step.type !== 'approval') continue;
+      const how = ports.rejected?.includes(host)
+        ? 'rejected'
+        : ports.timeout?.includes(host)
+          ? 'timed out'
+          : undefined;
+      if (how) return { ...at(host, node), notApproved: how };
+    }
+    return undefined;
+  };
+
   const unreachable = new Map<string, HostAt>();
   for (const host of s.unreachable ?? []) {
     const p = first(host);
@@ -201,8 +262,12 @@ export function hostSets(
     const p = f.node && own ? { node: f.node, problem: own } : first(f.host);
     wrong(f.host, p, at(f.host, f.node, { task: f.task, msg: f.msg }));
   }
-  for (const [host, why] of Object.entries(s.outcome ?? {}))
-    wrong(host, unrouted(host) ?? first(host), { host, msg: why });
+  for (const [host, why] of Object.entries(s.outcome ?? {})) {
+    const p = unrouted(host) ?? first(host);
+    const against = p ? undefined : notLetOn(host);
+    if (against && !failed.has(host) && !unreachable.has(host)) failed.set(host, against);
+    else wrong(host, p, { host, msg: why });
+  }
 
   // AFS-247: once the outcome play ran, a host it did not fail went well: only a run that ended
   // before it (stopped, or stopped early) has hosts that stopped before the end.
@@ -210,7 +275,7 @@ export function hostSets(
   if (s.stoppedEarly || stopped) {
     // AFD-375: a host that failed a step nothing rescued failed there, also when the run was
     // stopped at the failure's pause.
-    for (const f of stepStopped?.failed ?? []) {
+    for (const f of failedAtPause) {
       const own = stepStopped?.node ? s.problems?.[stepStopped.node]?.[f.host] : undefined;
       const p =
         stepStopped?.node && own
@@ -225,14 +290,18 @@ export function hostSets(
                 },
               }
             : undefined;
-      wrong(f.host, p, { host: f.host, task: f.task, msg: f.msg });
+      wrong(f.host, p, {
+        host: f.host,
+        ...(f.task ? { task: f.task } : {}),
+        ...(f.msg ? { msg: f.msg } : {}),
+      });
     }
     for (const host of hosts) {
       const p = unrouted(host);
       if (p) wrong(host, p, { host });
     }
     // The hosts already at one of the flow's ends (the wires into them, as the canvas counts).
-    const finished = reached(nodes, edges, s.nodes ?? {}, hosts);
+    const finished = reached(nodes, edges, s.nodes ?? {}, hosts, view?.stoppedAt);
     stoppedHosts = hosts.filter((h) => !failed.has(h) && !unreachable.has(h) && !finished?.has(h));
   }
   const bad = new Set([...failed.keys(), ...unreachable.keys(), ...stoppedHosts]);
@@ -241,17 +310,21 @@ export function hostSets(
     failed: [...failed.values()],
     unreachable: [...unreachable.values()],
     stopped: stoppedHosts.map((host) => {
-      const node =
-        stepStopped?.node && (stepStopped.hosts ?? []).includes(host)
-          ? stepStopped.node
-          : view?.stoppedAt;
+      // AFS-256: a host waiting where the run stopped stopped there; one that went on by a port
+      // of an earlier step stopped before the step it leads to (a failed host on its way to
+      // Rollback); else where the run stopped.
+      const there = !!stepStopped?.node && (stepStopped.hosts ?? []).includes(host);
+      const next = there ? undefined : nextStep(host);
+      const node = there ? stepStopped?.node : (next ?? view?.stoppedAt);
       // AFD-375: a host that had passed that step (a failure pause is after it) stopped after it:
       // as the engine says it, or as the ports it left the step by show.
-      const after =
-        node &&
-        ((stepStopped?.after && node === stepStopped.node && stepStopped.hosts?.includes(host)) ||
-          left(node, host));
-      return { ...at(host, node), ...(after ? { after: true as const } : {}) };
+      const after = !!node && ((there && !!stepStopped?.after) || (!next && left(node, host)));
+      const waiting = !after && !!node && steps.get(node)?.step.type === 'approval';
+      return {
+        ...at(host, node),
+        ...(after ? { after: true as const } : {}),
+        ...(waiting ? { waiting: true as const } : {}),
+      };
     }),
     handled: hosts
       .filter((h) => !bad.has(h))
@@ -265,15 +338,17 @@ export function hostSets(
 
 /**
  * The hosts at one of the flow's ends (its top level), as the designer's canvas counts them: the
- * hosts that left by a port wired to an end (all hosts from Start); through an approval that
- * records no port, the hosts that reached it. Undefined when the flow's ends or wires are not
- * known.
+ * hosts that left by a port wired to an end (all hosts from Start); through the approved port of
+ * an approval that records no port (a check run approves by itself), the hosts that reached it,
+ * unless the run was stopped while it waited there (AFS-256). Undefined when the flow's ends or
+ * wires are not known.
  */
 function reached(
   nodes: readonly FlowStep[],
   edges: readonly FlowEdge[],
   ports: Record<string, Record<string, string[]>>,
   all: readonly string[],
+  stoppedAt?: string,
 ): Set<string> | undefined {
   const types = new Map(nodes.map((n) => [n.id, n.type]));
   const ends = nodes.filter((n) => n.type === 'end').map((n) => n.id);
@@ -286,7 +361,8 @@ function reached(
       .flatMap((e) => {
         const from = e.from.node;
         if (types.get(from) === 'start') return [...all];
-        if (types.get(from) === 'approval' && !ports[from]) return arrivals(from, seen);
+        if (types.get(from) === 'approval' && !ports[from])
+          return e.from.port === 'approved' && from !== stoppedAt ? arrivals(from, seen) : [];
         return ports[from]?.[e.from.port] ?? [];
       });
   };
@@ -313,6 +389,11 @@ export function chosenHosts(
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** Where a stopped host stopped, as a word before the step: after, at (an approval), before. */
+export function stoppedWord(h: Pick<HostAt, 'after' | 'waiting'>): string {
+  return h.after ? 'after' : h.waiting ? 'at' : 'before';
+}
+
 /**
  * AFS-213: how the hosts of a run went, in one line: "3 of 40 hosts did not go well: 2 failed at
  * Apply config, 1 unreachable"; "; 1 more had a failure the flow handled" when some were handled.
@@ -328,15 +409,34 @@ export function outcomeLine(sets: HostSets): string | undefined {
     return `${sets.total === 1 ? 'The host' : `All ${sets.total} hosts`} went well${handled}`;
   const byStep = new Map<string, number>();
   for (const f of sets.failed) {
-    const where = f.title ?? f.node ?? '';
+    const what = !f.notApproved
+      ? 'failed'
+      : f.notApproved === 'rejected'
+        ? 'not approved'
+        : 'not decided in time';
+    const step = f.title ?? f.node;
+    const where = `${what}${step ? ` at ${step}` : ''}`;
     byStep.set(where, (byStep.get(where) ?? 0) + 1);
   }
-  const parts = [...byStep].map(([where, c]) => `${c} failed${where ? ` at ${where}` : ''}`);
+  const parts = [...byStep].map(([where, c]) => `${c} ${where}`);
   if (sets.unreachable.length) parts.push(`${sets.unreachable.length} unreachable`);
   if (sets.stopped.length) {
-    const one = sets.stopped[0];
-    const same = sets.stopped.every((h) => h.title === one?.title && !!h.after === !!one?.after);
-    const where = one?.title && same ? ` (${one.after ? 'after' : 'before'} ${one.title})` : '';
+    // "3 stopped before the end (after Push baseline)"; where they differ, each place counted:
+    // "(3 before Validate, 1 before Rollback)".
+    const byPlace = new Map<string, number>();
+    for (const h of sets.stopped) {
+      const place = h.title ? `${stoppedWord(h)} ${h.title}` : '';
+      byPlace.set(place, (byPlace.get(place) ?? 0) + 1);
+    }
+    const places = [...byPlace];
+    const where =
+      places.length === 1
+        ? places[0]?.[0]
+          ? ` (${places[0][0]})`
+          : ''
+        : places.every(([p]) => p)
+          ? ` (${places.map(([p, c]) => `${c} ${p}`).join(', ')})`
+          : '';
     parts.push(`${sets.stopped.length} stopped before the end${where}`);
   }
   const head =
@@ -367,9 +467,9 @@ export function limitLine(name: string): string {
   return `~^${escaped}$`;
 }
 
-/** The text of a limit file: one line per host. */
+/** The text of a limit file: one line per host (AFS-256: never an empty line). */
 export const limitFile = (hosts: readonly string[]): string =>
-  `${hosts.map(limitLine).join('\n')}\n`;
+  `${hosts.filter(named).map(limitLine).join('\n')}\n`;
 
 /** AFS-240: the body of POST /runs/:id/relaunch (relaunch.ts); `{}` is 1.1's Run again. */
 export interface RelaunchBody {

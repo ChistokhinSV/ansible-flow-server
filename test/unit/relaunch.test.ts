@@ -406,6 +406,57 @@ describe('run again', () => {
     expect(((await plain.json()) as { step?: unknown }).step).toBeUndefined();
   });
 
+  it('AFS-257: an operator who may not debug is not offered Run again of a debug run, and is told why', async () => {
+    const debugRun = await ended(VIEW, {
+      step: {
+        every: true,
+        points: [],
+        timeoutS: 600,
+        debug: true,
+        pauseOnFailure: true,
+        failures: { failed: true },
+      },
+    } as never);
+    const may = (await (
+      await fetch(`${url}/api/v1/runs/${debugRun.id}/relaunch`, {
+        headers: { authorization: `Bearer ${tokens.omar}` },
+      })
+    ).json()) as { may: { again: boolean; why?: string } };
+    expect(may.may).toMatchObject({
+      again: false,
+      change: true,
+      debug: false,
+      why: `Run #${debugRun.number} is a debug run: running it again debugs it again, which needs rw on flows/hello.flow.yaml (or operator, where the workspace lets operators debug)`,
+    });
+    // What the offer says is what the server does.
+    expect((await post(debugRun.id, {})).status).toBe(403);
+  });
+
+  it('AFS-256: never puts a host with no name in a limit', async () => {
+    // As 1.2.0-rc.2's engine says a Stop at a failure pause, with a host no name stands for.
+    const run = await ended(
+      {
+        ...VIEW,
+        summary: {
+          hosts: ['fw-a', 'fw-b'],
+          nodes: { [PING]: { ok_hosts: ['fw-b'] } },
+          outcome: {},
+          failures: [],
+          unreachable: [],
+          problems: { [PING]: { 'fw-a': { task: '[ping] Ping', status: 'failed', msg: 'no' } } },
+        },
+        step: { stopped: { node: PING, after: true, hosts: ['fw-b'], failed: ['fw-a', null] } },
+      },
+      {},
+      'cancelled',
+    );
+    const reply = await post(run.id, { hosts: 'not-ok' });
+    expect(reply.status).toBe(201);
+    const again = (await reply.json()) as { id: string; hostLimit: { hosts: string[] } };
+    expect(again.hostLimit.hosts).toEqual(['fw-a', 'fw-b']);
+    await jobOf(again.id);
+  });
+
   it('asks rw for a run of another branch than its configuration names; newest is the newest', async () => {
     const other = await ended(VIEW, { ref: 'feature' });
     const refused = await post(other.id, {});

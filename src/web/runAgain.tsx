@@ -20,6 +20,14 @@ export function notOkHosts(sets: HostSets): HostAt[] {
 }
 
 /**
+ * AFS-256: the hosts Debug this failure is for: those that did not go well, but not one an
+ * approval did not let on (nobody saw it fail: debugging it shows nothing).
+ */
+export function debuggable(sets: HostSets): HostAt[] {
+  return notOkHosts(sets).filter((h) => !h.notApproved);
+}
+
+/**
  * Where Debug this failure pauses: before each step a host that did not go well went wrong at
  * (their ids and titles); none known (a host stopped before the run said where): every step.
  */
@@ -27,8 +35,9 @@ export function debugPoints(sets: HostSets): { points: string[]; titles: string[
   const points: string[] = [];
   const titles: string[] = [];
   // AFD-375: a host stopped after a step did not go wrong there: no pause before it for that.
-  for (const h of notOkHosts(sets))
-    if (h.node && !h.after && !points.includes(h.node)) {
+  // AFS-256: nor at an approval it waited at (a check run passes it by itself).
+  for (const h of debuggable(sets))
+    if (h.node && !h.after && !h.waiting && !points.includes(h.node)) {
       points.push(h.node);
       titles.push(h.title ?? h.node);
     }
@@ -38,8 +47,10 @@ export function debugPoints(sets: HostSets): { points: string[]; titles: string[
 /** The body of Debug this failure: the hosts that did not go well, at the run's commit. */
 export function debugBody(sets: HostSets, real: boolean): RelaunchBody {
   const { points } = debugPoints(sets);
+  // AFS-256: hosts an approval did not let on are left out by name; else the set itself.
+  const leftOut = notOkHosts(sets).some((h) => h.notApproved);
   return {
-    hosts: 'not-ok',
+    hosts: leftOut ? debuggable(sets).map((h) => h.host) : 'not-ok',
     mode: real ? 'real' : 'check',
     commit: 'same',
     step: {
@@ -78,7 +89,11 @@ export function namedSets(sets: HostSets, max = 5): string {
       ? 'unreachable'
       : sets.stopped.some((s) => s.host === h.host)
         ? 'stopped'
-        : 'failed';
+        : h.notApproved === 'rejected'
+          ? 'not approved'
+          : h.notApproved
+            ? 'not decided in time'
+            : 'failed';
     return `${h.host} (${why})`;
   });
   return `${named.join(', ')}${bad.length > max ? ` and ${bad.length - max} more` : ''}`;
@@ -147,7 +162,7 @@ export function DebugDialog({
   onClose(): void;
 }) {
   const [real, setReal] = useState(false);
-  const hosts = offer.sets.notOk;
+  const hosts = debuggable(offer.sets).map((h) => h.host);
   const { titles } = debugPoints(offer.sets);
   const start = async () => {
     if (
@@ -168,8 +183,8 @@ export function DebugDialog({
       </p>
       <p>
         {titles.length
-          ? `Pauses before ${list(titles, 3)}; pauses when a host fails.`
-          : 'Pauses before each step; pauses when a host fails.'}{' '}
+          ? `Pauses before ${list(titles, 3)}, where they went wrong, and when a host fails.`
+          : 'Pauses before each step (the run did not say where they went wrong) and when a host fails.'}{' '}
         Step by step, with the debugger.
       </p>
       <fieldset className="run-again-mode">
@@ -268,7 +283,11 @@ export function RunAgainMenu({
   const pick = async (what: 'again' | 'change' | 'only' | 'debug') => {
     setOpen(false);
     if (what === 'again') {
-      if (again.confirm && !(await ask(again.confirm, { yes: again.yes }))) return;
+      if (
+        againConfirm &&
+        !(await ask(againConfirm, { yes: again.confirm ? again.yes : 'Run again' }))
+      )
+        return;
       onAgain();
     } else if (what === 'change' && change) onChange(change);
     else if (what === 'only' && offer) {
@@ -286,13 +305,23 @@ export function RunAgainMenu({
   const may = offer?.may ?? { again: true, change: true, debug: true };
   const showChange = !!change && may.change;
   const showOnly = bad > 0 && may.again;
-  const showDebug = bad > 0 && mayDebug && may.debug;
+  const showDebug = !!sets && debuggable(sets).length > 0 && mayDebug && may.debug;
   if (!may.again && !showChange && !showDebug)
     return (
       <p className="muted run-again-who" data-run-again-who>
         {may.why ?? 'You may not run it again'}
       </p>
     );
+  // AFS-257: Run again of a step-by-step or debug run runs as it did: its item and question say so.
+  const stepped = steppedWords(run);
+  const againNote = run.step?.debug
+    ? `All its hosts, the same commit and inputs: a debug run, as #${run.number} was`
+    : run.step
+      ? `All its hosts, the same commit and inputs: step by step, as #${run.number} ran`
+      : 'All its hosts, the same commit and inputs';
+  const againConfirm = stepped
+    ? `${again.confirm ?? `Run #${run.number} again, at the same commit with the same inputs?`}${stepped}`
+    : again.confirm;
   return (
     <div className="more-menu run-again" ref={box}>
       <button
@@ -329,7 +358,7 @@ export function RunAgainMenu({
             } else if (e.key === 'Tab') setOpen(false);
           }}
         >
-          {may.again && (
+          {may.again ? (
             <button
               type="button"
               role="menuitem"
@@ -338,8 +367,23 @@ export function RunAgainMenu({
               onClick={() => pick('again')}
             >
               <span id={`${uid}again`}>Run again</span>
-              <small id={`${uid}again-note`} className="menu-note">
-                All its hosts, the same commit and inputs
+              <small id={`${uid}again-note`} className="menu-note" data-again-note>
+                {againNote}
+              </small>
+            </button>
+          ) : (
+            // AFS-257: who may run it again, where Run again would be.
+            <button
+              type="button"
+              role="menuitem"
+              aria-disabled="true"
+              className="menu-disabled"
+              {...named('again')}
+              onClick={(e) => e.preventDefault()}
+            >
+              <span id={`${uid}again`}>Run again</span>
+              <small id={`${uid}again-note`} className="menu-note" data-run-again-who>
+                {may.why ?? 'You may not run it again'}
               </small>
             </button>
           )}
