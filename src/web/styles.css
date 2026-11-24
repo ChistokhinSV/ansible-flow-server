@@ -2909,6 +2909,15 @@ dialog.run-again-dialog h2 {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+/* AFS-249: a mode's words wrap beside its radio, not under it. */
+.run-again-mode label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.run-again-mode input[type="radio"] {
+  flex: none;
+}
 .run-again-risks {
   margin: 0.5rem 0 0.9rem;
   padding-left: 1.2rem;
@@ -4171,7 +4180,47 @@ fieldset.copy-link h4 {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-@media (min-width: 1101px) {
+/* AFS-250: what a tab hides stays hidden, whatever display its part has. */
+.run-body [hidden],
+.run-output[hidden] {
+  display: none !important;
+}
+/* AFS-250: a debug run's page on a phone: Run · Debugger · Output. */
+.run-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.run-tabs [role="tab"] {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+.run-tabs [role="tab"][aria-selected="true"] {
+  color: var(--fg);
+  border-bottom-color: var(--accent, var(--fg));
+}
+.debug-logs h3 {
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+.debug-kept-host {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+/* AFS-250: from tablet width up the panel is beside the canvas, as tall as the window leaves it,
+   and scrolls on its own: the reason line and the buttons are always in sight. At 1024 it is a
+   drawer at the canvas's side (the run's details go under both); at 1440 a column. */
+@media (min-width: 861px) {
   .debugger {
     align-self: flex-start;
     max-height: calc(100vh - var(--run-flow-top, 160px));
@@ -4187,11 +4236,39 @@ fieldset.copy-link h4 {
     background: var(--bg);
   }
 }
+@media (min-width: 861px) {
+  .run-body.debugging .run-flow {
+    flex: 1 1 0;
+    align-self: flex-start;
+    min-height: 420px;
+    height: calc(100vh - var(--run-flow-top, 160px));
+  }
+  .run-body.debugging .debugger {
+    flex: 0 0 clamp(320px, 32%, 440px);
+    max-width: 440px;
+  }
+  /* The run's details go under the canvas and the panel. */
+  .run-body.debugging .run-side {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+}
+@media (min-width: 861px) and (max-width: 1100px) {
+  .run-body.debugging .debugger {
+    box-shadow: -6px 0 12px -10px rgb(0 0 0 / 0.35);
+  }
+}
 @media (max-width: 860px) {
   .debugger {
     max-width: none;
     border-left: 0;
     border-top: 1px solid var(--line);
     padding-inline: 16px;
+  }
+}
+/* AFS-250: up to 860 px the Debugger is a tab of its own: no line over it. */
+@media (max-width: 860px) {
+  .run-body.debugging .debugger {
+    border-top: 0;
   }
 }

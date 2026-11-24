@@ -975,3 +975,99 @@ describe('failure reasons in words (AFS-193)', () => {
     );
   });
 });
+
+// Round 1 of the 1.2 exploration (AFS-249, AFS-250).
+describe('a debug run', () => {
+  const debugRun = {
+    ...run,
+    step: { every: false, points: ['01M6GPM99KC9TX091MCH61REQV'], timeoutS: 3600, debug: true },
+    pausedBefore: 'Push baseline',
+  };
+  const failurePause = {
+    every: false,
+    points: [],
+    pauses: 2,
+    debug: true,
+    paused: {
+      id: 'f-2',
+      node: '01M6GPM99KC9TX091MCH61REQV',
+      play: '[push] Push baseline',
+      hosts: ['fw-edge-01', 'fw-edge-02'],
+      since: Date.now() / 1000,
+      timeout: 3600,
+      kind: 'failure',
+      failed: [{ host: 'fw-edge-02', task: 'Push', msg: 'refused' }],
+      attempt: 1,
+      debug: true,
+    },
+  };
+  const phone = (matches: boolean) =>
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+
+  it('is a debug run in the lists, not "step by step"', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      ...places,
+      'GET /runs?limit=100': () => ({ body: [debugRun] }),
+    };
+    window.history.replaceState(null, '', '/runs');
+    render(<App />);
+    expect(await screen.findByText('debug run')).toBeTruthy();
+    expect(screen.queryByText('step by step')).toBeNull();
+  });
+
+  it('at a failure pause the header says after the step, as the reason line does', async () => {
+    phone(false);
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({ body: debugRun }),
+      'GET /runs/r1/view': () => ({ body: { state: 'running', step: failurePause } }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const reason = await screen.findByText(/^Paused after Push baseline: 1 of 2 hosts failed/);
+    expect(reason).toBeTruthy();
+    const head = screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement;
+    expect(head.textContent).toContain('after Push baseline');
+    expect(head.textContent).not.toContain('before Push baseline');
+    // No tabs beside the canvas.
+    expect(screen.queryByRole('tablist')).toBeNull();
+  });
+
+  it('on a phone: tabs Run, Debugger and Output, the Debugger first', async () => {
+    phone(true);
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /runs/r1': () => ({ body: debugRun }),
+      'GET /runs/r1/view': () => ({ body: { state: 'running', step: failurePause } }),
+    };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    const tabs = await screen.findByRole('tablist');
+    expect(
+      within(tabs)
+        .getAllByRole('tab')
+        .map((t) => t.textContent),
+    ).toEqual(['Run', 'Debugger', 'Output']);
+    const debuggerPanel = document.getElementById('run-debugger') as HTMLElement;
+    const canvas = document.getElementById('run-canvas') as HTMLElement;
+    const output = document.getElementById('output') as HTMLElement;
+    expect(debuggerPanel.hidden).toBe(false);
+    expect(canvas.hidden).toBe(true);
+    expect(output.hidden).toBe(true);
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'Output' }));
+    expect(output.hidden).toBe(false);
+    expect(debuggerPanel.hidden).toBe(true);
+    // The arrow keys go between the tabs.
+    fireEvent.keyDown(within(tabs).getByRole('tab', { name: 'Output' }), { key: 'ArrowRight' });
+    expect(canvas.hidden).toBe(false);
+    expect(within(tabs).getByRole('tab', { name: 'Run' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+});

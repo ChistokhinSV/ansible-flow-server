@@ -100,6 +100,7 @@ export const AUDIT_ACTION_WORDS: Record<string, string> = {
   'project.hook-set': 'set up a push hook',
   'project.host-key-forget': 'forgot an SSH host key',
   'project.pause-points': 'set pause points',
+  'project.watches': 'set watches',
   'project.start': 'started a project',
   'project.sync': 'looked at the source',
   'run.launch': 'launched a run',

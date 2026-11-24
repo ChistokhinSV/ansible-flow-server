@@ -47,6 +47,20 @@ Carries Ansible Flow Designer 1.2.0-rc.1.
 - **Copy a link with these values** on an action's form, to share what you filled in.
 - An action's page lists the values of the inputs it does not ask (**Runs with**); a secret one is never shown.
 - `GET /api/v1/projects/<id>/approvers?path=<flow>`: who an approval with empty approvers asks. An action's **What will happen** names them too.
+- Watches in the Debugger panel were kept by the browser, so the next person signed in on it found them and ran them in their own name. Each person's watches are now kept by the server, on every browser (`/api/v1/projects/<id>/watches`).
+- The Debugger panel showed a template as "[object Object]" and listed the engine's own `afd_repo_root` among the step inputs. It shows the template's text, marked not rendered, and leaves the engine's variables out.
+- The reason line said "condition held on 0 of 4 hosts" at a pause point that counts arrivals and after Step; it says "pause point, after 3 arrivals". A condition's pause names the hosts it held on.
+- After a Retry that failed again, the panel said "1 of 1 host" and its host list had only the retried host; every host the pause holds is listed and counted. At a failure pause the page's header said "paused before" the step; it says "after", as the panel does.
+- A cut value said it was cut at its full size; it says "cut at 64 KB of 164.9 KB".
+- Evaluate says "lookups are not allowed in Evaluate", takes `{{ foo(` like `foo(`, and says an expression left open has a bracket or quote not closed, not a `}` you never typed. F10 and F8 work while the cursor is in the Evaluate box.
+- Log points' lines show in the Debugger panel and with what a finished debug run's pauses showed.
+- What a finished debug run's pauses showed lists the values of the scopes opened (not only "str, 7 bytes"), each watch once, and tells pauses at one step apart.
+- Debug runs read "debug run" in the runs list and on Home, not "step by step".
+- An operator of the flow had no Stop on someone else's debug run, though the server allows it; the panel offers Stop and asks first. On a debug run's page the canvas no longer offers others **Pause here** and Step, which the server refuses.
+- Others reading a debug run see where its pause points are, not their conditions and log messages. Asking to look into someone else's debug run is refused with who may, not "This needs operator here".
+- The run-control option of an access token now says it also lets an agent read a paused debug run's variables, Watch, Evaluate and Retry.
+- On a phone a debug run's page has the tabs **Run · Debugger · Output**, opening on the Debugger. From 861 px the panel stays beside the canvas with its reason line and buttons in sight, also at 1024 px.
+- Closing the **Debug this failure** dialog puts the focus back on **Run again**; its mode labels wrap beside their radio buttons. The Watch and Evaluate boxes no longer show example expressions that look like values.
 
 ### Changed
 

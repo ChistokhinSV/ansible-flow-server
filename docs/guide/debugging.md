@@ -29,7 +29,8 @@ Right-click a step on the canvas and choose **Edit Pause Point…**:
   pause.
 - **After N arrivals:** pause when the count of hosts that reach the step gets to N.
 - **Log only:** a message rendered for each host goes to the run's **Log points** (masked as
-  any value is), and the run does not pause.
+  any value is), and the run does not pause. The Debugger panel lists the lines under **Log
+  points**: the step, the host and the message, or why the message could not be rendered.
 
 The popover also holds the failure filters: **A host failed** (on by default) and **A host is
 unreachable**. Your points and filters are kept for you on each flow, as plain pause points are.
@@ -40,34 +41,45 @@ it had none.
 
 ## The Debugger panel
 
-On a debug run's page the **Debugger** panel sits beside the canvas (below it on a phone).
+On a debug run's page the **Debugger** panel is a column beside the canvas on a wide window,
+and a drawer at the canvas's side on a laptop or tablet held sideways (about 1024 px): its reason
+line and buttons stay in sight while it scrolls. Up to 860 px wide (a phone) the page has tabs,
+**Run · Debugger · Output**, and opens on the Debugger.
 
-- **The reason line** names the step, the count of hosts and why the run paused: a pause point,
-  a step, a condition, a failure or an unreachable host. It also says when the pause stops the
-  run by itself: "Paused after Apply config · 1 of 6 hosts failed (attempt 1) · stops by itself in
-  52 min".
+- **The reason line** names the step, the count of hosts and why the run paused: a pause point
+  (with "after N arrivals" when the point counts them), a step, a condition (with the hosts it
+  held on), a failure or an unreachable host. It also says when the pause stops the run by
+  itself: "Paused after Apply config: 1 of 6 hosts failed (attempt 1) · stops by itself in
+  52 min", or "Paused before Validate · condition held on sw-edge-03, sw-edge-04 (2 of 4 hosts)".
+  The page's header says the same: "after" at a failure pause, "before" elsewhere. Stop at a
+  failure pause reads "Stopped after Push baseline · 1 host failed, 3 stopped after it".
 - **Retry, Continue, Step, Stop.** Retry is offered where hosts failed a step. It runs the step
   again on those hosts. The step's changes on the hosts are not undone, and the panel says so
   before you press it. A second failure pauses again (attempt 2). Retry is refused for a rolling
   subflow and for a failure outside the step's rescue; Run again offers a new run there.
 - **Host:** starts at the first failed host (else the first that matched a condition). Every
-  pause holds all hosts.
+  pause holds all hosts, also after a Retry: "1 of 4 hosts failed (attempt 2)", with all four in
+  the picker.
 - **Variables:** the host's scopes. Each opens when you open it:
   - **Step inputs:** the step's inputs as the step gets them;
   - **Host variables:** inventory variables, set_fact values and registered results;
   - **Flow data:** the run's extra variables;
   - **Facts:** read only when you open them.
 
-  A template is shown as text and is not rendered. A value longer than 64 KB is cut, and says
-  where.
-- **Watch:** expressions kept for you on this flow. Each shows its value for the host picked.
+  A template is shown as its text, marked "(template, not rendered)". The engine's own variables
+  (`afd_repo_root` and the like) are not listed. A value longer than 64 KB is cut, and says where
+  and how big it is: "(cut at 64 KB of 164.9 KB)". Facts not gathered yet say so.
+- **Watch:** expressions kept for you on this flow by the server: each person has their own, on
+  any browser, and nobody else's run in their name. Each shows its value for the host picked.
   **Compare across hosts** groups all paused hosts by the value they have. A watch that fails
   shows its error and stays in the list.
 - **Evaluate:** a Jinja expression for the host picked (Ctrl+Enter), written with or without
   `{{ }}`. It is read-only and runs for at most 2 s. Lookups (`lookup`, `query`, `q`) and the
-  vault filters are refused: "lookups are not allowed in Evaluate".
+  vault filters are refused: "lookups are not allowed in Evaluate". An expression left open
+  (`foo(`) says "a bracket or a quote is not closed".
 
-Keys: **F10** Step, **F8** Continue (or Pause while the run goes), **Ctrl+Enter** Evaluate.
+Keys: **F10** Step, **F8** Continue (or Pause while the run goes), **Ctrl+Enter** Evaluate. F10
+and F8 work while the cursor is in the Evaluate or Watch box too.
 
 ### Secrets
 
@@ -87,17 +99,25 @@ server still hides the run's credential values in its output, as a second layer.
 
 - **Who launched the run, and administrators:** the buttons, the variables, Watch and Evaluate.
 - **Others who may see the run:** the reason line and the canvas, and who it waits for ("Paused
-  by Dana Whitfield"). They see no values and no buttons. An operator of the flow may still Stop
-  the run, as any run.
+  by Dana Whitfield"). They see no values, no Step or Continue, and no Pause here on the canvas.
+  An operator of the flow has **Stop** in the panel, as for any run; it asks first, naming whose
+  run it is.
+- The run's record (`GET /runs/:id`) gives others the steps of its pause points, not their
+  conditions and log messages, which may hold a literal value.
 
-Every question to a paused run is in the audit log (`run.debug.inspect`). The entry has the
-question's kind and the expression of Evaluate or Watch, and never the answer.
+Every question to a paused run is in the audit log (`run.debug.inspect`). A refusal there says
+who may: "Only who launched this debug run, or an administrator, looks into its variables".
+
+The entry has the question's kind and the expression of Evaluate or Watch, and never the answer.
 
 ## After the run
 
-The scopes and watches each pause showed (masked) are kept with the run, at most 1 MB a run.
-The run's page lists them under **What the pauses showed** for who could see them during the
-run. They are deleted with the run.
+What each pause showed (masked) is kept with the run, at most 1 MB a run: the scopes, the values
+of each scope you opened, and the watches. The run's page lists them under **What the pauses
+showed** for who could see them during the run: per host, the values of the scopes opened (the
+others by their count of variables), and each watch once, with its last answer. Pauses at the
+same step are told apart ("pause 2 of 3 here") with their time. The log points' lines follow.
+They are deleted with the run.
 
 ## API and MCP
 
@@ -108,6 +128,7 @@ run. They are deleted with the run.
 | `POST /runs/:id/step`                                  | `{"command": "retry"}` at a failure pause; `{"failures": {...}}` changes the filters                                                                                                              | who launched it, admins      |
 | `GET /runs/:id/debug`                                  | What the run's pauses showed, kept with it                                                                                                                                                        | who launched it, admins      |
 | `GET` and `PUT /projects/:id/pause-points?path=<flow>` | Your points (with settings) and your failure filters on a flow                                                                                                                                    | `operator`                   |
+| `GET` and `PUT /projects/:id/watches?path=<flow>`      | Your watch expressions on a flow (`{"exprs": [...]}`, at most 20)                                                                                                                                 | `operator` (`GET`: `ro`)     |
 
 The answer to `inspect` comes from the run itself, usually within 100–150 ms. Only the server
 that runs it answers; another server of the group answers 409.

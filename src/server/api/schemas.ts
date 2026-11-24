@@ -600,6 +600,7 @@ export const ANSWERS = {
     "One host's results, step by step",
   ),
   runView: open(obj({}, {}, "The run as the canvas shows it (the designer's run view)")),
+  watches: obj({ exprs: listOf(str) }, {}, "Your watch expressions on a flow (the web debugger's)"),
   pausePoints: obj(
     {
       points: {
@@ -648,8 +649,8 @@ export const ANSWERS = {
             node: str,
             entries: listOf(
               obj(
-                { op: of('scopes', 'watch'), answer: open(obj({})), at: time },
-                { host: str, exprs: strings },
+                { op: of('scopes', 'watch', 'vars'), answer: open(obj({})), at: time },
+                { host: str, exprs: strings, scope: of('inputs', 'host', 'flow', 'facts') },
               ),
             ),
           },
@@ -658,7 +659,7 @@ export const ANSWERS = {
       ),
     },
     {},
-    "What a debug run's pauses showed (scopes and watches, masked), kept with the run",
+    "What a debug run's pauses showed (scopes, scopes opened and watches, masked), kept with the run",
   ),
   launchCheck: obj(
     {

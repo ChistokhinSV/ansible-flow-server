@@ -72,8 +72,14 @@ function Dialog({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current;
-    const back = document.activeElement as HTMLElement | null;
     if (!d) return;
+    // AFS-250: the menu item that opened it is gone with the menu: focus goes back to the menu's
+    // button (Run again), not to the page's body.
+    const was = document.activeElement as HTMLElement | null;
+    const menu = d.parentElement
+      ?.closest('.run-again')
+      ?.querySelector<HTMLElement>('button[aria-haspopup]');
+    const back = was && was !== document.body && was.isConnected ? was : menu;
     if (typeof d.showModal === 'function') {
       try {
         d.showModal();
@@ -83,7 +89,8 @@ function Dialog({
     } else d.setAttribute('open', '');
     return () => {
       if (typeof d.close === 'function' && d.open) d.close();
-      if (back?.isConnected) back.focus({ preventScroll: true });
+      const to = back?.isConnected ? back : menu;
+      if (to?.isConnected) to.focus({ preventScroll: true });
     };
   }, []);
   return (

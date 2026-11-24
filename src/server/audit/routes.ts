@@ -123,6 +123,8 @@ export const ACTIONS: Record<string, Action> = {
   'POST /api/v1/runs/:id/inspect': { action: 'run.debug.inspect', id: at() },
   // AFS-177: a person's own pause points on a flow (sent to their step-by-step runs of it).
   'PUT /api/v1/projects/:id/pause-points': { action: 'project.pause-points', id: at() },
+  // AFS-250: a person's own watches on a flow (the expressions run only at an inspect, audited there).
+  'PUT /api/v1/projects/:id/watches': { action: 'project.watches', id: at() },
   'POST /api/v1/runs/:id/relaunch': { action: 'run.relaunch', id: at() },
   'POST /git/:workspace/:repo/git-receive-pack': { action: 'git.push', id: 'none', self: true },
   'POST /api/v1/projects/:id/dev-bundles': {

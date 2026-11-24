@@ -682,6 +682,16 @@ export interface PausePointTable {
   updated_at: IsoTime;
 }
 
+/** AFS-250: a person's watch expressions on a flow (the web debugger), kept by the server. */
+export interface DebugWatchTable {
+  user_id: string;
+  project_id: string;
+  flow_file: string;
+  /** The expressions, as a JSON list of strings. */
+  exprs_json: string;
+  updated_at: IsoTime;
+}
+
 /** AFS-179: an answer a debug run's pause gave the debugger (scopes, watch), masked, kept. */
 export interface RunDebugTable {
   id: string;
@@ -756,6 +766,7 @@ export interface Schema {
   stream_delivery: StreamDeliveryTable;
   pause_point: PausePointTable;
   run_debug: RunDebugTable;
+  debug_watch: DebugWatchTable;
   flow_draft: FlowDraftTable;
   flow_draft_edit: FlowDraftEditTable;
   dev_bundle: DevBundleTable;

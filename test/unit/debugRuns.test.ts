@@ -569,3 +569,93 @@ describe('the executor', () => {
     await ex.stop();
   });
 });
+
+// Round 1 of the 1.2 exploration (AFS-249, AFS-250, AFS-253).
+describe('round 1 fixes', () => {
+  it('AFS-250: watches are kept per person and flow by the server', async () => {
+    const at = `/api/v1/projects/${project.id}/watches?path=${FILE}`;
+    const put = (who: string, exprs: string[]) =>
+      app.inject({ method: 'PUT', url: at, headers: as(who), payload: { exprs } });
+    const read = async (who: string) =>
+      (await app.inject({ url: at, headers: as(who) })).json().exprs;
+    expect((await put('wes', ['vlan_id', ' site ', 'vlan_id'])).json()).toEqual({
+      exprs: ['vlan_id', 'site'],
+    });
+    // Another person on the same flow has their own (none yet), and keeps their own.
+    expect(await read('omar')).toEqual([]);
+    expect((await put('omar', ['inventory_hostname'])).statusCode).toBe(200);
+    expect(await read('wes')).toEqual(['vlan_id', 'site']);
+    expect(await read('omar')).toEqual(['inventory_hostname']);
+    // A reader may read their (empty) list, not keep one; too many are refused.
+    expect(await read('rita')).toEqual([]);
+    expect((await put('rita', ['x'])).statusCode).toBe(403);
+    expect(
+      (
+        await put(
+          'wes',
+          Array.from({ length: 21 }, (_, i) => `v${i}`),
+        )
+      ).statusCode,
+    ).toBe(400);
+    // None: the row goes.
+    expect((await put('wes', [])).json()).toEqual({ exprs: [] });
+    expect(await read('wes')).toEqual([]);
+    const audit = (await listAudit(db(), { action: 'project.watches' })).entries;
+    expect(audit.filter((e) => e.result === 'ok').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('AFS-253: a reader is refused inspect in the words of who may; conditions stay the driver’s', async () => {
+    await clear();
+    const point = { node: FACTS, condition: 'site == "c6-secret-cond"', log: 'at {{ site }}' };
+    const run = (await launch('wes', { step: { debug: true, points: [point] } })).json() as {
+      id: string;
+    };
+    const refused = await post('rita', `/api/v1/runs/${run.id}/inspect`, { op: 'scopes' });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().message).toBe(
+      'Only who launched this debug run, or an administrator, looks into its variables',
+    );
+    const seen = async (who: string) =>
+      (await app.inject({ url: `/api/v1/runs/${run.id}`, headers: as(who) })).json().step.points;
+    expect(await seen('wes')).toEqual([point]);
+    expect(await seen('dana')).toEqual([point]);
+    expect(await seen('rita')).toEqual([FACTS]);
+    expect(await seen('omar')).toEqual([FACTS]);
+    const listed = (
+      await app.inject({ url: `/api/v1/runs?project=${project.id}`, headers: as('rita') })
+    ).json() as { id: string; step?: { points?: unknown[] } }[];
+    expect(listed.find((r) => r.id === run.id)?.step?.points).toEqual([FACTS]);
+    await queue.cancel(run.id, 'wes');
+  });
+
+  it('AFS-249: a scope opened at a pause is kept with its values, beside the scopes', async () => {
+    await clear();
+    const run = (await launch('wes', { step: { debug: true, every: true } })).json() as {
+      id: string;
+    };
+    const at = { pause: 'p-9', node: FACTS };
+    const scopes: InspectAnswer = { scopes: [{ id: 'inputs', name: 'Step inputs' }] };
+    const opened: InspectAnswer = { children: [{ name: 'site', type: 'str', value: 'local' }] };
+    await keepDebug(db(), run.id, at, { op: 'scopes', host: 'localhost', answer: scopes });
+    await keepDebug(db(), run.id, at, {
+      op: 'vars',
+      host: 'localhost',
+      scope: 'inputs',
+      answer: opened,
+    });
+    await keepDebug(db(), run.id, at, {
+      op: 'vars',
+      host: 'localhost',
+      scope: 'host',
+      answer: opened,
+    });
+    const [kept] = await debugKept(db(), run.id);
+    expect(kept?.entries.map((e) => [e.op, e.scope])).toEqual([
+      ['scopes', undefined],
+      ['vars', 'inputs'],
+      ['vars', 'host'],
+    ]);
+    expect(kept?.entries[1]?.answer).toEqual(opened);
+    await queue.cancel(run.id, 'wes');
+  });
+});

@@ -1,10 +1,10 @@
 // AFS-179 (ADR-0038 §1): what the debugger looked at in a debug run's pauses, kept with the run.
-// The run's answers to `scopes` and `watch` (masked by the engine before they left the run) are
+// The run's answers to `scopes`, `watch` and a scope opened (`vars` at its root; AFS-249) (masked by the engine before they left the run) are
 // kept per pause, at most 1 MB per run, and go with the run (retention, a project deleted). A run
 // that ended can then show what its pauses held.
 
 import { randomUUID } from 'node:crypto';
-import type { InspectAnswer } from '@ansible-flow/core/run/step';
+import type { InspectAnswer, VarScope } from '@ansible-flow/core/run/step';
 import type { Kysely } from 'kysely';
 import type { Schema } from '../db/schema';
 
@@ -12,12 +12,15 @@ import type { Schema } from '../db/schema';
 export const MAX_DEBUG_BYTES = 1024 * 1024;
 
 /** The ops whose answers are kept. */
-export const KEPT_OPS = ['scopes', 'watch'] as const;
+export const KEPT_OPS = ['scopes', 'watch', 'vars'] as const;
+export type KeptOp = (typeof KEPT_OPS)[number];
 
 export interface DebugEntry {
-  op: (typeof KEPT_OPS)[number];
+  op: KeptOp;
   host?: string;
   exprs?: string[];
+  /** vars: the scope opened (its first page of variables, with their values). */
+  scope?: VarScope;
   answer: InspectAnswer;
   at: string;
 }
@@ -42,7 +45,7 @@ export async function keepDebug(
   now = new Date(),
 ): Promise<boolean> {
   const answerJson = JSON.stringify(entry.answer);
-  const key = `${entry.op}|${entry.host ?? ''}|${JSON.stringify(entry.exprs ?? [])}`;
+  const key = `${entry.op}|${entry.host ?? ''}|${JSON.stringify(entry.exprs ?? [])}${entry.scope ? `|${entry.scope}` : ''}`;
   const size = Buffer.byteLength(answerJson);
   const same = await db
     .selectFrom('run_debug')
@@ -70,7 +73,12 @@ export async function keepDebug(
       entry_key: key,
       op: entry.op,
       host: entry.host ?? null,
-      exprs_json: entry.exprs ? JSON.stringify(entry.exprs) : null,
+      // A scope opened is kept in the expressions' place (a vars entry has none).
+      exprs_json: entry.exprs
+        ? JSON.stringify(entry.exprs)
+        : entry.scope
+          ? JSON.stringify({ scope: entry.scope })
+          : null,
       answer_json: answerJson,
       size,
       created_at: now.toISOString(),
@@ -100,10 +108,14 @@ export async function debugKept(db: Kysely<Schema>, run: string): Promise<DebugP
       };
       pauses.set(row.pause_id, pause);
     }
+    const said = row.exprs_json ? (JSON.parse(row.exprs_json) as unknown) : undefined;
     pause.entries.push({
       op: row.op as DebugEntry['op'],
       ...(row.host ? { host: row.host } : {}),
-      ...(row.exprs_json ? { exprs: JSON.parse(row.exprs_json) as string[] } : {}),
+      ...(Array.isArray(said) ? { exprs: said as string[] } : {}),
+      ...(said && !Array.isArray(said) && typeof said === 'object' && 'scope' in said
+        ? { scope: (said as { scope: VarScope }).scope }
+        : {}),
       answer: JSON.parse(row.answer_json) as InspectAnswer,
       at: row.created_at,
     });

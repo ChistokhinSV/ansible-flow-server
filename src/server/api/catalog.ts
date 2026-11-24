@@ -852,6 +852,22 @@ export const ROUTES: Record<string, RouteDoc> = {
     'Keep your pause points on a flow (`path`, body `points`: node ids, or {node, condition, hits, log} for debug runs; `failures` {failed, unreachable}: which failures pause your debug runs); your step-by-step runs of it going now get them too',
     json(ANSWERS.pausePoints),
   ),
+  'GET /api/v1/projects/:id/watches': S(
+    'Runs',
+    'signed in',
+    P,
+  )(
+    'Your watch expressions on a flow (`path`): what the Debugger panel asks your debug runs of it at each pause',
+    json(ANSWERS.watches),
+  ),
+  'PUT /api/v1/projects/:id/watches': S(
+    'Runs',
+    'signed in',
+    P,
+  )(
+    'Keep your watch expressions on a flow (`path`, body `exprs`: at most 20 Jinja expressions, without {{ }}); kept for you, not for the browser',
+    json(ANSWERS.watches),
+  ),
   'GET /api/v1/runs/:id/relaunch': S(
     'Runs',
     'signed in',
@@ -1438,6 +1454,9 @@ const NEEDS: Record<string, Who> = {
   'GET /api/v1/projects/:id/pause-points': 'ro',
   'GET /api/v1/projects/:id/approvers': 'ro',
   'PUT /api/v1/projects/:id/pause-points': 'operator',
+  // AFS-250: a person's watches: kept by who may drive a debug run of the flow.
+  'GET /api/v1/projects/:id/watches': 'ro',
+  'PUT /api/v1/projects/:id/watches': 'operator',
   'GET /api/v1/runs/:id/relaunch': 'ro',
   // AFS-240: another branch or commit than its configuration names, a dev run, and a debug run
   // need rw on the flow: checked by the handler.
@@ -1446,6 +1465,16 @@ const NEEDS: Record<string, Who> = {
   // (the approve grant, the approval's approvers, self-approval).
   'GET /api/v1/runs/:id/approvals': 'ro',
   'POST /api/v1/runs/:id/approvals/:node': 'ro',
+};
+/**
+ * AFS-253: a refusal in the words of who may, where the level alone would mislead: an operator
+ * may not look into someone else's debug run either, so "This needs operator" is not the reason.
+ */
+const REFUSED: Record<string, string> = {
+  'POST /api/v1/runs/:id/inspect':
+    'Only who launched this debug run, or an administrator, looks into its variables',
+  'GET /api/v1/runs/:id/debug':
+    'Only who launched this debug run, or an administrator, reads what its pauses showed',
 };
 for (const [route, who] of Object.entries(NEEDS)) {
   const doc = ROUTES[route];
@@ -1472,6 +1501,8 @@ const FLOW_QUERY: Record<string, string> = {
   'GET /api/v1/projects/:id/pause-points': 'path',
   'GET /api/v1/projects/:id/approvers': 'path',
   'PUT /api/v1/projects/:id/pause-points': 'path',
+  'GET /api/v1/projects/:id/watches': 'path',
+  'PUT /api/v1/projects/:id/watches': 'path',
 };
 
 /** What a route reaches: the workspace, and the project and flow when it reaches one. */
@@ -1837,7 +1868,7 @@ export function registerCatalog(app: FastifyInstance, deps: { db: Kysely<Schema>
       return reply.code(404).send({ error: 'not_found', message: missingOf(doc.reach) });
     return reply.code(403).send({
       error: 'forbidden',
-      message: `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,
+      message: REFUSED[key] ?? `This needs ${doc.who === 'can see' ? 'access' : doc.who} here`,
     });
   });
 

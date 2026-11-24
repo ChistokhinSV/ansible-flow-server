@@ -9,6 +9,21 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-250: a person's watches on a flow, kept by the server (they ran in the name of whoever
+  // signed in next on the same browser when the browser kept them).
+  '0041_debug_watch': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('debug_watch')
+        .addColumn('user_id', 'text', (c) => c.notNull())
+        .addColumn('project_id', 'text', (c) => c.notNull())
+        .addColumn('flow_file', 'text', (c) => c.notNull())
+        .addColumn('exprs_json', 'text', (c) => c.notNull())
+        .addColumn('updated_at', 'text', (c) => c.notNull())
+        .addPrimaryKeyConstraint('debug_watch_pk', ['user_id', 'project_id', 'flow_file'])
+        .execute();
+    },
+  },
   // AFS-179 (ADR-0038 §1): the web debugger. What a debug run's pauses showed (scopes and watches,
   // masked), kept with the run; a person's failure filters beside their pause points (which may now
   // carry settings: a condition, a hit count, a log message); and the workspace setting that lets

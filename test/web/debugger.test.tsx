@@ -13,8 +13,10 @@ import {
   entryText,
   firstHost,
   hostOrder,
+  keptHosts,
   reasonLine,
   shownValue,
+  stoppedLine,
 } from '../../src/web/debugger';
 import type { ShownStep } from '../../src/web/stepBar';
 
@@ -105,11 +107,11 @@ afterEach(() => {
 describe('words', () => {
   it('the reason line names the step, the hosts and why', () => {
     expect(reasonLine(pause, 'Apply config', 1000_000)).toBe(
-      'Paused after Apply config · 1 of 6 hosts failed (attempt 1) · stops by itself in 60 min',
+      'Paused after Apply config: 1 of 6 hosts failed (attempt 1) · stops by itself in 60 min',
     );
     expect(
       reasonLine({ ...pause, kind: 'condition', matched: ['edge-03'] }, 'Apply config', 1000_000),
-    ).toContain('condition held on 1 of 6 hosts');
+    ).toContain('condition held on edge-03 (1 of 6 hosts)');
     expect(reasonLine({ ...pause, kind: 'point' }, 'Apply config', 1000_000)).toContain(
       'Paused before Apply config · pause point · 6 hosts',
     );
@@ -133,7 +135,7 @@ describe('words', () => {
       'masked: external secret',
     );
     expect(entryText({ name: 'v', type: 'str', value: 'abc', cut: 65536 })).toBe(
-      '"abc"… (cut at 65536 bytes)',
+      '"abc"… (cut at 3 bytes of 64 KB)',
     );
     expect(entryText({ name: 'd', type: 'dict', count: 3 })).toBe('{…} 3 items');
     expect(shownValue({ a: { __afd__: 'masked', masked: 'vault' }, b: 1 })).toBe(
@@ -242,5 +244,291 @@ describe('the panel', () => {
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByLabelText(/Host/)).toBeNull();
     expect(asked).toEqual([]);
+  });
+});
+
+// Round 1 of the 1.2 exploration (AFS-249, AFS-250, AFS-253).
+describe('AFS-249: the panel words', () => {
+  it('names the hosts a condition held on; a point with no match or a count is a pause point', () => {
+    const cond = { ...pause, kind: 'condition' as const, failed: [] };
+    expect(
+      reasonLine(
+        { ...cond, matched: ['edge-01', 'edge-02', 'edge-03', 'core-01', 'core-02'] },
+        'X',
+        1000_000,
+      ),
+    ).toContain('condition held on edge-01, edge-02, edge-03 and 2 more (5 of 6 hosts)');
+    // "Always, after 3 arrivals" and a Step that lands on a point: not "condition held on 0".
+    const line = reasonLine({ ...cond, matched: [] }, 'Validate', 1000_000, { hits: 3 });
+    expect(line).toContain('Paused before Validate · pause point, after 3 arrivals · 6 hosts');
+    expect(line).not.toContain('condition');
+  });
+
+  it('a run stopped at a failure pause: the failed hosts, and the others stopped after it', () => {
+    expect(
+      stoppedLine(
+        {
+          node: APPLY,
+          hosts: ['edge-01', 'edge-02', 'edge-03', 'core-01'],
+          reason: 'driver',
+          after: true,
+          failed: [{ host: 'edge-02' }],
+        },
+        'Push baseline',
+      ),
+    ).toBe('Stopped after Push baseline · 1 host failed, 3 stopped after it');
+    expect(stoppedLine({ node: APPLY, hosts: ['a', 'b'], reason: 'timeout' }, 'Validate')).toBe(
+      'Stopped before Validate · 2 hosts (nobody answered the pause)',
+    );
+  });
+
+  it('after a Retry the pause still counts all the hosts it holds', () => {
+    const retried = { ...pause, hosts: ['edge-02'], attempt: 2 };
+    expect(reasonLine(retried, 'Apply config', 1000_000, { hosts: pause.hosts })).toContain(
+      '1 of 6 hosts failed (attempt 2)',
+    );
+    expect(hostOrder(retried, pause.hosts).map((h) => h.host)).toEqual([
+      'edge-02',
+      'edge-01',
+      'edge-03',
+      'core-01',
+      'core-02',
+      'lb-01',
+    ]);
+  });
+
+  it('a template shows its text; a cut value says where it was cut and its whole size', () => {
+    expect(
+      entryText({
+        name: 'site',
+        type: 'template',
+        value: { __afd__: 'template', text: '{{ x }}' },
+      }),
+    ).toBe('{{ x }} (template, not rendered)');
+    expect(entryText({ name: 's', type: 'str', value: 'a'.repeat(65536), cut: 168889 })).toMatch(
+      /… \(cut at 64 KB of 164\.9 KB\)$/,
+    );
+  });
+
+  it('Evaluate says lookups are not allowed, and an expression left open is said so', () => {
+    expect(
+      answerText({
+        refused: true,
+        error: 'lookup() is not allowed while debugging: it can read or run things',
+      }).text,
+    ).toBe('Refused: lookups are not allowed in Evaluate');
+    expect(
+      answerText({ refused: true, error: "Not a Jinja expression: unexpected '}'" }).text,
+    ).toBe('Refused: Not a complete expression: a bracket or a quote is not closed');
+    expect(
+      answerText({ refused: true, error: 'The password filter is not allowed while debugging' })
+        .text,
+    ).toBe('Refused: The password filter is not allowed in Evaluate');
+    // Braces typed on one side only go, so the run is not told about braces.
+    expect(bare('{{ foo(')).toBe('foo(');
+    expect(bare('foo }}')).toBe('foo');
+    expect(bare("{{ '{{' }}")).toBe("'{{'");
+  });
+
+  it('a finished run shows the values its pauses showed, each watch once', () => {
+    const kept = keptHosts({
+      pause: 'p1',
+      node: APPLY,
+      play: '[apply] Apply config',
+      entries: [
+        {
+          op: 'scopes',
+          host: 'edge-02',
+          at: '2026-11-24T10:00:00.000Z',
+          answer: {
+            scopes: [
+              {
+                id: 'inputs',
+                name: 'Step inputs',
+                vars: [
+                  { name: 'site', type: 'str', size: 7 },
+                  { name: 'afd_repo_root', type: 'str', size: 9 },
+                ],
+              },
+              { id: 'host', name: 'Host variables', vars: [{ name: 'vlan_id', type: 'int' }] },
+            ],
+          },
+        },
+        {
+          op: 'vars',
+          host: 'edge-02',
+          scope: 'inputs',
+          at: '2026-11-24T10:00:01.000Z',
+          answer: {
+            children: [
+              { name: 'site', type: 'str', value: 'local' },
+              { name: 'afd_repo_root', type: 'str', value: '/runner' },
+            ],
+          },
+        },
+        {
+          op: 'watch',
+          exprs: ['vlan_id'],
+          at: '2026-11-24T10:00:02.000Z',
+          answer: { results: [{ host: 'edge-02', expr: 'vlan_id', value: 200 }] },
+        },
+        {
+          op: 'watch',
+          exprs: ['vlan_id', 'site'],
+          at: '2026-11-24T10:00:03.000Z',
+          answer: {
+            results: [
+              { host: 'edge-02', expr: 'vlan_id', value: 210 },
+              { host: 'edge-02', expr: 'site', value: 'local' },
+            ],
+          },
+        },
+      ],
+    });
+    expect(kept).toHaveLength(1);
+    const [edge] = kept;
+    const inputs = edge?.scopes.find((s) => s.id === 'inputs');
+    expect(inputs?.opened).toBe(true);
+    expect(inputs?.vars.map((v) => entryText(v))).toEqual(['"local"']);
+    expect(edge?.scopes.find((s) => s.id === 'host')?.opened).toBe(false);
+    expect(edge?.watches.map((w) => `${w.expr}=${answerText(w.answer).text}`)).toEqual([
+      'vlan_id=210',
+      'site="local"',
+    ]);
+  });
+});
+
+describe('AFS-250, AFS-253: watches per person, keys, Stop for an operator, log points', () => {
+  let kept: string[][];
+  beforeEach(() => {
+    kept = [];
+    const inner = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      if (url.includes('/watches?path=')) {
+        if (init.method === 'PUT') {
+          const body = JSON.parse(String(init.body));
+          kept.push(body.exprs);
+          return { ok: true, status: 200, json: async () => body } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ exprs: ['site'] }) } as Response;
+      }
+      return inner(url, init);
+    });
+  });
+
+  it("reads this person's watches from the server and keeps changes there, not in the browser", async () => {
+    window.localStorage.setItem('afs.watch.p1.flows/edge.flow.yaml', '["mias_expr"]');
+    render(
+      <DebugPanel
+        run={run}
+        step={step}
+        mayDrive
+        launcher="Dana"
+        onRun={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    expect(await screen.findByText('{{ site }}')).toBeTruthy();
+    expect(screen.queryByText('{{ mias_expr }}')).toBeNull();
+    expect(window.localStorage.getItem('afs.watch.p1.flows/edge.flow.yaml')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Expression to watch'), {
+      target: { value: 'vlan_id' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(kept).toEqual([['site', 'vlan_id']]));
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it('F10 steps while the focus is in the Evaluate box', async () => {
+    render(
+      <DebugPanel
+        run={run}
+        step={{ ...step, paused: { ...pause, kind: 'point', failed: [] } }}
+        mayDrive
+        launcher="Dana"
+        onRun={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    const box = screen.getByLabelText('Jinja expression to evaluate');
+    box.focus();
+    fireEvent.keyDown(box, { key: 'F10' });
+    await waitFor(() => expect(commands).toEqual([{ command: 'step' }]));
+  });
+
+  it('an operator who does not drive it has Stop, asked first, and nothing else', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <DebugPanel
+        run={run}
+        step={step}
+        mayDrive={false}
+        mayStop
+        launcher="Dana"
+        onRun={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop']);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(commands).toEqual([{ command: 'stop' }]));
+    expect(confirm.mock.calls[0]?.[0]).toContain("Stop Dana's debug run #412?");
+    expect(asked).toEqual([]);
+  });
+
+  it("shows the log points' lines, and leaves the engine's own variables out of the inputs", async () => {
+    answers = (a) =>
+      a.op === 'scopes'
+        ? {
+            scopes: [
+              {
+                id: 'inputs',
+                name: 'Step inputs',
+                vars: [
+                  { name: 'afd_repo_root', type: 'str' },
+                  { name: 'site', type: 'template' },
+                ],
+              },
+            ],
+          }
+        : {
+            children: [
+              { name: 'afd_repo_root', type: 'str', value: '/runner' },
+              {
+                name: 'site',
+                type: 'template',
+                value: { __afd__: 'template', text: '{{ s }}' },
+              },
+            ],
+          };
+    render(
+      <DebugPanel
+        run={run}
+        step={{
+          ...step,
+          logs: [
+            { node: APPLY, host: 'edge-01', message: 'c1log edge-01 site=lab', ts: 1 },
+            { node: 'other', host: 'edge-02', error: "'site' is undefined", source: 'log', ts: 2 },
+          ],
+        }}
+        mayDrive
+        launcher="Dana"
+        onRun={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    const logs = await screen.findByText('Log points');
+    const list = logs.parentElement as HTMLElement;
+    expect(within(list).getByText('c1log edge-01 site=lab')).toBeTruthy();
+    expect(within(list).getByText('Apply config · edge-01')).toBeTruthy();
+    expect(within(list).getByText("The message failed: 'site' is undefined")).toBeTruthy();
+    const inputs = (await screen.findByText('Step inputs')).closest(
+      'details',
+    ) as HTMLDetailsElement;
+    expect(inputs.textContent).toContain('1 variable');
+    inputs.open = true;
+    fireEvent(inputs, new Event('toggle'));
+    expect(await screen.findByText('{{ s }} (template, not rendered)')).toBeTruthy();
+    expect(screen.queryByText('afd_repo_root')).toBeNull();
   });
 });

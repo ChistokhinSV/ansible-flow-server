@@ -229,3 +229,18 @@ describe('Change and run', () => {
     });
   });
 });
+
+// AFS-250: closing the Debug this failure dialog puts the focus back on Run again, not the body.
+describe('Debug this failure, closed', () => {
+  it('gives the focus back to Run again', async () => {
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    fireEvent.click(
+      within(await openMenu()).getByRole('menuitem', { name: 'Debug this failure…' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Debug this failure' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run again ▾' }));
+  });
+});

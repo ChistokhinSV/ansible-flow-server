@@ -260,15 +260,38 @@ async function seed(
       },
     },
   };
+  // AFS-250: a debug run paused where a host failed, with its Debugger panel (tabs on a phone, a
+  // drawer beside the canvas at 1024, a column at 1440).
+  const debugged = await call('POST', `/launch-configs/${config.id}/launch`, {
+    step: { debug: true, points: [facts] },
+  });
+  const debugView = {
+    ...pausedView,
+    id: debugged.id,
+    step: {
+      every: false,
+      points: [facts],
+      pauses: 1,
+      debug: true,
+      paused: {
+        ...pausedView.step.paused,
+        id: 'layout-debug-1',
+        kind: 'failure',
+        failed: [{ host: 'localhost', task: 'Read the minimal facts', msg: 'Timed out' }],
+        attempt: 1,
+        debug: true,
+      },
+    },
+  };
   const sqlite = new DatabaseSync(join(data, 'afs.db'));
   try {
-    sqlite
-      .prepare(
-        `update run set state = 'running', claimed_at = ?, started_at = ?, attempts = 1,
-           lease_owner = 'layout', lease_token = 'layout', lease_until = '2999-01-01T00:00:00.000Z',
-           step_paused = 'Read the minimal facts', view_json = ?, updated_at = ? where id = ?`,
-      )
-      .run(now, now, JSON.stringify(pausedView), now, stepped.id);
+    const pause = sqlite.prepare(
+      `update run set state = 'running', claimed_at = ?, started_at = ?, attempts = 1,
+         lease_owner = 'layout', lease_token = 'layout', lease_until = '2999-01-01T00:00:00.000Z',
+         step_paused = 'Read the minimal facts', view_json = ?, updated_at = ? where id = ?`,
+    );
+    pause.run(now, now, JSON.stringify(pausedView), now, stepped.id);
+    pause.run(now, now, JSON.stringify(debugView), now, debugged.id);
   } finally {
     sqlite.close();
   }
@@ -318,6 +341,8 @@ async function seed(
     run: `/runs/${run.id ?? run.run?.id}`,
     // AFS-177: a step-by-step run paused, with Step, Continue and Stop outside the canvas.
     pausedRun: `/runs/${stepped.id}`,
+    // AFS-250: a debug run paused at a failure, with the Debugger panel.
+    debugRun: `/runs/${debugged.id}`,
     runs: '/runs',
     approvals: '/approvals',
     credentials: '/w/network/-/credentials',

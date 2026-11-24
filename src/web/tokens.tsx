@@ -128,7 +128,7 @@ export function TokensPanel({
                   <td>
                     {t.readOnly ? 'read' : 'read and change'}
                     {t.mcpApprovals ? ', decide approvals (agents)' : ''}
-                    {t.mcpRunControl ? ', drive step-by-step runs (agents)' : ''}
+                    {t.mcpRunControl ? ', drive and look into step-by-step runs (agents)' : ''}
                   </td>
                   <td>{t.workspace ? workspaceName(t.workspace) : 'all workspaces'}</td>
                   <td>
@@ -246,8 +246,10 @@ export function TokensPanel({
                   disabled={input.readOnly}
                   onChange={(e) => setInput({ ...input, mcpRunControl: e.target.checked })}
                 />
-                An agent with this token may drive step-by-step runs over MCP: Step, Continue,
-                Pause, Stop (off: people press them on the run's page)
+                {/* AFS-253: all the option allows, the debugger's reading and Evaluate too. */}
+                An agent with this token may drive step-by-step runs over MCP (Step, Continue,
+                Pause, Stop, Retry) and look into the debug runs this person may drive: read their
+                variables at a pause, Watch and Evaluate (off: people do this on the run's page)
                 {input.readOnly ? ' · not for a read-only token' : ''}
               </label>
             )}

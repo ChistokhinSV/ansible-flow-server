@@ -8,6 +8,8 @@
 //   GET  /api/v1/runs/:id/debug         AFS-179: what was looked at in a debug run's pauses (kept)
 //   GET  /api/v1/projects/:id/pause-points?path=   your pause points on a flow
 //   PUT  /api/v1/projects/:id/pause-points?path=   {points, failures?}: kept, and sent to your runs
+//   GET  /api/v1/projects/:id/watches?path=        AFS-250: your watch expressions on a flow
+//   PUT  /api/v1/projects/:id/watches?path=        {exprs}: kept for you (not per browser)
 //
 // Who drives: whoever may stop the run (operator on its flow, which the person who launched it
 // is, and administrators). A paused run keeps its container, its place among the runs at once and
@@ -46,6 +48,8 @@ export const STEP_COMMANDS = ['step', 'continue', 'pause', 'stop', 'retry'] as c
 export const INSPECT_OPS = ['scopes', 'vars', 'facts', 'eval', 'watch'] as const;
 /** At most this many pause points on one flow. */
 export const MAX_POINTS = 200;
+/** AFS-250: at most this many watches per person and flow (a watch asks for 20 at most). */
+export const MAX_WATCHES = 20;
 /** How long a pause waits when the server says nothing (minutes). */
 export const STEP_TIMEOUT_MINUTES = 60;
 
@@ -190,6 +194,17 @@ export async function debugRefusal(
  */
 export function mayDebugRun(me: Pick<SessionUser, 'login' | 'admin'>, launcher: string): boolean {
   return me.admin || me.login === launcher;
+}
+
+/**
+ * AFS-253: a debug run as someone who does not drive it reads it: where it pauses (the points'
+ * steps), not the points' conditions and log messages, which may hold a literal value.
+ */
+export function forReader<
+  T extends { step?: { debug?: boolean; points?: PointSpec[] }; requestedBy: { login: string } },
+>(run: T, me: Pick<SessionUser, 'login' | 'admin'>): T {
+  if (!run.step?.debug || !run.step.points || mayDebugRun(me, run.requestedBy.login)) return run;
+  return { ...run, step: { ...run.step, points: run.step.points.map(pointNode) } };
 }
 
 export interface StepRouteDeps {
@@ -446,6 +461,90 @@ export function registerStepping(app: FastifyInstance, deps: StepRouteDeps): voi
       return { points, ...(failures ? { failures } : {}) };
     },
   );
+
+  // AFS-250: a person's watches on a flow, kept by the server: the next person on the same
+  // browser has their own (a watch runs in the name of who asks it).
+  app.get<FlowQuery>(
+    '/api/v1/projects/:id/watches',
+    { schema: { params: ID, querystring: PATH } },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      return { exprs: await watchesOf(db, me.id, request.params.id, request.query.path) };
+    },
+  );
+
+  app.put<FlowQuery & { Body: { exprs: string[] } }>(
+    '/api/v1/projects/:id/watches',
+    {
+      schema: {
+        params: ID,
+        querystring: PATH,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['exprs'],
+          properties: {
+            exprs: { type: 'array', maxItems: MAX_WATCHES, items: text(MAX_EXPR, 1) },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const exprs = [...new Set(request.body.exprs.map((e) => e.trim()).filter(Boolean))];
+      await keepWatches(db, me.id, request.params.id, request.query.path, exprs);
+      return { exprs };
+    },
+  );
+}
+
+/** AFS-250: a person's watch expressions on a flow; none kept: none. */
+export async function watchesOf(
+  db: Kysely<Schema>,
+  user: string,
+  project: string,
+  file: string,
+): Promise<string[]> {
+  const row = await db
+    .selectFrom('debug_watch')
+    .select('exprs_json')
+    .where('user_id', '=', user)
+    .where('project_id', '=', project)
+    .where('flow_file', '=', file)
+    .executeTakeFirst();
+  if (!row) return [];
+  const kept = JSON.parse(row.exprs_json) as unknown;
+  return Array.isArray(kept) ? kept.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** AFS-250: keeps a person's watches on a flow; none: the row goes. */
+export async function keepWatches(
+  db: Kysely<Schema>,
+  user: string,
+  project: string,
+  file: string,
+  exprs: string[],
+  now = new Date(),
+): Promise<void> {
+  await db
+    .deleteFrom('debug_watch')
+    .where('user_id', '=', user)
+    .where('project_id', '=', project)
+    .where('flow_file', '=', file)
+    .execute();
+  if (exprs.length)
+    await db
+      .insertInto('debug_watch')
+      .values({
+        user_id: user,
+        project_id: project,
+        flow_file: file,
+        exprs_json: JSON.stringify(exprs.slice(0, MAX_WATCHES)),
+        updated_at: now.toISOString(),
+      })
+      .execute();
 }
 
 /**
