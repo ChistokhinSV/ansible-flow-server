@@ -39,6 +39,11 @@ Carries Ansible Flow Designer 1.2.0-rc.2.
 
 ### Fixed
 
+- Event streaming: a destination that was down got a run's `run.started` line with a later time than the others; every destination now gets the same time, the moment the run started.
+- Event streaming: changing a destination away from an address that does not answer sent what waited about 19 seconds later; it is sent at once.
+- Event streaming: the last error of a destination's old settings stayed under **Last error** after a change; a change clears it, and an error from before the destination sent again reads "Before it sent again".
+- Event streaming: the boxes of an OpenTelemetry header have labels, **Name** and **Value**, and examples.
+- Event streaming: the page gives the time a destination is failing since in UTC too, as the `stream.failing` e-mail does.
 - The flow pages now show the warnings that need the repository, such as a network module on hosts the inventory reaches with `ansible_connection: local`, as VS Code does.
 - Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
 - The lists of runs did not count hosts that could not be reached among the hosts that did not go well.

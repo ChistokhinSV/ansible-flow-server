@@ -13,8 +13,9 @@ collector**. Administrators add the destinations on **Administration › Event s
 | OpenTelemetry | One log record each (OTLP) | One trace when a run ends                    |
 
 Each destination has **On**, **Audit entries** and **Runs**, and a **Test** button that sends one
-message now and says how it went, under the buttons. A change takes effect for the next batch, and
-what waits for the destination is sent at once.
+message now and says how it went, under the buttons. A change takes effect at once: what the
+destination was doing stops (a connection to an address that does not answer is given up), what
+waits for it is sent on the new settings, and the last error of the old settings is cleared.
 
 When sending fails, the page says why in words, with the code in brackets for a search:
 
@@ -25,6 +26,9 @@ When sending fails, the page says why in words, with the code in brackets for a 
 | Nothing listens on host:port ...                              | Check the port and that it is up     |
 | Not reachable: no answer from host:port                       | Check the address and the firewall   |
 | The answer is not HTTP: OTLP/HTTP is usually on port 4318 ... | Use the OTLP/HTTP port, not gRPC     |
+
+An error from before the destination sent again (a receiver that was restarting) stays, marked
+"Before it sent again", with its time.
 
 ## Syslog
 
@@ -56,6 +60,9 @@ An audit entry, wrapped here (one line on the wire):
 - A run's lines have MSGID `run.started` and `run.ended` and an element
   `run@32473` with its number, project, flow, mode, state, who launched it, its hosts and those
   that failed, and how long it took. Flow inputs are never sent.
+- A line's time is when it happened, not when it was sent: a destination that was down gets the
+  same `run.started` time as the others when what waited is sent. `run.started` is the moment the
+  run left the queue; the run page's **Started** is when its worker began, a moment later.
 
 Syslog has no acknowledgement. Messages written on a connection count as sent once it has stayed
 up for 3 seconds with nothing left in its buffer; when it drops before that, they are written
@@ -66,8 +73,9 @@ audit entry's id (`audit@32473 id`).
 
 - **Endpoint**: the collector's OTLP/HTTP address, such as `https://collector.example.net:4318`;
   `/v1/logs` and `/v1/traces` are added. The server sends JSON, gzipped.
-- **Headers**: sent with each request (`Authorization`, `api-key`). Their values are kept
-  encrypted with the master key and never shown: leave a value empty to keep it.
+- **Headers**: **Add a header** gives a **Name** and a **Value**, sent with each request
+  (`Authorization`, `api-key`). Their values are kept encrypted with the master key and never
+  shown: leave a value empty to keep it.
 - **Environment**: `deployment.environment.name` on everything sent.
 - **Host names in traces**: off, a trace has host counts only.
 
@@ -111,7 +119,8 @@ hour (`stream.dropped`). The audit log itself keeps everything for its own keepi
 The page shows, for each destination: whether it is sending or failing and since when, how many
 rows wait and since when, how many were dropped, and the last error. After **15 minutes** without
 sending, the administrators are told (`stream.failing` on the [notifications](notifications.md)
-they get), once for each time it starts failing.
+they get), once for each time it starts failing. The e-mail gives the time in UTC; the page gives
+it in your time zone and in UTC.
 
 Prometheus ([operations](operations.md)) has the same per destination, labelled by its id:
 `afs_stream_backlog`, `afs_stream_oldest_pending_seconds`, `afs_stream_dropped_total` and

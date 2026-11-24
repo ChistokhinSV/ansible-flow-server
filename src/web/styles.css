@@ -3069,6 +3069,10 @@ td.act .actions {
 .row:has(> .field) {
   align-items: flex-end;
 }
+/* AFS-262: an OTLP header's name and value, side by side, each with its label. */
+.header-row > .field {
+  flex: 1 1 12rem;
+}
 .inline-form > label {
   display: inline-flex;
   align-items: center;

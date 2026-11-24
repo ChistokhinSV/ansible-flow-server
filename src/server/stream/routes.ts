@@ -146,7 +146,7 @@ export function registerStreams(app: FastifyInstance, deps: StreamDeps): void {
     answering(async (request, reply) => {
       if (!inSession(request, reply, true)) return reply;
       const changed = await updateSink(db, key, request.params.id, request.body);
-      deps.streamer?.wake();
+      if (changed) deps.streamer?.changed(request.params.id);
       return changed ?? missing(reply);
     }),
   );
@@ -156,7 +156,9 @@ export function registerStreams(app: FastifyInstance, deps: StreamDeps): void {
     { schema: ID },
     answering(async (request, reply) => {
       if (!inSession(request, reply, true)) return reply;
-      return (await deleteSink(db, request.params.id)) ? reply.code(204).send() : missing(reply);
+      if (!(await deleteSink(db, request.params.id))) return missing(reply);
+      deps.streamer?.changed(request.params.id);
+      return reply.code(204).send();
     }),
   );
 

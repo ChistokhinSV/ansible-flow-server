@@ -94,8 +94,8 @@ export interface StreamerOptions {
   /** Told when a destination has failed for 15 minutes (the notifier's stream.failing). */
   failing?: (sink: { id: string; name: string; since: string; error?: string }) => void;
   everyMs?: number;
-  /** Opens a syslog connection (a test gives its own). */
-  dial?: (s: SyslogSettings) => Promise<Wire>;
+  /** Opens a syslog connection (a test gives its own); `signal` aborts it. */
+  dial?: (s: SyslogSettings, signal?: AbortSignal) => Promise<Wire>;
   hostname?: string;
 }
 
@@ -122,6 +122,10 @@ export class Streamer {
   private stopped = false;
   private readonly links = new Map<string, SyslogState>();
   private readonly boundsAt = new Map<string, number>();
+  /** AFS-262: what each destination is sending now, stopped when an administrator changes it. */
+  private readonly sending = new Map<string, AbortController>();
+  /** When each destination was last changed: a round that read it before skips it. */
+  private readonly changedAt = new Map<string, number>();
   private readonly host: string;
 
   constructor(private readonly o: StreamerOptions) {
@@ -165,6 +169,30 @@ export class Streamer {
     this.soon.unref();
   }
 
+  /**
+   * AFS-262: a destination was changed or removed. What it is doing now stops (a connection to an
+   * address that does not answer waited out its 10 s, then the destination waited its next try),
+   * rows written and not yet counted sent are given back, and what waits goes at once.
+   */
+  changed(id: string): void {
+    this.changedAt.set(id, Date.now());
+    this.sending.get(id)?.abort();
+    const state = this.links.get(id);
+    if (state) {
+      this.links.delete(id);
+      state.link.onLost = undefined;
+      state.link.close();
+      const keys = state.inflight.flatMap((b) => b.keys);
+      state.inflight = [];
+      if (keys.length)
+        state.givingBack = state.givingBack
+          .then(() => markRetry(this.o.db, id, keys, undefined, 0))
+          .then(() => this.wake())
+          .catch((e) => this.o.log.error({ err: e, sink: id }, 'Rows were not given back'));
+    }
+    this.wake();
+  }
+
   /** A run started: its line goes to the syslog destinations. */
   runStarted(id: string): void {
     void enqueueDeliveries(this.o.db, 'run-start', id).then(
@@ -196,6 +224,7 @@ export class Streamer {
 
   private async sendAll(): Promise<void> {
     if (this.stopped) return;
+    const read = Date.now();
     const sinks = await sinksForSending(this.o.db, this.o.key);
     // Destinations removed or turned off: their connections close.
     for (const [id, state] of this.links)
@@ -206,14 +235,20 @@ export class Streamer {
     let more = false;
     for (const sink of sinks) {
       if (this.stopped) return;
+      // Changed since it was read: the next round has its new settings.
+      if ((this.changedAt.get(sink.id) ?? 0) >= read) continue;
+      const aborting = new AbortController();
+      this.sending.set(sink.id, aborting);
       try {
         await this.bounds(sink);
         // A failing destination waits as a whole until its next try.
         const waiting = !!sink.status.nextTryAt && Date.parse(sink.status.nextTryAt) > Date.now();
         if (!waiting) {
-          if (sink.syslog) more = (await this.sendSyslog(sink, sink.syslog)) || more;
-          else if (sink.otlp) more = (await this.sendOtlp(sink)) || more;
+          const signal = aborting.signal;
+          if (sink.syslog) more = (await this.sendSyslog(sink, sink.syslog, signal)) || more;
+          else if (sink.otlp) more = (await this.sendOtlp(sink, signal)) || more;
         }
+        if (aborting.signal.aborted) continue;
         const since = await claimFailingNotice(this.o.db, sink.id, FAILING_AFTER_MS);
         if (since) {
           const row = await this.o.db
@@ -231,6 +266,8 @@ export class Streamer {
         }
       } catch (e) {
         this.o.log.error({ err: e, sink: sink.id }, 'An event stream could not send');
+      } finally {
+        if (this.sending.get(sink.id) === aborting) this.sending.delete(sink.id);
       }
     }
     // A backlog bigger than a round: the next round now, not in 2 s.
@@ -267,7 +304,9 @@ export class Streamer {
     const had = this.links.get(sink.id);
     if (had && had.settings === settings) return had;
     had?.link.close();
-    const link = new SyslogLink(() => (this.o.dial ?? dial)(s));
+    const link = new SyslogLink((signal) =>
+      this.o.dial ? this.o.dial(s, signal) : dial(s, undefined, signal),
+    );
     const state: SyslogState = { link, settings, inflight: [], givingBack: Promise.resolve() };
     link.onLost = (generation, error) => {
       // What was written on the lost socket and not yet counted sent goes again, first: the next
@@ -305,7 +344,11 @@ export class Streamer {
   }
 
   /** Sends what is due; resolves true when more is due than a round sends. */
-  private async sendSyslog(sink: SinkForSending, s: SyslogSettings): Promise<boolean> {
+  private async sendSyslog(
+    sink: SinkForSending,
+    s: SyslogSettings,
+    signal: AbortSignal,
+  ): Promise<boolean> {
     const db = this.o.db;
     await reviveInflight(db, sink.id, STALE_INFLIGHT_MS);
     const kinds: DeliveryKind[] = ['audit', 'run-start', 'run-end'];
@@ -321,13 +364,14 @@ export class Streamer {
           await markSent(db, sink.id, keys);
           await sinkSucceeded(db, sink.id);
         } catch (e) {
-          await this.failed(sink.id, keys, problemOf(e, where));
+          await this.failed(sink.id, keys, problemOf(e, where), signal);
           return false;
         }
         if (taken.length < AUDIT_BATCH) return false;
       }
       return true;
     }
+    if (signal.aborted) return false;
     const state = this.stateOf(sink, s);
     await state.givingBack;
     await this.settle(sink.id, state, s.windowSeconds * 1000);
@@ -340,7 +384,12 @@ export class Streamer {
       try {
         generation = await state.link.write(messages.map((m) => frame(m, s.framing)));
       } catch (e) {
-        await this.failed(sink.id, keys, problemOf(e, where));
+        await this.failed(sink.id, keys, problemOf(e, where), signal);
+        return false;
+      }
+      if (signal.aborted) {
+        // Changed while writing: they go again, on the new settings.
+        await markRetry(db, sink.id, keys, undefined, 0);
         return false;
       }
       await markInflight(db, sink.id, keys);
@@ -377,7 +426,15 @@ export class Streamer {
       const entry = t.kind === 'audit' ? audit.get(t.ref) : undefined;
       const run = t.kind !== 'audit' ? runs.get(t.ref) : undefined;
       if (entry) messages.push(formatAudit(entry, f));
-      else if (run) messages.push(formatRun(run, t.kind === 'run-start' ? 'start' : 'end', f));
+      else if (run)
+        messages.push(
+          t.kind === 'run-start'
+            ? // AFS-262: the time the run started (its row was written then), not the run's start
+              // time read when the line is sent: a destination that was down got the worker's
+              // later start, and every destination must say the same time for one event.
+              formatRun({ ...run, startedAt: t.createdAt }, 'start', f)
+            : formatRun(run, 'end', f),
+        );
       else {
         gone.push(key);
         continue;
@@ -388,8 +445,20 @@ export class Streamer {
     return { messages, keys };
   }
 
-  /** The destination took nothing: the rows wait, due, and the destination waits its turn. */
-  private async failed(sink: string, keys: Key[], error: string): Promise<void> {
+  /**
+   * The destination took nothing: the rows wait, due, and the destination waits its turn. When it
+   * was changed meanwhile, the failure was the old settings': the rows are due now, nothing more.
+   */
+  private async failed(
+    sink: string,
+    keys: Key[],
+    error: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal?.aborted) {
+      await markRetry(this.o.db, sink, keys, undefined, 0);
+      return;
+    }
     await markRetry(this.o.db, sink, keys, error, 0);
     await sinkFailed(this.o.db, sink, error);
   }
@@ -467,7 +536,7 @@ export class Streamer {
   // --- OpenTelemetry
 
   /** Sends what is due; resolves true when more is due than a round sends. */
-  private async sendOtlp(sink: SinkForSending): Promise<boolean> {
+  private async sendOtlp(sink: SinkForSending, signal: AbortSignal): Promise<boolean> {
     const o = sink.otlp;
     if (!o) return false;
     const db = this.o.db;
@@ -477,6 +546,7 @@ export class Streamer {
       timeoutMs: o.timeoutSeconds * 1000,
       headers: sink.headerValues,
       agent: `ansible-flow-server/${this.o.version}`,
+      signal,
     };
     const resource = resourceOf({
       version: this.o.version,
@@ -506,7 +576,7 @@ export class Streamer {
             ),
             options,
           );
-          if (!(await this.posted(sink, keys, sent))) {
+          if (!(await this.posted(sink, keys, sent, signal))) {
             // The traces taken with them wait too, due.
             await markRetry(db, sink.id, traces, undefined, 0);
             return false;
@@ -538,6 +608,7 @@ export class Streamer {
               sink,
               traces.filter((t) => found.has(t.ref)),
               sent,
+              signal,
             ))
           )
             return false;
@@ -560,6 +631,7 @@ export class Streamer {
     sink: SinkForSending,
     taken: Taken[],
     sent: Awaited<ReturnType<typeof post>>,
+    signal: AbortSignal,
   ): Promise<boolean> {
     const db = this.o.db;
     const keys = taken.map((t) => ({ kind: t.kind, ref: t.ref }));
@@ -574,7 +646,7 @@ export class Streamer {
       return true;
     }
     const error = sent.error ?? 'Not sent';
-    if (sent.retry) await this.failed(sink.id, keys, error);
+    if (sent.retry || signal.aborted) await this.failed(sink.id, keys, error, signal);
     else {
       // A payload the collector refuses is refused again: a bug of ours, kept in the log.
       this.o.log.error(

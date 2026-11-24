@@ -433,6 +433,9 @@ export async function updateSink(
       // AFS-248: changed, so tried again now, with what waits.
       retry_at: null,
       retries: 0,
+      // AFS-262: the last error was the old settings': the next try says whether the new fail.
+      last_error: null,
+      last_error_at: null,
     })
     .where('id', '=', id)
     .execute();
@@ -531,6 +534,8 @@ export interface Taken {
   kind: DeliveryKind;
   ref: string;
   attempts: number;
+  /** When the row was written: when what it says happened (the same on every destination). */
+  createdAt: string;
 }
 
 /** A row being sent is that server's for this long. */
@@ -584,7 +589,12 @@ export async function takeDue(
     .orderBy('kind')
     .orderBy('ref_id')
     .execute();
-  return rows.map((r) => ({ kind: r.kind as DeliveryKind, ref: r.ref_id, attempts: r.attempts }));
+  return rows.map((r) => ({
+    kind: r.kind as DeliveryKind,
+    ref: r.ref_id,
+    attempts: r.attempts,
+    createdAt: r.created_at,
+  }));
 }
 
 type Key = { kind: DeliveryKind; ref: string };

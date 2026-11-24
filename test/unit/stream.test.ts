@@ -1068,6 +1068,114 @@ for (const [name, config] of databases) {
       }
     });
 
+    it('gives run.started the same time on a destination that was down as on one that was up', async () => {
+      await clear();
+      const up = await receiver();
+      const fixed = await receiver();
+      const streamer = new Streamer({
+        db: db(),
+        key,
+        log,
+        version: '1.2.0',
+        hostname: 'flows-01',
+        everyMs: 60_000,
+      });
+      const queue = new RunQueue(db(), database.kind, key, { maxRuns: 8, perProject: 8 });
+      queue.onStarted = (id) => streamer.runStarted(id);
+      try {
+        await createSink(db(), key, {
+          name: 'Up',
+          type: 'syslog',
+          audit: false,
+          syslog: { host: '127.0.0.1', port: up.port, transport: 'tcp', windowSeconds: 0 },
+        });
+        const down = await createSink(db(), key, {
+          name: 'Down',
+          type: 'syslog',
+          audit: false,
+          syslog: { host: '127.0.0.1', port: 1, transport: 'tcp', windowSeconds: 0 },
+        });
+        const run = await queue.enqueue(launchOf(project), {}, admin, 'Upgrade');
+        const job = await queue.claim('w1');
+        await until(
+          async () =>
+            (
+              await db()
+                .selectFrom('stream_delivery')
+                .select('kind')
+                .where('ref_id', '=', run.id)
+                .execute()
+            ).length === 2,
+        );
+        await streamer.round();
+        await until(() => up.got().length === 1);
+        // The worker begins a few seconds later: the run page's Started.
+        await queue.start(run.id, job?.token as string, new Date(Date.now() + 3_000));
+        await updateSink(db(), key, down.id, { syslog: { host: '127.0.0.1', port: fixed.port } });
+        streamer.changed(down.id);
+        await streamer.round();
+        await until(() => fixed.got().length === 1);
+        const stamp = (m: string | undefined) => /^<\d+>1 (\S+) /.exec(m ?? '')?.[1];
+        expect(fixed.got()[0]).toContain(' run.started ');
+        expect(stamp(fixed.got()[0])).toBe(stamp(up.got()[0]));
+      } finally {
+        await streamer.stop();
+        up.close();
+        fixed.close();
+      }
+    });
+
+    it('sends what waits at once after a change away from an address that does not answer', async () => {
+      await clear();
+      const rx = await receiver();
+      // 192.0.2.55 answers nothing: the connection waits until it is given up.
+      const streamer = new Streamer({
+        db: db(),
+        key,
+        log,
+        version: '1.2.0',
+        hostname: 'flows-01',
+        everyMs: 60_000,
+        dial: (s, signal) =>
+          s.host === '192.0.2.55'
+            ? new Promise((_, reject) =>
+                signal?.addEventListener('abort', () => reject(new Error('changed'))),
+              )
+            : dial(s, 2_000, signal),
+      });
+      try {
+        const s = await createSink(db(), key, {
+          name: 'Lab',
+          type: 'syslog',
+          syslog: { host: '127.0.0.1', port: 1, transport: 'tcp', windowSeconds: 0 },
+        });
+        const entry = await audit();
+        // A refused port first: the destination has a last error.
+        await streamer.round();
+        expect((await getSink(db(), s.id))?.status.lastError).toMatch(/Nothing listens/);
+        await updateSink(db(), key, s.id, { syslog: { host: '192.0.2.55', port: 10514 } });
+        streamer.changed(s.id);
+        const hanging = streamer.round();
+        await new Promise((r) => setTimeout(r, 300));
+        expect(rx.got()).toEqual([]);
+        const at = Date.now();
+        await updateSink(db(), key, s.id, { syslog: { host: '127.0.0.1', port: rx.port } });
+        streamer.changed(s.id);
+        await hanging;
+        await streamer.round();
+        await until(() => rx.got().some((m) => m.includes(entry.id)), 2_000);
+        expect(Date.now() - at).toBeLessThan(2_000);
+        const status = (await getSink(db(), s.id))?.status;
+        expect(status?.nextTryAt).toBeUndefined();
+        // The errors were the old addresses': none is left on a destination that sends.
+        expect(status?.lastError).toBeUndefined();
+        expect(status?.lastSuccessAt).toBeDefined();
+      } finally {
+        await streamer.stop();
+        rx.close();
+      }
+    });
+
     describe('the API', () => {
       let app: FastifyInstance;
       let cookie: string;

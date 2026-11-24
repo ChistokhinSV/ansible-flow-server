@@ -320,6 +320,8 @@ export interface PostOptions {
   timeoutMs?: number;
   headers?: Record<string, string>;
   agent?: string;
+  /** AFS-262: the destination was changed: the request stops now. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -351,6 +353,7 @@ export function post(
         },
         ...(url.protocol === 'https:' && o.ca ? { ca: o.ca } : {}),
         timeout: timeoutMs,
+        ...(o.signal ? { signal: o.signal } : {}),
       },
       (response) => {
         let text = '';

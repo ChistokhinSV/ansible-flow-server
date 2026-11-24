@@ -229,8 +229,12 @@ export interface Wire {
 }
 
 /** Opens a TCP or TLS connection to a receiver; rejects when it does not answer in time. */
-export function dial(s: SyslogSettings, timeoutMs = 10_000): Promise<Wire> {
+export function dial(s: SyslogSettings, timeoutMs = 10_000, signal?: AbortSignal): Promise<Wire> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('the destination was changed'));
+      return;
+    }
     const socket =
       s.transport === 'tls'
         ? tls.connect({
@@ -241,13 +245,19 @@ export function dial(s: SyslogSettings, timeoutMs = 10_000): Promise<Wire> {
             minVersion: 'TLSv1.2',
           })
         : net.connect({ host: s.host, port: s.port });
+    // AFS-262: a destination changed while it waits for an address that does not answer gives
+    // up now, not when the 10 s run out.
+    const abort = () => fail(new Error('the destination was changed'));
     const fail = (e: Error) => {
+      signal?.removeEventListener('abort', abort);
       socket.destroy();
       reject(e);
     };
+    signal?.addEventListener('abort', abort, { once: true });
     socket.setTimeout(timeoutMs, () => fail(new Error('connect timeout')));
     socket.once('error', fail);
     socket.once(s.transport === 'tls' ? 'secureConnect' : 'connect', () => {
+      signal?.removeEventListener('abort', abort);
       socket.setTimeout(0);
       socket.off('error', fail);
       socket.setKeepAlive(true, 10_000);
@@ -291,15 +301,17 @@ export class SyslogLink {
   onLost?: (generation: number, error?: string) => void;
   private lastError: string | undefined;
   private closed = false;
+  /** Aborts a connection being opened when the link is closed. */
+  private readonly aborting = new AbortController();
 
-  constructor(private readonly open: () => Promise<Wire>) {}
+  constructor(private readonly open: (signal: AbortSignal) => Promise<Wire>) {}
 
   /** The socket, opened when there is none. */
   connect(): Promise<Wire> {
     if (this.closed) return Promise.reject(new Error('closed'));
     if (this.wire && !this.wire.destroyed) return Promise.resolve(this.wire);
     if (!this.opening)
-      this.opening = this.open()
+      this.opening = this.open(this.aborting.signal)
         .then((wire) => {
           const generation = ++this.generation;
           this.wire = wire;
@@ -346,6 +358,7 @@ export class SyslogLink {
 
   close(): void {
     this.closed = true;
+    this.aborting.abort();
     const wire = this.wire;
     this.wire = undefined;
     wire?.end();

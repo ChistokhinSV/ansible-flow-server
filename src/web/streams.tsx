@@ -298,12 +298,15 @@ function SinkForm({ sink, onDone }: { sink?: Sink; onDone(saved?: Sink): void })
               Sent with each request, such as Authorization or api-key. Their values are kept
               encrypted and never shown.
             </small>
+            {/* AFS-262: each box says what goes in it, not only to a screen reader. */}
             {headers.map((h, i) => (
-              <div className="row" key={h.key}>
-                <input
-                  aria-label="Header name"
+              <div className="row header-row" key={h.key}>
+                <Field
+                  label="Name"
                   name="otlp.headers"
                   value={h.name}
+                  placeholder="Authorization"
+                  autoComplete="off"
                   onChange={(e) =>
                     setHeaders(
                       headers.map((x, j) =>
@@ -312,12 +315,12 @@ function SinkForm({ sink, onDone }: { sink?: Sink; onDone(saved?: Sink): void })
                     )
                   }
                 />
-                <input
-                  aria-label={`Value of ${h.name || 'the header'}`}
+                <Field
+                  label={h.name ? `Value of ${h.name}` : 'Value'}
                   type="password"
                   autoComplete="off"
                   value={h.value}
-                  placeholder={h.kept ? 'kept' : ''}
+                  placeholder={h.kept ? 'kept: type to replace' : 'Bearer …'}
                   onChange={(e) =>
                     setHeaders(
                       headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
@@ -405,6 +408,9 @@ function Health({ sink }: { sink: Sink }) {
       {st.failingSince && (
         <div className="muted">
           since <Time at={st.failingSince} />
+          {/* AFS-262: the stream.failing e-mail says the time in UTC: so does the page. */}
+          {new Date(st.failingSince).getTimezoneOffset() !== 0 &&
+            ` (${st.failingSince.slice(11, 16)} UTC)`}
         </div>
       )}
       {sink.enabled && st.nextTryAt && (
@@ -415,6 +421,32 @@ function Health({ sink }: { sink: Sink }) {
       {st.lastSuccessAt && (
         <div className="muted">
           last sent <Time at={st.lastSuccessAt} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * AFS-262: an error from before the destination sent again reads as past, not as a fault now
+ * (a receiver that was restarting; a change clears it on the server).
+ */
+function LastError({ status }: { status: Sink['status'] }) {
+  if (!status.lastError) return <span className="muted">—</span>;
+  const past =
+    !status.failingSince &&
+    !!status.lastSuccessAt &&
+    (!status.lastErrorAt || status.lastSuccessAt > status.lastErrorAt);
+  return (
+    <>
+      {past ? (
+        <span className="muted">Before it sent again: {status.lastError}</span>
+      ) : (
+        status.lastError
+      )}
+      {status.lastErrorAt && (
+        <div className="muted">
+          <Time at={status.lastErrorAt} />
         </div>
       )}
     </>
@@ -508,12 +540,7 @@ export function StreamsPage() {
                     )}
                   </td>
                   <td className="detail">
-                    {s.status.lastError ?? <span className="muted">—</span>}
-                    {s.status.lastErrorAt && (
-                      <div className="muted">
-                        <Time at={s.status.lastErrorAt} />
-                      </div>
-                    )}
+                    <LastError status={s.status} />
                   </td>
                   <td>
                     <div className="actions">
