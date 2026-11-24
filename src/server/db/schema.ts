@@ -728,6 +728,10 @@ export interface StreamSinkTable {
   dropped: number;
   /** When drops were last put in the audit log (once an hour at most). */
   dropped_told_at: IsoTime | null;
+  /** AFS-248: a failing destination is tried again from then (null: now). */
+  retry_at: IsoTime | null;
+  /** AFS-248: tries that failed in a row, for the wait before the next one. */
+  retries: number;
   created_at: IsoTime;
   updated_at: IsoTime;
 }

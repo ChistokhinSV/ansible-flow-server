@@ -9,6 +9,18 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-248: event streaming waits per destination, not per row: when a destination fails, the
+  // next try of the whole destination (and how many tries failed in a row), so that what waits
+  // goes oldest first, all at once, as soon as the destination works again or is changed.
+  '0040_stream_retry': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('stream_sink').addColumn('retry_at', 'text').execute();
+      await db.schema
+        .alterTable('stream_sink')
+        .addColumn('retries', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
+    },
+  },
   // AFS-179 (ADR-0038 §1): the web debugger. What a debug run's pauses showed (scopes and watches,
   // masked), kept with the run; a person's failure filters beside their pause points (which may now
   // carry settings: a condition, a hit count, a log message); and the workspace setting that lets

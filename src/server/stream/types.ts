@@ -62,6 +62,8 @@ export interface SinkStatus {
   lastErrorAt?: string;
   /** Failing since then: nothing sent since. */
   failingSince?: string;
+  /** Failing: tried again then, with all that waits (a change or a test that reached it: now). */
+  nextTryAt?: string;
 }
 
 export interface Sink {
