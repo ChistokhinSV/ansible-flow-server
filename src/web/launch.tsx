@@ -434,8 +434,11 @@ function InputField({
   const listId = useId();
   const known = field.targets && Array.isArray(groups) ? groups : [];
   // AFS-205: the host list's help says what it is once ("The hosts the run starts on" is what the
-  // hint above says already); where the hosts go next is kept.
-  const told = field.targets ? origin?.replace(/^The hosts the run starts on(; |$)/, '') : origin;
+  // hint above says already); where the hosts go next is kept. The designer's line ends with a
+  // full stop ("The hosts the run starts on."): that alone is said once too.
+  const told = field.targets
+    ? origin?.replace(/^The hosts the run starts on(; |\.?$)/, '')
+    : origin;
   const shownOrigin = told ? told.charAt(0).toUpperCase() + told.slice(1) : undefined;
   const suggest = known.length ? listSuggestions(value, known) : [];
   const chosen = new Set(listNames(value));

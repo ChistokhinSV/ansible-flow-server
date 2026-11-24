@@ -3,7 +3,7 @@
 // failure (a check run of those hosts, step by step, pausing before the step they failed at and
 // when a host fails). The run's offer (GET /runs/:id/relaunch) says the host sets, the risks of a
 // host limit and the flow's approvals.
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { HostAt, HostSets, RelaunchBody, RelaunchOffer, Run } from './api';
 import { ask } from './confirm';
 
@@ -237,6 +237,12 @@ export function RunAgainMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [debugging, setDebugging] = useState(false);
+  // AFS-251: an item is named by its label; the line under it describes it.
+  const uid = useId();
+  const named = (item: string) => ({
+    'aria-labelledby': `${uid}${item}`,
+    'aria-describedby': `${uid}${item}-note`,
+  });
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -276,6 +282,17 @@ export function RunAgainMenu({
     } else if (what === 'debug') setDebugging(true);
   };
   const notOkNames = sets ? namedSets(sets) : '';
+  // AFS-253: only what the server would let this person do (all of it before the offer says).
+  const may = offer?.may ?? { again: true, change: true, debug: true };
+  const showChange = !!change && may.change;
+  const showOnly = bad > 0 && may.again;
+  const showDebug = bad > 0 && mayDebug && may.debug;
+  if (!may.again && !showChange && !showDebug)
+    return (
+      <p className="muted run-again-who" data-run-again-who>
+        {may.why ?? 'You may not run it again'}
+      </p>
+    );
   return (
     <div className="more-menu run-again" ref={box}>
       <button
@@ -312,38 +329,62 @@ export function RunAgainMenu({
             } else if (e.key === 'Tab') setOpen(false);
           }}
         >
-          <button type="button" role="menuitem" title={again.title} onClick={() => pick('again')}>
-            <span>Run again</span>
-            <small className="menu-note">All its hosts, the same commit and inputs</small>
-          </button>
-          {change && (
+          {may.again && (
+            <button
+              type="button"
+              role="menuitem"
+              title={again.title}
+              {...named('again')}
+              onClick={() => pick('again')}
+            >
+              <span id={`${uid}again`}>Run again</span>
+              <small id={`${uid}again-note`} className="menu-note">
+                All its hosts, the same commit and inputs
+              </small>
+            </button>
+          )}
+          {showChange && (
             <button
               type="button"
               role="menuitem"
               title="The launch form, filled from this run: change what you need, then launch"
+              {...named('change')}
               onClick={() => pick('change')}
             >
-              <span>Change and run…</span>
-              <small className="menu-note">The launch form, filled from this run</small>
+              <span id={`${uid}change`}>Change and run…</span>
+              <small id={`${uid}change-note`} className="menu-note">
+                The launch form, filled from this run
+              </small>
             </button>
           )}
-          {bad > 0 && (
-            <button type="button" role="menuitem" title={notOkNames} onClick={() => pick('only')}>
-              <span>Only the {bad === 1 ? 'host' : `${bad} hosts`} that did not go well</span>
-              <small className="menu-note" data-not-ok-hosts>
+          {showOnly && (
+            <button
+              type="button"
+              role="menuitem"
+              title={notOkNames}
+              {...named('only')}
+              onClick={() => pick('only')}
+            >
+              <span id={`${uid}only`}>
+                Only the {bad === 1 ? 'host' : `${bad} hosts`} that did not go well
+              </span>
+              <small id={`${uid}only-note`} className="menu-note" data-not-ok-hosts>
                 {notOkNames}
               </small>
             </button>
           )}
-          {bad > 0 && mayDebug && (
+          {showDebug && (
             <button
               type="button"
               role="menuitem"
               title="A check run of those hosts, step by step, that pauses before the step they failed at"
+              {...named('debug')}
               onClick={() => pick('debug')}
             >
-              <span>Debug this failure…</span>
-              <small className="menu-note">Those hosts step by step, with the debugger</small>
+              <span id={`${uid}debug`}>Debug this failure…</span>
+              <small id={`${uid}debug-note`} className="menu-note">
+                Those hosts step by step, with the debugger
+              </small>
             </button>
           )}
         </div>

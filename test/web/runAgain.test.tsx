@@ -145,8 +145,10 @@ describe('Run again ▾', () => {
     });
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
+    // The menu offers Debug this failure once the run's offer is read.
+    await screen.findByText(offer.line as string);
     fireEvent.click(
-      within(await openMenu()).getByRole('menuitem', { name: /^Debug this failure…/ }),
+      within(await openMenu()).getByRole('menuitem', { name: 'Debug this failure…' }),
     );
     const dialog = await screen.findByRole('dialog', { name: 'Debug this failure' });
     expect(dialog.textContent).toContain('Pauses before Apply config; pauses when a host fails.');
@@ -171,6 +173,30 @@ describe('Run again ▾', () => {
       step: { every: false, points: [APPLY], debug: true, pauseOnFailure: true },
     });
     yes = true;
+  });
+
+  it('AFS-253: offers only what the person may do, and says who may when nothing is left', async () => {
+    routes['GET /runs/r1/relaunch'] = () => ({
+      body: { ...offer, may: { again: false, change: true, debug: true, why: 'x' } },
+    });
+    window.history.replaceState(null, '', '/runs/r1');
+    const first = render(<App />);
+    await screen.findByText(offer.line as string);
+    const menu = await openMenu();
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((b) => b.querySelector('span')?.textContent),
+    ).toEqual(['Debug this failure…']);
+    first.unmount();
+    const why =
+      'Run #41 ran another branch or commit than its launch configuration names: people who may change this flow run it again';
+    routes['GET /runs/r1/relaunch'] = () => ({
+      body: { ...offer, may: { again: false, change: false, debug: false, why } },
+    });
+    render(<App />);
+    expect((await screen.findByText(why)).hasAttribute('data-run-again-who')).toBe(true);
+    expect(screen.queryByRole('button', { name: /^Run again/ })).toBeNull();
   });
 
   it('words: the debug body, the question, what a run is again of', () => {
@@ -273,6 +299,8 @@ describe('Debug this failure, closed', () => {
   it('gives the focus back to Run again', async () => {
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
+    // The menu offers Debug this failure once the run's offer is read.
+    await screen.findByText(offer.line as string);
     fireEvent.click(
       within(await openMenu()).getByRole('menuitem', { name: 'Debug this failure…' }),
     );
