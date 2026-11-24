@@ -1,6 +1,6 @@
 namespace: chistokhinsv
 name: ansible_flow
-version: 1.2.0-rc.2
+version: 1.2.0-rc.3
 readme: README.md
 authors:
   - Sergei Chistokhin (@ChistokhinSV)
