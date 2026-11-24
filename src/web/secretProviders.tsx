@@ -125,6 +125,7 @@ function ProviderForm({
             Object.entries(d.settings).filter(
               ([k, v]) =>
                 SETTINGS[d.kind].includes(k as keyof ProviderSettings) &&
+                !(k === 'authMount' && d.settings.auth === 'token') &&
                 v !== '' &&
                 v !== undefined,
             ),
@@ -135,7 +136,7 @@ function ProviderForm({
             kind: d.kind,
             settings,
             workspaces: d.workspaces,
-            ...(d.replace
+            ...(d.replace || !secretsOf(d.kind, settings).every((n) => d.has.includes(n))
               ? {
                   secret: Object.fromEntries(
                     secretsOf(d.kind, settings)
@@ -198,6 +199,8 @@ function ProviderForm({
           hint="What credentials name it by; it cannot change while one reads from it"
         />
         {SETTINGS[d.kind].map((name) => {
+          // AFS-261: the AppRole mount is asked only of an AppRole sign-in.
+          if (name === 'authMount' && d.settings.auth === 'token') return null;
           if (name === 'auth')
             return (
               <div className="field" key={name}>
@@ -251,7 +254,8 @@ function ProviderForm({
             />
           );
         })}
-        {d.replace ? (
+        {/* AFS-261: a sign-in changed to one whose parts are not kept asks for its own. */}
+        {d.replace || !secretsOf(d.kind, d.settings).every((n) => d.has.includes(n)) ? (
           secretsOf(d.kind, d.settings).map((name) =>
             PEM.has(name) ? (
               <div key={name}>
@@ -321,18 +325,23 @@ function TestBox({ provider }: { provider: SecretProvider }) {
   const [result, setResult] = useState<{ ok: boolean; message: string }>();
   const [busy, setBusy] = useState(false);
   const fields = REF_FIELDS[provider.kind];
+  const needed = fields.filter((f) => f.required).map((f) => f.label);
   return (
     <details className="test-box">
       <summary>Test the provider</summary>
       <p className="muted">
         Signs in{provider.kind === 'ccp' ? ' (CCP: reaches it with the client certificate)' : ''}.
-        With a reference, reads it too; the value is never shown.
+        {/* AFS-260: the whole reference is optional; a read needs its own parts. */}
+        To test a read too, fill in {needed.join(' and ')}
+        {needed.length < fields.length ? ' (the rest only if needed)' : ''}; the value is never
+        shown.
       </p>
       <div className="ref-test-fields">
         {fields.map((f) => (
           <Field
             key={f.name}
-            label={`${f.label} (optional)`}
+            label={f.required ? f.label : `${f.label} (optional)`}
+            {...(f.hint ? { hint: f.hint } : {})}
             value={ref[f.name] ?? ''}
             onChange={(e) => setRef({ ...ref, [f.name]: e.target.value })}
             autoComplete="off"
@@ -353,7 +362,7 @@ function TestBox({ provider }: { provider: SecretProvider }) {
           setBusy(false);
         }}
       >
-        {busy ? 'Asking…' : Object.values(ref).some((v) => v.trim()) ? 'Test read' : 'Test'}
+        {busy ? 'Asking…' : 'Test'}
       </button>
       {result && (
         <p aria-live="polite" className={result.ok ? 'notice' : 'notice error'}>

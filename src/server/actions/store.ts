@@ -91,9 +91,15 @@ export async function getAction(db: Db, config: string): Promise<Action | undefi
   return actionOf(row, await ownerNames(db, row.owner_id ? [row.owner_id] : []));
 }
 
-/** Every action that is on, with where it is. */
-export async function enabledActions(db: Db): Promise<(Action & { place: ActionPlace })[]> {
-  const rows = await db
+/**
+ * Every action that is on, with where it is; with `withOff`, those switched off too (AFS-260: its
+ * runner still finds it on Actions, said to be off).
+ */
+export async function enabledActions(
+  db: Db,
+  withOff = false,
+): Promise<(Action & { place: ActionPlace })[]> {
+  let query = db
     .selectFrom('launch_action')
     .innerJoin('launch_config', 'launch_config.id', 'launch_action.config_id')
     .innerJoin('project', 'project.id', 'launch_config.project_id')
@@ -108,9 +114,9 @@ export async function enabledActions(db: Db): Promise<(Action & { place: ActionP
       'workspace.key as workspace_key',
       'workspace.name as workspace_name',
     ])
-    .where('launch_action.enabled', '=', 1)
-    .orderBy('launch_action.title')
-    .execute();
+    .orderBy('launch_action.title');
+  if (!withOff) query = query.where('launch_action.enabled', '=', 1);
+  const rows = await query.execute();
   const names = await ownerNames(db, [
     ...new Set(rows.map((r) => r.owner_id).filter((id): id is string => !!id)),
   ]);

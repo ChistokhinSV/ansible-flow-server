@@ -129,6 +129,30 @@ describe('actions', () => {
     expect(screen.getByRole('combobox', { name: 'Search' })).toBeTruthy();
   });
 
+  it("AFS-260: a switched-off action stays on its runner's Actions, said to be off", async () => {
+    routes = {
+      ...actionOnly(),
+      'GET /actions': () => ({
+        body: [
+          {
+            ...card,
+            off: 'Switched off for now: nobody can run it until it is turned on again: ask Dana.',
+          },
+        ],
+      }),
+    };
+    window.history.replaceState(null, '', '/');
+    render(<App />);
+    const link = await screen.findByRole('link', { name: /Restart the edge switch/ });
+    expect(link.textContent).toMatch(/Switched off for now.*ask Dana/);
+    const menu = screen.getByRole('navigation', { name: 'Main' });
+    expect(
+      within(menu)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Actions']);
+  });
+
   it('who has more sees Home, with Actions in the menu', async () => {
     routes = {
       ...actionOnly(),

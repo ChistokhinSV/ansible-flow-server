@@ -71,11 +71,16 @@ function refused(conn: Connection, answer: Answer, thing: string): SecretReadErr
         detail,
       );
     case 404:
-      return new SecretReadError('not_found', `${kind} has no such ${thing} (404)`, 404, detail);
+      return new SecretReadError(
+        'not_found',
+        `${kind} "${conn.name}" has no such ${thing} (404)`,
+        404,
+        detail,
+      );
     default:
       return new SecretReadError(
         'bad_answer',
-        `${kind} answered ${answer.status}`,
+        `${kind} "${conn.name}" answered ${answer.status}`,
         answer.status,
         detail,
       );
@@ -180,12 +185,11 @@ function vault(conn: Connection, caller: Caller): Client {
       }
       const data = jsonOf<{ data?: { data?: Record<string, unknown> | null } }>(who, answer).data
         ?.data;
-      if (!data)
-        throw new SecretReadError('not_found', 'HashiCorp Vault has no such secret (deleted)', 200);
+      if (!data) throw new SecretReadError('not_found', `${who} has no such secret (deleted)`, 200);
       if (!ref.field || !(ref.field in data))
         throw new SecretReadError(
           'not_found',
-          'HashiCorp Vault has the secret but not the field asked for',
+          `${who} has the secret but not the field asked for`,
           200,
         );
       return asText(data[ref.field]);
@@ -255,7 +259,7 @@ function conjur(conn: Connection, caller: Caller): Client {
       if (answer.status === 404)
         throw new SecretReadError(
           'not_found',
-          `CyberArk Conjur has no such variable, or "${conn.name}" may not read it (404)`,
+          `${who} has no such variable, or this server may not read it (404)`,
           404,
           detailOf(answer),
         );
@@ -315,7 +319,7 @@ function ccp(conn: Connection, caller: Caller): Client {
     if (answer.status === 404)
       return new SecretReadError(
         'not_found',
-        `CyberArk CCP has no such account (404)${code}`,
+        `${who} has no such account (404)${code}`,
         404,
         detailOf(answer),
       );
@@ -335,7 +339,7 @@ function ccp(conn: Connection, caller: Caller): Client {
       if (account[field] === undefined || account[field] === null)
         throw new SecretReadError(
           'not_found',
-          'CyberArk CCP has the account but not the field asked for',
+          `${who} has the account but not the field asked for`,
           200,
         );
       return asText(account[field]);
@@ -414,7 +418,7 @@ export function sigv4(r: SigV4Request): Record<string, string> {
 }
 
 const AWS_ERRORS: Record<string, [SecretReadError['code'], (name: string) => string]> = {
-  ResourceNotFoundException: ['not_found', () => 'AWS Secrets Manager has no such secret'],
+  ResourceNotFoundException: ['not_found', (n) => `AWS Secrets Manager "${n}" has no such secret`],
   AccessDeniedException: [
     'denied',
     (n) => `AWS Secrets Manager refused the read: "${n}" may not read this secret`,
@@ -431,7 +435,7 @@ const AWS_ERRORS: Record<string, [SecretReadError['code'], (name: string) => str
   SignatureDoesNotMatch: ['auth', (n) => `AWS did not accept the access key of "${n}" (signature)`],
   ExpiredTokenException: ['auth', (n) => `The AWS session token of "${n}" has expired`],
   ExpiredToken: ['auth', (n) => `The AWS session token of "${n}" has expired`],
-  DecryptionFailure: ['denied', () => 'AWS Secrets Manager could not decrypt the secret'],
+  DecryptionFailure: ['denied', (n) => `AWS Secrets Manager "${n}" could not decrypt the secret`],
 };
 
 function aws(conn: Connection, caller: Caller): Client {
@@ -475,7 +479,7 @@ function aws(conn: Connection, caller: Caller): Client {
       );
     return new SecretReadError(
       'bad_answer',
-      `AWS answered ${answer.status}${type ? ` (${type})` : ''}`,
+      `${who} answered ${answer.status}${type ? ` (${type})` : ''}`,
       answer.status,
       detailOf(answer),
     );
@@ -519,12 +523,12 @@ function aws(conn: Connection, caller: Caller): Client {
       } catch {
         throw new SecretReadError(
           'not_found',
-          'The AWS secret is not JSON, so it has no key to take',
+          `The secret in ${who} is not JSON, so it has no key to take`,
           200,
         );
       }
       if (!parsed || typeof parsed !== 'object' || !(ref.jsonKey in parsed))
-        throw new SecretReadError('not_found', 'The AWS secret has no such key', 200);
+        throw new SecretReadError('not_found', `The secret in ${who} has no such key`, 200);
       return asText((parsed as Record<string, unknown>)[ref.jsonKey]);
     },
     async test() {

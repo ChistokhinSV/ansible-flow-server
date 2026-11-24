@@ -64,9 +64,10 @@ export class InventoryProbes {
     try {
       probe = await this.probeFor(q);
     } catch (e) {
+      const why = `The hosts could not be read from the inventory: ${(e as Error).message}`;
       return {
-        factsError: `The hosts could not be read from the inventory: ${(e as Error).message}`,
-        ...(q.groups ? { groups: [], groupHosts: {} } : {}),
+        factsError: why,
+        ...(q.groups ? { groups: [], groupHosts: {}, groupsError: why } : {}),
         environment,
       };
     }
@@ -139,6 +140,7 @@ export class InventoryProbes {
     // sign-ins are given back (the values stay only in the probe's environment).
     const resolver = new SecretResolver(this.options.db, this.options.key, {
       log: this.options.log,
+      purpose: 'reading the inventory of a launch',
     });
     let vars: Awaited<ReturnType<typeof inventoryEnv>>;
     try {

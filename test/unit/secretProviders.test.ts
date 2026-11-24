@@ -17,7 +17,7 @@ import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { createLogger } from '../../src/server/log';
 import { createWorkspace } from '../../src/server/projects/store';
-import { fromWords, runCredentials } from '../../src/server/runs/credentials';
+import { fromWords, inventoryEnv, runCredentials } from '../../src/server/runs/credentials';
 import {
   CredentialError,
   createCredential,
@@ -118,7 +118,9 @@ describe('HashiCorp Vault', () => {
       'HashiCorp Vault refused the read (403): "corp-vault" may not read this secret',
     );
     expect((await words(read('expired'))).code).toBe('auth');
-    expect((await words(read('missing'))).message).toBe('HashiCorp Vault has no such secret (404)');
+    expect((await words(read('missing'))).message).toBe(
+      'HashiCorp Vault "corp-vault" has no such secret (404)',
+    );
     expect((await words(read('nofield'))).message).toMatch(/not the field asked for/);
     for (const path of ['denied', 'expired', 'missing', 'nofield'])
       expect((await words(read(path))).message).not.toContain(path);
@@ -193,7 +195,7 @@ describe('CyberArk Conjur, CCP and AWS Secrets Manager', () => {
     );
     const e = await words(client.read({ provider: 'conjur', variable: 'secret/hidden' }));
     expect(e.message).toBe(
-      'CyberArk Conjur has no such variable, or "conjur-prod" may not read it (404)',
+      'CyberArk Conjur "conjur-prod" has no such variable, or this server may not read it (404)',
     );
     expect(e.detail).toContain('not found');
     const bad = await words(clientOf({ ...conjur, secret: { apiKey: 'wrong' } }, m.caller).test());
@@ -234,7 +236,7 @@ describe('CyberArk Conjur, CCP and AWS Secrets Manager', () => {
     ).toBe('netops');
     expect(m.calls[0]?.options.tls).toMatchObject({ cert: 'CERT', key: 'KEY' });
     const e = await words(client.read({ provider: 'ccp', safe: 'NET', object: 'gone' }));
-    expect(e.message).toBe('CyberArk CCP has no such account (404) [APPAP004E]');
+    expect(e.message).toBe('CyberArk CCP "ccp-dc1" has no such account (404) [APPAP004E]');
     expect(e.detail).toContain('Object=gone');
   });
 
@@ -274,7 +276,9 @@ describe('CyberArk Conjur, CCP and AWS Secrets Manager', () => {
     });
     expect(m.calls[0]?.options.headers?.['x-amz-target']).toBe('secretsmanager.GetSecretValue');
     const e = await words(client.read({ provider: 'aws', secretId: 'net/gone' }));
-    expect(e.message).toBe('AWS Secrets Manager has no such secret (ResourceNotFoundException)');
+    expect(e.message).toBe(
+      'AWS Secrets Manager "aws-eu" has no such secret (ResourceNotFoundException)',
+    );
     expect(e.message).not.toContain('net/gone');
     expect(
       (await words(client.read({ provider: 'aws', secretId: 'net/switches', jsonKey: 'nope' })))
@@ -526,6 +530,26 @@ describe('the providers and credentials that read from them', () => {
     );
     expect((await getCredential(database.db, c.id))?.refs?.password?.provider).toBe('corp-vault');
   });
+
+  it("reading a launch's inventory opens only env credentials: a login's provider is not asked", async () => {
+    await vault([net]);
+    const c = await login();
+    const m = mock({
+      '/v1/auth/approle/login': () => json(200, { auth: { client_token: 'hvs.run' } }),
+      '/v1/secret/data/': () => json(403, { errors: ['permission denied'] }),
+    });
+    const resolver = new SecretResolver(database.db, key, {
+      caller: m.caller,
+      purpose: 'reading the inventory of a launch',
+    });
+    // AFS-261: a machine password the provider refuses does not stop the inventory's groups.
+    expect(await inventoryEnv(database.db, key, [c.id], resolver)).toEqual({
+      options: [],
+      processEnv: {},
+    });
+    expect(m.calls).toHaveLength(0);
+    await resolver.close();
+  });
 });
 
 describe('secret providers over the API', () => {
@@ -630,7 +654,8 @@ describe('secret providers over the API', () => {
     });
     expect(tried.json()).toEqual({
       ok: false,
-      message: 'CyberArk Conjur has no such variable, or "Conjur lab" may not read it (404)',
+      message:
+        'CyberArk Conjur "Conjur lab" has no such variable, or this server may not read it (404)',
     });
     expect(
       (
@@ -672,6 +697,50 @@ describe('secret providers over the API', () => {
     expect(actions).toContain('secret-provider.create');
     expect(actions).toContain('credential.test-read');
     expect(actions).not.toContain('secret/elsewhere');
+  });
+
+  it('a change is audited with what differs; a refused add names it; a token sign-in drops AppRole', async () => {
+    const made = await call('POST', '/api/v1/admin/secret-providers', admin, {
+      key: 'vault-switch',
+      name: 'Vault switch',
+      kind: 'vault',
+      settings: { address: 'https://vault.example.net:8200', auth: 'approle', authMount: 'ar' },
+      secret: { roleId: 'role-fictional', secretId: 'secret-id-fictional' },
+      workspaces: [net],
+    });
+    const p = made.json();
+    // The form sends every part back; only the address is new.
+    const changed = await call('PATCH', `/api/v1/admin/secret-providers/${p.id}`, admin, {
+      key: p.key,
+      name: p.name,
+      settings: { ...p.settings, address: 'https://vault2.example.net:8200' },
+      workspaces: p.workspaces,
+    });
+    expect(changed.statusCode).toBe(200);
+    const changes = await listAudit(database.db, { action: 'secret-provider.change' } as never);
+    expect(changes.entries.find((e) => e.object.id === p.id)?.detail).toEqual({
+      changed: ['settings'],
+    });
+    // Switched to a token: the token is asked, the AppRole parts and mount are not kept.
+    const token = await call('PATCH', `/api/v1/admin/secret-providers/${p.id}`, admin, {
+      settings: { address: 'https://vault2.example.net:8200', auth: 'token', authMount: 'ar' },
+      secret: { token: 'hvs.fictional-token' },
+    });
+    expect(token.statusCode).toBe(200);
+    expect(token.json()).toMatchObject({ has: ['token'], settings: { auth: 'token' } });
+    expect(token.json().settings.authMount).toBeUndefined();
+    // A refused add is named by what it was adding.
+    const refused = await call('POST', '/api/v1/admin/secret-providers', admin, {
+      key: 'vault-switch',
+      name: 'Vault again',
+      kind: 'vault',
+      settings: { address: 'https://vault.example.net:8200', auth: 'token' },
+      secret: { token: 'hvs.fictional-token' },
+    });
+    expect(refused.statusCode).toBe(409);
+    const adds = await listAudit(database.db, { action: 'secret-provider.create' } as never);
+    expect(adds.entries.find((e) => e.result === 'refused')?.object.name).toBe('Vault again');
+    await call('DELETE', `/api/v1/admin/secret-providers/${p.id}`, admin);
   });
 
   it('a failed test and a failed Test read are audited as failed, with why', async () => {

@@ -29,6 +29,7 @@ import {
   PROVIDER_KINDS,
   type ProviderChoice,
   refProblem,
+  type SecretProvider,
   type SecretProviderInput,
   type SecretRef,
 } from './types';
@@ -82,6 +83,26 @@ export const REF = {
 };
 const BODY_LIMIT = 256 * 1024;
 
+/** Settings as text that does not depend on the order of their names. */
+const settingsText = (s: object) =>
+  JSON.stringify(Object.entries(s).sort(([a], [b]) => a.localeCompare(b)));
+
+/** AFS-261: the parts of a provider a change made different (`secret`: a new secret part). */
+export function changedParts(
+  before: SecretProvider,
+  after: SecretProvider,
+  newSecret: boolean,
+): string[] {
+  const out: string[] = [];
+  if (before.key !== after.key) out.push('key');
+  if (before.name !== after.name) out.push('name');
+  if (settingsText(before.settings) !== settingsText(after.settings)) out.push('settings');
+  if ([...before.workspaces].sort().join() !== [...after.workspaces].sort().join())
+    out.push('workspaces');
+  if (newSecret) out.push('secret');
+  return out;
+}
+
 export function registerSecretProviders(
   app: FastifyInstance,
   deps: { db: Kysely<Schema>; key: MasterKey },
@@ -130,6 +151,8 @@ export function registerSecretProviders(
     answering(async (request, reply) => {
       const me = inSession(request, reply, true);
       if (!me) return reply;
+      // AFS-261: a refused add still says what it was adding.
+      request.auditName = request.body.name?.trim().slice(0, 100) || request.body.key;
       const made = await createSecretProvider(db, key, {
         ...request.body,
         workspaces: request.body.workspaces ?? [],
@@ -167,13 +190,12 @@ export function registerSecretProviders(
       if (!before)
         return reply.code(404).send({ error: 'not_found', message: 'No such secret provider' });
       const changed = await updateSecretProvider(db, key, before.id, request.body);
-      const { secret, ...open } = request.body;
-      request.auditDetail = {
-        // What was changed, never to what: a new secret part is only said to be new.
-        changed: [...Object.keys(open), ...(secret ? ['secret'] : [])],
-      };
+      // What was changed, never to what: a new secret part is only said to be new. AFS-261: only
+      // what differs from before, not every part the form sent back as it was.
+      const differs = changedParts(before, changed, request.body.secret !== undefined);
+      request.auditDetail = { changed: differs };
       request.log.info(
-        { by: me.login, provider: changed.key, changed: Object.keys(request.body) },
+        { by: me.login, provider: changed.key, changed: differs },
         'Secret provider changed',
       );
       return changed;

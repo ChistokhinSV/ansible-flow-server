@@ -110,6 +110,8 @@ function checkedSettings(kind: ProviderKind, settings: ProviderSettings): Provid
       out.auth = out.auth ?? 'approle';
       if (out.auth !== 'approle' && out.auth !== 'token')
         throw invalid('auth', 'Vault signs in with approle or token');
+      // AFS-261: the AppRole mount means nothing to a token sign-in: it is not kept.
+      if (out.auth === 'token') delete out.authMount;
       for (const f of ['authMount', 'kvMount'] as const)
         if (out[f] && !/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/.test(out[f] as string))
           throw invalid(f, 'A mount is a path like secret or kv/team');

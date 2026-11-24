@@ -707,7 +707,7 @@ for (const [name, config] of databases) {
       await call('wanda', 'DELETE', `/api/v1/launch-configs/${other}/action`);
     });
 
-    it('turned off, the action is gone for its runners; its grants stay', async () => {
+    it('turned off, the action cannot run, its runners see it off; its grants stay', async () => {
       expect(
         (
           await call('wanda', 'PUT', `/api/v1/launch-configs/${edge}/action`, {
@@ -723,6 +723,16 @@ for (const [name, config] of databases) {
       expect((await call('nobody', 'GET', `/api/v1/actions/${edge}`)).body.message).toBe(
         'No such action',
       );
+      // AFS-260: it stays on its runner's Actions, said to be off, with whom to ask.
+      const cards = (await call('mia', 'GET', '/api/v1/actions')).body as unknown as {
+        id: string;
+        off?: string;
+      }[];
+      expect(cards.find((c) => c.id === edge)?.off).toMatch(/Switched off for now.*ask wanda/);
+      const others = (await call('nobody', 'GET', '/api/v1/actions')).body as unknown as {
+        id: string;
+      }[];
+      expect(others.some((c) => c.id === edge)).toBe(false);
       expect(
         (
           await call('mia', 'POST', `/api/v1/actions/${edge}/run`, {

@@ -21,6 +21,11 @@ export interface ResolverOptions {
   log?: ResolverLog;
   /** The run the values are for: each read is audited with it. */
   run?: { id: string; number: number };
+  /**
+   * AFS-261: what the values are read for outside a run (the launch form's inventory): each read
+   * is audited with it.
+   */
+  purpose?: string;
   /** Replaces the HTTP call (tests). */
   caller?: Caller;
 }
@@ -127,7 +132,7 @@ export class SecretResolver {
       if (!value)
         throw new SecretReadError(
           'not_found',
-          `${PROVIDER_KIND_NAME[conn.kind]} gave an empty value`,
+          `${PROVIDER_KIND_NAME[conn.kind]} "${conn.name}" gave an empty value`,
         );
       this.read.push(value);
       await this.audit(credential, provider, 'ok');
@@ -171,7 +176,8 @@ export class SecretResolver {
     outcome: string,
   ): Promise<void> {
     const run = this.options.run;
-    if (!run) return;
+    const purpose = this.options.purpose;
+    if (!run && !purpose) return;
     // One record per read: the run, the credential, the provider and how it went; no path.
     await recordAudit(this.db, {
       actor: null,
@@ -183,7 +189,11 @@ export class SecretResolver {
         name: provider.name,
       },
       result: outcome === 'ok' ? 'ok' : 'failed',
-      detail: { run: run.id, runNumber: run.number, credential: credential.name, outcome },
+      detail: {
+        ...(run ? { run: run.id, runNumber: run.number } : { for: purpose }),
+        credential: credential.name,
+        outcome,
+      },
     }).catch(() => undefined);
   }
 

@@ -860,7 +860,7 @@ describe('a run', () => {
       expect(await queue.get(failing.id)).toMatchObject({
         state: 'failed',
         error:
-          'Cannot read the credential "from conjur, gone" (password): CyberArk Conjur has no such variable, or "Conjur" may not read it (404)',
+          'Cannot read the credential "from conjur, gone" (password): CyberArk Conjur "Conjur" has no such variable, or this server may not read it (404)',
       });
     } finally {
       await new Promise((resolve) => server.close(resolve));

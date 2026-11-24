@@ -309,6 +309,20 @@ describe('links to actions on SQLite', () => {
     const bare = await call('mia', 'GET', `/api/v1/actions/${lb}/link`);
     expect(bare.status).toBe(200);
     expect(bare.body).toMatchObject({ ready: false, given: [] });
+    // AFS-260: an empty value (NetBox's for a device without an address) gives nothing: the
+    // form asks for it, and an input with a start value keeps it.
+    const empty = await call(
+      'mia',
+      'GET',
+      `/api/v1/actions/${lb}/link?device=&count=&devices=sw-edge-01`,
+    );
+    expect(empty.status).toBe(200);
+    expect(empty.body).toMatchObject({
+      ready: false,
+      given: ['devices'],
+      missing: ['device'],
+      values: { device: '', count: '3', devices: 'sw-edge-01' },
+    });
     // Values checked as the form checks them: a number, the group.
     const wrong = await call(
       'mia',
