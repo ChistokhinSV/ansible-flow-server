@@ -314,6 +314,7 @@ export const SCHEMAS = {
         },
         { count: int },
       ),
+      hostLimit: obj({ count: int, hosts: strings }),
       pausedBefore: str,
       sent: {
         ...of('step', 'continue', 'pause', 'stop', 'retry'),

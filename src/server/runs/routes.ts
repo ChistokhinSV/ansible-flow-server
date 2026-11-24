@@ -453,7 +453,8 @@ export function registerRuns(
 
   /**
    * Stops a run: at once when no worker has it, else at the worker's next heartbeat. Asking
-   * again, or for a run that has ended, changes nothing and answers with the run as it is.
+   * again changes nothing and answers with the run as it is; AFS-251: a run that has ended is
+   * refused (409), so neither the answer nor the audit says a stop that did not happen.
    */
   app.post<{ Params: { id: string } }>(
     '/api/v1/runs/:id/cancel',
@@ -462,6 +463,12 @@ export function registerRuns(
       // operator on the run's flow: checked before (api/catalog.ts).
       const me = signedIn(request, reply);
       if (!me) return reply;
+      const before = await queue.get(request.params.id);
+      if (before && !ACTIVE.includes(before.state))
+        return reply.code(409).send({
+          error: 'conflict',
+          message: `Run #${before.number} has already ended: there is nothing to stop`,
+        });
       const run = await queue.cancel(request.params.id, me.login);
       if (!run) return reply.code(404).send(NONE);
       // AFS-28: a run stopped while it waits for approval asks nobody any more.

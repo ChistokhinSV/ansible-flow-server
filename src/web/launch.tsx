@@ -87,11 +87,12 @@ function Takes({ config, project }: { config: LaunchConfig; project?: Project })
 
 /**
  * AFS-214: Change and run: the launch form filled from a run (`?from=<run>`): its inputs (not the
- * secret ones, which are never shown), mode, limit, and its commit for who may pick one; and a
- * line naming what differs from the configuration.
+ * secret ones, which are never shown), mode, limit, step by step (AFS-251), and its commit for who
+ * may pick one; and a line naming what differs from the configuration.
  */
 export function fillFrom(
-  run: Pick<Run, 'number' | 'mode' | 'commit' | 'limit' | 'inputs'>,
+  run: Pick<Run, 'number' | 'mode' | 'commit' | 'limit' | 'inputs'> &
+    Partial<Pick<Run, 'step' | 'hostLimit'>>,
   form: Pick<LaunchForm, 'mode' | 'commit' | 'limit' | 'fields'>,
   mayPickCommit: boolean,
 ): {
@@ -99,6 +100,7 @@ export function fillFrom(
   mode?: 'check' | 'real';
   limit?: string;
   commit?: string;
+  stepped?: true;
   line: string;
 } {
   const texts: Record<string, string> = {};
@@ -126,6 +128,13 @@ export function fillFrom(
   const names = Object.keys(texts);
   if (names.length)
     differs.push(`${names.length === 1 ? 'the input' : 'the inputs'} ${names.join(', ')}`);
+  // AFS-251: a step-by-step run is filled in step by step (a debug run too: Debug starts one).
+  const stepped = !!run.step;
+  if (stepped) differs.push('step by step');
+  if (run.hostLimit)
+    notes.push(
+      `Run #${run.number} ran on only ${run.hostLimit.count === 1 ? run.hostLimit.hosts[0] : `${run.hostLimit.count} hosts`}: this launch runs on every host its limit takes.`,
+    );
   if (secret.length)
     notes.push(`Secret inputs are not filled in (${secret.join(', ')}): type them again.`);
   const head = differs.length
@@ -136,6 +145,7 @@ export function fillFrom(
     ...(mode ? { mode } : {}),
     ...(limit !== undefined ? { limit } : {}),
     ...(commit ? { commit } : {}),
+    ...(stepped ? { stepped: true as const } : {}),
     line: [head, ...notes].join(' '),
   };
 }
@@ -1103,6 +1113,7 @@ export function LaunchConfigPage({
     setTyped(new Set(Object.keys(plan.texts)));
     if (plan.mode) setMode(plan.mode);
     if (plan.limit !== undefined) setLimit(plan.limit);
+    if (plan.stepped) setStepped(true);
     if (plan.commit) {
       setCommit(plan.commit);
       setAt({ ref: '', commit: plan.commit });

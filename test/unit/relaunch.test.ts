@@ -99,7 +99,11 @@ describe('run again', () => {
     ...extra,
   });
   /** A run that ended as `view` says, started by omar. */
-  const ended = async (view: unknown = VIEW, extra: Partial<PreparedLaunch> = {}) => {
+  const ended = async (
+    view: unknown = VIEW,
+    extra: Partial<PreparedLaunch> = {},
+    outcome: 'failed' | 'succeeded' | 'cancelled' = 'failed',
+  ) => {
     const run = await queue.enqueue(
       launchOf(extra),
       { devices: ['fw-a', 'fw-b', 'fw-c', '!odd'], api_password: '***' },
@@ -111,7 +115,7 @@ describe('run again', () => {
       await queue.finish(job.run.id, job.token, 'failed');
       job = await queue.claim('w');
     }
-    await queue.finish(run.id, job?.token as string, 'failed', 'x', new Date(), view);
+    await queue.finish(run.id, job?.token as string, outcome, 'x', new Date(), view);
     return run;
   };
   const post = (id: string, body: unknown, token = tokens.omar) =>
@@ -218,6 +222,80 @@ describe('run again', () => {
     expect(offer.sets.failed[0]?.title).toBe('Check the host answers');
   });
 
+  it('AFS-247: a run whose hosts reached Done went well; a stopped run counts its hosts', async () => {
+    const offerOf = async (id: string) =>
+      (await (
+        await fetch(`${url}/api/v1/runs/${id}/relaunch`, {
+          headers: { authorization: `Bearer ${tokens.omar}` },
+        })
+      ).json()) as { line?: string; sets?: { notOk: string[]; stopped: { host: string }[] } };
+    // As the designer's summary says it: the ports hosts left by; nothing leaves an end.
+    const facts = '01M6GPM99KC9TX091MCH61REQV';
+    const hello = '01M6GPM9B1D563X8PKD5041JHV';
+    const well = {
+      ...VIEW,
+      rc: 0,
+      summary: {
+        hosts: ['fw-a', 'fw-c'],
+        nodes: {
+          [PING]: { ok_hosts: ['fw-a', 'fw-c'] },
+          [facts]: { ok_hosts: ['fw-a', 'fw-c'] },
+          [hello]: { ok_hosts: ['fw-a', 'fw-c'] },
+        },
+        outcome: {},
+        failures: [],
+        unreachable: [],
+        stoppedEarly: false,
+      },
+    };
+    const good = await ended(well, {}, 'succeeded');
+    const offer = await offerOf(good.id);
+    expect(offer.line).toBe('All 2 hosts went well');
+    expect(offer.sets?.notOk).toEqual([]);
+    expect((await post(good.id, { hosts: 'not-ok' })).status).toBe(422);
+    // Stopped at a pause after Read a few facts: fw-c had reached Done, fw-a had not.
+    const stopped = {
+      ...well,
+      summary: {
+        ...well.summary,
+        nodes: { [PING]: { ok_hosts: ['fw-a', 'fw-c'] }, [facts]: { ok_hosts: ['fw-c'] } },
+      },
+    };
+    const part = {
+      ...stopped,
+      summary: {
+        ...stopped.summary,
+        nodes: { ...stopped.summary.nodes, [hello]: { ok_hosts: ['fw-c'] } },
+      },
+      step: { stopped: { node: facts, hosts: ['fw-a'] } },
+    };
+    const halfway = await offerOf((await ended(part, {}, 'cancelled')).id);
+    expect(halfway.sets?.notOk).toEqual(['fw-a']);
+    expect(halfway.line).toBe(
+      '1 of 2 hosts did not go well: 1 stopped before the end (before Read a few facts)',
+    );
+    // Stopped at the pause before the first step: no host in the summary, all waiting there.
+    const first = await ended(
+      {
+        ...VIEW,
+        summary: { hosts: [], nodes: {}, outcome: {}, failures: [], unreachable: [] },
+        step: { stopped: { node: PING, hosts: ['fw-a', 'fw-b', 'fw-c', '!odd'] } },
+      },
+      {},
+      'cancelled',
+    );
+    const before = await offerOf(first.id);
+    expect(before.line).toBe(
+      'All 4 hosts did not go well: 4 stopped before the end (before Check the host answers)',
+    );
+    const only = await post(first.id, { hosts: 'not-ok' });
+    expect(only.status).toBe(201);
+    expect(((await only.json()) as { relaunchOf: unknown }).relaunchOf).toMatchObject({
+      hosts: 'not-ok',
+      count: 4,
+    });
+  });
+
   it('runs a run again as before with {}, with the credentials its configuration has now (AFS-238)', async () => {
     const run = await ended();
     await configs.update(configId, { credentials: [cred.y as string] });
@@ -255,6 +333,13 @@ describe('run again', () => {
       relaunchOf: { id: run.id, hosts: 'not-ok', count: 2 },
     });
     expect(again.limit).toBeUndefined();
+    // AFS-251: its page says the hosts it is limited to, not "Limit none".
+    const page = (await (
+      await fetch(`${url}/api/v1/runs/${again.id}`, {
+        headers: { authorization: `Bearer ${tokens.omar}` },
+      })
+    ).json()) as { hostLimit?: unknown };
+    expect(page.hostLimit).toEqual({ count: 2, hosts: ['fw-a', 'fw-b'] });
     // A run again of that run again keeps to those hosts.
     const job = await jobOf(again.id);
     expect(job?.limitHosts).toEqual(['fw-a', 'fw-b']);
@@ -367,6 +452,13 @@ describe('run again', () => {
       })) as { content: { text: string }[]; isError?: boolean };
       expect(bad.isError).toBe(true);
       expect(bad.content[0]?.text).toContain('stopped before the end');
+      // AFS-251: a step argument of the wrong type is refused, not dropped into a plain run.
+      const odd = (await client.callTool({
+        name: 'run_relaunch',
+        arguments: { run: run.id, hosts: 'all', step: { debug: true } },
+      })) as { content: { text: string }[]; isError?: boolean };
+      expect(odd.isError).toBe(true);
+      expect(odd.content[0]?.text).toBe('step must be true or false');
     } finally {
       await client.close();
     }

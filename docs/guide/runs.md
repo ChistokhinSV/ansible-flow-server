@@ -110,7 +110,8 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
   after it **not reached**. **Stop** on a real run asks first; a check run stops at once. Stopping a
   run that waits for approval tells those its approval asked that it no longer waits. A run whose
   steps had all ended when the stop reached it is recorded as it ended, and its output says so. A
-  run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
+  run that has already ended cannot be stopped: `POST /runs/:id/cancel` answers 409 ("Run #41 has
+  already ended"). A run longer than `AFS_RUN_TIMEOUT_MINUTES` (240) is stopped.
 - **Targets not in the inventory:** Ansible skips them. The run names them
   (`skippedTargets` on `GET /runs/:id`, and on its page under What ran: "not in the inventory:
   ghost-01"), also when it went well and when Ansible did not warn of them: the server reads the
@@ -160,14 +161,21 @@ as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find o
 
 **Run again ▾** on a run that has ended, for operators of its flow:
 
-- **Run again**: the same commit, inputs and limit, as a new run. Its title says which inputs it
-  reuses; on a real run it asks first, as Launch does, and so does a run that reached no host.
+Each item has a line under it that says what it takes; **Only the N hosts** names them with their
+set: "sw-edge-02 (failed), sw-edge-05 (unreachable)".
+
+- **Run again**: the same commit, inputs and limit, as a new run. Its tooltip says which inputs it
+  reuses (and so does the link to the old run on the new run's page); on a real run it asks first,
+  as Launch does, and says the approvals are asked again; so does a run that reached no host.
 - **Change and run…**: the configuration's **Launch** tab, filled in from the run (its inputs, mode,
-  limit, and its commit for who may pick one), with a line naming what differs from the
-  configuration. Secret inputs are not filled in: type them again.
+  limit, step by step, and its commit for who may pick one), with a line naming what differs from
+  the configuration. Secret inputs are not filled in: type them again. A run again of some hosts
+  is not limited to them there: the line says so.
 - **Only the N hosts that did not go well**: the run again on the hosts that failed, could not be
   reached, or stopped before the end. It asks first, naming the hosts and what a host limit changes
-  in this flow.
+  in this flow; a step-by-step run runs again step by step, and the question says so. The new
+  run's **What ran** shows its limit as those hosts ("only sw-edge-02"), and `GET /runs/:id` gives
+  them as `hostLimit` (`count`, and the first 20 `hosts`).
 - **Debug this failure…** (rw on the flow): those hosts, step by step, at the failed run's commit,
   pausing before the step they went wrong at and when a host fails, with the debugger. A check run
   by default: it changes nothing, though the failure may not show the same way. **Real run** asks
@@ -178,14 +186,18 @@ as the engine knows them (`AFS_ENGINE_DATA_DIR` names them when it cannot find o
 | Set           | Hosts                                                                                 |
 | ------------- | ------------------------------------------------------------------------------------- |
 | `failed`      | Ended badly: at an open fail port or a failed end, or a failure nothing rescued       |
-| `unreachable` | Ansible could not reach them                                                          |
+| `unreachable` | Ansible could not reach them (also when that failed them at a step)                   |
 | `stopped`     | The run ended before they reached an end (Stop, a pause nobody answered, a rejection) |
 | `handled`     | Had a failure that a wired fail port took to an end that did not fail: they went well |
 | `notOk`       | `failed`, `unreachable` and `stopped`: the hosts that did not go well                 |
 
 Where a host went wrong is the earliest step it failed at: inside a subflow, the step inside it;
-a rolling subflow as a whole, since it runs as one play. Hosts the run never reached are not
-listed. The lists of runs count unreachable hosts among those that did not go well.
+a rolling subflow as a whole, since it runs as one play. A run that ended as the flow says (its
+hosts at its ends) has no `stopped` hosts. In a stopped run, hosts already at an end went well; a
+host that failed a step nothing rescued (Stop at a failure pause) failed there; the others stopped,
+before the step they waited at, or after the step they had passed ("3 stopped before the end
+(after Push baseline)"). A run stopped before its first step counts all its hosts as stopped.
+Hosts the run never reached are not listed. The lists of runs count unreachable hosts among those that did not go well.
 
 **Every run again goes through the launch's checks:** the launch configuration as it is now (its
 flow, the credentials it gives now, its environment), rw on the flow for a run of another branch or

@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Run } from '../../src/web/api';
 import { App } from '../../src/web/app';
-import { againWords, failureWords, stoppedWhen } from '../../src/web/runs';
+import { againWords, failureWords, limitWords, stoppedWhen } from '../../src/web/runs';
 import { formatTime } from '../../src/web/ui';
 import { stepTitle, stopQuestion } from '../../src/web/viewerRuns';
 
@@ -363,7 +363,7 @@ describe('a run', () => {
     // AFS-214: Run again ▾ is a menu; its first item is the run as it was.
     const menu = await screen.findByRole('button', { name: 'Run again ▾' });
     fireEvent.click(menu);
-    const again = screen.getByRole('menuitem', { name: 'Run again' });
+    const again = screen.getByRole('menuitem', { name: /^Run again/ });
     expect(again.getAttribute('title')).toMatch(/^A real run again, at the same commit\./);
     fireEvent.click(again);
     await waitFor(() => expect(asked).toHaveLength(1));
@@ -373,7 +373,7 @@ describe('a run', () => {
     expect(window.location.pathname).toBe('/runs/r1');
     answer = true;
     fireEvent.click(menu);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Run again' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Run again/ }));
     await waitFor(() => expect(asked).toHaveLength(2));
     confirm.mockRestore();
     await screen.findByRole('heading', { name: 'Hello, Ansible #8' });
@@ -397,6 +397,19 @@ describe('a run', () => {
       yes: 'Run for real',
     });
     expect(againWords({ ...base, mode: 'check', error: undefined } as Run).confirm).toBeUndefined();
+    // AFS-251: a real run says its approvals are asked again; a run again of some hosts names them.
+    expect(
+      againWords({ ...base, mode: 'real', error: undefined } as Run, ['Change board']).confirm,
+    ).toBe(
+      'Run Hello for real again? It changes the hosts it reaches. It reuses the inputs devices = ["ghost-01"]. Approvals are asked again (Change board).',
+    );
+    const some = { ...base, mode: 'check', hostLimit: { count: 1, hosts: ['fw-b'] } } as Run;
+    expect(againWords(some).title).toBe(
+      'A check run again, at the same commit on only fw-b. It reuses the inputs devices = ["ghost-01"].',
+    );
+    expect(limitWords({ hostLimit: { count: 30, hosts: ['a', 'b'] } })).toBe(
+      'only 30 hosts: a, b and 28 more',
+    );
   });
 
   it('What ran names the inputs, limit, credentials, environment and skipped targets (AFS-147)', async () => {

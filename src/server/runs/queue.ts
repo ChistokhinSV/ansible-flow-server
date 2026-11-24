@@ -118,7 +118,15 @@ export interface Run {
    * names) and how many (absent for `all`).
    */
   relaunchOf?: RelaunchOf;
+  /**
+   * AFS-251: a run again of some hosts runs on those hosts only (its limit file, in place of a
+   * limit): how many, and the first of them by name.
+   */
+  hostLimit?: { count: number; hosts: string[] };
 }
+
+/** AFS-251: how many host names a run's `hostLimit` says (a run again may take thousands). */
+export const HOST_LIMIT_SHOWN = 20;
 
 /** AFS-214: the run a run is again, and which of its hosts. */
 export interface RelaunchOf {
@@ -308,6 +316,7 @@ export class RunQueue {
       ...(row.relaunch_of_json
         ? { relaunchOf: JSON.parse(row.relaunch_of_json) as RelaunchOf }
         : {}),
+      ...(row.limit_hosts_json ? { hostLimit: hostLimitOf(row.limit_hosts_json) } : {}),
     };
   }
 
@@ -1167,6 +1176,12 @@ export function failedView(view: unknown, state: string, error: string | null): 
   if (state !== 'failed' || !v || v.state !== 'done' || v.rc !== 0 || v.error) return view;
   const { rc: _rc, ...rest } = v;
   return { ...rest, state: 'error', error: error ?? 'The run failed' };
+}
+
+/** AFS-251: a run's limit file, as its record says it: how many hosts, the first by name. */
+function hostLimitOf(json: string): { count: number; hosts: string[] } {
+  const hosts = JSON.parse(json) as string[];
+  return { count: hosts.length, hosts: hosts.slice(0, HOST_LIMIT_SHOWN) };
 }
 
 /**

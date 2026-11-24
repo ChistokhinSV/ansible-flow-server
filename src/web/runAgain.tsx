@@ -26,8 +26,9 @@ export function notOkHosts(sets: HostSets): HostAt[] {
 export function debugPoints(sets: HostSets): { points: string[]; titles: string[] } {
   const points: string[] = [];
   const titles: string[] = [];
+  // AFD-375: a host stopped after a step did not go wrong there: no pause before it for that.
   for (const h of notOkHosts(sets))
-    if (h.node && !points.includes(h.node)) {
+    if (h.node && !h.after && !points.includes(h.node)) {
       points.push(h.node);
       titles.push(h.title ?? h.node);
     }
@@ -56,7 +57,31 @@ export function onlyQuestion(run: Run, offer: RelaunchOffer): string {
   const real = run.mode === 'real' ? ' for real' : ' as a check run';
   const risks = offer.risks.length ? ` ${offer.risks.join('. ')}.` : '';
   const changes = run.mode === 'real' ? ' It changes the hosts it reaches.' : '';
-  return `Run #${run.number} again${real} on ${hostsWord(hosts.length)}: ${list(hosts)} (commit ${run.commit.slice(0, 12)}, the same inputs, the credentials of its configuration)?${changes} Approvals are asked again.${risks}`;
+  return `Run #${run.number} again${real} on ${hostsWord(hosts.length)}: ${list(hosts)} (commit ${run.commit.slice(0, 12)}, the same inputs, the credentials of its configuration)?${changes}${steppedWords(run)} Approvals are asked again.${risks}`;
+}
+
+/** AFS-251: a run again keeps step by step: the question says so, as Launch's does. */
+export function steppedWords(run: Pick<Run, 'number' | 'step'>): string {
+  const s = run.step;
+  if (!s) return '';
+  const where = s.every || !s.points.length ? 'before each step' : 'at its pause points';
+  return s.debug
+    ? ` It is a debug run, as run #${run.number} was: it pauses ${where} and when a host fails.`
+    : ` It runs step by step, as run #${run.number} did: it pauses ${where} until someone says Step, Continue or Stop.`;
+}
+
+/** AFS-251: the hosts that did not go well, each with its set: "sw-02 (failed), sw-05 (stopped)". */
+export function namedSets(sets: HostSets, max = 5): string {
+  const bad = notOkHosts(sets);
+  const named = bad.slice(0, max).map((h) => {
+    const why = sets.unreachable.some((u) => u.host === h.host)
+      ? 'unreachable'
+      : sets.stopped.some((s) => s.host === h.host)
+        ? 'stopped'
+        : 'failed';
+    return `${h.host} (${why})`;
+  });
+  return `${named.join(', ')}${bad.length > max ? ` and ${bad.length - max} more` : ''}`;
 }
 
 /** A modal dialog of the page's own (Escape closes it), focus back where it was. */
@@ -243,19 +268,7 @@ export function RunAgainMenu({
       onAgain({ hosts: 'not-ok' });
     } else if (what === 'debug') setDebugging(true);
   };
-  const notOkTitle = sets
-    ? notOkHosts(sets)
-        .slice(0, 5)
-        .map((h) => {
-          const why = sets.unreachable.some((u) => u.host === h.host)
-            ? 'unreachable'
-            : sets.stopped.some((s) => s.host === h.host)
-              ? 'stopped'
-              : 'failed';
-          return `${h.host} (${why})`;
-        })
-        .join(', ') + (bad > 5 ? ` and ${bad - 5} more` : '')
-    : '';
+  const notOkNames = sets ? namedSets(sets) : '';
   return (
     <div className="more-menu run-again" ref={box}>
       <button
@@ -293,7 +306,8 @@ export function RunAgainMenu({
           }}
         >
           <button type="button" role="menuitem" title={again.title} onClick={() => pick('again')}>
-            Run again
+            <span>Run again</span>
+            <small className="menu-note">All its hosts, the same commit and inputs</small>
           </button>
           {change && (
             <button
@@ -302,12 +316,16 @@ export function RunAgainMenu({
               title="The launch form, filled from this run: change what you need, then launch"
               onClick={() => pick('change')}
             >
-              Change and run…
+              <span>Change and run…</span>
+              <small className="menu-note">The launch form, filled from this run</small>
             </button>
           )}
           {bad > 0 && (
-            <button type="button" role="menuitem" title={notOkTitle} onClick={() => pick('only')}>
-              Only the {bad === 1 ? 'host' : `${bad} hosts`} that did not go well
+            <button type="button" role="menuitem" title={notOkNames} onClick={() => pick('only')}>
+              <span>Only the {bad === 1 ? 'host' : `${bad} hosts`} that did not go well</span>
+              <small className="menu-note" data-not-ok-hosts>
+                {notOkNames}
+              </small>
             </button>
           )}
           {bad > 0 && mayDebug && (
@@ -317,7 +335,8 @@ export function RunAgainMenu({
               title="A check run of those hosts, step by step, that pauses before the step they failed at"
               onClick={() => pick('debug')}
             >
-              Debug this failure…
+              <span>Debug this failure…</span>
+              <small className="menu-note">Those hosts step by step, with the debugger</small>
             </button>
           )}
         </div>

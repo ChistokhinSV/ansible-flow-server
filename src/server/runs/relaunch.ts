@@ -21,6 +21,7 @@ import { type PrepareDeps, prepareLaunch, type StepAsked, withoutSecrets } from 
 import { getProject } from '../projects/store';
 import {
   chosenHosts,
+  type FlowEdge,
   type FlowStep,
   HOST_CHOICES,
   type HostChoice,
@@ -128,7 +129,7 @@ export function limitRisks(nodes: readonly Node[]): string[] {
     );
   if (counted.length)
     risks.push(
-      `Failure percentages and rolling batches (${listed(counted)}) count only these hosts: 1 of 3 is 33%`,
+      `Failure percentages and rolling batches (${listed(counted)}) count only the hosts in the limit`,
     );
   return risks;
 }
@@ -168,10 +169,22 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
   const { queue } = deps;
 
   /** The flow's nodes at a commit; none when the flow cannot be read there. */
-  const nodesAt = async (run: Run, commit = run.commit): Promise<Node[] | undefined> => {
+  const docAt = async (run: Run, commit = run.commit) => {
     const flow = await flowAt(deps.git, run.project, commit, run.flow.file).catch(() => undefined);
     const doc = flow && 'doc' in flow ? flow.doc : undefined;
-    return doc ? (doc.nodes as Node[]) : undefined;
+    return doc ? { nodes: doc.nodes as Node[], edges: (doc.edges ?? []) as FlowEdge[] } : undefined;
+  };
+  const nodesAt = async (run: Run, commit = run.commit): Promise<Node[] | undefined> =>
+    (await docAt(run, commit))?.nodes;
+  /** How a run's hosts went, by its flow at its own commit (its ends and the wires into them). */
+  const setsOf = async (run: Run, view: ViewOfHosts | undefined, fallback?: Node[]) => {
+    const flow = await docAt(run);
+    return hostSets(
+      view,
+      flow?.nodes ?? fallback ?? [],
+      run.state === 'cancelled',
+      flow?.edges ?? [],
+    );
   };
 
   app.get<{ Params: { id: string } }>(
@@ -186,9 +199,11 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
       const view = ACTIVE.includes(run.state)
         ? undefined
         : ((await queue.view(run.id)) as ViewOfHosts | undefined);
-      const sets = view?.summary?.hosts?.length
-        ? hostSets(view, nodes, run.state === 'cancelled')
-        : undefined;
+      // AFS-247: a run stopped before its first step has its waiting hosts in its step state.
+      const sets =
+        view?.summary?.hosts?.length || view?.step?.stopped?.hosts?.length
+          ? await setsOf(run, view, nodes)
+          : undefined;
       const line = sets && outcomeLine(sets);
       const offer: RelaunchOffer = {
         ...(sets ? { sets } : {}),
@@ -344,14 +359,16 @@ export function registerRelaunch(app: FastifyInstance, deps: RelaunchDeps): void
     let names: string[] | undefined;
     if (choice !== 'all') {
       const view = (await queue.view(id)) as ViewOfHosts | undefined;
-      const hosts = view?.summary?.hosts ?? [];
+      const hosts = [
+        ...new Set([...(view?.summary?.hosts ?? []), ...(view?.step?.stopped?.hosts ?? [])]),
+      ];
       if (!hosts.length)
         return refuse(
           422,
           `Run #${old.number} has no hosts to choose from: it reached none`,
           'hosts',
         );
-      const sets = hostSets(view, (await nodesAt(old)) ?? nodes ?? [], old.state === 'cancelled');
+      const sets = await setsOf(old, view, nodes);
       if (Array.isArray(choice)) {
         names = [...new Set(choice)];
         const unknown = names.find((n) => !hosts.includes(n));

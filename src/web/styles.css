@@ -2888,6 +2888,18 @@ fieldset.name-chips {
 .more-menu-list button:hover {
   background: var(--button-hover);
 }
+/* AFS-251: a menu item with a line under it (Run again ▾ names the hosts of each set). */
+.more-menu-list button:has(.menu-note) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+.menu-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: normal;
+  max-width: 22rem;
+}
 
 /* AFS-214: Run again ▾ on a run's page, its Debug this failure dialog, the outcome line. */
 .run-outcome {

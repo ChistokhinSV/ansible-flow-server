@@ -587,6 +587,10 @@ describe('launching over HTTP', () => {
     const cancelled = await call('POST', `/api/v1/runs/${run.id}/cancel`, { cookie: admin });
     expect(cancelled.statusCode).toBe(202);
     expect(cancelled.json()).toMatchObject({ state: 'cancelled', cancelledBy: 'dana' });
+    // AFS-251: a run that has ended is not stopped again: refused, not "accepted".
+    const again = await call('POST', `/api/v1/runs/${run.id}/cancel`, { cookie: admin });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().message).toContain('has already ended');
     expect((await call('POST', '/api/v1/runs/nothing/cancel', { cookie: admin })).statusCode).toBe(
       404,
     );

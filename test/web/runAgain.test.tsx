@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HostSets, RelaunchOffer, Run } from '../../src/web/api';
 import { App } from '../../src/web/app';
 import { fillFrom } from '../../src/web/launch';
-import { debugBody, onlyQuestion, relaunchWords } from '../../src/web/runAgain';
+import { debugBody, onlyQuestion, relaunchWords, steppedWords } from '../../src/web/runAgain';
 
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const APPLY = '01JZAPPLY0000000000000000A';
@@ -117,8 +117,12 @@ describe('Run again ▾', () => {
     expect(
       within(menu)
         .getAllByRole('menuitem')
-        .map((b) => b.textContent),
+        .map((b) => b.querySelector('span')?.textContent),
     ).toEqual(['Run again', 'Only the 3 hosts that did not go well', 'Debug this failure…']);
+    // AFS-251: each item says what it takes; Only names the hosts with their sets.
+    expect(menu.querySelector('[data-not-ok-hosts]')?.textContent).toBe(
+      'edge-02.lab.example (failed), edge-07.lab.example (failed), lb-02.lab.example (unreachable)',
+    );
     fireEvent.click(within(menu).getByRole('menuitem', { name: /Only the 3 hosts/ }));
     await waitFor(() => expect(posted).toEqual([{ hosts: 'not-ok' }]));
     expect(asked[0]).toMatch(
@@ -142,7 +146,7 @@ describe('Run again ▾', () => {
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
     fireEvent.click(
-      within(await openMenu()).getByRole('menuitem', { name: 'Debug this failure…' }),
+      within(await openMenu()).getByRole('menuitem', { name: /^Debug this failure…/ }),
     );
     const dialog = await screen.findByRole('dialog', { name: 'Debug this failure' });
     expect(dialog.textContent).toContain('Pauses before Apply config; pauses when a host fails.');
@@ -181,6 +185,20 @@ describe('Run again ▾', () => {
     expect(onlyQuestion({ ...run, mode: 'check' } as Run, { ...offer, risks: [] })).toBe(
       'Run #41 again as a check run on 3 hosts: edge-02.lab.example, edge-07.lab.example, lb-02.lab.example (commit 3f9c2a1d0b4e, the same inputs, the credentials of its configuration)? Approvals are asked again.',
     );
+    // AFS-251: a step-by-step run again says so, as Launch does.
+    const stepped = { ...run, mode: 'check', step: { every: true, points: [], timeoutS: 3600 } };
+    expect(onlyQuestion(stepped as Run, { ...offer, risks: [] })).toContain(
+      'It runs step by step, as run #41 did: it pauses before each step until someone says Step, Continue or Stop. Approvals are asked again.',
+    );
+    expect(
+      steppedWords({
+        number: 41,
+        step: { every: false, points: [APPLY], timeoutS: 60, debug: true },
+      }),
+    ).toBe(
+      ' It is a debug run, as run #41 was: it pauses at its pause points and when a host fails.',
+    );
+    expect(steppedWords({ number: 41 })).toBe('');
     expect(relaunchWords({ id: 'r1', number: 41, hosts: 'all' })).toBe('Run again of #41');
     expect(relaunchWords({ id: 'r1', number: 41, hosts: 'unreachable', count: 1 })).toBe(
       'Run again of #41 on the 1 host that could not be reached',
@@ -221,6 +239,26 @@ describe('Change and run', () => {
       limit: '',
       commit: 'b'.repeat(40),
       line: 'Filled in from run #41: unlike the configuration, a real run; no limit; commit bbbbbbbbbbbb; the input devices. Secret inputs are not filled in (api_password): type them again.',
+    });
+    // AFS-251: a step-by-step run fills Step by step; a run again of some hosts says so.
+    expect(
+      fillFrom(
+        {
+          ...from,
+          mode: 'check',
+          limit: 'edge',
+          inputs: {},
+          commit: 'a'.repeat(40),
+          step: { every: true, points: [], timeoutS: 60 },
+          hostLimit: { count: 1, hosts: ['edge-02'] },
+        },
+        form,
+        true,
+      ),
+    ).toEqual({
+      texts: {},
+      stepped: true,
+      line: 'Filled in from run #41: unlike the configuration, step by step. Run #41 ran on only edge-02: this launch runs on every host its limit takes.',
     });
     // Who may not pick a commit runs the configuration's, and is told.
     expect(fillFrom({ ...from, mode: 'check', limit: 'edge', inputs: {} }, form, false)).toEqual({

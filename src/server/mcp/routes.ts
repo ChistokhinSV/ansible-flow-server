@@ -430,6 +430,15 @@ export function registerMcp(app: FastifyInstance, deps: McpDeps): void {
         return json({ run: run.id, number: run.number, state: run.state, flow: run.flow.name });
       },
       run_relaunch: async ({ run, step, points, ...rest }) => {
+        // AFS-251: step and points are turned into the API's own; a wrong type is refused here,
+        // never dropped (the API checks the other arguments itself).
+        if (step !== undefined && typeof step !== 'boolean')
+          return { text: 'step must be true or false', isError: true };
+        if (
+          points !== undefined &&
+          (!Array.isArray(points) || points.some((p) => typeof p !== 'string'))
+        )
+          return { text: 'points must be a list of step ids', isError: true };
         const pointList = Array.isArray(points) ? points.map(String) : [];
         // AFS-240: step: true pauses before every step, points only before those; false: none.
         const stepBody =

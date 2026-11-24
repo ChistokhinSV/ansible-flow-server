@@ -967,14 +967,16 @@ const inputText = (value: unknown) => (typeof value === 'string' ? value : JSON.
 /**
  * AFS-147: what Run again does, in words: the button's title (mode and the inputs it reuses) and
  * the question asked first: for a real run (Launch's, with the inputs), and for one that reached
- * no host (AFS-191).
+ * no host (AFS-191). AFS-251: a real run's question says its approvals are asked again, and a run
+ * again of some hosts names them.
  */
-export function againWords(run: Run): { title: string; confirm?: string; yes: string } {
-  const inputs = Object.entries(run.inputs).map(([name, v]) => `${name} = ${inputText(v)}`);
-  const reuses = inputs.length
-    ? `It reuses the inputs ${inputs.join(', ')}.`
-    : 'It takes no inputs.';
-  const where = run.limit ? ` limited to ${run.limit}` : '';
+export function againWords(
+  run: Run,
+  approvals: readonly string[] = [],
+): { title: string; confirm?: string; yes: string } {
+  const reuses = reusesWords(run);
+  const only = limitWords(run);
+  const where = only ? ` on ${only}` : run.limit ? ` limited to ${run.limit}` : '';
   const mode = run.mode === 'real' ? 'A real run' : 'A check run';
   // AFS-191: a run that reached no host would again (same commit, inputs and limit): asked first.
   const none = run.error?.startsWith('No host ran')
@@ -985,13 +987,31 @@ export function againWords(run: Run): { title: string; confirm?: string; yes: st
     title: `${mode} again, at the same commit${where}. ${reuses}`,
     ...(real
       ? {
-          confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}${none}`,
+          confirm: `Run ${run.flow.name} for real again${where}? It changes the hosts it reaches. ${reuses}${approvals.length ? ` Approvals are asked again (${approvals.slice(0, 3).join(', ')}${approvals.length > 3 ? ` and ${approvals.length - 3} more` : ''}).` : ''}${none}`,
         }
       : none
         ? { confirm: `Run ${run.flow.name} again as a check run?${none}` }
         : {}),
     yes: real ? 'Run for real' : 'Run again anyway',
   };
+}
+
+/** AFS-147: the inputs a run again reuses, in a sentence. */
+export function reusesWords(run: Pick<Run, 'inputs'>): string {
+  const inputs = Object.entries(run.inputs).map(([name, v]) => `${name} = ${inputText(v)}`);
+  return inputs.length ? `It reuses the inputs ${inputs.join(', ')}.` : 'It takes no inputs.';
+}
+
+/**
+ * AFS-251: the limit of a run again of some hosts (its own list of hosts, not a limit pattern):
+ * "only sw-edge-02", "only 40 hosts: leaf-01, … and 20 more".
+ */
+export function limitWords(run: Pick<Run, 'hostLimit'>): string | undefined {
+  const h = run.hostLimit;
+  if (!h) return undefined;
+  const more = h.count - h.hosts.length;
+  const names = `${h.hosts.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+  return h.count === 1 ? `only ${names}` : `only ${h.count} hosts: ${names}`;
 }
 
 export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeChoice }) {
@@ -1202,7 +1222,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     );
   // operator on the run's flow stops it and runs it again.
   const mayAct = me.admin || atLeast(flowLevel(access, run.flow.file), 'operator');
-  const again = againWords(run);
+  const again = againWords(run, offer?.approvals);
   // AFS-214: Debug this failure looks into the run's variables: rw on the flow.
   const mayDebug = me.admin || atLeast(flowLevel(access, run.flow.file), 'rw');
   const relaunch = async (body?: RelaunchBody) => {
@@ -1355,7 +1375,11 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             {run.relaunchOf && (
               <>
                 {' · '}
-                <Link to={`/runs/${encodeURIComponent(run.relaunchOf.id)}`} data-relaunch-of>
+                <Link
+                  to={`/runs/${encodeURIComponent(run.relaunchOf.id)}`}
+                  title={`It ran with the inputs of run #${run.relaunchOf.number}. ${reusesWords(run).replace('It reuses the inputs', 'They are')}`}
+                  data-relaunch-of
+                >
                   {relaunchWords(run.relaunchOf)}
                 </Link>
               </>
@@ -1546,7 +1570,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 )}
               </dd>
               <dt>Limit</dt>
-              <dd>{run.limit ? <code>{run.limit}</code> : 'none'}</dd>
+              <dd data-limit>
+                {limitWords(run) ?? (run.limit ? <code>{run.limit}</code> : 'none')}
+              </dd>
               <dt>Inventory</dt>
               <dd>{run.inventory ? <code>{run.inventory}</code> : 'what ansible.cfg names'}</dd>
               <dt>Environment</dt>

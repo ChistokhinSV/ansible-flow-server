@@ -42,6 +42,17 @@ Carries Ansible Flow Designer 1.2.0-rc.1.
 - The flow pages now show the warnings that need the repository, such as a network module on hosts the inventory reaches with `ansible_connection: local`, as VS Code does.
 - Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
 - The lists of runs did not count hosts that could not be reached among the hosts that did not go well.
+- A run that went well said its hosts "did not go well: stopped before the end", and **Run again** offered to run them again or debug them. Hosts that reached one of the flow's ends now count as went well, and **Only the hosts that did not go well** takes only the hosts that failed, could not be reached or stopped.
+- A host that could not be reached was counted as failed when a step failed it for that; it is counted as unreachable.
+- A run stopped before its first step counted no host; its hosts now count as stopped before that step, and **Only the hosts that did not go well** runs them.
+- Stop at a failure pause said every host stopped before the step: the hosts that failed are counted as failed there, the others as stopped after it, and hosts already at an end as went well.
+- A run again of some hosts said "Limit none" under **What ran**; it names its hosts ("only sw-edge-02"), and `GET /api/v1/runs/<id>` gives them as `hostLimit`.
+- **Change and run…** of a step-by-step run fills in **Step by step**, and its line says so.
+- The question before **Only the hosts that did not go well** says when the run again goes step by step; the question before **Run again** of a real run says its approvals are asked again.
+- **Run again ▾** says under each item what it takes, and names the hosts that did not go well with their set (failed, unreachable, stopped).
+- The question before a run again of some hosts no longer says "1 of 3 is 33%" about failure percentages and rolling batches.
+- MCP `run_relaunch` refuses a `step` that is not true or false, or `points` that are not a list of step ids, instead of running without them.
+- Stopping a run that has already ended is refused (409) and no longer recorded in the audit log as a stop.
 - An action has a page of its own for its settings, links and who may run it (`/actions/<id>/edit`). The launch configuration's **Settings** keep one line that leads there; the action's form has **Change this action** for whoever may change it.
 - **A link with values**: on the action's page, fill in some or all of the values and copy the whole link to hand to someone. The page checks the values as the form does and says what the person will see: a confirm page, or the short form asking for what is left.
 - **Copy a link with these values** on an action's form, to share what you filled in.
