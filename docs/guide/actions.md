@@ -26,7 +26,10 @@ on the workspace):
   group** narrows it to one inventory group (every group of the configuration's inventory is
   offered as you type, with its number of hosts, also before the action is saved; a group the
   inventory does not have is refused when you save; its hosts and its child groups' hosts are
-  offered, no other name is taken). Every input not ticked runs with the configuration's value, and a runner cannot
+  offered, no other name is taken). Choices and a group do not go together: Save says so, and
+  neither is dropped. A host list's choices must be hosts or groups of the inventory (a name it
+  does not have is refused when you save, and at **Run** if the inventory loses it); the
+  settings list them under **Hosts**. Every input not ticked runs with the configuration's value, and a runner cannot
   change it: the server refuses a value for an input the action does not ask. Secret-looking
   inputs are never asked: give them with a credential.
 - A host list it asks **starts empty**: the runner picks (the configuration's value, often a whole
@@ -96,7 +99,7 @@ says whether it runs for real, and a group by its number of hosts ("Switch: edge
 The same values as your run of a moment ago (30 seconds) are not run twice by accident: the page
 asks **Run again** or **Open that run**. A card on **Actions** marks an action that runs for real
 and opens your last run of it; an action switched off, or one you may not run, says so with whom
-to ask and **Back to actions**. **Search** finds the actions you may run.
+to ask and **Back to actions**. **Search** (at the top of every page) finds the actions you may run.
 
 ![An action's form on a phone](images/action-form.png)
 

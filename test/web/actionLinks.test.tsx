@@ -117,6 +117,26 @@ describe('a link to an action', () => {
     expect(screen.queryByText(/The link started/)).toBeNull();
   });
 
+  it('AFS-254: a link with no values says it gives none', async () => {
+    routes = {
+      ...base(),
+      'GET /actions/c1/link': () => ({
+        body: link({
+          values: {},
+          given: [],
+          missing: ['device', 'ip'],
+          ready: false,
+          reply: undefined,
+        }),
+      }),
+    };
+    window.history.replaceState(null, '', '/a/c1');
+    render(<App />);
+    expect(
+      await screen.findByText('The link gives no values: fill in what it asks, then Run.'),
+    ).toBeTruthy();
+  });
+
   it('with a value missing: the form asks only that one; the given ones are listed', async () => {
     vi.stubGlobal('confirm', () => true);
     routes = {

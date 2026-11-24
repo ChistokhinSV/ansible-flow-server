@@ -561,6 +561,11 @@ declare module 'fastify' {
      * a group and the fields a change really changed, AFS-141).
      */
     auditDetail?: Record<string, string | boolean | string[]>;
+    /**
+     * AFS-252: how it went, where the status cannot say: a test that answers 200 to tell that
+     * the provider could not be reached failed all the same.
+     */
+    auditResult?: AuditResult;
     /** AFS-195: the grants a deleted person or group had: each ends with them. */
     auditGrants?: { id: string; name: string; workspace: string }[];
     /** AFS-206: the action grants that end with a person, a group or an action. */
@@ -668,7 +673,7 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
       } catch {}
     const params = request.params as Record<string, string>;
     const type = typeOf(spec.action);
-    const result = resultOf(status);
+    const result = (status < 400 && request.auditResult) || resultOf(status);
     const detail = detailOfBody(request.method, request.body);
     if (spec.parent && params.id) detail[spec.parent] = params.id;
     Object.assign(detail, request.auditDetail);

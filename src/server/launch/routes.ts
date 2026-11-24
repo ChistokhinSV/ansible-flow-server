@@ -99,10 +99,29 @@ const REQUEST = {
     inputs: {
       type: 'object',
       maxProperties: 200,
-      additionalProperties: { type: 'string', maxLength: 100_000 },
+      // AFS-254: text as typed, or a JSON list (a host list as ["web-01", "web-02"]): the list
+      // is read as its JSON text, as the form's field takes it.
+      additionalProperties: {
+        anyOf: [
+          { type: 'string', maxLength: 100_000 },
+          { type: 'array', maxItems: 10_000, items: { type: ['string', 'number'] } },
+        ],
+      },
     },
   },
 };
+
+/** AFS-254: inputs given as JSON lists, as the text the launch form would hold for them. */
+function asTexts(asked: LaunchRequest): LaunchRequest {
+  const inputs = asked.inputs as Record<string, string | (string | number)[]> | undefined;
+  if (!inputs || !Object.values(inputs).some(Array.isArray)) return asked;
+  return {
+    ...asked,
+    inputs: Object.fromEntries(
+      Object.entries(inputs).map(([n, v]) => [n, Array.isArray(v) ? JSON.stringify(v) : v]),
+    ),
+  };
+}
 
 /**
  * AFS-183: per flow input, one line: the steps that read it, its default, what it wins over (the
@@ -434,8 +453,9 @@ export function registerLaunch(
    */
   const devRequest = async (
     projectId: string,
-    asked: LaunchRequest,
+    given: LaunchRequest,
   ): Promise<LaunchRequest | Refusal> => {
+    const asked = asTexts(given);
     if (!asked.dev) return asked;
     const bundle = await getDevBundle(deps.db, asked.dev);
     if (!bundle || bundle.project !== projectId)

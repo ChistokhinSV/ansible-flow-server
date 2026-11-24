@@ -88,6 +88,43 @@ body {
   --scalar-sidebar-search-border-color: var(--border);
 }
 
+/* AFS-255: Scalar makes a card's colour from the panel's with relative colour syntax; on a near-grey
+   colour some browsers turn its hue (the Operations box came out reddish). Our own colour. */
+.light-mode .scalar-card,
+.dark-mode .scalar-card {
+  --scalar-card-surface: var(--raised);
+  --scalar-card-surface-raised: var(--raised);
+}
+
+/* AFS-255: the session is a cookie the browser sends; Scalar shows its own sample value under
+   it, which reads like the session itself. That row is not shown (the scheme's text says there
+   is nothing to type). The placeholder is Scalar's, for a key scheme: the session is our only one. */
+tr:has(> td input[placeholder="QUxMIFlPVVIgQkFTRSBBUkUgQkVMT05HIFRPIFVT"]) {
+  display: none !important;
+}
+
+/* AFS-255: the side list's last item scrolls clear of "Powered by Scalar", which has a line. */
+.t-doc__sidebar .group\/items {
+  padding-bottom: 1.5rem;
+}
+.t-doc__sidebar .darklight-reference {
+  border-top: var(--scalar-border-width) solid var(--scalar-sidebar-border-color);
+  padding-top: 0.6rem;
+}
+
+/* AFS-255: Try it in the frame: the client takes the frame's height (its close button above it),
+   and in its narrow layout (request over response) the request part scrolls in its own box, so
+   the answer is in sight after Send. */
+.scalar .scalar-container .scalar-app-layout {
+  height: calc(100% - 96px);
+}
+@media (max-width: 1279.98px) {
+  .scalar-client .request-section-content {
+    max-height: 30vh;
+    overflow: auto;
+  }
+}
+
 /* The question before a request that may change something (confirm.ts), as the pages ask it. */
 dialog.confirm {
   width: min(28rem, calc(100vw - 2rem));

@@ -1053,6 +1053,24 @@ export function registerActions(app: FastifyInstance, deps: ActionDeps): void {
       const settings = checkSettings(request.body, prepared.form.fields);
       // AFS-207: a group the inventory does not have would offer its runners nothing to pick.
       const groups = [...new Set(settings.asked.flatMap((a) => (a.group ? [a.group] : [])))];
+      // AFS-254: nor would a host list's choice the inventory does not have.
+      const hostLists = new Set(
+        prepared.form.fields.filter((f) => f.type === 'host_list').map((f) => f.name),
+      );
+      const chosen = settings.asked.filter((a) => a.choices?.length && hostLists.has(a.name));
+      if (chosen.length) {
+        const inventory = await inventoryOf(config, prepared.form.commit);
+        if (inventory && !inventory.dynamic && !inventory.cut)
+          for (const a of chosen) {
+            const unknown = hostsOf((a.choices ?? []).join(', '), inventory).unknown[0];
+            if (unknown !== undefined)
+              throw new ActionError(
+                'invalid',
+                `A choice of ${a.label}: ${unknown.slice(0, 60)} is not a host or group of the inventory`,
+                'asked',
+              );
+          }
+      }
       if (groups.length) {
         const inventory = await inventoryOf(config, prepared.form.commit);
         const missing = inventory && !inventory.dynamic && groups.find((g) => !inventory.groups[g]);

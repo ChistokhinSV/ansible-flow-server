@@ -115,6 +115,8 @@ describe('secret providers', () => {
     // A change keeps the secret part unless asked: its fields are not there.
     fireEvent.click(within(card).getByRole('button', { name: 'Change' }));
     const change = screen.getByRole('region', { name: 'Change Corp Vault' });
+    // AFS-252: the form above the list says which provider it changes.
+    expect(within(change).getByRole('heading', { name: 'Change Corp Vault' })).toBeTruthy();
     expect(within(change).queryByLabelText('Secret id')).toBeNull();
     expect(within(change).getByText(/role id and secret id are kept/)).toBeTruthy();
   });
@@ -154,6 +156,15 @@ describe('secret providers', () => {
       target: { value: 'network/switches' },
     });
     fireEvent.change(within(section).getByLabelText('Field'), { target: { value: 'password' } });
+    // AFS-252: nothing is kept here, so the form does not say a secret is kept encrypted; and
+    // Stored here and back gives the reference back as it was.
+    expect(within(section).queryByText(/Kept encrypted on the server/)).toBeNull();
+    fireEvent.click(within(section).getByLabelText('Stored here'));
+    expect(within(section).getByText(/Kept encrypted on the server/)).toBeTruthy();
+    fireEvent.click(within(section).getByLabelText('From a secret provider'));
+    expect((within(section).getByLabelText('Path') as HTMLInputElement).value).toBe(
+      'network/switches',
+    );
     fireEvent.click(within(section).getByRole('button', { name: 'Test read' }));
     expect(await within(section).findByText(/^Read OK at .* \(value not shown\)$/)).toBeTruthy();
     expect(sent('POST /workspaces/network/secret-refs/test')).toEqual([
@@ -190,5 +201,27 @@ describe('secret providers', () => {
     open('/w/network/-/credentials');
     expect(await screen.findByText('user name netops · password from Corp Vault')).toBeTruthy();
     expect(screen.queryByText(/network\/switches/)).toBeNull();
+  });
+
+  it('a change of a credential read whole from a provider offers no Replace tick', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /workspaces': () => ({ body: [network] }),
+      'GET /workspaces/network': () => ({ body: network }),
+      'GET /workspaces/network/projects': () => ({ body: [] }),
+      'GET /workspaces/network/credentials': () => ({ body: [login] }),
+      'GET /workspaces/network/secret-providers': () => ({
+        body: [{ key: 'corp-vault', name: 'Corp Vault', kind: 'vault' }],
+      }),
+    };
+    open('/w/network/-/credentials');
+    fireEvent.click(await screen.findByRole('button', { name: 'Change Lab switches' }));
+    expect(await screen.findByLabelText('Path')).toBeTruthy();
+    expect(screen.queryByLabelText(/Replace the secret/)).toBeNull();
+    fireEvent.click(screen.getByLabelText('Stored here'));
+    expect(screen.getByLabelText('Replace the secret stored here')).toBeTruthy();
+    // The part is named once, by its group: the field's own label is for screen readers.
+    const field = screen.getByLabelText('Password').closest('.field') as HTMLElement;
+    expect(field.querySelector('label .sr-only')?.textContent).toBe('Password');
   });
 });

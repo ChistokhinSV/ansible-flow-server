@@ -220,13 +220,20 @@ export function registerSecretProviders(
           // An administrator's test reads as the provider, whatever workspaces it is open to.
           const full = { ...ref, provider: conn.key } as SecretRef;
           const problem = refProblem(conn.kind, full);
-          if (problem) return { ok: false, message: problem };
+          if (problem) {
+            request.auditResult = 'refused';
+            request.auditDetail = { outcome: 'bad_reference' };
+            return { ok: false, message: problem };
+          }
           await client.read(full);
           return { ok: true, message: 'Signed in and read the secret (the value is not shown)' };
         }
         return { ok: true, message: await client.test() };
       } catch (e) {
         if (!(e instanceof SecretReadError)) throw e;
+        // AFS-252: the answer is a 200 that says it failed; the audit entry says so too.
+        request.auditResult = 'failed';
+        request.auditDetail = { outcome: e.code };
         request.log.warn(
           {
             provider: conn.key,
@@ -283,8 +290,14 @@ export function registerSecretProviders(
         return reply.code(404).send({ error: 'not_found', message: 'No such workspace' });
       const tested = await testRef(db, key, workspace.id, request.body.ref, request.log);
       // Which provider and whether it read; never the path or the value.
-      request.auditDetail = { provider: request.body.ref.provider, read: tested.ok };
-      return tested;
+      request.auditDetail = {
+        provider: request.body.ref.provider,
+        read: tested.ok,
+        ...(tested.outcome ? { outcome: tested.outcome } : {}),
+      };
+      if (!tested.ok)
+        request.auditResult = tested.outcome === 'bad_reference' ? 'refused' : 'failed';
+      return { ok: tested.ok, message: tested.message };
     }),
   );
 }

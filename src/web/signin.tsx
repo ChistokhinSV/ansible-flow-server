@@ -213,7 +213,7 @@ function ProviderForm({
           value={d.key}
           onChange={(e) => set({ key: e.target.value.toLowerCase() })}
           required
-          pattern="[a-z0-9][a-z0-9-]{0,39}"
+          pattern="[a-z0-9][a-z0-9\-]{0,39}"
           title="Lower-case letters, digits and dashes, up to 40"
           hint="In the sign-in address; lower-case letters, digits and dashes"
         />

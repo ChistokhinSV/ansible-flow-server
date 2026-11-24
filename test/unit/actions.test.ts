@@ -100,6 +100,17 @@ describe('host lists of an action (AFS-207)', () => {
       field: 'devices',
       message: 'Switch: nosuchhost is not a host or group of the inventory',
     });
+    // AFS-254: a choice is a name the inventory must have too; a typed list is said by its count.
+    expect(
+      hostProblem(
+        { name: 'devices', label: 'Switch', choices: ['sw-edge-01', 'c5-other'] },
+        'c5-other',
+        inventory,
+      )?.message,
+    ).toBe('Switch: c5-other is not a host or group of the inventory');
+    expect(hostProblem(one, 'sw-edge-01,sw-edge-02', inventory)?.message).toBe(
+      'Switch: sw-edge-01,sw-edge-02 is 2 hosts: this action takes one host. Pick one.',
+    );
     // A dynamic inventory finds its hosts when it runs: an unknown name may be one.
     expect(
       hostProblem({ name: 'devices', label: 'Switch' }, 'nosuchhost', {
@@ -586,6 +597,22 @@ for (const [name, config] of databases) {
       const typo = await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, ONE);
       expect(typo.status).toBe(400);
       expect(typo.body.message).toMatch(/^The inventory has no group edgex: its groups are/);
+      // AFS-254: a choice the inventory does not have is refused, by the field's label.
+      const choice = await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, {
+        ...ONE,
+        asked: [{ name: 'devices', label: 'Switch', choices: ['sw-edge-01', 'c5-other'] }],
+      });
+      expect(choice.status).toBe(400);
+      expect(choice.body.message).toBe(
+        'A choice of Switch: c5-other is not a host or group of the inventory',
+      );
+      const both = await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, {
+        ...ONE,
+        asked: [{ name: 'devices', label: 'Switch', group: 'edge', choices: ['sw-edge-01'] }],
+      });
+      expect(both.body.message).toBe(
+        'Switch has choices: a group narrows a host list without them',
+      );
       expect(
         (
           await call('wanda', 'PUT', `/api/v1/launch-configs/${other}/action`, {

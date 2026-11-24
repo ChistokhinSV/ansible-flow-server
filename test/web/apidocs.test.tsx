@@ -3,7 +3,16 @@
 import { readFileSync } from 'node:fs';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { kindOf, NotSent, THEME_MESSAGE, tryFetch } from '../../src/web/apidocsTry';
+import {
+  HASH_MESSAGE,
+  kindOf,
+  NotSent,
+  placeOf,
+  quiet,
+  quietConsole,
+  THEME_MESSAGE,
+  tryFetch,
+} from '../../src/web/apidocsTry';
 import { App } from '../../src/web/app';
 
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
@@ -136,5 +145,51 @@ describe('Try it', () => {
       /this server only/,
     );
     expect(sent).toEqual([]);
+  });
+});
+
+describe('the frame around Scalar (AFS-255)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves Scalar's cookie warning and a request not sent out of the console", () => {
+    const said: unknown[][] = [];
+    const target = {
+      warn: (...a: unknown[]) => said.push(a),
+      error: (...a: unknown[]) => said.push(a),
+    };
+    quietConsole(target);
+    target.warn("We're trying to add a Cookie header, but browsers often omit them");
+    target.error(new NotSent('POST', '/api/v1/runs/r1/cancel'));
+    target.warn('something else');
+    expect(said).toEqual([['something else']]);
+    expect(quiet([new Error('boom')])).toBe(false);
+  });
+
+  it('a link to an operation opens it in the frame; the frame keeps it in the address', async () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      const body = url === '/api/v1/session' ? omar : undefined;
+      return { ok: !!body, status: body ? 200 : 404, json: async () => body } as Response;
+    });
+    window.history.replaceState(null, '', '/docs/api#tag/runs/GET/api/v1/runs');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'API reference' });
+    const frame = document.querySelector('iframe.api-frame') as HTMLIFrameElement;
+    expect(new URL(frame.src).hash).toBe('#tag/runs/GET/api/v1/runs');
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          source: frame.contentWindow,
+          data: { type: HASH_MESSAGE, hash: '#tag/runs/POST/api/v1/runs/{id}/cancel' },
+        }),
+      );
+    });
+    expect(window.location.pathname + window.location.hash).toBe(
+      '/docs/api#tag/runs/POST/api/v1/runs/{id}/cancel',
+    );
+    expect(placeOf('#tag/x"><script>')).toBe('');
   });
 });

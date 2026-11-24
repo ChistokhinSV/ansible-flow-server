@@ -55,8 +55,9 @@ const HINT: Record<string, string> = {
   account: 'The Conjur account (the first part of its ids)',
   login: 'host/afs: the host this server signs in as',
   appId: 'The application id CCP knows this server by',
-  clientCert: 'The certificate CCP knows this server by; its key goes below',
-  region: 'eu-central-1',
+  clientCert:
+    'Only if CCP asks for one: the certificate it knows this server by. Its key is asked for once the certificate is here',
+  region: 'The code of the region the secrets are in, as eu-central-1 or us-east-1',
 };
 const ADDRESS_HINT: Record<ProviderKind, string> = {
   vault: 'https://vault.example.net:8200',
@@ -112,8 +113,10 @@ function ProviderForm({
   return (
     <section
       className="panel sheet"
-      aria-label={d.id ? `Change ${d.name}` : 'Add a secret provider'}
+      aria-label={d.id ? `Change ${draft.name}` : 'Add a secret provider'}
     >
+      {/* AFS-252: the form opens above the list; its heading says which provider it changes. */}
+      <h2>{d.id ? `Change ${draft.name}` : 'Add a secret provider'}</h2>
       <Form
         submit={d.id ? 'Save' : 'Add'}
         onCancel={onCancel}
@@ -191,7 +194,7 @@ function ProviderForm({
           value={d.key}
           onChange={(e) => set({ key: e.target.value.toLowerCase() })}
           required
-          pattern="[a-z0-9][a-z0-9-]{0,39}"
+          pattern="[a-z0-9][a-z0-9\-]{0,39}"
           hint="What credentials name it by; it cannot change while one reads from it"
         />
         {SETTINGS[d.kind].map((name) => {
@@ -325,7 +328,7 @@ function TestBox({ provider }: { provider: SecretProvider }) {
         Signs in{provider.kind === 'ccp' ? ' (CCP: reaches it with the client certificate)' : ''}.
         With a reference, reads it too; the value is never shown.
       </p>
-      <div className="variable-row">
+      <div className="ref-test-fields">
         {fields.map((f) => (
           <Field
             key={f.name}

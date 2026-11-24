@@ -36,7 +36,12 @@ writes it anywhere.
 5. **Workspaces that may use it**: only credentials of those workspaces may read from it.
 
 **Test the provider** signs in (Vault, Conjur, AWS) or reaches it with the client certificate
-(CCP). Give a reference too and it reads that secret; the value is never shown.
+(CCP). Give a reference too and it reads that secret; the value is never shown. A certificate the
+server does not trust is said in words that fit: with no authority given, add its authority to the
+provider; with one given, that authority does not sign the provider's certificate.
+
+**Change** opens the provider's form above the list, headed with its name ("Change Lab Vault").
+For CCP, the field for the client certificate's key opens once a certificate is given.
 
 A provider cannot be removed, change its key, or close a workspace while a credential reads from
 it: the refusal names that credential.
@@ -50,9 +55,15 @@ each secret part (a password, a private key, a token, a variable's value), **Sto
 ![A credential's password from a secret provider](images/secret-ref.png)
 
 - Name the provider and where the secret is: for Vault the path (`network/switches`, without
-  `data/`) and the field (`password`).
+  the mount and `data/`) and the field (`password`). A path written as Vault's API path
+  (`secret/data/network/switches`) is refused by Vault; the answer then says to leave the mount
+  and `data/` out.
 - **Test read** reads it now and says whether it could: "Read OK at 14:02 (value not shown)".
 - Saved, the credential holds the reference, not the value.
+- **Stored here** and back to **From a secret provider** gives the reference back as it was.
+- Changing a credential, a reference is changed as it is; **Replace the secret stored here** is
+  about the parts kept on the server only, and is not offered when every part comes from a
+  provider. "Kept encrypted on the server" shows only when a part is kept here.
 
 Who sees what:
 
@@ -81,7 +92,9 @@ Who sees what:
 - The run's output says where each part came from:
   `Credential: login "Lab switches" as netops, password from HashiCorp Vault "Corp Vault"`.
 - Every read is in the audit log as `secret-provider.read`, with the run, the credential and how
-  it went; tests are `secret-provider.test` and `credential.test-read`.
+  it went; tests are `secret-provider.test` and `credential.test-read`. A test that could not
+  sign in or read is a _failed_ entry with why (`outcome`: `unreachable`, `auth`, `denied`,
+  `not_found`, `tls`, ...); a reference the form got wrong is _refused_.
 
 A project's git credential and an inventory that needs a run's variables read the same way, once
 per use.

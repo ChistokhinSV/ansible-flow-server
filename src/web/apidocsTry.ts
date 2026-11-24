@@ -12,6 +12,36 @@ export function kindOf(asked: string | null | undefined, deviceLight: boolean): 
 /** The application's message to the frame when its theme changes (app.tsx sends it). */
 export const THEME_MESSAGE = 'afs-api-theme';
 
+/** AFS-255: the frame's message to the application when the operation shown changes. */
+export const HASH_MESSAGE = 'afs-api-hash';
+
+/** AFS-255: the part of an address after # that names a place in the reference, else ''. */
+export function placeOf(hash: string): string {
+  return /^#[A-Za-z0-9/_{}.:-]{1,300}$/.test(hash) ? hash : '';
+}
+
+/**
+ * AFS-255: what Scalar says in the console that is not news here. Its "Cookie header" warning
+ * comes with every request that uses the session: the browser sends the session cookie itself
+ * (the header Scalar adds is dropped). And a request the person chose not to send is not an error.
+ */
+export function quiet(args: readonly unknown[]): boolean {
+  const first = args[0];
+  if (typeof first === 'string' && first.startsWith("We're trying to add a Cookie header"))
+    return true;
+  return args.some((a) => a instanceof NotSent || (a instanceof Error && a.name === 'NotSent'));
+}
+
+/** Leaves out of the console what `quiet` says is not news. */
+export function quietConsole(target: Pick<Console, 'warn' | 'error'>): void {
+  for (const level of ['warn', 'error'] as const) {
+    const said = target[level].bind(target);
+    target[level] = (...args: unknown[]) => {
+      if (!quiet(args)) said(...args);
+    };
+  }
+}
+
 /** Methods that only read: sent without asking. */
 const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
 

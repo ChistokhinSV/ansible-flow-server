@@ -521,6 +521,11 @@ button.link:hover:not(:disabled) {
   gap: 0.6rem;
   flex-wrap: wrap;
 }
+/* AFS-254: an action's links and buttons in a row sit on one line, a link beside a button too. */
+.progress .actions,
+.action-form .actions {
+  align-items: center;
+}
 .form {
   display: grid;
   gap: 1rem;
@@ -4039,6 +4044,20 @@ fieldset.copy-link h4 {
 .variable-row > .variable-source,
 .variable-row > .ref-fields {
   grid-column: 1 / -1;
+}
+/* AFS-252: a provider's Test fields share the width evenly, inputs on one line however their
+   labels wrap; one under the other on a phone. */
+.ref-test-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.6rem;
+  align-items: end;
+  margin-bottom: 0.6rem;
+}
+@media (max-width: 600px) {
+  .ref-test-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .test-read {
   display: flex;

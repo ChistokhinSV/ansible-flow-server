@@ -125,6 +125,8 @@ describe('actions', () => {
     ).toEqual(['Actions']);
     expect(screen.queryByRole('navigation', { name: 'Workspaces' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Runs' })).toBeNull();
+    // AFS-254: Search is there too: it finds the actions they may run.
+    expect(screen.getByRole('combobox', { name: 'Search' })).toBeTruthy();
   });
 
   it('who has more sees Home, with Actions in the menu', async () => {
@@ -221,7 +223,7 @@ describe('actions', () => {
             {
               field: 'devices',
               message:
-                'Switch: edge is 2 hosts (sw-edge-01, sw-edge-02): this action takes one host. Pick one',
+                'Switch: edge is 2 hosts (sw-edge-01, sw-edge-02): this action takes one host. Pick one.',
             },
           ],
           ready: false,

@@ -553,7 +553,8 @@ export function App() {
           {/* AFS-107: the bar is as wide as the page under it, and holds the page's breadcrumbs. */}
           <div className={`bar ${kind.replace('page', 'bar-of')}`}>
             <div className="bar-crumbs" ref={setBarSlot} />
-            {!reach?.actionOnly && <SearchBox me={me} />}
+            {/* AFS-254: action-only people search too: it finds the actions they may run. */}
+            <SearchBox me={me} />
           </div>
           <main id="main" className={kind}>
             {me.admin && <CertificateBanner path={path} />}

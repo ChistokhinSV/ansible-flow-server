@@ -117,7 +117,11 @@ for (const [name, config] of databases) {
         ]),
       );
       const token = doc.paths['/api/v1/tokens'].post;
-      expect(token.description).toBe('Who: session.');
+      // AFS-255: a short heading; the whole text and who may, below.
+      expect(token.summary).toBe('Make an access token');
+      expect(token.description).toBe(
+        'Make an access token (shown once); optionally read-only or for one workspace.\n\nWho: session.',
+      );
       expect(Object.keys(token.requestBody.content['application/json'].schema.properties)).toEqual([
         'name',
         'expiresInDays',
@@ -131,8 +135,12 @@ for (const [name, config] of databases) {
       expect(
         doc.paths['/api/v1/runs'].get.parameters.map((p: { name: string }) => p.name).sort(),
       ).toEqual(['before', 'by', 'config', 'flow', 'limit', 'project', 'q', 'state']);
-      expect(doc.paths['/api/v1/users/{id}/access'].get.description).toBe('Who: administrators.');
-      expect(doc.paths['/api/v1/groups/{id}/grants'].get.description).toBe('Who: administrators.');
+      expect(doc.paths['/api/v1/users/{id}/access'].get.description).toMatch(
+        /Who: administrators.$/,
+      );
+      expect(doc.paths['/api/v1/groups/{id}/grants'].get.description).toMatch(
+        /Who: administrators.$/,
+      );
       // Each described route is one the server has, and the other way round.
       let count = 0;
       for (const route of Object.keys(ROUTES)) {

@@ -18,7 +18,7 @@ import {
   type LaunchRequest,
 } from './api';
 import { ask } from './confirm';
-import { Link, navigate } from './router';
+import { holdUnsaved, Link, navigate } from './router';
 import { StateBadge } from './runs';
 import { ago, Labelled, Loading, messageOf, PageHead, Scroll, useLoad } from './ui';
 
@@ -54,6 +54,11 @@ export const toggle = (text: string, name: string, one = false) => {
 
 /** AFS-207: what a host list takes, in words: "one host", "up to 3 hosts". */
 const takesWords = (max: number) => (max === 1 ? 'one host' : `up to ${max} hosts`);
+/** AFS-254: a sentence typed without its full stop gets one, so the next does not run on. */
+export const sentence = (text: string) => {
+  const t = text.trim();
+  return !t || /[.!?:;…]$/.test(t) ? t : `${t}.`;
+};
 
 /** AFS-207: a host list's value with how many hosts it names, when it is more than its names. */
 export function valueWords(field: ActionField, value: string, count?: number): string {
@@ -160,7 +165,10 @@ function ActionInput({
   const picks = field.choices ?? (hosts && hosts !== 'reading' ? hosts.names : []);
   const sizes = hosts && hosts !== 'reading' ? hosts.sizes : undefined;
   // AFS-207: how many it takes, said with the help line.
-  const hint = [field.help, field.max ? `It takes ${takesWords(field.max)}.` : undefined]
+  const hint = [
+    field.help ? sentence(field.help) : undefined,
+    field.max ? `It takes ${takesWords(field.max)}.` : undefined,
+  ]
     .filter(Boolean)
     .join(' ');
   /** A chip: a group says it is one, and how many hosts it has. */
@@ -740,6 +748,7 @@ export function ConfigActionSection({
   name,
   inputs,
   workspace,
+  onChange,
 }: {
   config: string;
   name: string;
@@ -747,8 +756,17 @@ export function ConfigActionSection({
   inputs: FlowInput[];
   /** AFS-176: the workspace's key, for its NetBox and Zabbix credentials. */
   workspace?: string;
+  /** AFS-254: told when the action is saved or removed (the page's heading names it). */
+  onChange?: () => void;
 }) {
   const id = useId();
+  // AFS-254: typing not saved yet is asked about before the page is left, as on other forms.
+  const [self] = useState(() => ({}));
+  useEffect(() => () => holdUnsaved(self, false), [self]);
+  const close = () => {
+    holdUnsaved(self, false);
+    setEditing(false);
+  };
   const state = useLoad(() => api.configAction(config), [config]);
   const action = state.data?.action ?? undefined;
   const manage = !!state.data?.mayManage;
@@ -784,6 +802,7 @@ export function ConfigActionSection({
           }
         : { ...NEW, title: name },
     );
+    setSaved(undefined);
     setRows(
       Object.fromEntries(
         inputs
@@ -813,6 +832,7 @@ export function ConfigActionSection({
     event.preventDefault();
     if (busy) return;
     setError(undefined);
+    setSaved(undefined);
     // AFS-232: an empty field by its label on the form, not by the API's name ("Summary").
     if (!settings.title.trim()) {
       setError('Title is needed: what the runners call it, in a few words.');
@@ -829,6 +849,14 @@ export function ConfigActionSection({
       );
       return;
     }
+    // AFS-254: a group and choices do not go together; neither is dropped without a word.
+    const both = Object.values(rows).find((r) => r.on && r.group.trim() && names(r.choices).length);
+    if (both) {
+      setError(
+        `${both.label.trim() || 'A host list'}: give Choices or Only hosts of group, not both. A group narrows the hosts to its own; choices name them.`,
+      );
+      return;
+    }
     setBusy(true);
     try {
       const hostList = (n: string) => inputs.find((i) => i.name === n)?.type === 'host_list';
@@ -839,14 +867,15 @@ export function ConfigActionSection({
           label: r.label.trim(),
           ...(r.help.trim() ? { help: r.help.trim() } : {}),
           ...(names(r.choices).length ? { choices: names(r.choices) } : {}),
-          ...(r.group.trim() && !names(r.choices).length ? { group: r.group.trim() } : {}),
+          ...(r.group.trim() ? { group: r.group.trim() } : {}),
           ...(hostList(n) && r.start.trim() ? { start: names(r.start).join(', ') } : {}),
           ...(hostList(n) && Number(r.max) > 0 ? { max: Number(r.max) } : {}),
         }));
       await api.setConfigAction(config, { ...settings, asked });
       setSaved(action ? 'The action is changed.' : 'It is an action now.');
-      setEditing(false);
+      close();
       state.reload();
+      onChange?.();
     } catch (e) {
       setError(messageOf(e));
     } finally {
@@ -858,6 +887,10 @@ export function ConfigActionSection({
   if (!manage && !action) return null;
   // AFS-201: the values the inputs it does not ask run with (the configuration's).
   const fixed = inputs.filter((i) => !action?.asked.some((a) => a.name === i.name));
+  const hostList = (n: string) => inputs.find((i) => i.name === n)?.type === 'host_list';
+  /** A host list's line under Hosts: what narrows it, or how many it takes, or its start. */
+  const hostLine = (a: Action['asked'][number]) =>
+    a.group || a.max || a.start || (a.choices?.length && hostList(a.name));
   return (
     <>
       <section className="panel" aria-labelledby={`${id}-action`}>
@@ -887,7 +920,12 @@ export function ConfigActionSection({
               <dt>Title</dt>
               <dd>
                 {action.title}
-                {!action.enabled && <span className="badge warn"> off</span>}
+                {!action.enabled && (
+                  <>
+                    {' '}
+                    <span className="badge warn">off</span>
+                  </>
+                )}
               </dd>
             </div>
             <div>
@@ -930,15 +968,16 @@ export function ConfigActionSection({
                 {action.runOnOpen ? '; a link with every value runs as it opens' : ''}
               </dd>
             </div>
-            {action.asked.some((a) => a.group || a.max || a.start) && (
+            {action.asked.some((a) => hostLine(a)) && (
               <div>
                 <dt>Hosts</dt>
                 <dd>
                   {action.asked
-                    .filter((a) => a.group || a.max || a.start)
+                    .filter((a) => hostLine(a))
                     .map(
                       (a) =>
-                        `${a.label}: ${a.max ? takesWords(a.max) : 'any number of hosts'}${a.group ? ` of group ${a.group}` : ''}, ${a.start ? `starts with ${a.start}` : 'starts empty'}`,
+                        // AFS-254: its choices are said too.
+                        `${a.label}: ${a.max ? takesWords(a.max) : 'any number of hosts'}${a.group ? ` of group ${a.group}` : ''}${a.choices?.length ? ` from ${a.choices.join(', ')}` : ''}, ${a.start ? `starts with ${a.start}` : 'starts empty'}`,
                     )
                     .join('; ')}
                 </dd>
@@ -968,7 +1007,12 @@ export function ConfigActionSection({
           </dl>
         )}
         {editing && (
-          <form className="form" onSubmit={save} noValidate>
+          <form
+            className="form"
+            onSubmit={save}
+            onChange={() => holdUnsaved(self, true)}
+            noValidate
+          >
             <Labelled label="Title" hint="What the runners call it, in a few words.">
               {(props) => (
                 <input
@@ -1059,7 +1103,8 @@ export function ConfigActionSection({
                               )}
                             </Labelled>
                           )}
-                          {i.type === 'host_list' && !names(r.choices).length && (
+                          {/* AFS-254: kept in sight while it holds a group, so it is not lost. */}
+                          {i.type === 'host_list' && (!names(r.choices).length || !!r.group) && (
                             <Labelled
                               label="Only hosts of group"
                               hint="An inventory group: the form offers only its hosts, and takes no others. Empty: any."
@@ -1195,7 +1240,7 @@ export function ConfigActionSection({
               <button type="submit" className="primary" disabled={busy}>
                 {busy ? 'Saving…' : action ? 'Save the action' : 'Make it an action'}
               </button>
-              <button type="button" onClick={() => setEditing(false)} disabled={busy}>
+              <button type="button" onClick={close} disabled={busy}>
                 Cancel
               </button>
               {action && (
@@ -1214,8 +1259,9 @@ export function ConfigActionSection({
                     try {
                       await api.removeConfigAction(config);
                       setSaved('It is not an action any more.');
-                      setEditing(false);
+                      close();
                       state.reload();
+                      onChange?.();
                     } catch (e) {
                       setError(messageOf(e));
                     }

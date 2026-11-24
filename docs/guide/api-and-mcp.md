@@ -15,11 +15,14 @@ TLS proxy too.
 
 **Help › API reference** (`/docs/api`) shows the document by subject, served by the server itself
 (nothing is loaded from the internet). Each address has its parameters, its body and its answers
-with their fields, and an example request (curl and other languages).
+with their fields, and an example request (curl and other languages). Each address is headed
+with a few words; the description under it says the rest. The address of the page follows the
+operation shown (`/docs/api#tag/runs/GET/api/v1/runs`): a link to it opens that operation.
 
 **Test Request** sends a real request to this server:
 
-- as you, with the session of the pages: there is nothing to type;
+- as you, with the session of the pages: there is nothing to type (the browser sends the session
+  cookie; no value is shown for it);
 - or as an access token: pick **token** under **Authentication** and paste it. The token stays on
   that page only, in memory: a reload forgets it, and it is never stored in the browser. A request
   with a token is sent without the session, so the answer is the token's (a read-only token is

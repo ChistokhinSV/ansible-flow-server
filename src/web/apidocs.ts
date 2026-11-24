@@ -11,9 +11,10 @@ import '@fontsource/ibm-plex-mono/400.css';
 import '@scalar/api-reference/style.css';
 import './apidocs.css';
 import { createApiReference } from '@scalar/api-reference';
-import { kindOf, THEME_MESSAGE, tryFetch } from './apidocsTry';
+import { HASH_MESSAGE, kindOf, placeOf, quietConsole, THEME_MESSAGE, tryFetch } from './apidocsTry';
 import { ask } from './confirm';
 
+quietConsole(console);
 const asked = new URLSearchParams(window.location.search).get('theme');
 const light = window.matchMedia?.('(prefers-color-scheme: light)');
 let wanted = asked;
@@ -22,6 +23,12 @@ const kind = () => kindOf(wanted, !!light?.matches);
 const config = () =>
   ({
     url: '/api/v1/openapi.json',
+    // AFS-255: the document says "/" (wherever it is reached); Scalar joins that to each path as
+    // "origin//api/...". This page's origin, without the slash, is the same server.
+    servers: [{ url: window.location.origin, description: 'This server' }] as {
+      url: string;
+      description: string;
+    }[],
     theme: 'none',
     withDefaultFonts: false,
     telemetry: false,
@@ -59,6 +66,23 @@ const retheme = apply;
 light?.addEventListener('change', () => {
   if (wanted !== 'light' && wanted !== 'dark') retheme();
 });
+// AFS-255: the operation shown is told to the application, which keeps it in its own address,
+// so the address can be shared and opens there again. Scalar moves by the history API.
+let told = '';
+const tell = () => {
+  const hash = placeOf(window.location.hash);
+  if (hash === told || window.parent === window) return;
+  told = hash;
+  window.parent.postMessage({ type: HASH_MESSAGE, hash }, window.location.origin);
+};
+for (const method of ['pushState', 'replaceState'] as const) {
+  const original = history[method].bind(history);
+  history[method] = (...args: Parameters<History['pushState']>) => {
+    original(...args);
+    tell();
+  };
+}
+window.addEventListener('hashchange', tell);
 window.addEventListener('message', (event) => {
   if (event.origin !== window.location.origin) return;
   const data = event.data as { type?: string; theme?: string } | null;

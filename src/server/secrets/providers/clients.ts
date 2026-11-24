@@ -161,7 +161,23 @@ function vault(conn: Connection, caller: Caller): Client {
         `${base(s.address)}/v1/${mount.split('/').map(encodeURIComponent).join('/')}/data/${path}${version}`,
         opts({ headers: { 'X-Vault-Token': t } }),
       );
-      if (answer.status !== 200) throw denied(answer);
+      if (answer.status !== 200) {
+        const err = denied(answer);
+        // AFS-252: a path written as Vault's API path (secret/data/lab/switch) is read under
+        // secret/data/secret/data/...; Vault says 403 for it, so the words say what to drop.
+        const first = (ref.path ?? '').replace(/^\/+/, '').split('/')[0];
+        if (
+          (err.code === 'denied' || err.code === 'not_found') &&
+          (first === 'data' || first === mount.split('/')[0])
+        )
+          throw new SecretReadError(
+            err.code,
+            `${err.message}. The path starts with the mount or data/: leave them out, they are added to it`,
+            err.status,
+            err.detail,
+          );
+        throw err;
+      }
       const data = jsonOf<{ data?: { data?: Record<string, unknown> | null } }>(who, answer).data
         ?.data;
       if (!data)

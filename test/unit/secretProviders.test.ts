@@ -35,7 +35,7 @@ import {
   sigv4,
 } from '../../src/server/secrets/providers/clients';
 import type { Answer, CallOptions } from '../../src/server/secrets/providers/http';
-import { SecretReadError } from '../../src/server/secrets/providers/http';
+import { SecretReadError, tlsWords } from '../../src/server/secrets/providers/http';
 import { jsonLeaves, SecretResolver } from '../../src/server/secrets/providers/resolver';
 import {
   connectionOf,
@@ -124,6 +124,33 @@ describe('HashiCorp Vault', () => {
       expect((await words(read(path))).message).not.toContain(path);
     await client.close();
     expect(m.calls.some((c) => c.url.includes('revoke'))).toBe(false);
+  });
+
+  it('a path written with the mount or data/ is told to leave them out', async () => {
+    const m = mock({
+      '/v1/secret/data/secret/data/lab': () => json(403, { errors: ['permission denied'] }),
+      '/v1/secret/data/data/lab': () => json(404, { errors: [] }),
+      '/v1/secret/data/elsewhere': () => json(403, { errors: ['permission denied'] }),
+    });
+    const client = clientOf(vaultConn('token'), m.caller);
+    const read = (path: string) => client.read({ provider: 'corp-vault', path, field: 'password' });
+    const hint = /leave them out, they are added to it$/;
+    expect((await words(read('secret/data/lab/switch'))).message).toMatch(hint);
+    expect((await words(read('data/lab/switch'))).message).toMatch(hint);
+    expect((await words(read('elsewhere/switch'))).message).not.toMatch(hint);
+  });
+
+  it('says an untrusted certificate in words that fit whether an authority is given', () => {
+    expect(tlsWords('UNABLE_TO_VERIFY_LEAF_SIGNATURE', true)).toBe(
+      'its certificate is not signed by the authority given to the provider (UNABLE_TO_VERIFY_LEAF_SIGNATURE)',
+    );
+    expect(tlsWords('SELF_SIGNED_CERT_IN_CHAIN', false)).toMatch(
+      /add its authority to the provider$/,
+    );
+    expect(tlsWords('CERT_HAS_EXPIRED', true)).toMatch(/has expired/);
+    expect(tlsWords('ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED', false)).toMatch(
+      /client certificate/,
+    );
   });
 
   it('a wrong AppRole secret id is a sign-in error', async () => {
@@ -645,5 +672,30 @@ describe('secret providers over the API', () => {
     expect(actions).toContain('secret-provider.create');
     expect(actions).toContain('credential.test-read');
     expect(actions).not.toContain('secret/elsewhere');
+  });
+
+  it('a failed test and a failed Test read are audited as failed, with why', async () => {
+    const made = await call('POST', '/api/v1/admin/secret-providers', admin, {
+      key: 'conjur-gone',
+      name: 'Conjur gone',
+      kind: 'conjur',
+      // Nothing listens on port 1: the provider cannot be reached.
+      settings: { address: 'http://127.0.0.1:1', account: 'corp', login: 'host/afs', timeoutS: 2 },
+      secret: { apiKey: 'api-key-fictional-78' },
+      workspaces: [net],
+    });
+    const id = made.json().id;
+    const test = await call('POST', `/api/v1/admin/secret-providers/${id}/test`, admin, {});
+    expect(test.statusCode).toBe(200);
+    expect(test.json().ok).toBe(false);
+    const tests = await listAudit(database.db, { action: 'secret-provider.test' } as never);
+    const failed = tests.entries.find((e) => e.object.id === id);
+    expect(failed).toMatchObject({ result: 'failed', detail: { outcome: 'unreachable' } });
+    // The earlier Test read of a variable Conjur does not have, and the good one.
+    const reads = await listAudit(database.db, { action: 'credential.test-read' } as never);
+    const results = reads.entries.map((e) => [e.result, e.detail?.read, e.detail?.outcome]);
+    expect(results).toContainEqual(['failed', false, 'not_found']);
+    expect(results).toContainEqual(['ok', true, undefined]);
+    await call('DELETE', `/api/v1/admin/secret-providers/${id}`, admin);
   });
 });
