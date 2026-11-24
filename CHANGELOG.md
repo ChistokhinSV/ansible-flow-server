@@ -91,6 +91,7 @@ Carries Ansible Flow Designer 1.2.0-rc.1.
 - On an action's progress view, **Run it again** and **All actions** sit on one line.
 - The API reference no longer shows a sample value under the session cookie, keeps the answer of **Test Request** in sight in its frame, heads each address with a few words (the rest, with its code, below), opens the operation a link names and keeps the one shown in the page's address, no longer hides the last item of its side list under "Powered by Scalar", names the address of **Send** without a double slash, shows the Operations box in the page's colours, and leaves Scalar's cookie warning and a cancelled request out of the browser console.
 - The API reference says that stopping a run that has already ended is refused (409).
+- A flow's read-only page now says who an approval with an empty **Approvers** asks, as the edit page does.
 
 ### Changed
 

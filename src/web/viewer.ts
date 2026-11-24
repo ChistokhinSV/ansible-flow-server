@@ -453,7 +453,9 @@ async function start(): Promise<void> {
   });
 
   /** What the canvas gets once it is ready (after a debug run's page knows who drives it). */
-  const ready = () => {
+  // AFS-254: who an approval with an empty Approvers asks, read-only too (it showed while editing).
+  let implied: string[] | undefined;
+  const sendConfig = () =>
     // `embed` typed loosely, so this builds against a designer that does not have it yet.
     send({
       type: 'config',
@@ -462,7 +464,20 @@ async function start(): Promise<void> {
       embed,
       ...(stepping ? { stepRuns: true } : {}),
       ...(debugging ? { debugRuns: true } : {}),
+      ...(implied ? { impliedApprovers: implied } : {}),
     } as HostMessage);
+  const ready = () => {
+    sendConfig();
+    void get(
+      `/api/v1/projects/${encodeURIComponent(project)}/approvers?path=${encodeURIComponent(path)}`,
+    ).then(
+      (r) => {
+        if (!r.ok || !Array.isArray(r.data?.approvers)) return;
+        implied = (r.data.approvers as unknown[]).filter((a): a is string => typeof a === 'string');
+        sendConfig();
+      },
+      () => undefined,
+    );
     // AFS-205: on a run's page, the run's own pause points (as its launcher left them);
     // on the flow's page, yours.
     if (stepping && runId)
