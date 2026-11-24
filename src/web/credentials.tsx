@@ -219,13 +219,17 @@ function SecretField({
   value,
   onChange,
   required,
+  named,
 }: {
   name: string;
   value: string;
   onChange(v: string): void;
   required: boolean;
+  /** AFS-252: Stored here / From a secret provider above names the part already: not again. */
+  named?: boolean;
 }) {
-  const label = FIELD_LABEL[name] ?? name;
+  const said = FIELD_LABEL[name] ?? name;
+  const label = named ? <span className="sr-only">{said}</span> : said;
   if (MULTILINE.has(name))
     return (
       <Labelled
@@ -237,7 +241,7 @@ function SecretField({
             Or a file:{' '}
             <input
               type="file"
-              aria-label={`${label} from a file`}
+              aria-label={`${said} from a file`}
               onChange={(e) => void e.target.files?.[0]?.text().then(onChange)}
             />
           </label>
@@ -260,15 +264,19 @@ function SecretField({
       </Labelled>
     );
   return (
-    <Field
-      label={label}
-      name={name}
-      type="password"
-      autoComplete="off"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      required={required}
-    />
+    <Labelled label={label} name={name}>
+      {(props) => (
+        <input
+          {...props}
+          name={name}
+          type="password"
+          autoComplete="off"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+        />
+      )}
+    </Labelled>
   );
 }
 
@@ -407,6 +415,8 @@ function CredentialForm({
       ? {}
       : Object.fromEntries(Object.entries(editing?.refs ?? {}).map(([n, r]) => [n, refOf(r)])),
   );
+  // AFS-252: a reference set aside by Stored here, given back by From a secret provider.
+  const [parked, setParked] = useState<Record<string, SecretRef>>({});
   const providers = useLoad(() => api.workspaceSecretProviders(workspace), [workspace]);
   const choices = providers.data ?? [];
   // A change keeps the secret unless asked to replace it.
@@ -414,6 +424,9 @@ function CredentialForm({
   const kindId = useId();
   const becomeList = useId();
   const spec = SPEC[kind];
+  /** Whether any secret part is kept here (not all read from a provider). */
+  const storedHere =
+    kind === 'env' ? variables.some((v) => !v.ref) : spec.secret.some((f) => !refs[f]);
   const secretPart = () =>
     kind === 'env'
       ? Object.fromEntries(
@@ -558,11 +571,14 @@ function CredentialForm({
           autoComplete="off"
         />
       ))}
-      {editing && (
+      {/* AFS-252: the tick is about what is stored here; a provider's reference is changed
+          without it, so it is not offered when every part comes from a provider. */}
+      {editing && (kind === 'env' || storedHere) && (
         <label className="choice">
           <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
-          Replace the secret
-          {kind === 'env' ? ' (every variable: give them all again)' : ''}
+          {kind === 'env'
+            ? 'Replace the secret (every variable: give them all again)'
+            : 'Replace the secret stored here'}
         </label>
       )}
       {kind === 'env'
@@ -585,9 +601,14 @@ function CredentialForm({
                     label={FIELD_LABEL[f] ?? f}
                     fromProvider={fromProvider}
                     onChange={(yes) => {
-                      if (yes) setRefs({ ...refs, [f]: { provider: choices[0]?.key ?? '' } });
+                      if (yes)
+                        setRefs({
+                          ...refs,
+                          [f]: parked[f] ?? { provider: choices[0]?.key ?? '' },
+                        });
                       else {
-                        const { [f]: _gone, ...rest } = refs;
+                        const { [f]: gone, ...rest } = refs;
+                        if (gone) setParked({ ...parked, [f]: gone });
                         setRefs(rest);
                         // A part read from a provider until now needs its value here.
                         if (editing) setReplace(true);
@@ -610,13 +631,14 @@ function CredentialForm({
                       value={secret[f] ?? ''}
                       onChange={(v) => setSecret({ ...secret, [f]: v })}
                       required={spec.required.includes(f)}
+                      named={offered}
                     />
                   )
                 )}
               </div>
             );
           })}
-      {replace && (
+      {replace && storedHere && (
         <p className="muted">
           Kept encrypted on the server; nobody can read it back, here or over the API.
         </p>

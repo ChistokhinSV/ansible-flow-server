@@ -198,24 +198,25 @@ export function checkSettings(
     if (seen.has(a.name)) throw invalid(`${a.name} is asked twice`, 'asked');
     seen.add(a.name);
     const label = text(a.label, `The label of ${a.name}`, 80);
-    const help = a.help?.trim() ? text(a.help, `The help of ${a.name}`, 200) : undefined;
+    // AFS-254: said by the label the form shows, not the input's name.
+    const help = a.help?.trim() ? text(a.help, `The help of ${label}`, 200) : undefined;
     let group: string | undefined;
     if (a.group?.trim()) {
       if (field.type !== 'host_list')
-        throw invalid(`${a.name} is not a host list: it takes no inventory group`, 'asked');
+        throw invalid(`${label} is not a host list: it takes no inventory group`, 'asked');
       if (a.choices?.length)
-        throw invalid(`${a.name} has choices: a group narrows a host list without them`, 'asked');
-      group = text(a.group, `The group of ${a.name}`, 200);
-      if (/[\s,:]/.test(group)) throw invalid(`The group of ${a.name} is one group name`, 'asked');
+        throw invalid(`${label} has choices: a group narrows a host list without them`, 'asked');
+      group = text(a.group, `The group of ${label}`, 200);
+      if (/[\s,:]/.test(group)) throw invalid(`The group of ${label} is one group name`, 'asked');
     }
     let choices: string[] | undefined;
     if (a.choices?.length) {
       if (field.type === 'dict' || field.type === 'list')
-        throw invalid(`${a.name} is a ${field.type}: it takes no list of choices`, 'asked');
-      if (a.choices.length > 50) throw invalid(`At most 50 choices for ${a.name}`, 'asked');
-      choices = [...new Set(a.choices.map((c) => text(c, `A choice of ${a.name}`, 200)))];
+        throw invalid(`${label} is a ${field.type}: it takes no list of choices`, 'asked');
+      if (a.choices.length > 50) throw invalid(`At most 50 choices for ${label}`, 'asked');
+      choices = [...new Set(a.choices.map((c) => text(c, `A choice of ${label}`, 200)))];
       if (field.type === 'host_list' && choices.some((c) => /[\s,]/.test(c)))
-        throw invalid(`A choice of ${a.name} is one host or group name`, 'asked');
+        throw invalid(`A choice of ${label} is one host or group name`, 'asked');
     }
     // AFS-207: a host list's own start value and how many hosts it takes.
     let start: string | undefined;
@@ -223,27 +224,27 @@ export function checkSettings(
     if (a.start?.trim()) {
       if (field.type !== 'host_list')
         throw invalid(
-          `${a.name} is not a host list: it starts with the configuration's value`,
+          `${label} is not a host list: it starts with the configuration's value`,
           'asked',
         );
-      const picked = names(text(a.start, `The start value of ${a.name}`, 2000));
+      const picked = names(text(a.start, `The start value of ${label}`, 2000));
       const outside = choices && picked.find((n) => !choices?.includes(n));
       if (outside)
         throw invalid(
-          `The start value of ${a.name}: ${outside.slice(0, 60)} is not one of its choices`,
+          `The start value of ${label}: ${outside.slice(0, 60)} is not one of its choices`,
           'asked',
         );
       start = picked.join(', ');
     }
     if (a.max !== undefined && a.max !== null) {
       if (field.type !== 'host_list')
-        throw invalid(`${a.name} is not a host list: it takes no number of hosts`, 'asked');
+        throw invalid(`${label} is not a host list: it takes no number of hosts`, 'asked');
       if (!Number.isInteger(a.max) || a.max < 1 || a.max > 1000)
-        throw invalid(`The number of hosts of ${a.name} is a whole number from 1 to 1000`, 'asked');
+        throw invalid(`The number of hosts of ${label} is a whole number from 1 to 1000`, 'asked');
       max = a.max;
       if (start && names(start).length > max)
         throw invalid(
-          `The start value of ${a.name} names more than ${max === 1 ? 'one host' : `${max} hosts`}`,
+          `The start value of ${label} names more than ${max === 1 ? 'one host' : `${max} hosts`}`,
           'asked',
         );
     }
@@ -849,7 +850,8 @@ export function hostProblem(
   const got = hostsOf(text, inventory);
   const at = (message: string) => ({ field: field.name, message: `${field.label}: ${message}` });
   const unknown = got.unknown[0];
-  if (!field.choices?.length && !inventory.dynamic && !inventory.cut && unknown !== undefined)
+  // AFS-254: a choice is checked too: the inventory may not have it (or no longer).
+  if (!inventory.dynamic && !inventory.cut && unknown !== undefined)
     return at(`${unknown.slice(0, 60)} is not a host or group of the inventory`);
   if (!field.max) return undefined;
   const pattern = got.patterns[0];
@@ -859,9 +861,12 @@ export function hostProblem(
     );
   const count = got.hosts.length + got.unknown.length;
   if (count <= field.max) return undefined;
-  const shown = got.hosts.slice(0, 4).join(', ') + (got.hosts.length > 4 ? ', …' : '');
+  // AFS-254: a list of names is said by its count alone; a group by its count and its hosts.
+  const all = [...got.hosts, ...got.unknown];
+  const listed = names(text).length === count;
+  const shown = listed ? '' : all.slice(0, 4).join(', ') + (all.length > 4 ? ', …' : '');
   return at(
-    `${text.trim().slice(0, 60)} is ${hostWords(count)}${shown ? ` (${shown})` : ''}: this action takes ${field.max === 1 ? 'one host. Pick one' : `at most ${field.max} hosts`}`,
+    `${text.trim().slice(0, 60)} is ${hostWords(count)}${shown ? ` (${shown})` : ''}: this action takes ${field.max === 1 ? 'one host. Pick one.' : `at most ${field.max} hosts.`}`,
   );
 }
 

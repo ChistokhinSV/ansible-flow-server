@@ -144,12 +144,22 @@ export interface RefField {
 export const REF_FIELDS: Record<ProviderKind, RefField[]> = {
   vault: [
     { name: 'mount', label: 'KV mount', required: false, hint: "The provider's KV mount if empty" },
-    { name: 'path', label: 'Path', required: true, hint: 'network/switches (without data/)' },
-    { name: 'field', label: 'Field', required: true, hint: 'password' },
+    {
+      name: 'path',
+      label: 'Path',
+      required: true,
+      hint: 'As network/switches: without the mount and data/',
+    },
+    { name: 'field', label: 'Field', required: true, hint: 'The key in the secret, as password' },
     { name: 'version', label: 'Version', required: false, hint: 'The latest if empty' },
   ],
   conjur: [
-    { name: 'variable', label: 'Variable', required: true, hint: 'network/switches/password' },
+    {
+      name: 'variable',
+      label: 'Variable',
+      required: true,
+      hint: 'Its id without the account, as network/switches/password',
+    },
   ],
   ccp: [
     { name: 'safe', label: 'Safe', required: true },

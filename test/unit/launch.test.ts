@@ -540,6 +540,13 @@ for (const [name, config] of databases) {
       });
       // What was typed as a secret is not sent back.
       expect(ready.body).not.toContain('S3CR3T-typed');
+      // AFS-254: a host list may come as a JSON list, as the field's help says.
+      const asList = await call('POST', check, {
+        cookie: member,
+        body: { inputs: { devices: ['fw-edge-01', 'fw-edge-02'] } },
+      });
+      expect(asList.statusCode).toBe(200);
+      expect(asList.json().launch.targets).toEqual(['fw-edge-01', 'fw-edge-02']);
       expect((await call('POST', check, { body: {} })).statusCode).toBe(401);
       expect(
         (await call('POST', check, { cookie: member, body: { mode: 'dry' } })).statusCode,

@@ -65,6 +65,19 @@ const TLS_CODES = new Set([
   'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
   'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA',
 ]);
+/** What a TLS failure means, by its code (AFS-252: with an authority given, it does not sign). */
+export function tlsWords(code: string, ownCa: boolean): string {
+  const said = code || 'TLS';
+  if (code === 'CERT_HAS_EXPIRED') return `its certificate has expired (${said})`;
+  if (code === 'CERT_NOT_YET_VALID') return `its certificate is not valid yet (${said})`;
+  // Alerts the provider sends: it did not take this server's client certificate.
+  if (code.startsWith('ERR_SSL_'))
+    return `it did not accept this server's client certificate (${said})`;
+  return ownCa
+    ? `its certificate is not signed by the authority given to the provider (${said})`
+    : `the certificate is not trusted (${said}): add its authority to the provider`;
+}
+
 /** The longest answer kept: a secret is small, and a provider that sends more is not one. */
 const MAX_ANSWER = 1024 * 1024;
 
@@ -169,7 +182,7 @@ export function call(url: string, options: CallOptions): Promise<Answer> {
           reject(
             new SecretReadError(
               'tls',
-              `${who}: the certificate is not trusted (${code || 'TLS'}): add its authority to the provider`,
+              `${who}: ${tlsWords(code, !!options.tls?.ca)}`,
               0,
               e.message,
             ),

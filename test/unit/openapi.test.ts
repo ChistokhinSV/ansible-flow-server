@@ -3,7 +3,7 @@
 // has that answer in the document.
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { openApi, ROUTES } from '../../src/server/api/catalog';
+import { headingOf, openApi, ROUTES } from '../../src/server/api/catalog';
 import { SCHEMAS } from '../../src/server/api/schemas';
 
 const routes = Object.keys(ROUTES).map((key) => {
@@ -61,5 +61,31 @@ describe('the OpenAPI document', () => {
     }
     // AFS-245: the run, flow, launch, approval and token routes first, about 60.
     expect(described).toBeGreaterThanOrEqual(60);
+  });
+});
+
+describe('operation headings (AFS-255)', () => {
+  it('are a few words without backticks; the whole text is the description', () => {
+    expect(
+      headingOf(
+        'Runs, newest first; filters project, flow, `limit` and `before` (the last run) for paging',
+      ),
+    ).toBe('Runs, newest first');
+    expect(headingOf('The pause points of a flow (`path`)')).toBe('The pause points of a flow');
+    expect(headingOf('Launch: the run goes in the queue')).toBe(
+      'Launch: the run goes in the queue',
+    );
+    const doc = openApi(
+      Object.keys(ROUTES).map((k) => {
+        const [method, url] = k.split(' ');
+        return { method, url, schema: {} };
+      }) as never,
+    ) as { paths: Record<string, Record<string, { summary: string; description: string }>> };
+    const runs = doc.paths['/api/v1/runs']?.get;
+    expect(runs?.summary).toBe('Runs, newest first');
+    expect(runs?.description).toMatch(/`limit`/);
+    expect(runs?.description).toMatch(/Who: signed in\.$/);
+    for (const path of Object.values(doc.paths))
+      for (const op of Object.values(path)) expect(op.summary).not.toContain('`');
   });
 });

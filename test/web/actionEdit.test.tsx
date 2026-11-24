@@ -196,6 +196,65 @@ describe("an action's own page", () => {
     expect(await screen.findByText(/What it does is needed/)).toBeTruthy();
     expect(asked.some((a) => a.key === 'PUT /launch-configs/c1/action')).toBe(false);
   });
+
+  it('AFS-254: asks before an unsaved change is left; a save renames the page at once', async () => {
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return false;
+    });
+    let saved = action;
+    routes = {
+      ...pageRoutes(true),
+      'GET /launch-configs/c1/action': () => ({
+        body: { action: saved, place, mayManage: true, grants: [], tokens: [] },
+      }),
+      'PUT /launch-configs/c1/action': (body) => {
+        saved = { ...action, ...(body as object) };
+        return { body: saved };
+      },
+    };
+    window.history.replaceState(null, '', '/actions/c1/edit');
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change the action' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Title/ }), {
+      target: { value: 'Restart one switch' },
+    });
+    fireEvent.click(screen.getAllByRole('link', { name: 'Edge restart' })[0] as HTMLElement);
+    expect(questions).toEqual(['Leave this page? What you typed is not saved.']);
+    expect(window.location.pathname).toBe('/actions/c1/edit');
+    fireEvent.click(screen.getByRole('button', { name: 'Save the action' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Restart one switch' }),
+    ).toBeTruthy();
+    expect(screen.getByText('The action is changed.')).toBeTruthy();
+  });
+
+  it('AFS-254: a group and choices are not both kept in silence; the summary says the choices', async () => {
+    routes = pageRoutes(true);
+    window.history.replaceState(null, '', '/actions/c1/edit');
+    render(<App />);
+    // The summary says what a host list may be picked from.
+    expect(
+      await screen.findByText(
+        'Switch: any number of hosts from sw-edge-01, sw-edge-02, starts empty',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Change the action' }));
+    const choices = screen.getAllByRole('textbox', { name: /Choices/ })[0] as HTMLElement;
+    fireEvent.change(choices, { target: { value: '' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /Only hosts of group/ }), {
+      target: { value: 'edge' },
+    });
+    fireEvent.change(choices, { target: { value: 'sw-edge-01' } });
+    // The group stays in sight, and Save says they do not go together.
+    expect(screen.getByRole('combobox', { name: /Only hosts of group/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save the action' }));
+    expect(
+      await screen.findByText(/Switch: give Choices or Only hosts of group, not both/),
+    ).toBeTruthy();
+    expect(asked.some((a) => a.key === 'PUT /launch-configs/c1/action')).toBe(false);
+  });
 });
 
 describe("a launch configuration's Settings", () => {

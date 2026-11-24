@@ -151,7 +151,7 @@ function DirectoryForm({
           value={d.key}
           onChange={(e) => set({ key: e.target.value.toLowerCase() })}
           required
-          pattern="[a-z0-9][a-z0-9-]{0,39}"
+          pattern="[a-z0-9][a-z0-9\-]{0,39}"
         />
         {text('Address', 'url', 'ldaps://dc1.example.net:636; ldap:// only with StartTLS')}
         <label className="check">

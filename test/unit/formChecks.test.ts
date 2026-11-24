@@ -154,3 +154,26 @@ describe('AFS-210: what a change set does to a path, and its words', () => {
     expect(defaultBody(many)).toBe('- Delete a\n- Delete b\n- Delete c\n- Delete d');
   });
 });
+
+describe('pattern attributes on the forms', () => {
+  // Browsers compile a field's pattern with the v flag, where an unescaped "-" in a class is
+  // invalid: the pattern is then dropped with a console error and the field is never checked.
+  it('compile under the v flag, as browsers read them', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const ui = readFileSync('src/web/ui.tsx', 'utf8');
+    const constants = new Map(
+      [...ui.matchAll(/export const (\w+_PATTERN) = '([^']*)'/g)].map((m) => [m[1], m[2]]),
+    );
+    const found: string[] = [];
+    for (const file of readdirSync('src/web').filter((f) => f.endsWith('.tsx'))) {
+      const text = readFileSync(`src/web/${file}`, 'utf8');
+      for (const m of text.matchAll(/pattern=(?:"([^"]*)"|\{(\w+)\})/g)) {
+        const source = m[1] ?? constants.get(m[2] ?? '');
+        if (source === undefined) continue;
+        found.push(source);
+        expect(() => new RegExp(`^(?:${source})$`, 'v'), `${file}: ${source}`).not.toThrow();
+      }
+    }
+    expect(found.length).toBeGreaterThan(5);
+  });
+});

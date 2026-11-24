@@ -121,9 +121,9 @@ export function ActionLinkPage({ id }: { id: string }) {
             {/* AFS-207: a wrong value is said as one, not as one missing. */}
             {l.problems.length
               ? `The link gives ${l.problems.length === 1 ? 'a value' : 'values'} this action does not take: pick again below, then Run.`
-              : l.missing.length
+              : l.missing.length && l.given.length
                 ? 'The link gives some of what this action needs: fill in the rest, then Run.'
-                : 'Fill in what it asks, then Run.'}
+                : 'The link gives no values: fill in what it asks, then Run.'}
           </p>
         )}
         {notes}

@@ -94,6 +94,19 @@ const D = { draft: 'id' } as const;
 const K = { credential: 'id' } as const;
 const E = { environment: 'id' } as const;
 
+/**
+ * AFS-255: an operation's heading from its summary: the words before the first "; ", ": " or
+ * " (" (when that leaves a few words), without backticks, at most about 90 characters.
+ */
+export function headingOf(summary: string): string {
+  const plain = summary.replace(/`/g, '');
+  const cut = plain.search(/; |: | \(/);
+  const head = cut >= 12 ? plain.slice(0, cut) : plain;
+  if (head.length <= 90) return head;
+  const at = head.lastIndexOf(' ', 88);
+  return `${head.slice(0, at > 40 ? at : 88)}…`;
+}
+
 export const ROUTES: Record<string, RouteDoc> = {
   'GET /api/v1/meta': S(
     'Server',
@@ -804,7 +817,11 @@ export const ROUTES: Record<string, RouteDoc> = {
     'The run as it goes, as server-sent events: run, view, output, end',
     EVENTS('run, view, output and end: the run as it goes'),
   ),
-  'POST /api/v1/runs/:id/cancel': S('Runs', 'administrators', R)('Stop a run', one('Run', 202)),
+  'POST /api/v1/runs/:id/cancel': S(
+    'Runs',
+    'administrators',
+    R,
+  )('Stop a run; 409 when it has already ended', one('Run', 202)),
   'POST /api/v1/runs/:id/step': S(
     'Runs',
     'administrators',
@@ -1665,10 +1682,16 @@ export function openApi(routes: Seen[]): Record<string, unknown> {
         });
     const method = route.method.toLowerCase();
     paths[openPath(route.url)] ??= {};
+    // AFS-255: the summary is the operation's heading: a few words; the whole text, with its
+    // code in backticks, is the description (Markdown).
+    const title = headingOf(doc.summary);
     (paths[openPath(route.url)] as Record<string, unknown>)[method] = {
-      summary: doc.summary,
+      summary: title,
       tags: [doc.tag],
-      description: `Who: ${doc.who}.`,
+      description:
+        title === doc.summary
+          ? `Who: ${doc.who}.`
+          : `${doc.summary}${/[.!?]$/.test(doc.summary) ? '' : '.'}\n\nWho: ${doc.who}.`,
       operationId: `${method}${openPath(route.url).replace(/[^A-Za-z0-9]+(.)?/g, (_m, c: string) => (c ?? '').toUpperCase())}`,
       ...(parameters.length ? { parameters } : {}),
       ...(schema.body

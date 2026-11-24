@@ -524,14 +524,18 @@ export async function testRef(
   workspaceId: string,
   ref: SecretRef,
   log?: { warn(o: Record<string, unknown>, m: string): void },
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; outcome?: string }> {
   const resolver = new SecretResolver(db, key, log ? { log } : {});
   try {
     const provider = await getSecretProvider(db, String(ref?.provider ?? ''));
     if (!provider?.workspaces.includes(workspaceId))
-      return { ok: false, message: 'There is no such secret provider open to this workspace' };
+      return {
+        ok: false,
+        message: 'There is no such secret provider open to this workspace',
+        outcome: 'bad_reference',
+      };
     const problem = refProblem(provider.kind, ref);
-    if (problem) return { ok: false, message: problem };
+    if (problem) return { ok: false, message: problem, outcome: 'bad_reference' };
     await resolver.value({ id: 'test', name: 'tested', workspace: workspaceId }, 'test', ref);
     return {
       ok: true,
@@ -542,6 +546,7 @@ export async function testRef(
       return {
         ok: false,
         message: e.message.split('Cannot read the credential "tested" (test): ').join(''),
+        outcome: e.code,
       };
     throw e;
   } finally {

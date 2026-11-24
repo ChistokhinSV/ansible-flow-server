@@ -2,7 +2,7 @@
 // launch configuration's): title, sentence, what it asks, the links (the full link with values
 // too), who may run it. Changed by rw on its workspace; who may see its flow reads them. The launch
 // configuration's Settings keep one line that leads here.
-import { ActionRefused, actionEditAddress, ConfigActionSection } from './actions';
+import { ActionRefused, actionEditAddress, ConfigActionSection, sentence } from './actions';
 import { ApiError, api } from './api';
 import { Link } from './router';
 import { Breadcrumb, Loading, PageHead, ProjectName, useLoad, WorkspaceName } from './ui';
@@ -51,7 +51,7 @@ export function ActionEditPage({ id }: { id: string }) {
         title={action ? action.title : `Make ${place.configName} an action`}
         lead={
           <>
-            {action ? `${action.summary} ` : ''}
+            {action ? `${sentence(action.summary)} ` : ''}
             It runs the launch configuration{' '}
             <Link to={configAddress(place.workspaceKey, place.projectKey, id)}>
               {place.configName}
@@ -76,6 +76,7 @@ export function ActionEditPage({ id }: { id: string }) {
           name={place.configName}
           inputs={form.data?.fields ?? []}
           workspace={place.workspaceKey}
+          onChange={state.reload}
         />
       )}
       {!form.data && !form.error && <Loading state={form} />}
@@ -98,8 +99,13 @@ export function ConfigActionLine({ config }: { config: string }) {
         {action ? (
           <>
             Action <strong>{action.title}</strong>
-            {!action.enabled && <span className="badge warn"> off</span>}: its words, what it asks,
-            its links and who may run it are on{' '}
+            {!action.enabled && (
+              <>
+                {' '}
+                <span className="badge warn">off</span>
+              </>
+            )}
+            : its words, what it asks, its links and who may run it are on{' '}
             <Link to={actionEditAddress(config)}>
               {state.data.mayManage ? 'its own page' : "the action's page"}
             </Link>

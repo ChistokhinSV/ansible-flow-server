@@ -47,6 +47,18 @@ Carries Ansible Flow Designer 1.2.0-rc.1.
 - **Copy a link with these values** on an action's form, to share what you filled in.
 - An action's page lists the values of the inputs it does not ask (**Runs with**); a secret one is never shown.
 - `GET /api/v1/projects/<id>/approvers?path=<flow>`: who an approval with empty approvers asks. An action's **What will happen** names them too.
+- A secret provider test or a credential's **Test read** that could not sign in or read is in the audit log as failed, with why, not as done.
+- The **Key** fields of the secret provider, sign-in provider and directory forms are checked in the browser again (their pattern was refused by browsers).
+- A Vault path written with its mount and `data/` says to leave them out; an untrusted certificate says whether the authority given to the provider does not sign it; a provider's **Change** form is headed with its name; the CCP and AWS region hints say what they mean.
+- In a credential's form, **Stored here** and back keeps the provider reference as it was; "Kept encrypted on the server" and **Replace the secret stored here** show only when a part is kept on the server; the Test fields line up at every width.
+- Launch takes a host list given as a JSON list (`["web-01", "web-02"]`) over the API, as the field's help says.
+- An action's settings ask before unsaved changes are left; the page's heading follows a save at once; a success notice no longer stays beside a refusal; refusals name an input by its label.
+- An action's **Choices** no longer drop **Only hosts of group** in silence: Save says they do not go together. A host list's choices the inventory does not have are refused when saved and at **Run**; the settings list the choices under **Hosts**.
+- An action link with no values says so; a list of two hosts for a one-host input reads "is 2 hosts: this action takes one host. Pick one."; sentences typed without a full stop no longer run into the next one; "off" is set apart from an action's title.
+- People who have only actions have **Search** too: it finds the actions they may run.
+- On an action's progress view, **Run it again** and **All actions** sit on one line.
+- The API reference no longer shows a sample value under the session cookie, keeps the answer of **Test Request** in sight in its frame, heads each address with a few words (the rest, with its code, below), opens the operation a link names and keeps the one shown in the page's address, no longer hides the last item of its side list under "Powered by Scalar", names the address of **Send** without a double slash, shows the Operations box in the page's colours, and leaves Scalar's cookie warning and a cancelled request out of the browser console.
+- The API reference says that stopping a run that has already ended is refused (409).
 
 ### Changed
 
