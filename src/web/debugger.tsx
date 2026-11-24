@@ -7,6 +7,8 @@
 // Only who launched the run (and administrators) drive it and see values; others watching see the
 // reason line and who it waits for, and an operator of the flow has Stop (AFS-253).
 // AFS-250: watches are kept by the server for each person (not by the browser).
+import { modelOf } from '@ansible-flow/core/flow/model';
+import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import {
   type InspectAnswer,
   type InspectArgs,
@@ -17,6 +19,7 @@ import {
   pointNode,
   type StepCommand,
   type StepPause,
+  stepPath,
   type VarEntry,
   type VarScope,
 } from '@ansible-flow/core/run/step';
@@ -209,6 +212,8 @@ export function entryText(e: VarEntry | InspectAnswer): string {
   return `${text}… (cut at ${sizeWords(shown)} of ${sizeWords(e.cut)})`;
 }
 
+const NOT_CLOSED = 'Not a complete expression: a bracket or a quote is not closed';
+
 /**
  * AFS-249: the run's refusal and error words as Evaluate says them: "lookups are not allowed in
  * Evaluate"; an expression left open is said so, not by the closing braces the run added.
@@ -225,15 +230,24 @@ export function evalWords(error: string): string {
   const open = /^Not a Jinja expression: ([\s\S]*)$/.exec(said);
   if (open) {
     const why = open[1] ?? '';
-    if (/unexpected '\}'|unexpected end of template|expected token/i.test(why))
-      return 'Not a complete expression: a bracket or a quote is not closed';
+    if (/unexpected '\}'|unexpected (the )?end\b|end of template|expected token/i.test(why))
+      return NOT_CLOSED;
     return `Not a Jinja expression: ${why}`;
   }
+  if (/^an? (bracket|quote|brace) \(.{1,3}\) is not closed/i.test(said)) return NOT_CLOSED;
   return said.replace(/ while debugging(: it can read or run things)?/, ' in Evaluate');
 }
 
+/**
+ * AFS-258: an expression that cannot be read (a bracket or a quote left open, not Jinja) is a
+ * mistake in it, not a refusal: said without "Refused:".
+ */
+export const syntaxError = (error: string): boolean =>
+  /^(Not a Jinja expression|Not a complete expression)\b/.test(evalWords(error));
+
 /** An evaluate's or a watch's answer in words: refused, timed out, an error, or the value. */
 export function answerText(a: InspectAnswer): { text: string; bad?: boolean } {
+  if (a.error && syntaxError(a.error)) return { text: evalWords(a.error), bad: true };
   if (a.refused)
     return {
       text: `Refused: ${a.error ? evalWords(a.error) : 'not allowed in Evaluate'}`,
@@ -260,15 +274,32 @@ const isContainer = (e: VarEntry) => e.type === 'dict' || e.type === 'list';
 const PAGE = 100;
 /**
  * AFS-249: the engine's own variables (afd_repo_root and the like) are not the step's inputs or
- * the flow's data: not listed there.
+ * the flow's data: not listed there. AFS-258: nor the host's variables (afd_inputs).
  */
 export const internalName = (scope: VarScope | undefined, name: string | number) =>
-  (scope === 'inputs' || scope === 'flow') && typeof name === 'string' && /^afd_/.test(name);
+  (scope === 'inputs' || scope === 'flow' || scope === 'host') &&
+  typeof name === 'string' &&
+  /^afd_/.test(name);
+
+/** AFS-258: a scope's name, where a kept answer has only its id. */
+export const SCOPE_NAMES: Record<VarScope, string> = {
+  inputs: 'Step inputs',
+  host: 'Host variables',
+  flow: 'Flow data',
+  facts: 'Facts',
+};
 /** The variables of a scope or container as the panel lists them. */
 const listed = (scope: VarScope, path: readonly unknown[], items: VarEntry[]) =>
   path.length ? items : items.filter((e) => !internalName(scope, e.name));
 
 type Ask = (op: InspectOp, args: InspectArgs) => Promise<InspectAnswer | undefined>;
+
+/** AFS-258: what was typed in Evaluate and its answer, per run and pause, for this page's life. */
+interface EvalKept {
+  expr: string;
+  evaluated?: { expr: string; answer: InspectAnswer; host: string };
+}
+const evalKept = new Map<string, EvalKept>();
 
 /** One variable, its items read when it is opened. */
 function VarRow({
@@ -383,6 +414,36 @@ function pointAt(points: readonly PointSpec[] | undefined, node: string) {
   return p && typeof p !== 'string' ? p : undefined;
 }
 
+/**
+ * AFS-258: the titles of a run's steps by node id ("Pre-checks › Read device status" inside a
+ * subflow), from the flow at the run's commit, read once there are log lines to name. Someone who
+ * may not read the flow gets none: the lines then say "Log point".
+ */
+export function useStepNames(
+  run: Pick<Run, 'project' | 'flow' | 'commit'>,
+  wanted: boolean,
+): ReadonlyMap<string, string> {
+  const [names, setNames] = useState<ReadonlyMap<string, string>>(new Map());
+  const { project, commit } = run;
+  const file = run.flow.file;
+  useEffect(() => {
+    if (!wanted) return;
+    let live = true;
+    api.flowView(project, file, commit).then(
+      (v) => {
+        if (!live || !v.snapshot.doc) return;
+        const model = modelOf(v.snapshot.doc as unknown as FlowDocument);
+        setNames(new Map([...model.nodes.keys()].map((id) => [id, stepPath(model, id)])));
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [wanted, project, file, commit]);
+  return names;
+}
+
 /** The log points' lines, newest last: the step, the host, the message or why it failed. */
 export function LogLines({
   logs,
@@ -453,9 +514,18 @@ export function DebugPanel({
   const [watchText, setWatchText] = useState('');
   const [watched, setWatched] = useState<InspectAnswer['results']>();
   const [comparing, setComparing] = useState<string>();
-  const [expr, setExpr] = useState('');
-  const [evaluated, setEvaluated] = useState<{ expr: string; answer: InspectAnswer }>();
   const pauseId = pause?.id;
+  const keptKey = `${run.id}:${pauseId ?? ''}`;
+  const [expr, setExprState] = useState(() => evalKept.get(keptKey)?.expr ?? '');
+  const [evaluated, setEvaluatedState] = useState(() => evalKept.get(keptKey)?.evaluated);
+  const setExpr = (text: string) => {
+    setExprState(text);
+    evalKept.set(keptKey, { ...evalKept.get(keptKey), expr: text });
+  };
+  const setEvaluated = (said: EvalKept['evaluated']) => {
+    setEvaluatedState(said);
+    evalKept.set(keptKey, { expr: evalKept.get(keptKey)?.expr ?? '', evaluated: said });
+  };
   const title = pause ? run.pausedBefore || stepName(pause.play) : '';
   // AFS-249: the hosts each step's pauses held: after a Retry the run names only the retried
   // hosts, but the others still wait there.
@@ -470,9 +540,13 @@ export function DebugPanel({
     return now;
   }, [pause]);
   const hits = pause ? pointAt(run.step?.points, pause.node)?.hits : undefined;
-  // The names of the steps the run paused at, for its log points' lines.
+  // The names of the steps the run paused at, for its log points' lines; AFS-258: and of every
+  // step of the flow, so a log point where the run did not pause names its step too.
   const names = useRef(new Map<string, string>());
   if (pause) names.current.set(pause.node, title);
+  const titles = useStepNames(run, mayDrive && !!step?.logs?.length);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: names grows with each pause
+  const logNames = useMemo(() => new Map([...titles, ...names.current]), [titles, pauseId]);
 
   // AFS-250: this person's watches on the flow, from the server.
   const project = run.project;
@@ -518,13 +592,17 @@ export function DebugPanel({
     [inspect, host],
   );
 
-  // A new pause starts at its first failed or matching host, and forgets the old answers.
+  // A new pause starts at its first failed or matching host, and forgets the old answers (the
+  // Evaluate answer kept for this pause stays: the panel may have been drawn again, AFS-258).
+  const firstPause = useRef(true);
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per pause
   useEffect(() => {
-    setHost(pause ? firstHost(pause) : undefined);
+    const kept = evalKept.get(keptKey);
+    setHost(kept?.evaluated?.host ?? (pause ? firstHost(pause) : undefined));
     setScopes(undefined);
     setWatched(undefined);
-    setEvaluated(undefined);
+    if (!firstPause.current || !kept) setEvaluatedState(kept?.evaluated);
+    firstPause.current = false;
     setComparing(undefined);
   }, [pauseId]);
 
@@ -614,7 +692,7 @@ export function DebugPanel({
     const text = bare(expr);
     if (!text || !host) return;
     const answer = await forHost('eval', { expr: text });
-    if (answer) setEvaluated({ expr: text, answer });
+    if (answer) setEvaluated({ expr: text, answer, host });
   };
   const onEvalKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -706,16 +784,16 @@ export function DebugPanel({
                   primary: true,
                   ...(pause.retryRefused ? { off: pause.retryRefused } : {}),
                 })}
-              {paused
-                ? button('continue', 'Continue', 'Run on; pause only at a pause point', {
-                    key: 'F8',
-                  })
-                : button('pause', 'Pause', 'Pause before the next step', { key: 'F8' })}
               {button('step', 'Step', 'Run this step, then pause before the next one', {
                 primary: pause?.kind !== 'failure',
                 key: 'F10',
                 ...(paused ? {} : { off: 'The run is going: Step answers its next pause' }),
               })}
+              {paused
+                ? button('continue', 'Continue', 'Run on; pause only at a pause point', {
+                    key: 'F8',
+                  })
+                : button('pause', 'Pause', 'Pause before the next step', { key: 'F8' })}
               {button('stop', 'Stop', 'End the run before its next step; what ran is kept')}
             </span>
             {retryOffered && (
@@ -863,11 +941,11 @@ export function DebugPanel({
               </pre>
             )}
           </div>
-          <LogLines logs={step?.logs ?? []} names={names.current} />
+          <LogLines logs={step?.logs ?? []} names={logNames} />
         </div>
       )}
       {/* Log points of a run going on (no pause now): their lines so far. */}
-      {mayDrive && !pause && <LogLines logs={step?.logs ?? []} names={names.current} />}
+      {mayDrive && !pause && <LogLines logs={step?.logs ?? []} names={logNames} />}
     </section>
   );
 }
@@ -918,7 +996,7 @@ export function keptHosts(pause: KeptPause): {
       const scope = e.scope;
       h.scopes.set(scope, {
         id: scope,
-        name: h.scopes.get(scope)?.name ?? scope,
+        name: h.scopes.get(scope)?.name ?? SCOPE_NAMES[scope] ?? scope,
         vars: (e.answer.children ?? []).filter((v) => !internalName(scope, v.name)),
         opened: true,
       });
@@ -949,9 +1027,14 @@ export function DebugKept({ run, logs }: { run: Run; logs?: readonly PointLog[] 
       live = false;
     };
   }, [run.id]);
+  const titles = useStepNames(run, !!logs?.length);
   const names = useMemo(
-    () => new Map((pauses ?? []).map((p) => [p.node, p.play ? stepName(p.play) : p.node])),
-    [pauses],
+    () =>
+      new Map([
+        ...titles,
+        ...(pauses ?? []).map((p) => [p.node, p.play ? stepName(p.play) : p.node] as const),
+      ]),
+    [pauses, titles],
   );
   if (!pauses?.length && !logs?.length) return null;
   const atStep = (p: KeptPause) => (pauses ?? []).filter((q) => q.node === p.node);
@@ -972,7 +1055,7 @@ export function DebugKept({ run, logs }: { run: Run; logs?: readonly PointLog[] 
                 </span>
               )}
               {first && (
-                <span className="muted small">
+                <span className="muted small debug-kept-time">
                   {' '}
                   · <Time at={first} />
                 </span>

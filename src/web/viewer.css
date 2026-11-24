@@ -87,3 +87,25 @@
     writing-mode: horizontal-tb;
   }
 }
+
+/* AFS-258: on a run's page the page's Debugger panel holds the failure's words and buttons: the
+   canvas's failure bar takes at most a third of the frame (it scrolls), so the failed step stays
+   in sight at 1024 and on a phone. Who may not drive the run reads no Retry, Continue or Stop
+   there: the bar names the step and the hosts only. */
+body.afs-run-page .afd-failure-bar {
+  max-height: 30vh;
+  overflow-y: auto;
+}
+body.afs-run-reader .afd-failure-note,
+body.afs-run-reader .afd-failure-bar [data-step-command] {
+  display: none;
+}
+@media (max-width: 640px) {
+  body.afs-run-page .afd-failure-bar {
+    max-height: 22vh;
+  }
+  /* The side panel under the canvas leaves the canvas most of the frame. */
+  body.afs-run-page .afd-right:not(.collapsed) {
+    max-height: 28vh;
+  }
+}

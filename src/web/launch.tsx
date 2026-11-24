@@ -1099,11 +1099,21 @@ export function LaunchConfigPage({
   ]);
   // AFS-150: typing not launched or kept (an input, a branch, a commit, a limit) asks before the
   // page is left; the other tabs of the configuration keep it, so going to them does not ask.
+  // AFS-258: a form filled from a run (Change and run) starts from that run's values: leaving it
+  // untouched does not ask.
+  const [filledStart, setFilledStart] = useState<{
+    texts: Record<string, string>;
+    commit: string;
+    limit?: string;
+  }>({ texts: {}, commit: '' });
   const release = useUnsaved(
-    !!formFields?.some((f) => typed.has(f.name) && (texts[f.name] ?? f.text) !== f.text) ||
+    !!formFields?.some(
+      (f) =>
+        typed.has(f.name) && (texts[f.name] ?? f.text) !== (filledStart.texts[f.name] ?? f.text),
+    ) ||
       ref.trim() !== '' ||
-      commit.trim() !== '' ||
-      (limit !== undefined && limit.trim() !== formLimit),
+      commit.trim() !== filledStart.commit ||
+      (limit !== undefined && limit.trim() !== (filledStart.limit ?? formLimit)),
     launchAddress(workspace, key, id),
   );
 
@@ -1126,6 +1136,11 @@ export function LaunchConfigPage({
     const mayPick =
       me.admin || (!!access && atLeast(flowLevel(access, config.data.flowFile), 'rw'));
     const plan = fillFrom(source, form.data, mayPick);
+    setFilledStart({
+      texts: plan.texts,
+      commit: plan.commit ?? '',
+      ...(plan.limit !== undefined ? { limit: plan.limit.trim() } : {}),
+    });
     setTexts((t) => ({ ...t, ...plan.texts }));
     setTyped(new Set(Object.keys(plan.texts)));
     if (plan.mode) setMode(plan.mode);

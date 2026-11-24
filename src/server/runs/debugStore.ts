@@ -34,7 +34,7 @@ export interface DebugPause {
 }
 
 /**
- * Keeps an answer of a pause (one per op, host and expressions: a later one replaces it); false
+ * Keeps an answer of a pause (one per op, host and expressions: a later one replaces it, where it was); false
  * when the run's 1 MB is used up (nothing more is kept).
  */
 // Entries kept in the same millisecond (scopes, then a watch) came back in random id order: the
@@ -69,7 +69,17 @@ export async function keepDebug(
     .executeTakeFirst();
   const total = Number(used?.total ?? 0) - (same?.size ?? 0);
   if (total + size > MAX_DEBUG_BYTES) return false;
-  if (same) await db.deleteFrom('run_debug').where('id', '=', same.id).execute();
+  // AFS-258: a later answer replaces the earlier one in its place: the pause keeps the time it was
+  // first looked at (a pause shows when it paused, not when it was last looked at). The values of a
+  // pause do not change while it waits, so which answer is newer does not matter.
+  if (same) {
+    await db
+      .updateTable('run_debug')
+      .set({ answer_json: answerJson, size, play: at.play ?? null })
+      .where('id', '=', same.id)
+      .execute();
+    return true;
+  }
   await db
     .insertInto('run_debug')
     .values({

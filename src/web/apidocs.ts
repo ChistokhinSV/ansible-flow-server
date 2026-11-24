@@ -11,10 +11,20 @@ import '@fontsource/ibm-plex-mono/400.css';
 import '@scalar/api-reference/style.css';
 import './apidocs.css';
 import { createApiReference } from '@scalar/api-reference';
-import { HASH_MESSAGE, kindOf, placeOf, quietConsole, THEME_MESSAGE, tryFetch } from './apidocsTry';
+import {
+  HASH_MESSAGE,
+  holdableClock,
+  kindOf,
+  placeOf,
+  quietConsole,
+  THEME_MESSAGE,
+  tryFetch,
+} from './apidocsTry';
 import { ask } from './confirm';
 
 quietConsole(console);
+// AFS-258: Scalar's request time leaves out the time the question before a send was open.
+const clock = holdableClock(performance);
 const asked = new URLSearchParams(window.location.search).get('theme');
 const light = window.matchMedia?.('(prefers-color-scheme: light)');
 let wanted = asked;
@@ -49,6 +59,7 @@ const config = () =>
       fetch: (input, init) => window.fetch(input, init),
       ask: (question) => ask(question, { yes: 'Send', danger: true }),
       origin: window.location.origin,
+      hold: () => clock.hold(),
     }),
   }) as const;
 

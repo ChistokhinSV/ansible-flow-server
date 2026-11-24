@@ -118,10 +118,18 @@ tr:has(> td input[placeholder="QUxMIFlPVVIgQkFTRSBBUkUgQkVMT05HIFRPIFVT"]) {
 .scalar .scalar-container .scalar-app-layout {
   height: calc(100% - 96px);
 }
+/* AFS-258: in the narrow layout the request part takes a fifth of the frame at most, so the
+   status line and the start of the answer's body are in sight after Send (at 1440 x 900 the frame
+   is narrower than 1280 px, so this layout is the one shown). */
 @media (max-width: 1279.98px) {
   .scalar-client .request-section-content {
-    max-height: 30vh;
+    max-height: 20vh;
     overflow: auto;
+  }
+}
+@media (max-width: 1279.98px) and (min-height: 480px) {
+  .scalar .scalar-container .scalar-app-layout {
+    height: calc(100% - 64px);
   }
 }
 

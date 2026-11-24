@@ -61,6 +61,25 @@ Carries Ansible Flow Designer 1.2.0-rc.2.
 - **Debug this failure** said "Pauses before each step"; it names the step where the hosts went wrong.
 - An operator who may not debug was offered **Run again** of a debug run, which the server refused. **Run again** is greyed with a line saying who may run it again; that line also shows when only **Change and run…** is left.
 - **Run again** of a step-by-step or debug run says it runs the same way, and asks first.
+- People who watch someone else's debug run no longer get its pause points' conditions and log messages, nor the log points' lines, through the run's view, its live events, its output, the run page or the MCP `run_output` tool. They see where the log points are, not what they wrote.
+- Evaluate over the API and MCP takes an expression written with `{{ }}`, as the run page does.
+- A request with a field it does not take says so, naming the field (for example "This request does not take a field named gitRef: a launch names its branch, tag or commit in ref."), instead of reading as if a branch or a limit did not exist.
+- A reader refused Step or Continue on a debug run is told that only who launched it, or an administrator, drives it, not that it needs operator.
+- An Evaluate the run refused (a lookup) is recorded in the audit log as refused, not as ok.
+- On a run page at 1024 px and on a phone, the canvas's failure bar no longer covers the failed step: it takes at most a third of the canvas and scrolls. On a phone the Run tab gives the canvas most of the window.
+- Someone who may not drive a debug run no longer reads Retry, Continue and Stop instructions in the canvas's failure bar.
+- The Debugger panel's buttons are in the canvas's order: Retry, Step, Continue, Stop.
+- An expression with an open bracket or quote says "Not a complete expression" in Watch and Evaluate, not "Refused".
+- The Evaluate answer stays when the window is resized across the phone width.
+- Log points in the Debugger and in **What the pauses showed** name their step, also one where the run did not pause.
+- **What the pauses showed** names the scopes Step inputs, Host variables and Flow data, gives each pause the time it paused rather than the time it was last looked at, and keeps that time on one line.
+- The engine's own variables (such as `afd_inputs`) are no longer listed under Host variables.
+- At the only pause point of a step-by-step run, the bar says Continue runs to the end.
+- A debug run's header counts its hosts while it waits before its first step.
+- The run page of a run that ended before it ran anything no longer asks for a view it does not have.
+- The canvas of someone with access to some flows only no longer asks again and again for the project's variables it may not read.
+- Leaving an untouched **Change and run** form no longer asks whether to leave what you typed.
+- In the API reference, the answer of **Test Request** is in sight after Send, its time leaves out the time the question before it was open, and the Help page links to the reference.
 - The flow pages now show the warnings that need the repository, such as a network module on hosts the inventory reaches with `ansible_connection: local`, as VS Code does.
 - Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
 - The lists of runs did not count hosts that could not be reached among the hosts that did not go well.

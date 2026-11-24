@@ -173,3 +173,26 @@ describe('a definition’s file:line', () => {
     expect(fallback).toHaveBeenCalledWith('group_vars/web.yml', 7);
   });
 });
+
+describe('AFS-258: someone who may not read the project’s files', () => {
+  it('is not asked for: the canvas is told once there is no index', async () => {
+    const sent: HostMessage[] = [];
+    let asks = 0;
+    const vars = repoVars({
+      project: 'p1',
+      commit: 'a'.repeat(40),
+      inventory: async () => '',
+      send: (m) => sent.push(m),
+      read: async () => {
+        asks += 1;
+        return undefined;
+      },
+      readsFiles: false,
+    });
+    vars.snapshot(snapshot);
+    vars.snapshot({ ...snapshot, docVersion: 5 });
+    await settle();
+    expect(asks).toBe(0);
+    expect(sent).toEqual([{ type: 'varIndex', index: null, openFiles: false }]);
+  });
+});

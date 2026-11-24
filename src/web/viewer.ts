@@ -274,6 +274,8 @@ async function start(): Promise<void> {
   const vars = repoVars({
     project,
     commit: flow.data.commit,
+    // AFS-258: someone with a grant on some flows only may not read the project's files.
+    readsFiles: !(access?.ok && (access.data as { flowOnly?: boolean } | undefined)?.flowOnly),
     inventory: async () => {
       if (runId) {
         const run = await get(`/api/v1/runs/${encodeURIComponent(runId)}`);
@@ -467,6 +469,11 @@ async function start(): Promise<void> {
       ...(implied ? { impliedApprovers: implied } : {}),
     } as HostMessage);
   const ready = () => {
+    // AFS-258: on a run's page the page's Debugger has the failure's words and buttons: the
+    // canvas's failure bar is kept short (viewer.css), and says no Retry, Continue and Stop to
+    // someone who has none of them.
+    document.body.classList.toggle('afs-run-page', !!runId);
+    document.body.classList.toggle('afs-run-reader', !!runId && !stepping);
     sendConfig();
     void get(
       `/api/v1/projects/${encodeURIComponent(project)}/approvers?path=${encodeURIComponent(path)}`,

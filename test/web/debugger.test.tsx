@@ -319,7 +319,14 @@ describe('AFS-249: the panel words', () => {
     ).toBe('Refused: lookups are not allowed in Evaluate');
     expect(
       answerText({ refused: true, error: "Not a Jinja expression: unexpected '}'" }).text,
-    ).toBe('Refused: Not a complete expression: a bracket or a quote is not closed');
+    ).toBe('Not a complete expression: a bracket or a quote is not closed');
+    // AFS-258: a syntax error is not a refusal, whatever the run calls it.
+    expect(
+      answerText({ refused: true, error: 'Not a Jinja expression: unexpected the end' }).text,
+    ).toBe('Not a complete expression: a bracket or a quote is not closed');
+    expect(answerText({ error: "A quote (') is not closed" }).text).toBe(
+      'Not a complete expression: a bracket or a quote is not closed',
+    );
     expect(
       answerText({ refused: true, error: 'The password filter is not allowed while debugging' })
         .text,
@@ -530,5 +537,109 @@ describe('AFS-250, AFS-253: watches per person, keys, Stop for an operator, log 
     fireEvent(inputs, new Event('toggle'));
     expect(await screen.findByText('{{ s }} (template, not rendered)')).toBeTruthy();
     expect(screen.queryByText('afd_repo_root')).toBeNull();
+  });
+});
+
+describe('AFS-258: round 2', () => {
+  it('names a log point’s step from the flow, also where the run did not pause', async () => {
+    const OTHER = '01JZBACKUP000000000000000B';
+    const doc = {
+      version: 1,
+      flow: { key: 'edge', name: 'Edge change', version: 3 },
+      nodes: [
+        { id: APPLY, key: 'apply', type: 'task', title: 'Apply config' },
+        { id: OTHER, key: 'backup', type: 'task', title: 'Backup config' },
+      ],
+      edges: [],
+    };
+    const fetched: string[] = [];
+    const inner = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      fetched.push(url);
+      if (url.includes('/flows/view'))
+        return { ok: true, status: 200, json: async () => ({ commit: 'c', snapshot: { doc } }) };
+      return inner(url, init);
+    });
+    render(
+      <DebugPanel
+        run={{ ...run, commit: 'c'.repeat(40) } as Run}
+        step={{ ...step, logs: [{ node: OTHER, host: 'edge-01', message: 'm1', ts: 1 }] }}
+        mayDrive
+        launcher="Dana"
+        onRun={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    expect(await screen.findByText('Backup config · edge-01')).toBeTruthy();
+    expect(fetched.some((u) => u.includes(`commit=${'c'.repeat(40)}`))).toBe(true);
+  });
+
+  it('a kept scope is named, and the engine’s own host variables are left out', () => {
+    const [kept] = keptHosts({
+      pause: 'p1',
+      node: APPLY,
+      entries: [
+        {
+          op: 'vars',
+          host: 'edge-01',
+          scope: 'host',
+          at: '2026-11-24T10:00:00.000Z',
+          answer: {
+            children: [
+              { name: 'afd_inputs', type: 'dict', count: 1 },
+              { name: 'site', type: 'str', value: 'lab' },
+            ],
+          },
+        },
+      ],
+    });
+    expect(kept?.scopes.map((s) => [s.name, s.vars.map((v) => v.name)])).toEqual([
+      ['Host variables', ['site']],
+    ]);
+  });
+
+  it('the Evaluate answer stays when the panel is drawn again (the window crossed a width)', async () => {
+    const props = {
+      run,
+      step,
+      mayDrive: true,
+      launcher: 'Dana',
+      onRun: () => undefined,
+      onError: () => undefined,
+    };
+    const first = render(<DebugPanel {...props} />);
+    const box = (await screen.findByLabelText(
+      'Jinja expression to evaluate',
+    )) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'vlan_id + 1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate' }));
+    await screen.findByText('0');
+    first.unmount();
+    render(<DebugPanel {...props} />);
+    expect(
+      ((await screen.findByLabelText('Jinja expression to evaluate')) as HTMLTextAreaElement).value,
+    ).toBe('vlan_id + 1');
+    expect(screen.getByText('0')).toBeTruthy();
+  });
+
+  it('the buttons are in the canvas’s order: Retry, Step, Continue, Stop', async () => {
+    render(
+      <DebugPanel
+        run={run}
+        step={step}
+        mayDrive
+        launcher="Dana"
+        onRun={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    const head = (await screen.findByText(/Paused after/)).closest(
+      '[data-debugger]',
+    ) as HTMLElement;
+    expect(
+      [...head.querySelectorAll('[data-step-command]')].map((b) =>
+        b.getAttribute('data-step-command'),
+      ),
+    ).toEqual(['retry', 'step', 'continue', 'stop']);
   });
 });

@@ -592,10 +592,12 @@ export const api = {
       body,
     ),
   /** AFS-79: a flow at the project's commit, as the designer shows it. */
-  flowView: (id: string, path: string) =>
+  flowView: (id: string, path: string, commit?: string) =>
     call<{ commit: string; snapshot: { doc?: FlowDocLike } }>(
       'GET',
-      `/projects/${id}/flows/view?path=${encodeURIComponent(path)}`,
+      `/projects/${id}/flows/view?path=${encodeURIComponent(path)}${
+        commit ? `&commit=${encodeURIComponent(commit)}` : ''
+      }`,
     ),
   /** AFS-79: the subflows of the server's library you may read. */
   library: () => call<{ subflows: LibrarySubflow[] }>('GET', '/library/subflows'),

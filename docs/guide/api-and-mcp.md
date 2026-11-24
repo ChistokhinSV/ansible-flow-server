@@ -13,7 +13,7 @@ TLS proxy too.
 
 ### The API reference page
 
-**Help › API reference** (`/docs/api`) shows the document by subject, served by the server itself
+**Help › API reference** ([/docs/api](/docs/api)) shows the document by subject, served by the server itself
 (nothing is loaded from the internet). Each address has its parameters, its body and its answers
 with their fields, and an example request (curl and other languages). Each address is headed
 with a few words; the description under it says the rest. The address of the page follows the

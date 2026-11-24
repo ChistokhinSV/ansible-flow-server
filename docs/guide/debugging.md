@@ -102,13 +102,20 @@ server still hides the run's credential values in its output, as a second layer.
   by Dana Whitfield"). They see no values, no Step or Continue, and no Pause here on the canvas.
   An operator of the flow has **Stop** in the panel, as for any run; it asks first, naming whose
   run it is.
-- The run's record (`GET /runs/:id`) gives others the steps of its pause points, not their
-  conditions and log messages, which may hold a literal value.
+- The run's record (`GET /runs/:id`), its view (`/view`) and its live events (`/events`) give
+  others the steps of its pause points, not their conditions and log messages, which may hold a
+  literal value, and none of the log points' lines. In the run's output (the page's Output,
+  `GET /runs/:id/output`, MCP `run_output`) a log point's line reads "Log point Backup config ·
+  sw-edge-01: (only who launched the run reads this)" for them.
+- A refused Step or Continue says who drives the run: "Only dana (who launched it) or an
+  administrator drives this debug run". Stop stays an operator's.
 
 Every question to a paused run is in the audit log (`run.debug.inspect`). A refusal there says
 who may: "Only who launched this debug run, or an administrator, looks into its variables".
 
 The entry has the question's kind and the expression of Evaluate or Watch, and never the answer.
+An expression the run refused (a lookup) is recorded as refused. Over the API and MCP an
+expression may be written with or without `{{ }}`, as on the page.
 
 ## After the run
 
@@ -116,7 +123,8 @@ What each pause showed (masked) is kept with the run, at most 1 MB a run: the sc
 of each scope you opened, and the watches. The run's page lists them under **What the pauses
 showed** for who could see them during the run: per host, the values of the scopes opened (the
 others by their count of variables), and each watch once, with its last answer. Pauses at the
-same step are told apart ("pause 2 of 3 here") with their time. The log points' lines follow.
+same step are told apart ("pause 2 of 3 here") with the time each paused. The log points'
+lines follow, each with its step.
 They are deleted with the run.
 
 ## API and MCP

@@ -174,7 +174,10 @@ export function RunStepBar({
   );
   const pause = step?.paused;
   const point = pointWords(run, step, launcher);
-  const points = step?.points?.length ? step.points.length : (run.step?.points.length ?? 0);
+  const pointIds = (step?.points?.length ? step.points : (run.step?.points ?? [])).map(pointNode);
+  const points = pointIds.length;
+  // AFS-258: the pause points still ahead: paused at the only one, Continue runs to the end.
+  const ahead = pointIds.filter((id) => id !== pause?.node).length;
   return (
     <div className={`step-bar${paused ? ' paused' : ''}`} data-step-bar>
       <div className="step-says">
@@ -184,9 +187,11 @@ export function RunStepBar({
         </span>
         <span className="step-more muted">
           {pause?.hosts.length ? `Waiting there: ${pause.hosts.join(', ')}. ` : ''}
-          {points
-            ? `${points} pause point${points === 1 ? '' : 's'}: Continue runs on to the next one. `
-            : 'No pause point: Continue runs to the end. '}
+          {!points
+            ? 'No pause point: Continue runs to the end. '
+            : !ahead
+              ? `${points === 1 ? 'The only pause point is here' : `${points} pause points, all here`}: Continue runs to the end. `
+              : `${points} pause point${points === 1 ? '' : 's'}: Continue runs on to the next one. `}
           {mayDrive
             ? 'Keys: F10 Step, F8 Continue or Pause.'
             : paused

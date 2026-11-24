@@ -43,8 +43,10 @@ import { Executor } from '../../src/server/runs/executor';
 import { RunQueue } from '../../src/server/runs/queue';
 import { pruneRuns } from '../../src/server/runs/retention';
 import {
+  bareExpr,
   failuresOf,
   type InspectAsk,
+  outputForReader,
   refusalFor,
   type Stepper,
   stepAsked,
@@ -656,6 +658,151 @@ describe('round 1 fixes', () => {
       ['vars', 'host'],
     ]);
     expect(kept?.entries[1]?.answer).toEqual(opened);
+    await queue.cancel(run.id, 'wes');
+  });
+});
+
+describe('round 2 fixes', () => {
+  it('AFS-259: readers get no point conditions, log messages or log lines in /view and /events', async () => {
+    const run = await going('wes');
+    const point = { node: FACTS, condition: 'site != "c6-secret-cond"', log: 'MARK {{ site }}' };
+    const view = {
+      id: run.id,
+      mode: 'check',
+      state: 'running',
+      step: {
+        every: false,
+        points: [FACTS],
+        settings: [point],
+        pauses: 1,
+        debug: true,
+        hits: { [FACTS]: 1 },
+        logs: [{ node: FACTS, host: 'localhost', message: 'MARK c6-site', ts: 1 }],
+      },
+    };
+    await db()
+      .updateTable('run')
+      .set({ view_json: JSON.stringify(view) })
+      .where('id', '=', run.id)
+      .execute();
+    const viewOf = async (who: string) =>
+      (await app.inject({ url: `/api/v1/runs/${run.id}/view`, headers: as(who) })).json();
+    expect((await viewOf('wes')).step.settings).toEqual([point]);
+    expect((await viewOf('dana')).step.logs).toHaveLength(1);
+    for (const who of ['rita', 'omar']) {
+      const seen = await viewOf(who);
+      expect(seen.step.settings).toEqual([{ node: FACTS }]);
+      expect(seen.step.logs).toBeUndefined();
+      expect(seen.step.hits).toEqual({ [FACTS]: 1 });
+      expect(JSON.stringify(seen)).not.toMatch(/c6-secret-cond|MARK/);
+    }
+    // The stream of a run that ended: its record and view, read whole.
+    await queue.finish(run.id, run.token, 'succeeded');
+    await db()
+      .updateTable('run')
+      .set({ view_json: JSON.stringify(view) })
+      .where('id', '=', run.id)
+      .execute();
+    const events = async (who: string) =>
+      (await app.inject({ url: `/api/v1/runs/${run.id}/events`, headers: as(who) })).body;
+    expect(await events('wes')).toContain('MARK c6-site');
+    const read = await events('rita');
+    expect(read).toContain('event: view');
+    expect(read).not.toMatch(/c6-secret-cond|MARK/);
+  });
+
+  it('AFS-259: a log point line in the output is where, not what, for a reader', () => {
+    const esc = String.fromCharCode(27);
+    const output = [
+      'TASK [ping] ***',
+      'Log point Pre-checks · sw-edge-01: MARK sw-edge-01 site=c6ok',
+      `${esc}[0;32mLog point Push: baseline · sw-edge-02: MARK x: y${esc}[0m`,
+      'Log point Backup · sw-edge-03: the condition failed: site is undefined',
+      'ok: [sw-edge-01]',
+    ].join('\n');
+    const read = outputForReader(output);
+    expect(read).not.toMatch(/MARK|site/);
+    expect(read.split('\n')).toEqual([
+      'TASK [ping] ***',
+      'Log point Pre-checks · sw-edge-01: (only who launched the run reads this)',
+      `${esc}[0;32mLog point Push: baseline · sw-edge-02: (only who launched the run reads this)`,
+      'Log point Backup · sw-edge-03: (only who launched the run reads this)',
+      'ok: [sw-edge-01]',
+    ]);
+  });
+
+  it('AFS-259: Evaluate takes {{ }}; AFS-258: a refused expression is audited as refused', async () => {
+    const run = await going('wes');
+    const at = `/api/v1/runs/${run.id}/inspect`;
+    driving.set(run.id, { paused: true, sent: [], answer: { value: 'localhost' }, asked: [] });
+    const braces = await post('wes', at, {
+      op: 'eval',
+      host: 'localhost',
+      expr: '{{ inventory_hostname }}',
+    });
+    expect(braces.statusCode).toBe(200);
+    await post('wes', at, { op: 'watch', exprs: ['{{ a }}', 'b'] });
+    expect(driving.get(run.id)?.asked).toEqual([
+      { op: 'eval', host: 'localhost', expr: 'inventory_hostname' },
+      { op: 'watch', exprs: ['a', 'b'] },
+    ]);
+    expect(bareExpr('{{ foo(')).toBe('foo(');
+    expect(bareExpr('{% if x %}')).toBe('{% if x %}');
+    driving.set(run.id, {
+      paused: true,
+      sent: [],
+      answer: { refused: true, error: 'lookup is not allowed' },
+      asked: [],
+    });
+    const refused = await post('wes', at, {
+      op: 'eval',
+      host: 'localhost',
+      expr: "lookup('pipe', 'id')",
+    });
+    expect(refused.statusCode).toBe(200);
+    const entries = (await listAudit(db(), { action: 'run.debug.inspect' })).entries;
+    const last = entries.find((e) => e.detail?.expr === "lookup('pipe', 'id')");
+    expect(last?.result).toBe('refused');
+    // As sent: with its braces.
+    expect(entries.some((e) => e.detail?.expr === '{{ inventory_hostname }}')).toBe(true);
+    driving.delete(run.id);
+    await queue.finish(run.id, run.token, 'succeeded');
+  });
+
+  it('AFS-258: a reader refused Step of a debug run is told who drives it', async () => {
+    const run = await going('wes');
+    const step = (who: string, command: string) =>
+      post(who, `/api/v1/runs/${run.id}/step`, { command });
+    const rita = await step('rita', 'continue');
+    expect(rita.statusCode).toBe(403);
+    expect(rita.json().message).toBe(
+      'Only wes (who launched it) or an administrator drives this debug run',
+    );
+    // Stop is an operator's: a reader is told that.
+    expect((await step('rita', 'stop')).json().message).toBe('This needs operator here');
+    await queue.finish(run.id, run.token, 'cancelled');
+  });
+
+  it('AFS-258: a pause keeps the time it was first looked at', async () => {
+    await clear();
+    const run = (await launch('wes', { step: { debug: true, every: true } })).json() as {
+      id: string;
+    };
+    const at = { pause: 'p-10', node: FACTS };
+    const scopes: InspectAnswer = { scopes: [{ id: 'inputs', name: 'Step inputs' }] };
+    const first = new Date('2030-01-02T10:15:10.000Z');
+    await keepDebug(db(), run.id, at, { op: 'scopes', host: 'a', answer: scopes }, first);
+    await keepDebug(
+      db(),
+      run.id,
+      at,
+      { op: 'scopes', host: 'a', answer: { scopes: [{ id: 'host', name: 'Host variables' }] } },
+      new Date('2030-01-02T10:19:18.000Z'),
+    );
+    const [kept] = await debugKept(db(), run.id);
+    expect(kept?.entries).toHaveLength(1);
+    expect((kept?.entries[0]?.at ?? '') <= '2030-01-02T10:15:10.999Z').toBe(true);
+    expect(kept?.entries[0]?.answer.scopes?.[0]?.id).toBe('host');
     await queue.cancel(run.id, 'wes');
   });
 });
