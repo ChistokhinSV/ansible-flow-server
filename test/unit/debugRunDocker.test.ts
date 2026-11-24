@@ -18,6 +18,7 @@ import { Git } from '../../src/server/projects/git';
 import { createProject, createWorkspace, type Project } from '../../src/server/projects/store';
 import { ProjectSync } from '../../src/server/projects/sync';
 import { debugKept } from '../../src/server/runs/debugStore';
+import { outputForReader, viewForReader } from '../../src/server/runs/stepping';
 import { Executor } from '../../src/server/runs/executor';
 import { RunQueue } from '../../src/server/runs/queue';
 import { createCredential } from '../../src/server/secrets/credentials';
@@ -217,5 +218,53 @@ describe.skipIf(!image)('a debug run in a container (AFS-179, AFS-223)', () => {
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
     expect(output).toContain('Retry by dana');
     expect(output).not.toContain(TOKEN);
+  }, 600_000);
+
+  it('AFS-259: a log point writes its line; a reader of the output reads where, not what', async () => {
+    const c = await new LaunchConfigs(database.db, git).get(config);
+    const prepared = await prepareLaunch({ db: database.db, git, sync }, c as never, {
+      mode: 'check',
+    });
+    if (!prepared.ok) throw new Error(JSON.stringify(prepared.problems));
+    const run = await queue.enqueue(
+      {
+        ...prepared.launch,
+        step: {
+          every: false,
+          points: [{ node: SAY_HELLO, log: 'LOGMARK {{ inventory_hostname }}' }],
+          timeoutS: 600,
+          debug: true,
+          failures: { failed: false },
+        },
+      },
+      withoutSecrets(prepared.launch, prepared.form.fields).inputs,
+      { id: 'u1', login: 'dana' },
+      'Hello',
+    );
+    await ex.fill();
+    await until('the end', async () => {
+      const state = (await queue.get(run.id))?.state;
+      return state === 'failed' || state === 'succeeded';
+    });
+    const output = readFileSync(ex.outputFile(run.id), 'utf8');
+    // The engine's own line, recorded as it is (round 2 fixture).
+    const line = output.split('\n').find((l) => l.includes('Log point'));
+    expect(line).toMatch(/Log point Say hello · localhost: LOGMARK localhost/);
+    const read = outputForReader(output);
+    expect(read).not.toContain('LOGMARK');
+    expect(read).toContain(
+      'Log point Say hello · localhost: (only who launched the run reads this)',
+    );
+    const view = (await queue.view(run.id)) as { step?: { logs?: unknown[] } };
+    expect(JSON.stringify(view.step?.logs)).toContain('LOGMARK localhost');
+    expect(
+      JSON.stringify(
+        viewForReader(
+          view,
+          { step: { debug: true }, requestedBy: { login: 'dana' } },
+          { login: 'rita', admin: false },
+        ),
+      ),
+    ).not.toContain('LOGMARK');
   }, 600_000);
 });
