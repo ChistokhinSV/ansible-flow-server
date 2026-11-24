@@ -277,7 +277,13 @@ async function seed(
         ...pausedView.step.paused,
         id: 'layout-debug-1',
         kind: 'failure',
-        failed: [{ host: 'localhost', task: 'Read the minimal facts', msg: 'Timed out' }],
+        // AFS-258: every host failed, with the engine's long words: the canvas's failure bar at
+        // its tallest, which hid the failed step at 1024 and on a phone.
+        failed: hosts.map((host) => ({
+          host,
+          task: 'Validating arguments against arg spec main - Read the minimal facts',
+          msg: "Task failed: 'layout_nope' is undefined. The error appears to be in the role's argument spec.",
+        })),
         attempt: 1,
         debug: true,
       },
