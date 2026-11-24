@@ -39,6 +39,15 @@ Carries Ansible Flow Designer 1.2.0-rc.2.
 
 ### Fixed
 
+- Stop at a failure pause (also after **Retry**) counted the failed host twice and added a host with no name: "All 5 hosts did not go well", every host listed as stopped "before" the step. **Only the hosts that did not go well** and **Debug this failure** then failed with "The run could not be started". The failed host now counts once, as failed at the step, the others as stopped after it, the banner says "Stopped ... after Push baseline", and a run again never takes a host with no name.
+- A host that failed and went on by its fail port, then stopped by a later Stop, is counted as stopped before the step its port leads to ("1 before Rollback"), not before the step the others waited at.
+- A run stopped while it waited for an approval said "The host went well"; its host now counts as stopped at the approval, and **Run again** offers it.
+- A rejected run said "1 failed" and offered **Debug this failure**; its line says "1 not approved at Change approval", the host is named "not approved", and **Debug this failure** leaves out hosts an approval did not let on.
+- A host that could not be reached was called failed in the run's banner ("1 of 2 hosts failed at ...") and in the heading of why it went wrong; both say it could not be reached.
+- A run stopped before its first step showed no **Hosts** list and no host count; they list the hosts that waited there.
+- **Debug this failure** said "Pauses before each step"; it names the step where the hosts went wrong.
+- An operator who may not debug was offered **Run again** of a debug run, which the server refused. **Run again** is greyed with a line saying who may run it again; that line also shows when only **Change and run…** is left.
+- **Run again** of a step-by-step or debug run says it runs the same way, and asks first.
 - The flow pages now show the warnings that need the repository, such as a network module on hosts the inventory reaches with `ansible_connection: local`, as VS Code does.
 - Run again used the credentials of the run it repeated, even ones its launch configuration no longer gives.
 - The lists of runs did not count hosts that could not be reached among the hosts that did not go well.
