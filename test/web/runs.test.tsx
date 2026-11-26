@@ -4,7 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Run } from '../../src/web/api';
 import { App } from '../../src/web/app';
-import { againWords, failureWords, limitWords, stoppedWhen } from '../../src/web/runs';
+import {
+  againWords,
+  failureWords,
+  limitWords,
+  RunWords,
+  StateBadge,
+  stoppedWhen,
+} from '../../src/web/runs';
 import { formatTime } from '../../src/web/ui';
 import { stepTitle, stopQuestion } from '../../src/web/viewerRuns';
 
@@ -1121,5 +1128,83 @@ describe('AFS-258: round 2', () => {
     expect(await screen.findByText('The credential could not be read')).toBeTruthy();
     await new Promise((done) => setTimeout(done, 50));
     expect(asked).not.toContain('view');
+  });
+});
+
+// ADR-0039 (Control Room 3): a state reads without its colour, and a real run looks unlike a
+// check run wherever runs are shown.
+describe('AFS-269: states and modes', () => {
+  const states: [string, string | undefined, string][] = [
+    ['queued', undefined, 'queued'],
+    ['running', undefined, 'running'],
+    ['paused', undefined, 'paused'],
+    ['waiting', undefined, 'waiting for a decision'],
+    ['succeeded', undefined, 'went well'],
+    ['failed', undefined, 'failed'],
+    ['failed', 'rejected', 'rejected'],
+    ['cancelled', undefined, 'stopped'],
+    ['lost', undefined, 'lost'],
+  ];
+
+  it('every state has a shape of its own, beside its word', () => {
+    const shapes = states.map(([state, against, words]) => {
+      const { container } = render(<RunWords state={state} against={against} />);
+      const glyph = container.querySelector('svg.state-glyph');
+      // The shape is decoration: the word is what a screen reader says.
+      expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+      expect(container.textContent).toBe(words);
+      cleanup();
+      return glyph?.getAttribute('data-glyph');
+    });
+    expect(new Set(shapes).size).toBe(states.length);
+  });
+
+  it('a badge carries the same shape as the words', () => {
+    for (const [state, against] of states) {
+      const words = render(<RunWords state={state} against={against} />).container;
+      const shape = words.querySelector('svg')?.getAttribute('data-glyph');
+      cleanup();
+      const badge = render(<StateBadge state={state} against={against} />).container;
+      expect(badge.querySelector('svg')?.getAttribute('data-glyph')).toBe(shape);
+      cleanup();
+    }
+  });
+
+  it('the list marks a real run and a check run with different badges', async () => {
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /runs?limit=100': () => ({
+        body: [run, { ...run, id: 'r0', number: 6, mode: 'check', state: 'succeeded' }],
+      }),
+    };
+    window.history.replaceState(null, '', '/runs');
+    render(<App />);
+    const real = await screen.findByRole('link', { name: /#7/ });
+    const check = screen.getByRole('link', { name: /#6/ });
+    expect(real.querySelector('.mode-badge')?.getAttribute('data-mode')).toBe('real');
+    expect(check.querySelector('.mode-badge')?.getAttribute('data-mode')).toBe('check');
+    expect(check.querySelector('.state')?.getAttribute('data-state')).toBe('ok');
+  });
+
+  it("a real run's head is marked and says real run; a check run's is not", async () => {
+    routes = { 'GET /session': () => ({ body: omar }), 'GET /runs/r1': () => ({ body: run }) };
+    window.history.replaceState(null, '', '/runs/r1');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Hello, Ansible #7' });
+    const head = document.querySelector('header.run-head');
+    expect(head?.classList.contains('real-run')).toBe(true);
+    expect(head?.querySelector('.mode-badge')?.textContent).toBe('real run');
+    cleanup();
+
+    routes['GET /runs/r1'] = () => ({ body: { ...run, mode: 'check' } });
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Hello, Ansible #7' });
+    const checkHead = document.querySelector('header.run-head');
+    expect(checkHead?.classList.contains('real-run')).toBe(false);
+    expect(checkHead?.querySelector('.mode-badge')?.textContent).toBe('check run');
+    // Check mode can still run tasks marked check_mode: false, so the badge promises no less.
+    expect(checkHead?.querySelector('.mode-badge')?.getAttribute('title')).toMatch(
+      /Ansible's check mode/,
+    );
   });
 });

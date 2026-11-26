@@ -5037,3 +5037,127 @@ button.rail-item:hover:not(:disabled) {
   min-width: 32px;
   min-height: 32px;
 }
+
+/* ADR-0039 (Control Room 3), AFS-269: roles, the states' shapes and the run's mode. A role says
+   what a colour is for and points at the theme's raw colours above, so a theme changes raw colours
+   only; the components below use roles. One block at the end: the busy parts of this file stay
+   untouched while the debugger work goes on. */
+:root {
+  --state-queued: var(--muted);
+  --state-running: var(--link);
+  --state-paused: var(--warn);
+  --state-waiting: var(--warn);
+  --state-ok: var(--ok);
+  --state-failed: var(--bad);
+  --state-stopped: var(--muted);
+  --state-lost: var(--bad);
+  /* A real run changes hosts: a colour of its own, apart from the states'. */
+  --mode-real: #ff9466;
+  --mode-real-fg: #2a1206;
+  --mode-check: var(--muted);
+}
+:root[data-theme="light"] {
+  --mode-real: #c2410c;
+  --mode-real-fg: #ffffff;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --mode-real: #c2410c;
+    --mode-real-fg: #ffffff;
+  }
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.state[data-state="queued"] {
+  color: var(--state-queued);
+}
+.state[data-state="running"] {
+  color: var(--state-running);
+}
+.state[data-state="paused"] {
+  color: var(--state-paused);
+}
+.state[data-state="waiting"] {
+  color: var(--state-waiting);
+}
+.state[data-state="ok"] {
+  color: var(--state-ok);
+}
+.state[data-state="failed"],
+.state[data-state="against"] {
+  color: var(--state-failed);
+}
+.state[data-state="stopped"] {
+  color: var(--state-stopped);
+}
+.state[data-state="lost"] {
+  color: var(--state-lost);
+}
+.state-glyph {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+.badge .state-glyph {
+  vertical-align: -0.15em;
+  margin-right: 0.3em;
+}
+.glyph-running {
+  animation: state-turn 1.2s linear infinite;
+}
+@keyframes state-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glyph-running {
+    animation: none;
+  }
+}
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0 0.45em;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: 0.1em;
+}
+.mode-badge svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+.mode-badge.real {
+  background: var(--mode-real);
+  border-color: var(--mode-real);
+  color: var(--mode-real-fg);
+}
+.mode-badge.check {
+  border-style: dashed;
+  border-color: var(--mode-check);
+  color: var(--mode-check);
+}
+.run-head.real-run {
+  position: relative;
+}
+.run-head.real-run::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--mode-real) 0 10px,
+    color-mix(in srgb, var(--mode-real) 35%, transparent) 10px 20px
+  );
+}

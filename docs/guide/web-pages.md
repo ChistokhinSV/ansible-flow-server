@@ -66,6 +66,14 @@ never opens the browser's Save dialog.
   there only).
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
   The flow canvas keeps the designer's own look in the same theme.
+- **A run's state** has a shape of its own beside its words, so it reads without colour: a dashed
+  circle for queued, a turning arc for running, two bars for paused, a diamond for waiting for a
+  decision (the approval's shape on the canvas), a tick for went well, a cross for failed, a
+  diamond with a cross for rejected or not decided in time, a square for stopped and a broken
+  circle for lost. With reduced motion set on the device, the arc does not turn.
+- **Real and check runs** look different wherever runs are listed and on a run's page: a real run
+  has a solid **Real** badge, a check run a dashed **Check** badge. A real run's page has a
+  striped line along the top of its header.
 - Works at phone width and with a keyboard and a screen reader. At phone width a table shows each
   row as a card, each value named by its column, with the row's buttons under it. After a page change the focus is
   on the new page's title; Esc closes the phone menu.
