@@ -154,6 +154,18 @@ describe('Run again ▾', () => {
     ).toBe('/runs/r1');
   });
 
+  it('AFS-212: opens by itself when Home sends a Run again here, with its choices', async () => {
+    window.history.replaceState(null, '', '/runs/r1?again=1');
+    render(<App />);
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitem')[0]?.querySelector('span')?.textContent).toBe(
+      'Run again',
+    );
+    // From the keyboard too: the first choice has the focus.
+    expect(document.activeElement).toBe(within(menu).getAllByRole('menuitem')[0]);
+    expect(posted).toEqual([]);
+  });
+
   it('Debug this failure: a check run by default; real is asked first and names the hosts', async () => {
     const asked: string[] = [];
     let yes = false;

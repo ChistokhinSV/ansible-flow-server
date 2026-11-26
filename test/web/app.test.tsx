@@ -199,7 +199,8 @@ describe('before anyone is signed in', () => {
     type('Name', 'Dana Whitfield');
     type('Password', 'correct horse battery staple');
     fireEvent.click(screen.getByRole('button', { name: 'Make the administrator' }));
-    await screen.findByRole('heading', { name: 'Workspaces' });
+    // Home greets the new administrator (AFS-212: Home is an inbox, with no list of workspaces).
+    await screen.findByRole('heading', { name: /, Dana$/ });
     expect(screen.getByRole('link', { name: 'Dana Whitfield' })).toBeTruthy();
   });
 
@@ -221,7 +222,7 @@ describe('before anyone is signed in', () => {
     type('Name', 'Dana Whitfield');
     type('Password', 'correct horse battery staple');
     fireEvent.click(screen.getByRole('button', { name: 'Make the administrator' }));
-    await screen.findByRole('heading', { name: 'Workspaces' });
+    await screen.findByRole('heading', { name: /, Dana$/ });
     expect(window.location.pathname).toBe('/');
   });
 

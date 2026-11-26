@@ -37,7 +37,13 @@ export interface ApprovalDeps {
   decided?: (run: string, gate: string) => void;
 }
 
-export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): void {
+/** AFS-212: what the approvals routes offer other routes. */
+export interface ApprovalLists {
+  /** The approvals that wait and the asker may see, each with whether they may decide it. */
+  waiting(request: FastifyRequest): Promise<WaitingApproval[]>;
+}
+
+export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): ApprovalLists {
   const { db, queue } = deps;
 
   /** What a person may do about a run's gates: its workspace, the rules, their groups. */
@@ -254,13 +260,11 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
     },
   );
 
-  app.get<{ Querystring: { decided?: string } }>('/api/v1/approvals', async (request, reply) => {
-    if (!signedIn(request, reply)) return reply;
-    const who = await deciderFor(request);
-    if (!who) return reply;
-    // AFS-133: `?decided=1`: the newest decided approvals the person may see (50), not those
-    // that wait.
-    const decided = request.query.decided === '1' || request.query.decided === 'true';
+  /** The approvals someone may see: those that wait, or (`decided`) the newest decided ones. */
+  const approvalsFor = async (
+    who: NonNullable<Awaited<ReturnType<typeof deciderFor>>>,
+    decided: boolean,
+  ): Promise<WaitingApproval[]> => {
     let query = db
       .selectFrom('run_gate')
       .innerJoin('run', 'run.id', 'run_gate.run_id')
@@ -374,5 +378,23 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
       });
     }
     return out;
+  };
+
+  app.get<{ Querystring: { decided?: string } }>('/api/v1/approvals', async (request, reply) => {
+    if (!signedIn(request, reply)) return reply;
+    const who = await deciderFor(request);
+    if (!who) return reply;
+    // AFS-133: `?decided=1`: the newest decided approvals the person may see (50), not those
+    // that wait.
+    const decided = request.query.decided === '1' || request.query.decided === 'true';
+    return approvalsFor(who, decided);
   });
+
+  // AFS-212: the inbox lists the same approvals as this page, with the same rule for each.
+  return {
+    waiting: async (request) => {
+      const who = await deciderFor(request);
+      return who ? approvalsFor(who, false) : [];
+    },
+  };
 }

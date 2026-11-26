@@ -24,7 +24,7 @@ import { DebugKept } from './debugger';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { decidedOutcomes, quietEndOrigins } from './outputText';
-import { Link, navigate } from './router';
+import { Link, navigate, useSearch } from './router';
 import { RunAgainMenu, relaunchWords } from './runAgain';
 import { useFrameFeed, useRunFeed } from './runFeed';
 import { RunStepBar } from './stepBar';
@@ -192,10 +192,13 @@ export function RunList({
   runs,
   me,
   showConfig = true,
+  workspaceOf,
 }: {
   runs: Run[];
   me?: User;
   showConfig?: boolean;
+  /** AFS-212: a list of several workspaces names each run's in the configuration's place. */
+  workspaceOf?: (run: Run) => string | undefined;
 }) {
   // AFS-95: runs are read down a column (which failed, whose, when), so each fact has its own;
   // where there is no room for columns (a phone, a narrow pane) a run is two lines again.
@@ -205,7 +208,7 @@ export function RunList({
         <li className="runs-head" aria-hidden="true">
           <span>State</span>
           <span>Run</span>
-          {showConfig && <span>Configuration</span>}
+          {showConfig && <span>{workspaceOf ? 'Workspace' : 'Configuration'}</span>}
           <span>Mode</span>
           <span>By</span>
           <span>Started</span>
@@ -259,7 +262,11 @@ export function RunList({
               {/* The facts are cells of the row; with no room for columns they are one line
                   under the run. */}
               <span className="c-facts">
-                {showConfig && <span className="c-fact">{run.config?.name ?? ''}</span>}
+                {showConfig && (
+                  <span className="c-fact">
+                    {workspaceOf ? (workspaceOf(run) ?? '') : (run.config?.name ?? '')}
+                  </span>
+                )}
                 <span className="c-fact">
                   <ModeBadge mode={run.mode} />
                 </span>
@@ -1258,6 +1265,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   /** AFS-177: a step-by-step run's state, from its live view (as the canvas hears it). */
   const step = fed.step;
   const access = useProjectAccess(run?.project).data;
+  // AFS-212: Home's Run again comes here with `?again=1`: the menu opens with its choices.
+  const againAsked = new URLSearchParams(useSearch()).get('again') === '1';
   // AFS-181: no generated-code excerpt under a failed end's error (the output file keeps it).
   // AFS-193: and a rejected host's end says rejected, not failed.
   const shown = useMemo(() => decidedOutcomes(quietEndOrigins(output)), [output]);
@@ -1787,6 +1796,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 : {})}
               mayDebug={mayDebug}
               busy={busy}
+              openAtStart={againAsked}
               onAgain={(b) => void relaunch(b)}
               onChange={navigate}
             />

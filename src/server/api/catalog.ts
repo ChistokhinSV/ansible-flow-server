@@ -927,6 +927,16 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )('What you may do in a project: your level on it and on each flow'),
+  // AFS-212: across workspaces, as the Work pages are (ADR-0039 §10); a token made for one
+  // workspace is narrowed to it by the route itself.
+  'GET /api/v1/inbox': S(
+    'Inbox',
+    'signed in',
+    'self',
+  )(
+    "What needs you now, in every workspace you may see: approvals you may decide, your paused and failed runs, your drafts nobody saved, the certificate's end for administrators, and your runs that wait for someone else's decision. Each item names its workspace and the verbs you may use there. With the day's numbers (`since`: the start of your day; else the last 24 hours), the last 7 days', and the server's runners. `?workspace=<key>`: of that workspace only",
+    one('Inbox'),
+  ),
   'GET /api/v1/approvals': S(
     'Approvals',
     'signed in',
