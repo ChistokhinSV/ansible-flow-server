@@ -1425,4 +1425,50 @@ describe('AFS-272: what will run, and the run Launch starts', () => {
       inputs: { retries: '4' },
     });
   });
+
+  it('two Ctrl+Enter (or one held down) ask once and launch one real run', async () => {
+    routes = {
+      ...common(dana),
+      // The hosts are known before the keys: nothing is read between a key and its question.
+      'POST /launch-configs/c1/facts': () => ({
+        body: {
+          facts: {
+            sources: ['inventory/prod/hosts.yaml'],
+            count: 2,
+            hosts: ['fw-01', 'sw-edge-01'],
+            unknown: [],
+            uses: [],
+            prod: [],
+            vault: false,
+          },
+          commit: COMMIT,
+        },
+      }),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return true;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const retries = await screen.findByLabelText(/^retries/);
+    fireEvent.click(screen.getByRole('radio', { name: /^real run/i }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-will-hosts]')?.textContent).toMatch(/^2 hosts/),
+    );
+    // The second before the first question is answered, and a key repeat.
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true, repeat: true });
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatch(/for real/);
+    expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/launch')).toHaveLength(1);
+  });
 });

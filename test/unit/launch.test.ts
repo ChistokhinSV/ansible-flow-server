@@ -749,6 +749,18 @@ describe('AFS-272: the steps and approvals of a flow, for What will run', () => 
     expect(approvalsOf(doc)).toEqual([{ title: 'G', approvers: ['change-board'] }]);
   });
 
+  it('names a step with no title by its key', () => {
+    const doc = {
+      nodes: [node('start', 'start'), node('a'), { ...node('b'), key: 'b', title: ' ' }, node('c')],
+      edges: [
+        edge('start', 'ok_hosts', 'a'),
+        edge('a', 'ok_hosts', 'b'),
+        edge('b', 'ok_hosts', 'c'),
+      ],
+    } as unknown as Doc;
+    expect(stepsOf(doc)).toEqual(['A', 'b', 'C']);
+  });
+
   it('stops at a step that branches, at a loop, and after a few steps', () => {
     const branching = {
       nodes: [node('start', 'start'), node('a'), node('d', 'decision'), node('x')],

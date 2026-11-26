@@ -155,7 +155,8 @@ export function stepsOf(doc: Pick<FlowDocument, 'nodes' | 'edges'>): string[] {
     const edge = doc.edges?.find((e) => e.from.node === from && e.from.port === port);
     const next = edge && doc.nodes.find((n) => n.id === edge.to.node);
     if (!next || seen.has(next.id) || next.type === 'end') break;
-    titles.push(next.title);
+    // A step with no title is named by its key: an empty name reads as "A ›  › B".
+    titles.push(next.title?.trim() || next.key || 'an untitled step');
     at = next;
   }
   return titles;

@@ -1102,6 +1102,9 @@ export function LaunchConfigPage({
   const [result, setResult] = useState<{ launch: PreparedLaunch; form: LaunchForm }>();
   const [hosts, setHosts] = useState<HostsState>();
   const [busy, setBusy] = useState<'check' | 'launch' | 'debug' | 'save'>();
+  // A launch from its start to its end, questions included: `busy` is not set while a question is
+  // open, and questions wait in a queue, so a second Ctrl+Enter would queue a second run.
+  const launching = useRef(false);
   const [saved, setSaved] = useState<string>();
   /** The fold of rarely typed fields, once the person opened or closed it themselves. */
   const [folded, setFolded] = useState<boolean>();
@@ -1345,6 +1348,15 @@ export function LaunchConfigPage({
   };
   /** AFS-179: `debug` is Debug beside Launch: a debug run (variables at each pause). */
   const launch = async (debug = false) => {
+    if (launching.current) return;
+    launching.current = true;
+    try {
+      await launchOnce(debug);
+    } finally {
+      launching.current = false;
+    }
+  };
+  const launchOnce = async (debug: boolean) => {
     // AFS-134: a real run changes the hosts: asked first, with what it runs and where.
     const real = (mode ?? form.data?.mode ?? c.mode) === 'real';
     // AFS-191: what the inventory says of the targets and the limit as they are now; read here
@@ -1603,6 +1615,8 @@ export function LaunchConfigPage({
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
                   e.preventDefault();
+                  // A key held down repeats: it is one launch.
+                  if (e.repeat) return;
                   if (!busy && form.data) void (mayLaunch ? launch() : check());
                 }}
                 aria-describedby={error ? 'launch-error' : undefined}
