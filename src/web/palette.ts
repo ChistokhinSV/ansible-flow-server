@@ -71,7 +71,8 @@ export function paletteOf(
 export function pagePalette(win: Window = window): Palette | undefined {
   try {
     if (win.parent === win) return undefined;
-    return paletteOf(win.getComputedStyle(win.parent.document.documentElement));
+    // The page's own window computes its styles: its media queries, not the frame's.
+    return paletteOf(win.parent.getComputedStyle(win.parent.document.documentElement));
   } catch {
     // A page of another origin around the frame (never the server's own): the designer's colours.
     return undefined;
@@ -95,7 +96,11 @@ export function pageColours(win: Window = window): { palette?: Palette } {
 export function followPageColours(mounted: unknown, win: Window = window): void {
   const designer = mounted as { setPalette?: (palette: Palette | undefined) => void } | undefined;
   if (typeof designer?.setPalette !== 'function') return;
+  // Read a frame later: the page's own media query may not have re-applied its colours yet when
+  // the frame hears of the change.
   win
     .matchMedia?.('(prefers-color-scheme: dark)')
-    ?.addEventListener('change', () => designer.setPalette?.(pagePalette(win)));
+    ?.addEventListener('change', () =>
+      win.requestAnimationFrame(() => designer.setPalette?.(pagePalette(win))),
+    );
 }
