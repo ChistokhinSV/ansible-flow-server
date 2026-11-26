@@ -19,7 +19,7 @@ What to build from each picture is what ADR-0039 decides, and nothing more:
   build only the head's state shape, the Real badge and the real run's stripe (AFS-269), the
   canvas in the page's colours (AFS-270), and the approval card's next steps and evidence
   (AFS-271).
-- **The side menu** (workspace switcher, Work / Build / Govern, the account at its end) is AFS-274.
-  Whether Work follows the switcher is the record's open question 1; it is not built until
-  answered.
+- **The side menu** (Work / Build / Govern, the switcher heading Build, the account at its end) is
+  AFS-274. Work spans workspaces (ADR-0039 §10): the Inbox names each row's workspace and has a
+  workspace filter, off by default.
 - **The top bar** is today's: the search box only.

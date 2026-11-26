@@ -1,7 +1,8 @@
 # ADR-0039: Control Room 3: the pages' structure and look
 
 - Status: proposed (2026-11-26, epic AFS-267, this record AFS-268). The product owner chose
-  Control Room 3 from five directions on 2026-11-26. The mock-ups are in
+  Control Room 3 from five directions on 2026-11-26, and answered the record's one open question
+  the same day: the Work group spans workspaces (§10, AFS-274). The mock-ups are in
   `docs/design/1.2/control-room-3/`.
 - Builds on: ADR-0011 (the web application), ADR-0012 (flows and the viewer), ADR-0038 (the web
   debugger). Replaces the look of AFS-64 ("Control Room") and keeps its rules: dark by default,
@@ -144,15 +145,28 @@ The glyph is decoration: the word stays the accessible text.
   again.
 - **API:** one call, `GET /api/v1/inbox`. It is easier to keep fast than five calls, and it can be
   offered over MCP too.
+- **Across workspaces,** as the whole Work group (§10): it lists what needs you in every workspace
+  you may see, each item names its workspace, and its count on the menu covers them all.
 
 ### 10. The menu (S1, AFS-274)
 
-- **A workspace switcher** at the top of the side menu.
+- **A workspace switcher** heads the Build group. It scopes that group only.
 - **Three groups:**
-  - Work: Home, Runs, Approvals, Actions. Whether they follow the switcher or span every
-    workspace is open question 1; AFS-274 is not built until it is answered.
-  - Build: Projects, Library, Environments, Credentials. In the chosen workspace.
+  - Work: Home (the inbox), Runs, Approvals, Actions. Across workspaces; they do not follow the
+    switcher.
+  - Build: Projects, Library, Environments, Credentials. In the workspace the switcher picks.
   - Govern: Access, Audit log, People, Server. For administrators.
+- **The Work group across workspaces** (the product owner's answer, 2026-11-26):
+  - Each Work page lists every workspace the person may see.
+  - Every row names its workspace: a column on wide screens, part of the row's second line on a
+    phone.
+  - Each page has a workspace filter, off by default and kept in the address
+    (`?workspace=<key>`), as the Runs page keeps its state and project today.
+  - The counts on the menu (Inbox, Approvals) cover all workspaces.
+  - Access stays per workspace: a row appears only where the person may see it, and its actions
+    follow that workspace's access level.
+- **A workspace's Access page** is of one workspace while Govern does not follow the switcher.
+  Where it sits is settled in AFS-274's plan.
 - **Your name** opens one account menu: profile, access tokens, theme, help, sign out.
 - **The folded menu** keeps the same groups.
 - This restructures `app.tsx`, which the debugger work changes often, so it comes last and its
@@ -186,15 +200,6 @@ CHANGELOG where people see a change:
 6. AFS-212: inbox.
 7. AFS-273: tables and the quiet button.
 8. AFS-274: the menu.
-
-## Open questions
-
-For the product owner. What depends on an answer is not built until then.
-
-1. **Work across workspaces (AFS-274).** Today Runs, Approvals and Actions list what a person may
-   see, and access is checked workspace by workspace. With a workspace switcher, should the Work
-   group follow the chosen workspace, or keep listing every workspace the person may see? If it
-   spans workspaces, the pages must say which workspace each row is in.
 
 ## Alternatives considered
 
