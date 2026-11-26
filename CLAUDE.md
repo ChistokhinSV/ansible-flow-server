@@ -75,7 +75,10 @@ just check                            # tsc (extension, webview, tests) and biom
 npx biome ci .
 just test                             # vitest
 node scripts/build.mjs --production   # dist/extension.js must stay under 1,344 KB: say the size
+node scripts/packages.mjs --check     # the npm packages build, pack and load on their own (CI "Packages")
 ```
+
+The packages check fails when a published package's types import a file that is not published, for example a type re-exported from `src/webview/theme/`. Put such a type in a file that ships.
 
 **Server:**
 
