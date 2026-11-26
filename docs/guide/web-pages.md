@@ -20,11 +20,13 @@ account at its end:
   Library is every project's. The switcher shows the workspace of the page you are on, elsewhere
   the one you picked last (this browser keeps it), else the first; it opens a menu of your
   workspaces and **All workspaces** (where administrators add one). Picking one keeps you on the
-  same page (Credentials stays Credentials) in that workspace. With no workspace yet it says so.
+  same page (Credentials stays Credentials) in that workspace. With no workspace yet it says so,
+  and an administrator gets **Add a workspace** (also on the folded rail).
 - **Govern**, for administrators: **Access** (the switcher's workspace's Access tab, which has a
   **Workspace** choice of its own), **Audit log**, **People** (and groups) and **Server**: one page
   with each part of the server (sign-in, secret providers, the certificate, notifications, event
-  streaming, the default image), how it stands and a link to its page.
+  streaming, the default image), how it stands and a link to its page. A part still being read
+  shows "…"; one whose page did not answer says "could not read" (its own page says why).
 - **Your name** opens one menu: **Profile**, **Access tokens**, **Theme** (it goes round in place),
   **Help** and **Sign out**.
 
@@ -38,8 +40,8 @@ and which administrators give access. Long pages are split into tabs; each tab h
 address. At phone width it folds into **Menu**. On a wider screen **Fold the menu** (the « icon at
 its end) folds it to a rail of icons with the same groups, each icon with its name as a tooltip and
 the counts kept; the switcher and your account are buttons with their initials, opening the same
-menus (arrows, Home and End go through a menu, Esc closes it and the focus goes back to its
-button). » unfolds it. The browser keeps the choice. Ctrl+S (Cmd+S) submits the form you are typing in,
+menus (arrows, Home and End go through a menu, Esc closes it wherever the focus is in it and the
+focus goes back to its button; Theme changes in place and keeps the focus). » unfolds it. The browser keeps the choice. Ctrl+S (Cmd+S) submits the form you are typing in,
 or the page's only form (never one that deletes), and saves a flow's draft while you edit it; it
 never opens the browser's Save dialog.
 

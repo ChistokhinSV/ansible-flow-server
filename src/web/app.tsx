@@ -3,6 +3,7 @@
 
 import {
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -260,6 +261,11 @@ const menuItems = (box: HTMLElement | null): HTMLElement[] => [
 
 /** AFS-274: an item of a menu opened from a button: a page to go to, or a thing to do. */
 interface PopItem {
+  /**
+   * Who the item is, kept while its words change: the theme's item says its new value, and two
+   * workspaces may have one name. A new key would make a new element and drop the focus.
+   */
+  id: string;
   label: string;
   to?: string;
   current?: 'page' | undefined;
@@ -330,8 +336,19 @@ function PopMenu({
     );
   }, [open, place]);
   const here = items.some((i) => i.current);
+  // Escape is heard on the whole menu, not only its list: the focus may be on its button, or
+  // anywhere in it a click left it, while it is open.
+  const onKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!open || e.key !== 'Escape') return;
+    // The menu, not the phone menu around it.
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(false);
+    button.current?.focus();
+  };
   return (
-    <div className="pop-menu" ref={box}>
+    // biome-ignore lint/a11y/noStaticElementInteractions: Escape for the menu inside it; its button and items are the controls
+    <div className="pop-menu" ref={box} onKeyDown={onKey}>
       <button
         ref={button}
         type="button"
@@ -353,14 +370,6 @@ function PopMenu({
           tabIndex={-1}
           style={at}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              // The menu, not the phone menu around it.
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-              button.current?.focus();
-              return;
-            }
             const all = menuItems(box.current);
             const now = all.indexOf(document.activeElement as HTMLElement);
             const to =
@@ -381,12 +390,12 @@ function PopMenu({
         >
           {items.map((i) =>
             i.to ? (
-              <Link key={i.label} to={i.to} role="menuitem" aria-current={i.current}>
+              <Link key={i.id} to={i.to} role="menuitem" aria-current={i.current}>
                 {i.label}
               </Link>
             ) : (
               <button
-                key={i.label}
+                key={i.id}
                 type="button"
                 role={i.checked === undefined ? 'menuitem' : 'menuitemradio'}
                 {...(i.checked === undefined ? {} : { 'aria-checked': i.checked })}
@@ -494,35 +503,48 @@ function Side({
     async () => (actionOnly ? undefined : api.inbox(midnight()).catch(() => undefined)),
     [actionOnly],
   );
-  // Approvals arrive while pages are open: the counts look again now and then.
-  useEffect(() => {
-    const again = () => {
+  // The counts are read again on a page change, a decision and the canvas's word, which come in
+  // bursts (a decision, then the page it leads to): at most once a second, at once when nothing
+  // was read in the last second, else once at its end. Reading at start counts as a read.
+  const lastRead = useRef(Date.now());
+  const planned = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const soon = useCallback(() => {
+    const read = () => {
+      planned.current = undefined;
+      lastRead.current = Date.now();
       approvals.reload();
       inbox.reload();
     };
-    const timer = setInterval(again, 30_000);
+    if (planned.current) return;
+    const wait = lastRead.current + 1000 - Date.now();
+    if (wait <= 0) read();
+    else planned.current = setTimeout(read, wait);
+  }, [approvals.reload, inbox.reload]);
+  useEffect(() => () => clearTimeout(planned.current), []);
+  // Approvals arrive while pages are open: the counts look again now and then.
+  useEffect(() => {
+    const timer = setInterval(soon, 30_000);
     // AFS-133: a decision made on any page counts at once.
-    window.addEventListener(APPROVALS_CHANGED, again);
+    window.addEventListener(APPROVALS_CHANGED, soon);
     // AFS-146: and one made on a run's canvas (the designer's frame says so).
     const fromFrame = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if ((event.data as { type?: string } | null)?.type === APPROVALS_CHANGED) again();
+      if ((event.data as { type?: string } | null)?.type === APPROVALS_CHANGED) soon();
     };
     window.addEventListener('message', fromFrame);
     return () => {
       clearInterval(timer);
-      window.removeEventListener(APPROVALS_CHANGED, again);
+      window.removeEventListener(APPROVALS_CHANGED, soon);
       window.removeEventListener('message', fromFrame);
     };
-  }, [approvals.reload, inbox.reload]);
+  }, [soon]);
   // AFS-193: and on every page opened: a run stopped or decided elsewhere drops out of the count.
   const firstPath = useRef(path);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reads again when the page changes
   useEffect(() => {
     if (firstPath.current === path) return;
     firstPath.current = '';
-    approvals.reload();
-    inbox.reload();
+    soon();
   }, [path]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.
   const here = /^\/w\/([^/]+)/.exec(path)?.[1];
@@ -678,31 +700,40 @@ function Side({
     : [];
   const switchItems: PopItem[] = [
     ...list.map((w) => ({
+      id: `ws:${w.key}`,
       label: w.name,
       checked: w.key === current?.key,
       onSelect: () => pick(w.key),
     })),
     {
+      id: '/workspaces',
       to: '/workspaces',
       label: 'All workspaces',
       current: path === '/workspaces' ? ('page' as const) : undefined,
     },
   ];
   const accountItems: PopItem[] = [
-    { to: '/account', label: 'Profile', current: path === '/account' ? 'page' : undefined },
     {
+      id: '/account',
+      to: '/account',
+      label: 'Profile',
+      current: path === '/account' ? 'page' : undefined,
+    },
+    {
+      id: '/account/tokens',
       to: '/account/tokens',
       label: 'Access tokens',
       current: path === '/account/tokens' ? 'page' : undefined,
     },
-    { label: THEME_LABEL[theme], onSelect: onTheme, stays: true },
+    { id: 'theme', label: THEME_LABEL[theme], onSelect: onTheme, stays: true },
     // The help pages, at their other addresses too (/guide, /docs).
     {
+      id: '/help',
       to: '/help',
       label: 'Help',
       current: /^\/(help|guide)(\/|$)/.test(path) || path === '/docs' ? 'page' : undefined,
     },
-    { label: 'Sign out', onSelect: onSignOut },
+    { id: 'sign-out', label: 'Sign out', onSelect: onSignOut },
   ];
   const switcherWords = current
     ? {
@@ -763,6 +794,16 @@ function Side({
                 </span>
               </PopMenu>
             )}
+            {/* As the unfolded menu's "No workspace yet": an administrator may add one. */}
+            {!current &&
+              workspaces.data &&
+              me.admin &&
+              item({
+                to: '/workspaces',
+                icon: 'workspaces',
+                label: 'Add a workspace',
+                current: path === '/workspaces',
+              })}
             {builds.map(item)}
           </nav>
         )}

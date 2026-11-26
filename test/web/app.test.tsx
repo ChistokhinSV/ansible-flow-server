@@ -1214,6 +1214,51 @@ describe('signed in', () => {
     await screen.findByRole('heading', { name: 'Sign in to Ansible Flow Server' });
     expect(calls).toContain('DELETE /session');
   });
+
+  it('AFS-274: the theme chosen twice from the keyboard keeps the focus on its item, and the arrows go on', async () => {
+    routes = signedInAs(dana);
+    render(<App />);
+    const account = await screen.findByRole('button', { name: 'Account: Dana Whitfield' });
+    fireEvent.click(account);
+    const menu = screen.getByRole('menu', { name: 'Account: Dana Whitfield' });
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    const theme = document.activeElement as HTMLElement;
+    expect(theme.textContent).toBe('Theme: dark');
+    // Enter on a focused button is its click.
+    fireEvent.click(theme);
+    await waitFor(() => expect(theme.textContent).toBe('Theme: light'));
+    expect(document.activeElement).toBe(theme);
+    fireEvent.click(document.activeElement as HTMLElement);
+    await waitFor(() => expect(theme.textContent).toBe('Theme: as the device'));
+    expect(document.activeElement).toBe(theme);
+    // The menu still hears the keyboard.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement?.textContent).toBe('Help');
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(account);
+  });
+
+  it('AFS-274: Escape closes the account menu where the focus is off its items', async () => {
+    routes = signedInAs(dana);
+    render(<App />);
+    const account = await screen.findByRole('button', { name: 'Account: Dana Whitfield' });
+    // On the list itself (a click on its padding).
+    fireEvent.click(account);
+    const list = screen.getByRole('menu', { name: 'Account: Dana Whitfield' });
+    list.focus();
+    fireEvent.keyDown(list, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(account);
+    // On its button, while the menu is open.
+    fireEvent.click(account);
+    expect(screen.getByRole('menu', { name: 'Account: Dana Whitfield' })).toBeTruthy();
+    account.focus();
+    fireEvent.keyDown(account, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(account);
+  });
 });
 
 describe('AFS-152: one own access, in words', () => {

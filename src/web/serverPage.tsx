@@ -6,64 +6,74 @@ import { api } from './api';
 import { Link } from './router';
 import { PageHead, Scroll, useLoad } from './ui';
 
-const count = (n: number | undefined, one: string, many: string) =>
-  n === undefined ? 'not known' : n === 0 ? `no ${many}` : `${n} ${n === 1 ? one : many}`;
+const count = (n: number, one: string, many: string) =>
+  n === 0 ? `no ${many}` : `${n} ${n === 1 ? one : many}`;
+
+/**
+ * How a part stands: "…" while it is read, "could not read" when its call failed (that part's
+ * page says why), else its words. A failure is not the same as a part not set up.
+ */
+function stateOf<T>(load: { data?: T; error?: string }, words: (data: T) => ReactNode): ReactNode {
+  if (load.error !== undefined) return 'could not read';
+  if (load.data === undefined) return '…';
+  return words(load.data);
+}
 
 export function ServerPage() {
-  const providers = useLoad(() => api.oidcProviders().catch(() => undefined), []);
-  const directories = useLoad(() => api.directories().catch(() => undefined), []);
-  const secrets = useLoad(() => api.secretProviders().catch(() => undefined), []);
-  const certificate = useLoad(() => api.certificate().catch(() => undefined), []);
-  const notify = useLoad(() => api.notifySettings().catch(() => undefined), []);
-  const streams = useLoad(() => api.streams().catch(() => undefined), []);
-  const image = useLoad(() => api.defaultEnvironment().catch(() => undefined), []);
+  const providers = useLoad(api.oidcProviders, []);
+  const directories = useLoad(api.directories, []);
+  const secrets = useLoad(api.secretProviders, []);
+  const certificate = useLoad(api.certificate, []);
+  const notify = useLoad(api.notifySettings, []);
+  const streams = useLoad(api.streams, []);
+  const image = useLoad(api.defaultEnvironment, []);
 
-  const info = certificate.data?.current?.info;
   const rows: { to: string; part: string; does: string; now: ReactNode }[] = [
     {
       to: '/admin/sign-in',
       part: 'Sign-in',
       does: 'How people sign in: passwords, single sign-on, directories',
-      now: `${count(providers.data?.length, 'single sign-on provider', 'single sign-on providers')}, ${count(
-        directories.data?.length,
-        'directory',
-        'directories',
-      )}`,
+      now: stateOf(providers, (p) =>
+        stateOf(
+          directories,
+          (d) =>
+            `${count(p.length, 'single sign-on provider', 'single sign-on providers')}, ${count(d.length, 'directory', 'directories')}`,
+        ),
+      ),
     },
     {
       to: '/admin/secret-providers',
       part: 'Secret providers',
       does: 'Where credentials read their secret parts from',
-      now: count(secrets.data?.length, 'provider', 'providers'),
+      now: stateOf(secrets, (list) => count(list.length, 'provider', 'providers')),
     },
     {
       to: '/admin/certificate',
       part: 'Server certificate',
       does: 'The certificate the server speaks HTTPS with',
-      now:
-        certificate.data?.tls === 'off'
-          ? 'HTTPS is a proxy’s: the server speaks plain HTTP'
-          : info
-            ? info.daysLeft <= 0
-              ? 'it has ended'
-              : `ends in ${info.daysLeft} ${info.daysLeft === 1 ? 'day' : 'days'}`
-            : certificate.data
-              ? 'none installed'
-              : 'not known',
+      now: stateOf(certificate, (c) => {
+        const info = c.current?.info;
+        if (c.tls === 'off') return 'HTTPS is a proxy’s: the server speaks plain HTTP';
+        if (!info) return 'none installed';
+        if (info.daysLeft <= 0) return 'it has ended';
+        return `ends in ${info.daysLeft} ${info.daysLeft === 1 ? 'day' : 'days'}`;
+      }),
     },
     {
       to: '/admin/notifications',
       part: 'Notifications',
       does: 'Email and webhooks: who is told of approvals and runs',
-      now: notify.data
-        ? `${notify.data.smtp ? 'email on' : 'no email'}, webhooks ${notify.data.webhookKey ? 'signed' : 'not signed yet'}`
-        : 'not known',
+      now: stateOf(
+        notify,
+        (n) =>
+          `${n.smtp ? 'email on' : 'no email'}, webhooks ${n.webhookKey ? 'signed' : 'not signed yet'}`,
+      ),
     },
     {
       to: '/admin/streams',
       part: 'Event streaming',
       does: 'The audit log and runs, sent on to other systems',
-      now: count(streams.data?.length, 'stream', 'streams'),
+      now: stateOf(streams, (list) => count(list.length, 'stream', 'streams')),
     },
     {
       to: image.data?.environment?.workspaceKey
@@ -71,18 +81,16 @@ export function ServerPage() {
         : '/admin/server',
       part: 'Default image',
       does: 'The image runs get when they name none',
-      now: image.data ? (
-        image.data.environment ? (
+      now: stateOf(image, (i) =>
+        i.environment ? (
           <>
-            {image.data.environment.name}: <code>{image.data.image}</code>
+            {i.environment.name}: <code>{i.image}</code>
           </>
         ) : (
           <>
-            AFS_EE_IMAGE: <code>{image.data.configured}</code>
+            AFS_EE_IMAGE: <code>{i.configured}</code>
           </>
-        )
-      ) : (
-        'not known'
+        ),
       ),
     },
   ];
