@@ -1202,5 +1202,9 @@ describe('AFS-269: states and modes', () => {
     const checkHead = document.querySelector('header.run-head');
     expect(checkHead?.classList.contains('real-run')).toBe(false);
     expect(checkHead?.querySelector('.mode-badge')?.textContent).toBe('check run');
+    // Check mode can still run tasks marked check_mode: false, so the badge promises no less.
+    expect(checkHead?.querySelector('.mode-badge')?.getAttribute('title')).toMatch(
+      /Ansible's check mode/,
+    );
   });
 });

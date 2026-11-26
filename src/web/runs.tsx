@@ -169,7 +169,9 @@ export function ModeBadge({ mode, long = false }: { mode: string; long?: boolean
       className={`mode-badge ${word}`}
       data-mode={word}
       title={
-        real ? 'A real run: it changes the hosts' : 'A check run: nothing on the hosts changes'
+        real
+          ? 'A real run: it changes the hosts'
+          : "A check run: Ansible's check mode (tasks with check_mode: false still run)"
       }
     >
       {real && (
