@@ -16,7 +16,7 @@ it; with the HTTP status), the client's address and the request id of the server
   made with a token names it, beside where it came from; the name stays after the token is
   revoked. People and groups made, changed, deleted; who was added to a group
   and who left it, by login. A person not made is named by the login tried, with the reason.
-- Access grants given and taken back, named in the pages' words with the workspace (or flow) they
+- Access grants given, changed (`grant.change`, with `from` and `to`: the level before and after, and its `workspace`) and taken back, named in the pages' words with the workspace (or flow) they
   are on ("read only for group netops on Network team", a flow by its title), with the workspace
   in the detail, linked while it exists.
   Deleting a person or a group ends their grants: each one is recorded as taken back
@@ -37,7 +37,11 @@ An entry never holds a secret: of what a request sent it keeps the names of the 
 and the yes/no and number values, never text (the one exception is an approval's comment, which
 is kept as the record of why it was decided). A refusal of a change to people, groups, workspaces,
 projects, grants, launch configurations, schedules, environments, runs or approvals keeps the
-server's reason. On the page, **About** filters by kind (access grants, schedules, approvals and
+server's reason. On the page the entries are grouped by day, under a heading with the date and
+the time zone of their times; each entry is one line: its time, who, what was done to what, where
+it came from with the address (and the token), how it ended, and the detail cut at the column's
+edge (the whole line on hover, all of it under **All of it**). On a phone each entry is a card.
+**About** filters by kind (access grants, schedules, approvals and
 the rest), and **Who** names people by their name (the login on hover). Entries are only added;
 those older than
 `AFS_AUDIT_KEEP_DAYS` (365, `0` keeps all) are removed every hour. Administrators read it on the

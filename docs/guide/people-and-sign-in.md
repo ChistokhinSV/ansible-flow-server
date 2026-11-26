@@ -220,13 +220,30 @@ Administrators may do everything. Everyone else sees and does only what they are
   flows a grant of your own gives another level on, by their titles.
 - **Actions are access too:** a grant to run an action (see [Actions](actions.md)) is not a level,
   but the workspace's Access tab, a person's **What they reach** and **Your access** on My account
-  list them: an Actions column, and an Actions table with every action of the workspace and who
-  may run it (operators of its flow and administrators may run every one).
+  list them: the actions a person runs in their row of **Who can do what**, and an Actions table
+  with every action of the workspace and who may run it (operators of its flow and administrators
+  may run every one).
 - **Ending access is in the audit log:** deleting a person or a group records each access grant
   and each action grant that ends with them; deleting a launch configuration that is an action
   records the action and each of its grants as ended, with why.
 
-Give and take grants on the workspace's page (Access), or:
+A workspace's **Access** tab shows **Who can do what** as a matrix: each group with a grant on the
+workspace and each person with access in a row, and **Read**, **Operate**, **Edit** and **Approve**
+across (read only, operator, read and write, approver). A full dot is given here, a half dot comes
+through a group, a small dot comes with a higher level, and a dash is no. **Through** says where it
+comes from: given here, the groups, administrator, the levels a person has on single flows, and
+the actions they run. Grants on one flow are listed apart, in **Exceptions on single flows**, with
+the level each replaces there.
+
+**Give access** is the one main button. A row's own grants are in its **⋯** menu: **Change the
+level…** (Read, Operate or Edit; approve has no level) and **Take back…**. Both are asked in the
+row, not in a dialog: the question says what the person or group keeps (an administrator keeps
+everything; taking back Approve says whether they can still approve), the answer has the focus,
+and Escape or **Cancel** leaves it as it was. Then the focus is back on the row's **⋯** (or on the
+table's heading, when the row went with its last grant). A person whose access comes only through a group has
+nothing to take back in their own row: change the group's.
+
+Give, change and take back grants on the workspace's page (Access), or:
 
 ```sh
 curl --cookie cookies.txt -H 'content-type: application/json' \
@@ -239,6 +256,7 @@ curl --cookie cookies.txt -H 'content-type: application/json' \
 | Address (under `/api/v1`)            | Does                                                                                         | Who            |
 | ------------------------------------ | -------------------------------------------------------------------------------------------- | -------------- |
 | `GET`, `POST /workspaces/:id/grants` | A workspace's grants; give one (`user` or `group`, `level`, optionally `project` and `flow`) | administrators |
+| `PATCH /grants/:id`                  | Change a grant's level in place: `{"level": "ro"}`, `operator` or `rw` (not approve)         | administrators |
 | `DELETE /grants/:id`                 | Take a grant back                                                                            | administrators |
 | `GET /workspaces/:id/access`         | Who can do what: every person with access, as their grants come out                          | administrators |
 | `GET /projects/:id/access`           | What you may do in a project: your level on it and on each flow you see; `flowOnly`          | can see it     |

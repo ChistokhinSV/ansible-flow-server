@@ -67,6 +67,7 @@ export const AUDIT_ACTION_WORDS: Record<string, string> = {
   'environment.server-default': "set the server's default environment",
   'git.host-key-trusted': 'trusted an SSH host key',
   'git.push': 'pushed',
+  'grant.change': 'changed an access level',
   'grant.create': 'gave access',
   'grant.delete': 'took back access',
   'group.change': 'changed a group',

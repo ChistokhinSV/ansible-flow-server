@@ -1,11 +1,11 @@
 // The audit log: who did what, newest first, filtered, a page at
 // a time, and taken away as CSV or JSON with the same filter.
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, Fragment, useEffect, useState } from 'react';
 import { auditActionWords, AUDIT_KINDS as OBJECTS } from '../server/audit/kinds';
 import type { AuditRef } from '../server/audit/refs';
 import { type AuditEntry, type AuditFilter, api, auditExport } from './api';
 import { Link } from './router';
-import { Loading, messageOf, PageHead, Scroll, Time } from './ui';
+import { Loading, messageOf, PageHead, Scroll } from './ui';
 
 const SOURCE_LABEL: Record<string, string> = {
   ui: 'pages',
@@ -15,6 +15,51 @@ const SOURCE_LABEL: Record<string, string> = {
   cli: 'server command',
   server: 'server',
 };
+
+/** AFS-273: the entries by the day they were made, in this browser's time zone, newest first. */
+function byDay(entries: AuditEntry[]): [string, AuditEntry[]][] {
+  const days = new Map<string, AuditEntry[]>();
+  for (const e of entries) {
+    const day = new Date(e.at).toLocaleDateString('en-CA');
+    days.set(day, [...(days.get(day) ?? []), e]);
+  }
+  return [...days];
+}
+
+const zoneOf = (date: Date) =>
+  new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+    .formatToParts(date)
+    .find((p) => p.type === 'timeZoneName')?.value;
+
+/**
+ * A day's heading: the date in words, and the zone the times of its rows are in (AFS-139); both
+ * on a day the clocks change.
+ */
+function dayWords(entries: AuditEntry[]): string {
+  const dates = entries.map((e) => new Date(e.at));
+  const zones = [...new Set(dates.map(zoneOf).filter(Boolean))];
+  const words = (dates[0] ?? new Date()).toLocaleDateString(undefined, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  return zones.length ? `${words} · times in ${zones.join(' and ')}` : words;
+}
+
+/** The time of day of an entry (its day is its group's heading); the exact UTC time on hover. */
+function TimeOfDay({ at }: { at: string }) {
+  const date = new Date(at);
+  return (
+    <time dateTime={at} title={`${date.toISOString().slice(0, 19).replace('T', ' ')} UTC`}>
+      {date.toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })}
+    </time>
+  );
+}
 
 /** The day after a date input's day: a filter "to" a day includes that day. */
 const dayAfter = (day: string) =>
@@ -37,8 +82,8 @@ function Who({ entry, people }: { entry: AuditEntry; people: Record<string, stri
   if (typeof tried === 'string')
     return (
       <>
-        <span className="login">{tried}</span>
-        <div className="muted">login typed, not signed in</div>
+        <span className="login">{tried}</span> ·{' '}
+        <span className="muted">login typed, not signed in</span>
       </>
     );
   return <span className="muted">nobody</span>;
@@ -47,12 +92,21 @@ function Who({ entry, people }: { entry: AuditEntry; people: Record<string, stri
 /** AFS-145: the token an action was done with, by its name (older entries have its id only). */
 function TokenUsed({ entry }: { entry: AuditEntry }) {
   const name = entry.detail?.token;
-  if (typeof name === 'string') return <div className="muted">token {name}</div>;
+  if (typeof name === 'string')
+    return (
+      <>
+        {' · '}
+        <span className="muted">token {name}</span>
+      </>
+    );
   if (!entry.token) return null;
   return (
-    <div className="muted" title={entry.token}>
-      token {entry.token.slice(0, 8)}…
-    </div>
+    <>
+      {' · '}
+      <span className="muted" title={entry.token}>
+        token {entry.token.slice(0, 8)}…
+      </span>
+    </>
   );
 }
 
@@ -106,8 +160,8 @@ function Value({ k, v, refs }: { k: string; v: unknown; refs: Refs }) {
 }
 
 /**
- * The detail of an entry, short (`key: value`, names for ids), and all of it on demand: a cell
- * cut the long ones at its edge.
+ * The detail of an entry, short (`key: value`, names for ids) on one line (AFS-273), and all of it
+ * on demand: the line is cut at the cell's edge.
  */
 function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs }) {
   if (!detail) return null;
@@ -119,18 +173,23 @@ function Detail({ detail, refs }: { detail?: Record<string, unknown>; refs: Refs
   );
   if (shown.length === 0) return null;
   return (
-    // AFS-141: a box of its own width, so a long detail wraps instead of leaving the page.
+    // AFS-141: a box of its own width, so a long detail does not leave the page.
     <div className="audit-detail">
-      {shown.map(([k, v]) => (
-        <div key={k}>
-          <span className="muted">{k}:</span>{' '}
-          {number && k === 'run' && !refs[v as string] ? (
-            <>#{String(detail.number)}</>
-          ) : (
-            <Value k={k} v={v} refs={refs} />
-          )}
-        </div>
-      ))}
+      <span className="audit-facts">
+        {shown.map(([k, v], i) => (
+          <Fragment key={k}>
+            {i ? ' · ' : ''}
+            <span>
+              <span className="muted">{k}:</span>{' '}
+              {number && k === 'run' && !refs[v as string] ? (
+                <>#{String(detail.number)}</>
+              ) : (
+                <Value k={k} v={v} refs={refs} />
+              )}
+            </span>
+          </Fragment>
+        ))}
+      </span>
       <details className="audit-all">
         <summary>All of it</summary>
         <pre>{JSON.stringify(detail, null, 2)}</pre>
@@ -282,75 +341,110 @@ export function AuditPage() {
         <p className="empty">Nothing in the log matches.</p>
       )}
       {entries.length > 0 && (
-        <Scroll>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">When</th>
-                <th scope="col">Who</th>
-                <th scope="col">From</th>
-                <th scope="col">What</th>
-                <th scope="col">To what</th>
-                <th scope="col">Result</th>
-                <th scope="col">Detail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id}>
-                  <td>
-                    <Time at={e.at} />
-                  </td>
-                  <td className="audit-who">
-                    <Who entry={e} people={people} />
-                  </td>
-                  <td>
-                    {SOURCE_LABEL[e.source] ?? e.source}
-                    <TokenUsed entry={e} />
-                    {e.ip && <div className="muted">{e.ip}</div>}
-                  </td>
-                  <td>
-                    {/* AFS-206: in words; the code (what the filter takes) on hover. */}
-                    {/* AFS-232: a refused one does not read as done. */}
-                    {auditActionWords(e.action, e.result) ? (
-                      <span title={e.action}>{auditActionWords(e.action, e.result)}</span>
-                    ) : (
-                      <code>{e.action}</code>
-                    )}
-                  </td>
-                  <td className="long">
-                    {e.object.id ? (
-                      <Named
-                        id={e.object.id}
-                        type={e.object.type}
-                        refs={refs}
-                        // A run's entry names it by number: its flow and number say more.
-                        {...(e.object.name && e.object.type !== 'run'
-                          ? { name: e.object.name }
-                          : {})}
-                      />
-                    ) : (
-                      (e.object.name ?? '')
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      // AFS-195: refused in the warning colour, never close to ok.
-                      className={`badge ${e.result === 'ok' ? 'ok' : e.result === 'failed' ? 'bad' : 'warn'}`}
-                    >
-                      {e.result}
-                      {/* AFS-261: a failure answered with 200 (a provider test) shows no 200. */}
-                      {e.status && e.status >= 400 && e.result !== 'ok' ? ` ${e.status}` : ''}
-                    </span>
-                  </td>
-                  <td className="detail">
-                    <Detail detail={e.detail} refs={refs} />
-                  </td>
+        // AFS-273 (ADR-0039 §7): the entries by day, each on one line; the time alone in its row,
+        // the day and the time zone in the day's heading.
+        <div className="ledger">
+          <div className="ledger-head">
+            <h2>
+              Entries{' '}
+              <span className="ledger-count">
+                {entries.length}
+                {next ? '+' : ''}
+              </span>
+            </h2>
+          </div>
+          <Scroll>
+            <table className="audit-table">
+              <thead>
+                <tr>
+                  <th scope="col" className="c-time">
+                    Time
+                  </th>
+                  <th scope="col" className="c-who">
+                    Who
+                  </th>
+                  <th scope="col">What</th>
+                  <th scope="col" className="c-from">
+                    From
+                  </th>
+                  <th scope="col" className="c-result">
+                    Result
+                  </th>
+                  <th scope="col" className="c-detail">
+                    Detail
+                  </th>
                 </tr>
+              </thead>
+              {byDay(entries).map(([day, list]) => (
+                <tbody key={day}>
+                  <tr className="ledger-day">
+                    <th colSpan={6} scope="rowgroup">
+                      {dayWords(list)}
+                    </th>
+                  </tr>
+                  {list.map((e) => (
+                    <tr key={e.id}>
+                      <td>
+                        <TimeOfDay at={e.at} />
+                      </td>
+                      <td className="audit-who">
+                        <Who entry={e} people={people} />
+                      </td>
+                      <td
+                        className="what"
+                        // The whole line on hover, where the cell cuts it, with the action's code
+                        // (what the filter takes): one title for the cell, none inside it.
+                        title={`${[auditActionWords(e.action, e.result) ?? e.action, e.object.name]
+                          .filter(Boolean)
+                          .join(' · ')} (${e.action})`}
+                      >
+                        {/* AFS-206: in words; the code (what the filter takes) on hover. */}
+                        {/* AFS-232: a refused one does not read as done. */}
+                        {auditActionWords(e.action, e.result) ? (
+                          <span>{auditActionWords(e.action, e.result)}</span>
+                        ) : (
+                          <code>{e.action}</code>
+                        )}
+                        {e.object.id || e.object.name ? ' · ' : ''}
+                        {e.object.id ? (
+                          <Named
+                            id={e.object.id}
+                            type={e.object.type}
+                            refs={refs}
+                            // A run's entry names it by number: its flow and number say more.
+                            {...(e.object.name && e.object.type !== 'run'
+                              ? { name: e.object.name }
+                              : {})}
+                          />
+                        ) : (
+                          (e.object.name ?? '')
+                        )}
+                      </td>
+                      <td>
+                        {SOURCE_LABEL[e.source] ?? e.source}
+                        {e.ip && <span className="muted"> · {e.ip}</span>}
+                        <TokenUsed entry={e} />
+                      </td>
+                      <td>
+                        <span
+                          // AFS-195: refused in the warning colour, never close to ok.
+                          className={`badge ${e.result === 'ok' ? 'ok' : e.result === 'failed' ? 'bad' : 'warn'}`}
+                        >
+                          {e.result}
+                          {/* AFS-261: a failure answered with 200 (a provider test) shows no 200. */}
+                          {e.status && e.status >= 400 && e.result !== 'ok' ? ` ${e.status}` : ''}
+                        </span>
+                      </td>
+                      <td className="detail">
+                        <Detail detail={e.detail} refs={refs} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               ))}
-            </tbody>
-          </table>
-        </Scroll>
+            </table>
+          </Scroll>
+        </div>
       )}
       <Loading state={state} />
       {next && !state.loading && (

@@ -5463,3 +5463,272 @@ button.primary.real:hover:not(:disabled) {
     flex-wrap: wrap;
   }
 }
+
+/* AFS-273 (ADR-0039 §5, §7): the quiet button, the rows' ⋯ menus, questions asked in their row,
+   and quiet tables: a panel with a title bar, zebra rows, one main button in the title bar. */
+:root {
+  --table-zebra: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+button.quiet,
+a.button.quiet {
+  background: transparent;
+  color: var(--muted);
+}
+button.quiet:hover:not(:disabled),
+a.button.quiet:hover {
+  background: var(--button);
+  color: var(--fg);
+}
+.row-menu {
+  display: inline-flex;
+  justify-content: flex-end;
+}
+.row-menu > .icon-button {
+  min-height: 2rem;
+  min-width: 2rem;
+  padding: 0 0.35rem;
+}
+/* Held to the window (ui.tsx RowMenu): a table's scroller does not cut it off. */
+.row-menu-list {
+  position: fixed;
+  z-index: 40;
+  min-width: 11rem;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--menu-shadow);
+}
+.row-menu-list > button {
+  justify-content: flex-start;
+  min-height: 2rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  text-align: left;
+}
+.row-menu-list > button:hover:not(:disabled),
+.row-menu-list > button:focus-visible {
+  background: var(--button-hover);
+}
+.in-place {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+}
+.in-place-words {
+  padding: 0;
+  font-size: 13px;
+  white-space: normal;
+}
+.in-place .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.in-place-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.in-place-buttons > button {
+  min-height: 2rem;
+  padding: 0.25rem 0.9rem;
+  font-size: 13px;
+}
+.ledger {
+  margin: 1rem 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.ledger-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.ledger-head h2,
+.ledger-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.ledger-count {
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ledger .scroll {
+  background: none;
+}
+.ledger table th,
+.ledger table td {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.ledger tbody tr:nth-child(even) > td {
+  background: var(--table-zebra);
+}
+.ledger tr.row-in-place > td {
+  background: var(--raised);
+}
+.ledger tr.ledger-day > th {
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg);
+}
+.ledger td.act {
+  width: 1%;
+  text-align: right;
+}
+.ledger td.nowrap,
+.audit-table .audit-who {
+  white-space: nowrap;
+}
+/* An audit row on one line: the columns keep their widths, what is long is cut at its cell's
+   edge, and All of it shows the rest. */
+.audit-table {
+  table-layout: fixed;
+}
+.audit-table .c-time {
+  width: 7rem;
+}
+.audit-table .c-who {
+  width: 8.5rem;
+}
+.audit-table .c-from {
+  width: 8.5rem;
+}
+.audit-table .c-result {
+  width: 4.5rem;
+}
+.audit-table .c-detail {
+  width: 22%;
+}
+.audit-table > tbody > tr:not(.ledger-day) > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audit-table .audit-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.audit-table .audit-facts {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audit-table .audit-all {
+  flex: none;
+}
+.audit-table td.detail:has(.audit-all[open]) {
+  white-space: normal;
+}
+.audit-table td.detail:has(.audit-all[open]) .audit-detail {
+  flex-wrap: wrap;
+}
+.audit-table .audit-all[open] {
+  flex-basis: 100%;
+}
+.audit-table .audit-all pre {
+  white-space: pre-wrap;
+}
+.mark-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 8px 14px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mark-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.matrix .mark-col {
+  width: 5.5rem;
+  text-align: center;
+}
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  vertical-align: middle;
+}
+.mark-dot {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+.mark[data-mark="given"] .mark-dot {
+  background: var(--accent);
+}
+.mark[data-mark="group"] .mark-dot {
+  background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.mark[data-mark="higher"] .mark-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--muted);
+}
+.mark[data-mark="none"] .mark-dot {
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--faint);
+  opacity: 0.6;
+}
+@media (max-width: 640px) {
+  .ledger .scroll > table > tbody > tr {
+    padding-inline: 14px;
+  }
+  .ledger tbody tr:nth-child(even) > td {
+    background: none;
+  }
+  .ledger tbody tr:nth-child(even) {
+    background: var(--table-zebra);
+  }
+  .ledger .scroll > table > tbody > tr.ledger-day,
+  .ledger .scroll > table > tbody > tr.ledger-day > th {
+    display: block;
+  }
+  .matrix .mark-col,
+  .ledger td.act {
+    width: auto;
+    text-align: left;
+  }
+  .audit-table > tbody > tr:not(.ledger-day) > td,
+  .audit-table .audit-facts {
+    white-space: normal;
+  }
+}

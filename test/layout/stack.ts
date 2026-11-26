@@ -369,6 +369,25 @@ async function seed(
     confirm: true,
   });
   await call('POST', `/launch-configs/${edgeConfig.id}/action/grants`, { user: 'mia' });
+  // AFS-273: the Access matrix: a group with a level, someone with a long name who reads and
+  // approves, and a grant on one flow (an exception) for the group's member.
+  const ops = await call('POST', '/groups', { name: 'network-ops' });
+  const people: { id: string; login: string }[] = await call('GET', '/users');
+  await call('PUT', `/groups/${ops.id}/members`, {
+    users: people.filter((u) => u.login === 'omar').map((u) => u.id),
+  });
+  await call('POST', '/workspaces/network/grants', { group: 'network-ops', level: 'operator' });
+  for (const level of ['ro', 'approve'])
+    await call('POST', '/workspaces/network/grants', {
+      user: 'bartholomew.vandenberghe-longname',
+      level,
+    });
+  await call('POST', '/workspaces/network/grants', {
+    user: 'omar',
+    level: 'rw',
+    project: hello.id,
+    flow,
+  });
   const actionRun = await call('POST', `/actions/${edgeConfig.id}/run`, {
     inputs: { devices: 'sw-edge-01', site: 'Berlin' },
   });

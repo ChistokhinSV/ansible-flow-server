@@ -940,6 +940,9 @@ export const api = {
     input: { user?: string; group?: string; level: GrantLevel; project?: string; flow?: string },
   ) => call<Grant>('POST', `/workspaces/${encodeURIComponent(workspace)}/grants`, input),
   removeGrant: (id: string) => call<void>('DELETE', `/grants/${encodeURIComponent(id)}`),
+  /** AFS-273: a grant's level changed in place (approve has none). */
+  changeGrant: (id: string, level: Level) =>
+    call<Grant>('PATCH', `/grants/${encodeURIComponent(id)}`, { level }),
   whoCan: (workspace: string) =>
     call<WhoCan[]>('GET', `/workspaces/${encodeURIComponent(workspace)}/access`),
   /** AFS-152: one's own access, workspace by workspace, and who gives access. */

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Access, createGrant } from '../../src/server/access/grants';
 import { ROUTES } from '../../src/server/api/catalog';
 import { buildApp } from '../../src/server/app';
+import { listAudit } from '../../src/server/audit/store';
 import { createToken } from '../../src/server/auth/tokens';
 import { createGroup, createUser, setMembers } from '../../src/server/auth/users';
 import type { Config } from '../../src/server/config';
@@ -520,6 +521,41 @@ for (const [name, config] of databases) {
       expect(by.gary).toMatchObject({ workspace: 'rw', flows: [{ file: B, level: 'ro' }] });
       expect(by.april).toMatchObject({ workspace: 'ro', approve: true });
       expect(by.nina).toMatchObject({ workspace: 'ro' });
+      // AFS-273: the level changes in place; approve has none; only administrators change it.
+      const change = (id: string, level: string, who = token.dana) =>
+        app.inject({
+          method: 'PATCH',
+          url: `/api/v1/grants/${id}`,
+          headers: { authorization: `Bearer ${who}` },
+          payload: { level },
+        });
+      const changed = await change(given.json().id, 'rw');
+      expect(changed.statusCode).toBe(200);
+      expect(changed.json()).toMatchObject({ id: given.json().id, level: 'rw' });
+      // The log says from which level to which, and in which workspace.
+      const logged = (await listAudit(db(), { action: 'grant.change' })).entries[0];
+      expect(logged).toMatchObject({
+        result: 'ok',
+        object: { type: 'grant', id: given.json().id },
+        detail: { from: 'read only', to: 'read and write', workspace: given.json().workspace },
+      });
+      expect(await status('nina', 'GET', '/api/v1/workspaces/net')).toBe(200);
+      expect(
+        (
+          (
+            await app.inject({ method: 'GET', url: '/api/v1/workspaces/net/access', headers: as })
+          ).json() as { user: { login: string }; workspace: string }[]
+        ).find((w) => w.user.login === 'nina')?.workspace,
+      ).toBe('rw');
+      expect((await change(given.json().id, 'approve')).statusCode).toBe(400);
+      expect((await change('no-such-grant', 'ro')).statusCode).toBe(404);
+      expect((await change(given.json().id, 'ro', token.wanda)).statusCode).toBe(403);
+      const approving = (
+        (
+          await app.inject({ method: 'GET', url: '/api/v1/workspaces/net/grants', headers: as })
+        ).json() as { id: string; level: string }[]
+      ).find((g) => g.level === 'approve');
+      expect((await change(approving?.id as string, 'rw')).statusCode).toBe(400);
       const gone = await app.inject({
         method: 'DELETE',
         url: `/api/v1/grants/${given.json().id}`,

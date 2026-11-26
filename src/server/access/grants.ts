@@ -363,7 +363,7 @@ export async function createGrant(
       'taken',
       input.level === 'approve'
         ? 'They may already approve here'
-        : 'They already have a level here: remove it first to change it',
+        : 'They already have a level here: change that one instead',
     );
   const id = randomUUID();
   await db
@@ -381,6 +381,26 @@ export async function createGrant(
     })
     .execute();
   return (await listGrants(db, workspace)).find((g) => g.id === id) as Grant;
+}
+
+/**
+ * AFS-273: a grant's level changed in place (Read, Operate or Edit), so nobody is without access
+ * between a take back and a give. Approve is a grant of its own: it is given and taken back, it
+ * has no level to change. Undefined: there is no such grant.
+ */
+export async function changeGrant(db: Db, id: string, level: string): Promise<Grant | undefined> {
+  if (!['ro', 'operator', 'rw'].includes(level))
+    throw new GrantError('invalid', 'A level changes to ro, operator or rw');
+  const row = await db
+    .selectFrom('access_grant')
+    .select(['workspace_id', 'level'])
+    .where('id', '=', id)
+    .executeTakeFirst();
+  if (!row) return undefined;
+  if (row.level === 'approve')
+    throw new GrantError('invalid', 'Approve is given and taken back on its own: it has no level');
+  await db.updateTable('access_grant').set({ level }).where('id', '=', id).execute();
+  return (await listGrants(db, row.workspace_id)).find((g) => g.id === id);
 }
 
 export async function deleteGrant(db: Db, id: string): Promise<boolean> {
