@@ -626,6 +626,23 @@ export function registerAudit(app: FastifyInstance, deps: AuditDeps): void {
     const id = (request.params as Record<string, string>)[spec.id.param];
     if (!id) return;
     request.auditName = await nameOf(db, typeOf(spec.action), id, git);
+    // AFS-273: a level changed says from which to which, in the pages' words, and its workspace.
+    if (spec.action === 'grant.change') {
+      const grant = await db
+        .selectFrom('access_grant')
+        .select(['workspace_id', 'level'])
+        .where('id', '=', id)
+        .executeTakeFirst()
+        .catch(() => undefined);
+      const to = (request.body as { level?: unknown } | undefined)?.level;
+      if (grant)
+        request.auditDetail = {
+          ...request.auditDetail,
+          workspace: grant.workspace_id,
+          from: LEVEL_NAME[grant.level as GrantLevel] ?? grant.level,
+          ...(typeof to === 'string' ? { to: LEVEL_NAME[to as GrantLevel] ?? to } : {}),
+        };
+    }
     // AFS-195: a grant taken back says its workspace, as a grant given does.
     if (spec.action === 'grant.delete') {
       const grant = await db

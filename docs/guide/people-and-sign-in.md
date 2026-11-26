@@ -237,8 +237,10 @@ the level each replaces there.
 
 **Give access** is the one main button. A row's own grants are in its **⋯** menu: **Change the
 level…** (Read, Operate or Edit; approve has no level) and **Take back…**. Both are asked in the
-row, not in a dialog: the question says what the person or group keeps, the answer has the focus,
-and Escape or **Cancel** leaves it as it was. A person whose access comes only through a group has
+row, not in a dialog: the question says what the person or group keeps (an administrator keeps
+everything; taking back Approve says whether they can still approve), the answer has the focus,
+and Escape or **Cancel** leaves it as it was. Then the focus is back on the row's **⋯** (or on the
+table's heading, when the row went with its last grant). A person whose access comes only through a group has
 nothing to take back in their own row: change the group's.
 
 Give, change and take back grants on the workspace's page (Access), or:

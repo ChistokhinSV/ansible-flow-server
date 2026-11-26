@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Access, createGrant } from '../../src/server/access/grants';
 import { ROUTES } from '../../src/server/api/catalog';
 import { buildApp } from '../../src/server/app';
+import { listAudit } from '../../src/server/audit/store';
 import { createToken } from '../../src/server/auth/tokens';
 import { createGroup, createUser, setMembers } from '../../src/server/auth/users';
 import type { Config } from '../../src/server/config';
@@ -531,6 +532,13 @@ for (const [name, config] of databases) {
       const changed = await change(given.json().id, 'rw');
       expect(changed.statusCode).toBe(200);
       expect(changed.json()).toMatchObject({ id: given.json().id, level: 'rw' });
+      // The log says from which level to which, and in which workspace.
+      const logged = (await listAudit(db(), { action: 'grant.change' })).entries[0];
+      expect(logged).toMatchObject({
+        result: 'ok',
+        object: { type: 'grant', id: given.json().id },
+        detail: { from: 'read only', to: 'read and write', workspace: given.json().workspace },
+      });
       expect(await status('nina', 'GET', '/api/v1/workspaces/net')).toBe(200);
       expect(
         (

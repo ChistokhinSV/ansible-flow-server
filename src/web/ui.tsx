@@ -955,7 +955,16 @@ export interface RowMenuItem {
  * AFS-273 (ADR-0039 §7): a row's lesser actions (Change, Take back) behind one quiet ⋯ button,
  * so a table does not repeat its loudest button on every row. `name` says whose row it is.
  */
-export function RowMenu({ name, items }: { name: string; items: RowMenuItem[] }) {
+export function RowMenu({
+  id,
+  name,
+  items,
+}: {
+  /** Names the row's button (`data-row-menu`): the focus comes back to it after a question. */
+  id?: string;
+  name: string;
+  items: RowMenuItem[];
+}) {
   // Where the list opens: under the button, held to the window, so a table's scroller around the
   // row does not cut it off. It closes when the page scrolls or changes size.
   const [open, setOpen] = useState<{ top: number; right: number }>();
@@ -991,6 +1000,7 @@ export function RowMenu({ name, items }: { name: string; items: RowMenuItem[] })
         ref={button}
         type="button"
         className="quiet icon-button"
+        {...(id ? { 'data-row-menu': id } : {})}
         aria-label={`More for ${name}`}
         title={`More for ${name}: ${items.map((i) => i.label).join(', ')}`}
         aria-haspopup="menu"

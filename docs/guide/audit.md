@@ -16,7 +16,7 @@ it; with the HTTP status), the client's address and the request id of the server
   made with a token names it, beside where it came from; the name stays after the token is
   revoked. People and groups made, changed, deleted; who was added to a group
   and who left it, by login. A person not made is named by the login tried, with the reason.
-- Access grants given, changed (`grant.change`, the new `level`) and taken back, named in the pages' words with the workspace (or flow) they
+- Access grants given, changed (`grant.change`, with `from` and `to`: the level before and after, and its `workspace`) and taken back, named in the pages' words with the workspace (or flow) they
   are on ("read only for group netops on Network team", a flow by its title), with the workspace
   in the detail, linked while it exists.
   Deleting a person or a group ends their grants: each one is recorded as taken back

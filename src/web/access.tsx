@@ -2,7 +2,7 @@
 // do what there; everyone's pages show only what their level lets them do (the server decides
 // either way).
 
-import { type FormEvent, Fragment, useId, useState } from 'react';
+import { type FormEvent, Fragment, useEffect, useId, useRef, useState } from 'react';
 import { LEVEL_NAME, LEVELS } from '../server/access/types';
 import { WorkspaceActions } from './actions';
 import {
@@ -306,25 +306,37 @@ export function WorkspaceAccess({
       : 'the whole workspace';
   // AFS-194: what a person keeps when one grant of theirs is taken back: their other grants and
   // those of the groups they are in. A group's members keep what their own grants give.
+  // AFS-273: an administrator keeps everything; taking back Approve says whether they still
+  // approve, not which levels they keep.
   const remains = (g: Grant) => {
     if (g.principal.type === 'group')
       return 'Its members keep what their own grants and other groups give.';
-    const groups = (who.data?.find((w) => w.user.login === g.principal.name)?.through ?? [])
+    const row = who.data?.find((w) => w.user.login === g.principal.name);
+    if (row?.admin) return 'They are an administrator: they may still do everything here.';
+    const groups = (row?.through ?? [])
       .filter((t) => t.startsWith('group:'))
       .map((t) => t.slice(6));
-    const kept = (grants.data ?? []).filter(
+    const others = (grants.data ?? []).filter(
       (o) =>
         o.id !== g.id &&
         (o.principal.type === 'group'
           ? groups.includes(o.principal.name)
           : o.principal.name === g.principal.name),
     );
-    if (!kept.length) return 'They keep no access here.';
+    const through = (o: Grant) =>
+      o.principal.type === 'group' ? ` through group ${o.principal.name}` : '';
+    const approving = others.filter((o) => o.level === 'approve');
+    const stillApprove = approving.length
+      ? `They can still approve on ${approving.map((o) => `${grantWhere(o)}${through(o)}`).join('; ')}.`
+      : 'They can no longer approve here.';
+    if (g.level === 'approve') return stillApprove;
+    const kept = others.filter((o) => o.level !== 'approve');
+    if (!kept.length)
+      return approving.length
+        ? `They keep no level here. ${stillApprove}`
+        : 'They keep no access here.';
     return `They keep ${kept
-      .map(
-        (o) =>
-          `${LEVEL_NAME[o.level]} on ${grantWhere(o)}${o.principal.type === 'group' ? ` through group ${o.principal.name}` : ''}`,
-      )
+      .map((o) => `${LEVEL_NAME[o.level]} on ${grantWhere(o)}${through(o)}`)
       .join('; ')}.`;
   };
   // AFS-273: what a flow grant replaces: the level its person or group has on the workspace.
@@ -345,7 +357,23 @@ export function WorkspaceAccess({
   const [note, setNote] = useState<string>();
   const [takeError, setTakeError] = useState<string>();
   // AFS-273: the grant a question is asked about in its row, and the level a Change chooses.
-  const [asking, setAsking] = useState<{ grant: Grant; what: 'take' | 'change' }>();
+  const [asking, setAsking] = useState<{ grant: Grant; what: 'take' | 'change'; row: string }>();
+  // Where the focus goes once a question in a row is gone (see `close`).
+  const focusAfter = useRef<{ row: string; afterReload: boolean } | undefined>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on a question gone, or grants read again
+  useEffect(() => {
+    const want = focusAfter.current;
+    if (!want || asking) return;
+    if (want.afterReload) {
+      want.afterReload = false;
+      return;
+    }
+    focusAfter.current = undefined;
+    (
+      document.querySelector<HTMLElement>(`[data-row-menu="${want.row}"]`) ??
+      document.getElementById(`${id}-matrix`)
+    )?.focus();
+  }, [asking, grants.data]);
   const [level, setLevel] = useState<Level>('ro');
   // AFS-84: giving access is opened when wanted; who can do what is what the page is read for.
   const [giving, setGiving] = useState(false);
@@ -398,20 +426,29 @@ export function WorkspaceAccess({
   ];
   const memberCount = (id: string) => groups.data?.find((g) => g.id === id)?.members.length;
   const flowGrants = all.filter((g) => g.flow);
-  const askAbout = (grant: Grant, what: 'take' | 'change') => {
+  const askAbout = (grant: Grant, what: 'take' | 'change', row: string) => {
     setNote(undefined);
     setTakeError(undefined);
     setGiven(undefined);
     setLevel(grant.level === 'approve' ? 'ro' : grant.level);
-    setAsking({ grant, what });
+    setAsking({ grant, what, row });
   };
-  const menuOf = (own: Grant[]): RowMenuItem[] =>
+  const menuOf = (own: Grant[], row: string): RowMenuItem[] =>
     own.flatMap((g) => [
       ...(g.level === 'approve'
         ? []
-        : [{ label: 'Change the level…', onSelect: () => askAbout(g, 'change') }]),
-      { label: `Take back ${LEVEL_NAME[g.level]}…`, onSelect: () => askAbout(g, 'take') },
+        : [{ label: 'Change the level…', onSelect: () => askAbout(g, 'change', row) }]),
+      { label: `Take back ${LEVEL_NAME[g.level]}…`, onSelect: () => askAbout(g, 'take', row) },
     ]);
+  /**
+   * The question is gone: the focus goes back to the row's More button, so the keyboard stays
+   * where it was. After a take back, once the grants are read again: the row may be gone with
+   * its last grant, and then the table's heading has it.
+   */
+  const close = (afterReload = false) => {
+    if (asking) focusAfter.current = { row: asking.row, afterReload };
+    setAsking(undefined);
+  };
   const answer = async () => {
     if (!asking) return;
     const { grant, what } = asking;
@@ -428,7 +465,7 @@ export function WorkspaceAccess({
         await api.changeGrant(grant.id, level);
         setNote(`${person} now has ${LEVEL_NAME[level]} on ${where}.`);
       }
-      setAsking(undefined);
+      close(what === 'take');
     } catch (e) {
       setTakeError(messageOf(e));
     } finally {
@@ -443,20 +480,23 @@ export function WorkspaceAccess({
         <td colSpan={columns}>
           {asking.what === 'take' ? (
             <InPlace
+              // A new question in the same row takes the focus again.
+              key={asking.what}
               question={`Take back ${LEVEL_NAME[grant.level]} on ${grantWhere(grant)} from ${grantWho(grant)}? It ends at once. ${remains(grant)}`}
               yes="Take back"
               danger
               busy={busy}
               onYes={() => void answer()}
-              onNo={() => setAsking(undefined)}
+              onNo={() => close()}
             />
           ) : (
             <InPlace
+              key={asking.what}
               question={`The level of ${grantWho(grant)} on ${grantWhere(grant)}`}
               yes="Change"
               busy={busy}
               onYes={() => void answer()}
-              onNo={() => setAsking(undefined)}
+              onNo={() => close()}
             >
               <div className="choices">
                 {LEVELS.map((l) => (
@@ -487,7 +527,7 @@ export function WorkspaceAccess({
       </p>
       <div className="ledger">
         <div className="ledger-head">
-          <h3 id={`${id}-matrix`}>
+          <h3 id={`${id}-matrix`} tabIndex={-1}>
             Who can do what{' '}
             {who.data && <span className="ledger-count">{groupRows.length + who.data.length}</span>}
           </h3>
@@ -568,7 +608,11 @@ export function WorkspaceAccess({
                         </td>
                         <td className="muted">given here</td>
                         <td className="act">
-                          <RowMenu name={`group ${g.name}`} items={menuOf(own)} />
+                          <RowMenu
+                            id={`group:${g.id}`}
+                            name={`group ${g.name}`}
+                            items={menuOf(own, `group:${g.id}`)}
+                          />
                         </td>
                       </tr>
                       {own.map((o) => inPlace(o, 7))}
@@ -622,7 +666,11 @@ export function WorkspaceAccess({
                         </td>
                         <td className="muted">{throughOf(w, own.length > 0, viaGroups)}</td>
                         <td className="act">
-                          <RowMenu name={w.user.name} items={menuOf(own)} />
+                          <RowMenu
+                            id={`user:${w.user.id}`}
+                            name={w.user.name}
+                            items={menuOf(own, `user:${w.user.id}`)}
+                          />
                         </td>
                       </tr>
                       {own.map((o) => inPlace(o, 7))}
@@ -684,8 +732,9 @@ export function WorkspaceAccess({
                         <td className="muted">{insteadOf(g)}</td>
                         <td className="act">
                           <RowMenu
+                            id={`flow:${g.id}`}
                             name={`${whoName} on ${flowTitle(titles, flow.project, flow.file)}`}
-                            items={menuOf([g])}
+                            items={menuOf([g], `flow:${g.id}`)}
                           />
                         </td>
                       </tr>

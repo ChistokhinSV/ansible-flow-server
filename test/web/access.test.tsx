@@ -25,11 +25,24 @@ const grant = {
   createdBy: 'dana',
 };
 
+const omarRow = {
+  user: { id: 'u2', login: 'omar', name: 'Omar Haddad' },
+  admin: false,
+  disabled: false,
+  service: false,
+  workspace: 'rw',
+  approve: false,
+  flows: [{ project: 'edge', projectId: 'p1', file: 'flows/upgrade.flow.yaml', level: 'ro' }],
+  through: ['group:net-ops', 'user:omar'],
+};
+
 let asked: { key: string; body?: unknown }[];
 let grants: object[];
+let people: object[];
 beforeEach(() => {
   asked = [];
   grants = [grant];
+  people = [omarRow];
   window.scrollTo = () => undefined;
   // AFS-273: a removal is asked in its row, never in the browser's dialog.
   window.confirm = () => {
@@ -40,22 +53,7 @@ beforeEach(() => {
     'GET /workspaces/network': () => ({ body: network }),
     'GET /workspaces/network/projects': () => ({ body: [edge] }),
     'GET /workspaces/network/grants': () => ({ body: grants }),
-    'GET /workspaces/network/access': () => ({
-      body: [
-        {
-          user: { id: 'u2', login: 'omar', name: 'Omar Haddad' },
-          admin: false,
-          disabled: false,
-          service: false,
-          workspace: 'rw',
-          approve: false,
-          flows: [
-            { project: 'edge', projectId: 'p1', file: 'flows/upgrade.flow.yaml', level: 'ro' },
-          ],
-          through: ['group:net-ops', 'user:omar'],
-        },
-      ],
-    }),
+    'GET /workspaces/network/access': () => ({ body: people }),
     'GET /users': () => ({
       body: [dana, { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, service: false }],
     }),
@@ -241,6 +239,8 @@ describe("a workspace's access", () => {
     fireEvent.keyDown(within(asking).getByRole('button', { name: 'Take back' }), { key: 'Escape' });
     expect(within(matrix).queryByRole('group')).toBeNull();
     expect(asked.some((a) => a.key === 'DELETE /grants/g1')).toBe(false);
+    // The focus goes back to the row's More button: the keyboard stays where it was.
+    await waitFor(() => expect(document.activeElement).toBe(more));
 
     fireEvent.click(more);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Change the level…' }));
@@ -254,6 +254,7 @@ describe("a workspace's access", () => {
     await waitFor(() =>
       expect(asked.find((a) => a.key === 'PATCH /grants/g1')?.body).toEqual({ level: 'operator' }),
     );
+    await waitFor(() => expect(document.activeElement).toBe(more));
     expect(
       await within(panel).findByText('group net-ops now has operator on the whole workspace.'),
     ).toBeTruthy();
@@ -265,5 +266,50 @@ describe("a workspace's access", () => {
         'Edit: no',
       ]),
     );
+  });
+
+  it('says what is kept: an administrator keeps everything; taking back Approve says whether they still approve', async () => {
+    people = [
+      { ...omarRow, approve: true },
+      {
+        user: { id: 'u1', login: 'dana', name: 'Dana Whitfield' },
+        admin: true,
+        disabled: false,
+        service: false,
+        workspace: 'rw',
+        approve: true,
+        flows: [],
+        through: ['user:dana'],
+      },
+    ];
+    grants = [
+      grant,
+      { ...grant, id: 'g3', principal: { type: 'user', id: 'u2', name: 'omar' }, level: 'approve' },
+      { ...grant, id: 'g4', principal: { type: 'user', id: 'u1', name: 'dana' }, level: 'ro' },
+    ];
+    const panel = await open();
+    const matrix = await within(panel).findByRole('table', { name: /^Who can do what/ });
+    const question = (name: string, item: string) => {
+      fireEvent.click(within(matrix).getByRole('button', { name }));
+      fireEvent.click(screen.getByRole('menuitem', { name: item }));
+      return within(matrix).getByRole('group').querySelector('legend')?.textContent;
+    };
+    // Omar keeps Edit through the group, but that is not what is taken: whether he approves is.
+    expect(question('More for Omar Haddad', 'Take back approver…')).toBe(
+      'Take back approver on the whole workspace from Omar Haddad (omar)? It ends at once. They can no longer approve here.',
+    );
+    // A new question in the same row takes the focus again.
+    fireEvent.click(within(matrix).getByRole('button', { name: 'More for Dana Whitfield' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Take back read only…' }));
+    const admin = within(matrix).getByRole('group');
+    expect(admin.querySelector('legend')?.textContent).toBe(
+      'Take back read only on the whole workspace from Dana Whitfield (dana)? It ends at once. They are an administrator: they may still do everything here.',
+    );
+    fireEvent.click(within(matrix).getByRole('button', { name: 'More for Dana Whitfield' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Change the level…' }));
+    const now = within(within(matrix).getByRole('group')).getByLabelText(
+      /^Read only:/,
+    ) as HTMLInputElement;
+    expect(document.activeElement).toBe(now);
   });
 });

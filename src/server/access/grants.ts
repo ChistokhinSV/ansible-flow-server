@@ -363,7 +363,7 @@ export async function createGrant(
       'taken',
       input.level === 'approve'
         ? 'They may already approve here'
-        : 'They already have a level here: remove it first to change it',
+        : 'They already have a level here: change that one instead',
     );
   const id = randomUUID();
   await db

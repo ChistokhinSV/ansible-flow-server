@@ -26,19 +26,25 @@ function byDay(entries: AuditEntry[]): [string, AuditEntry[]][] {
   return [...days];
 }
 
-/** A day's heading: the date in words, and the zone the times of its rows are in (AFS-139). */
-function dayWords(at: string): string {
-  const date = new Date(at);
-  const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+const zoneOf = (date: Date) =>
+  new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
     .formatToParts(date)
     .find((p) => p.type === 'timeZoneName')?.value;
-  const words = date.toLocaleDateString(undefined, {
+
+/**
+ * A day's heading: the date in words, and the zone the times of its rows are in (AFS-139); both
+ * on a day the clocks change.
+ */
+function dayWords(entries: AuditEntry[]): string {
+  const dates = entries.map((e) => new Date(e.at));
+  const zones = [...new Set(dates.map(zoneOf).filter(Boolean))];
+  const words = (dates[0] ?? new Date()).toLocaleDateString(undefined, {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
-  return zone ? `${words} · times in ${zone}` : words;
+  return zones.length ? `${words} · times in ${zones.join(' and ')}` : words;
 }
 
 /** The time of day of an entry (its day is its group's heading); the exact UTC time on hover. */
@@ -373,7 +379,7 @@ export function AuditPage() {
                 <tbody key={day}>
                   <tr className="ledger-day">
                     <th colSpan={6} scope="rowgroup">
-                      {dayWords(list[0]?.at as string)}
+                      {dayWords(list)}
                     </th>
                   </tr>
                   {list.map((e) => (
@@ -386,15 +392,16 @@ export function AuditPage() {
                       </td>
                       <td
                         className="what"
-                        // The whole line on hover, where the cell cuts it.
-                        title={[auditActionWords(e.action, e.result) ?? e.action, e.object.name]
+                        // The whole line on hover, where the cell cuts it, with the action's code
+                        // (what the filter takes): one title for the cell, none inside it.
+                        title={`${[auditActionWords(e.action, e.result) ?? e.action, e.object.name]
                           .filter(Boolean)
-                          .join(' · ')}
+                          .join(' · ')} (${e.action})`}
                       >
                         {/* AFS-206: in words; the code (what the filter takes) on hover. */}
                         {/* AFS-232: a refused one does not read as done. */}
                         {auditActionWords(e.action, e.result) ? (
-                          <span title={e.action}>{auditActionWords(e.action, e.result)}</span>
+                          <span>{auditActionWords(e.action, e.result)}</span>
                         ) : (
                           <code>{e.action}</code>
                         )}
