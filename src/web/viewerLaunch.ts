@@ -86,14 +86,15 @@ export function launcher(deps: LauncherDeps) {
   const open = new Map<string, { config: string; plan: LaunchPlan; facts?: FactsReply }>();
   /** AFS-177: launched step by step: every step, with the person's pause points. */
   // AFS-179: a debug run pauses at the pause points (before each step when there are none), and
-  // where a host fails as the failure filters say.
+  // where a host fails as the failure filters say. AFS-264: "Pause before the first step" (the
+  // dialog's tick) pauses before step 1 too when there are pause points.
   const stepBody = (step: boolean | undefined, debug?: boolean) => {
     if (debug && deps.debugFailures && deps.stepPoints) {
       const points = deps.stepPoints();
       const failures = deps.debugFailures();
       return {
         step: {
-          every: points.length === 0,
+          every: step === true || points.length === 0,
           points,
           debug: true,
           pauseOnFailure: failures?.failed !== false,

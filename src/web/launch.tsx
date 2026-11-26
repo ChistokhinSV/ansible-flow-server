@@ -953,6 +953,11 @@ export function LaunchConfigPage({
   const [stepped, setStepped] = useState(false);
   /** AFS-205: pause only at this person's pause points (not before every step). */
   const [atPoints, setAtPoints] = useState(false);
+  /**
+   * AFS-264: Debug pauses before the first step too, not only at the pause points: ticked at first,
+   * as in the designer's Debug dialog.
+   */
+  const [firstStep, setFirstStep] = useState(true);
   /** AFS-205: how long a pause waits (minutes); empty: the server's longest. */
   const [stepWait, setStepWait] = useState('');
   // AFS-205: this person's pause points on the flow, read once step by step is chosen.
@@ -1297,9 +1302,9 @@ export function LaunchConfigPage({
               step: {
                 // AFS-205: before each step, or only at the pause points (when there are some).
                 // AFS-179: a debug run pauses at the pause points (before each step without any)
-                // unless Step by step says before each.
+                // unless Step by step says before each. AFS-264: or "Pause before the first step".
                 every: debug
-                  ? (stepped && !atPoints) || points.length === 0
+                  ? firstStep || (stepped && !atPoints) || points.length === 0
                   : !(atPoints && points.length > 0),
                 points,
                 ...(stepWait.trim() && Number.isInteger(minutes) && minutes > 0
@@ -1687,6 +1692,24 @@ export function LaunchConfigPage({
                         minutes at most, then the run stops by itself
                       </label>
                     </fieldset>
+                  )}
+                  {/* AFS-264: Debug's tick, as in the designer's Debug dialog. */}
+                  {mayDebug && (
+                    <label className="inline launch-step">
+                      <input
+                        type="checkbox"
+                        checked={firstStep}
+                        data-launch-first-step
+                        aria-describedby="launch-first-step-help"
+                        onChange={(e) => setFirstStep(e.target.checked)}
+                      />
+                      Pause before the first step
+                      <span className="muted small" id="launch-first-step-help">
+                        {' '}
+                        For Debug: the run pauses at pause points and where a host fails a step;
+                        each pause shows the variables of each host.
+                      </span>
+                    </label>
                   )}
                 </>
               )}

@@ -109,6 +109,66 @@ describe('Run on the canvas', () => {
     });
   });
 
+  // AFS-264: a debug run with pause points ignored "Pause before the first step": it paused only
+  // at the first point. Ticked, it pauses before step 1 too; unticked, only at the points.
+  it.each([
+    [true, true],
+    [false, false],
+    [undefined, false],
+  ])(
+    'AFS-264: Debug with pause points, tick %s: pauses before the first step: %s',
+    async (tick, every) => {
+      const sent: HostMessage[] = [];
+      setUp([config('c1', 'Edge')]);
+      routes['POST /launch-configs/c1/launch'] = () => ({ status: 201, body: { id: 'r1' } });
+      const point = { node: '01M6GPM99KC9TX091MCH61REQV' };
+      const l = launcher({
+        project: 'p1',
+        path: 'flows/hello.flow.yaml',
+        send: (m) => sent.push(m),
+        launched: () => undefined,
+        choose: vi.fn(),
+        askName: vi.fn(),
+        go: () => undefined,
+        stepPoints: () => [point],
+        debugFailures: () => undefined,
+      });
+      await l.run('real', false, true);
+      const plan = (
+        sent.find((m) => m.type === 'launch') as Extract<HostMessage, { type: 'launch' }>
+      ).plan;
+      expect(plan?.steps).toEqual({ on: true, debug: true });
+      await l.launch(plan?.token as string, { devices: ['fw-edge-01'] }, tick, true);
+      expect(asked.find((a) => a.key === 'POST /launch-configs/c1/launch')?.body).toMatchObject({
+        step: { every, points: [point], debug: true, pauseOnFailure: true },
+      });
+    },
+  );
+
+  it('AFS-179: Debug without pause points pauses before each step, ticked or not', async () => {
+    const sent: HostMessage[] = [];
+    setUp([config('c1', 'Edge')]);
+    routes['POST /launch-configs/c1/launch'] = () => ({ status: 201, body: { id: 'r1' } });
+    const l = launcher({
+      project: 'p1',
+      path: 'flows/hello.flow.yaml',
+      send: (m) => sent.push(m),
+      launched: () => undefined,
+      choose: vi.fn(),
+      askName: vi.fn(),
+      go: () => undefined,
+      stepPoints: () => [],
+      debugFailures: () => undefined,
+    });
+    await l.run('real', false, true);
+    const plan = (sent.find((m) => m.type === 'launch') as Extract<HostMessage, { type: 'launch' }>)
+      .plan;
+    await l.launch(plan?.token as string, { devices: ['fw-edge-01'] }, false, true);
+    expect(asked.find((a) => a.key === 'POST /launch-configs/c1/launch')?.body).toMatchObject({
+      step: { every: true, points: [], debug: true },
+    });
+  });
+
   it('AFS-177: a page that does not step (no pause points given) offers no tick', async () => {
     const { l, sent } = setUp([config('c1', 'Edge')]);
     await l.run('real', true);
