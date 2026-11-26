@@ -7,6 +7,8 @@ import { getWorkspace } from '../projects/store';
 import { type InboxDeps, inboxFor } from './inbox';
 
 const DAY_MS = 86_400_000;
+/** How far back `since` may go. */
+const SINCE_DAYS = 7;
 
 export function registerInbox(app: FastifyInstance, deps: InboxDeps): void {
   app.get<{ Querystring: { workspace?: string; since?: string } }>(
@@ -48,10 +50,17 @@ export function registerInbox(app: FastifyInstance, deps: InboxDeps): void {
       }
       const now = new Date();
       // The start of the asker's day: theirs to say (the page sends its midnight); else the last
-      // 24 hours.
+      // 24 hours. Never further back than a week: the day's numbers are of a day, and every
+      // signed-in person's Home asks every few seconds.
       const since = request.query.since
         ? new Date(request.query.since)
         : new Date(now.getTime() - DAY_MS);
+      if (since.getTime() < now.getTime() - SINCE_DAYS * DAY_MS)
+        return reply.code(400).send({
+          error: 'invalid',
+          message: `since is at most ${SINCE_DAYS} days back: the start of your day`,
+          field: 'since',
+        });
       return inboxFor(deps, request, {
         id: me.id,
         login: me.login,

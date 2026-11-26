@@ -51,7 +51,7 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
   see, each item with its `kind` (`approval`, `paused`, `failed`, `draft`, `certificate`,
   `request`), its `workspace` (none for the server's certificate) and the `verbs` you may use
   there; `count` (every item but your runs that wait for someone else); the day's numbers from
-  `since` (the start of your day; else the last 24 hours), the last 7 days' and the runners'.
+  `since` (the start of your day, at most 7 days back; else the last 24 hours), the last 7 days' and the runners'.
   `?workspace=<key>` narrows it to one workspace; a token made for one workspace sees only that one.
 - Each route is described in one list on the server (what it does, who may call it, which
   workspace it reaches); a route that is not in it stops the server from starting.

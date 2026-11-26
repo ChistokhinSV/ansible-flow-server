@@ -934,7 +934,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     'self',
   )(
-    "What needs you now, in every workspace you may see: approvals you may decide, your paused and failed runs, your drafts nobody saved, the certificate's end for administrators, and your runs that wait for someone else's decision. Each item names its workspace and the verbs you may use there. With the day's numbers (`since`: the start of your day; else the last 24 hours), the last 7 days', and the server's runners. `?workspace=<key>`: of that workspace only",
+    "What needs you now, in every workspace you may see: approvals you may decide, your paused and failed runs, your drafts nobody saved, the certificate's end for administrators, and your runs that wait for someone else's decision. Each item names its workspace and the verbs you may use there. With the day's numbers (`since`: the start of your day, at most 7 days back; else the last 24 hours), the last 7 days', and the server's runners. `?workspace=<key>`: of that workspace only",
     one('Inbox'),
   ),
   'GET /api/v1/approvals': S(

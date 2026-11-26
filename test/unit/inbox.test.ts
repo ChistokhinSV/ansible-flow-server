@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Access, createGrant } from '../../src/server/access/grants';
 import { buildApp } from '../../src/server/app';
 import { openGate } from '../../src/server/approvals/gates';
@@ -149,6 +149,7 @@ for (const [name, config] of databases) {
         ['rita', false],
         ['aria', false],
         ['mia', false],
+        ['nina', false],
       ] as const)
         ids[login] = (
           await createUser(db(), { login, name: login, password: 'x'.repeat(12), admin })
@@ -163,6 +164,7 @@ for (const [name, config] of databases) {
         'dana',
       );
       await createGrant(db(), ids.lab as string, { user: 'mia', level: 'rw' }, 'dana');
+      await createGrant(db(), ids.lab as string, { user: 'nina', level: 'operator' }, 'dana');
       // aria runs the lab's change as an action, and has no other access.
       await db()
         .insertInto('action_grant')
@@ -175,7 +177,7 @@ for (const [name, config] of databases) {
           created_by: ids.dana as string,
         })
         .execute();
-      for (const who of ['dana', 'omar', 'rita', 'aria', 'mia'])
+      for (const who of ['dana', 'omar', 'rita', 'aria', 'mia', 'nina'])
         tokens[who] = (await createToken(db(), ids[who] as string, { name: 't' })).token;
       tokens.ritaLab = (
         await createToken(db(), ids.rita as string, { name: 'lab', workspace: ids.lab })
@@ -358,7 +360,51 @@ for (const [name, config] of databases) {
       // The flow changes on the branch: the draft began before.
       source.commit({ [FLOW_FILE]: `${FLOW}\n` }, 'Tidy the change flow');
       await sync.sync(project.id);
+      // Home asks again and again: what the branch changed between two commits is asked of git once.
+      const asked = vi.spyOn(git, 'changedFiles');
       expect((await draftOf('mia'))?.draft?.behind).toBe(true);
+      expect((await draftOf('mia'))?.draft?.behind).toBe(true);
+      expect(asked.mock.calls.length).toBeLessThanOrEqual(1);
+      asked.mockRestore();
+
+      // Drafts on flows she may no longer change, newer than hers in lab, do not hide it.
+      for (let n = 0; n < 25; n++) {
+        const id = `gone-${n}`;
+        const later = new Date(Date.now() + (n + 1) * 1000).toISOString();
+        await db()
+          .insertInto('flow_draft')
+          .values({
+            id,
+            project_id: (projects.net as Project).id,
+            file: `flows/other-${n}.flow.yaml`,
+            base_commit: (projects.net as Project).commit as string,
+            text: FLOW,
+            revision: 1,
+            created_by: ids.mia as string,
+            created_at: later,
+            updated_at: later,
+          })
+          .execute();
+        await db()
+          .insertInto('flow_draft_edit')
+          .values({
+            id: `edit-${id}`,
+            draft_id: id,
+            revision: 1,
+            user_id: ids.mia as string,
+            kind: 'command',
+            before_text: FLOW,
+            after_text: FLOW,
+            files_json: null,
+            undone: 0,
+            at: later,
+          })
+          .execute();
+      }
+      const all = await inbox('mia');
+      expect(all.body.items.filter((i) => i.kind === 'draft').map((i) => i.draft?.id)).toEqual([
+        'd1',
+      ]);
     });
 
     it('tells administrators, and only them, that the certificate ends soon', async () => {
@@ -397,9 +443,68 @@ for (const [name, config] of databases) {
       expect(one.items.some((i) => i.kind === 'certificate')).toBe(false);
     });
 
-    it('counts the runners of the whole server', async () => {
+    it('asks for a day, never more than a week back', async () => {
+      const back = (days: number) =>
+        `?since=${encodeURIComponent(new Date(Date.now() - days * 86_400_000).toISOString())}`;
+      expect((await inbox('rita', back(6))).status).toBe(200);
+      expect(await inbox('rita', back(8))).toMatchObject({
+        status: 400,
+        body: { error: 'invalid', field: 'since' },
+      });
+      expect((await inbox('rita', '?since=1970-01-01T00:00:00Z')).status).toBe(400);
+    });
+
+    it('many newer failed runs never push out a paused one, and every one of them is counted', async () => {
+      // nina's paused run first, then 65 failed runs of flows run without a configuration.
+      const run = await launch('lab', 'nina');
+      await db()
+        .updateTable('run')
+        .set({ state: 'running', step_json: '{"every":true,"points":[]}', step_paused: 'Apply' })
+        .where('id', '=', run.id)
+        .execute();
+      const row = await db()
+        .selectFrom('run')
+        .selectAll()
+        .where('id', '=', run.id)
+        .executeTakeFirstOrThrow();
+      for (let n = 1; n <= 65; n++) {
+        const at = new Date(Date.now() + n * 1000).toISOString();
+        await db()
+          .insertInto('run')
+          .values({
+            ...row,
+            id: `nina-failed-${n}`,
+            number: 9000 + n,
+            config_id: null,
+            config_name: null,
+            flow_file: `flows/f${n}.flow.yaml`,
+            state: 'failed',
+            step_json: null,
+            step_paused: null,
+            created_at: at,
+            updated_at: at,
+            ended_at: at,
+          })
+          .execute();
+      }
+      const { body } = await inbox('nina');
+      expect(body.items.filter((i) => i.kind === 'paused').map((i) => i.run?.id)).toEqual([run.id]);
+      // The list shows a few; the count says them all.
+      expect(body.items.filter((i) => i.kind === 'failed')).toHaveLength(20);
+      expect(body.count).toBe(66);
+    });
+
+    it('counts the runners of the whole server, the runs she may not see too', async () => {
+      const count = async (state: string) =>
+        (await db().selectFrom('run').select('id').where('state', '=', state).execute()).length;
       const { body } = await inbox('rita');
-      expect(body.runners).toEqual({ busy: 1, slots: 4, queued: expect.any(Number) });
+      // nina's paused run is not rita's to see; it holds a runner all the same.
+      expect(body.runners).toEqual({
+        busy: await count('running'),
+        slots: 4,
+        queued: await count('queued'),
+      });
+      expect(body.runners.busy).toBe(2);
     });
   });
 }

@@ -5,6 +5,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import { type Access, atLeast } from '../access/grants';
+import type { Level } from '../access/types';
 import type { ApprovalLists } from '../approvals/routes';
 import type { Schema } from '../db/schema';
 import { summarizeFlow } from '../flows';
@@ -135,142 +136,128 @@ export async function inboxFor(
     });
   }
 
-  // One's own runs: waiting for someone else's decision, paused, or failed.
-  const mine = await db
-    .selectFrom('run')
-    .select([
-      'id',
-      'number',
-      'project_id',
-      'flow_file',
-      'flow_name',
-      'mode',
-      'config_id',
-      'config_name',
-      'state',
-      'step_json',
-      'step_paused',
-      'view_json',
-      'error',
-      'host_count',
-      'failed_count',
-      'created_at',
-      'ended_at',
-    ])
-    .where('requested_by', '=', who.id)
-    .where((eb) =>
-      eb.or([
-        eb('state', '=', 'waiting'),
-        eb.and([eb('state', '=', 'running'), eb('step_paused', 'is not', null)]),
-        eb.and([
-          eb('state', 'in', ['failed', 'lost']),
-          eb('ended_at', '>=', new Date(now.getTime() - FAILED_DAYS * DAY_MS).toISOString()),
-          eb(
-            'id',
-            'not in',
-            eb
-              .selectFrom('run_gate')
-              .select('run_gate.run_id')
-              .where('run_gate.status', 'in', ['rejected', 'timed out']),
-          ),
-        ]),
-      ]),
-    )
-    .orderBy('created_at', 'desc')
-    .limit(MOST * 3)
-    .execute();
-  const runOf = (r: (typeof mine)[number], asRunner?: true): InboxRun => ({
+  // One's own runs: waiting for someone else's decision, or paused; then the failed ones, each
+  // query on its own so that many of one kind never push out another.
+  const light = [
+    'id',
+    'number',
+    'project_id',
+    'flow_file',
+    'flow_name',
+    'mode',
+    'config_id',
+    'config_name',
+    'state',
+    'step_json',
+    'step_paused',
+    'created_at',
+  ] as const;
+  const runOf = (
+    r: { id: string; number: number; flow_file: string; flow_name: string; mode: string } & {
+      config_name: string | null;
+      step_json: string | null;
+    },
+    asRunner?: true,
+  ): InboxRun => ({
     id: r.id,
     number: r.number,
     flow: { file: r.flow_file, name: r.flow_name },
     mode: r.mode === 'check' ? 'check' : 'real',
     ...(r.config_name ? { config: r.config_name } : {}),
-    ...(r.step_json && JSON.parse(r.step_json).debug ? { debug: true as const } : {}),
+    ...(isDebug(r.step_json) ? { debug: true as const } : {}),
     ...(asRunner ? { asRunner } : {}),
   });
-  let failed = 0;
-  for (const r of mine) {
+  const waitingOrPaused = await db
+    .selectFrom('run')
+    .select([...light])
+    .where('requested_by', '=', who.id)
+    .where((eb) =>
+      eb.or([
+        eb('state', '=', 'waiting'),
+        eb.and([eb('state', '=', 'running'), eb('step_paused', 'is not', null)]),
+      ]),
+    )
+    .orderBy('created_at', 'asc')
+    .execute();
+  const held = waitingOrPaused.filter((r) => r.state === 'waiting' && !deciding.has(r.id));
+  const paused = waitingOrPaused.filter((r) => r.state === 'running');
+  // Their gates in one query: the step each waits at, since when.
+  const gates = new Map<string, { id: string; title: string; created_at: string }>();
+  if (held.length)
+    for (const g of await db
+      .selectFrom('run_gate')
+      .select(['id', 'run_id', 'title', 'created_at'])
+      .where(
+        'run_id',
+        'in',
+        held.map((r) => r.id),
+      )
+      .where('status', '=', 'waiting')
+      .orderBy('created_at', 'asc')
+      .execute())
+      gates.set(g.run_id, g);
+  for (const r of held) {
     const reached = reach(r.project_id, r.flow_file, r.config_id);
     if (!reached) continue;
-    const { place, asRunner } = reached;
-    const run = runOf(r, asRunner);
-    const operator = atLeast(levelOn(place, r.flow_file) || undefined, 'operator');
-    if (r.state === 'waiting') {
-      if (deciding.has(r.id)) continue;
-      const gate = await db
-        .selectFrom('run_gate')
-        .select(['id', 'title', 'created_at'])
-        .where('run_id', '=', r.id)
-        .where('status', '=', 'waiting')
-        .orderBy('created_at', 'desc')
-        .executeTakeFirst();
-      const deciders = approvals.find((a) => a.run.id === r.id)?.gate.deciders;
-      items.push({
-        kind: 'request',
-        ...place,
-        title: `Your run ${r.flow_name} #${r.number} waits for a decision${
-          deciders?.length ? ` by ${deciders.join(' or ')}` : ''
-        }`,
-        since: gate?.created_at ?? r.created_at,
-        verbs: ['open'],
-        run,
-        approval: {
-          gate: gate?.id ?? '',
-          step: gate?.title ?? '',
-          requestedBy: who.login,
-          ...(deciders?.length ? { deciders } : {}),
-        },
-      });
-    } else if (r.state === 'running') {
-      const paused = pauseOf(r.view_json);
-      const stopsAt = paused?.stopsAt;
-      items.push({
-        kind: 'paused',
-        ...place,
-        title: `Your run ${r.flow_name} #${r.number} is paused before ${r.step_paused}`,
-        since: paused?.since ?? r.created_at,
-        verbs: operator ? ['open', 'step', 'continue'] : ['open'],
-        run,
-        pause: { before: r.step_paused ?? '', ...(stopsAt ? { stopsAt } : {}) },
-      });
-    } else if (failed < MOST) {
-      // Done with once the same configuration (or, without one, the same flow) ran again after it.
-      const after = await db
-        .selectFrom('run')
-        .select('id')
-        .where('project_id', '=', r.project_id)
-        .where('created_at', '>', r.created_at)
-        .where((eb) =>
-          r.config_id
-            ? eb('config_id', '=', r.config_id)
-            : eb.and([eb('config_id', 'is', null), eb('flow_file', '=', r.flow_file)]),
-        )
-        .limit(1)
-        .executeTakeFirst();
-      if (after) continue;
-      failed++;
-      const lost = r.state === 'lost';
-      items.push({
-        kind: 'failed',
-        ...place,
-        title: `Your run ${r.flow_name} #${r.number} ${lost ? 'was lost' : 'failed'}`,
-        since: r.ended_at ?? r.created_at,
-        // Run again asks operator on the flow; a debug run is debugged again from its page.
-        verbs: operator && !run.debug ? ['open', 'runAgain'] : ['open'],
-        run,
-        failure: {
-          ...(r.error ? { error: r.error } : {}),
-          ...(r.host_count != null
-            ? { hosts: { total: r.host_count, failed: r.failed_count ?? 0 } }
-            : {}),
-          ...(lost ? { lost: true as const } : {}),
-        },
-      });
-    }
+    const gate = gates.get(r.id);
+    const deciders = approvals.find((a) => a.run.id === r.id)?.gate.deciders;
+    items.push({
+      kind: 'request',
+      ...reached.place,
+      title: `Your run ${r.flow_name} #${r.number} waits for a decision${
+        deciders?.length ? ` by ${deciders.join(' or ')}` : ''
+      }`,
+      since: gate?.created_at ?? r.created_at,
+      verbs: ['open'],
+      run: runOf(r, reached.asRunner),
+      approval: {
+        gate: gate?.id ?? '',
+        step: gate?.title ?? '',
+        requestedBy: who.login,
+        ...(deciders?.length ? { deciders } : {}),
+      },
+    });
   }
+  // A paused run's view says since when and until when it waits: read for those listed only.
+  const shownPaused = paused.filter((r) => reach(r.project_id, r.flow_file, r.config_id));
+  const views = new Map(
+    shownPaused.length
+      ? (
+          await db
+            .selectFrom('run')
+            .select(['id', 'view_json'])
+            .where(
+              'id',
+              'in',
+              shownPaused.slice(0, MOST).map((r) => r.id),
+            )
+            .execute()
+        ).map((v) => [v.id, v.view_json] as const)
+      : [],
+  );
+  for (const r of shownPaused) {
+    const reached = reach(r.project_id, r.flow_file, r.config_id);
+    if (!reached) continue;
+    const pause = pauseOf(views.get(r.id) ?? null);
+    const operator = atLeast(levelOn(reached.place, r.flow_file) || undefined, 'operator');
+    items.push({
+      kind: 'paused',
+      ...reached.place,
+      title: `Your run ${r.flow_name} #${r.number} is paused before ${r.step_paused}`,
+      since: pause?.since ?? r.created_at,
+      verbs: operator ? ['open', 'step', 'continue'] : ['open'],
+      run: runOf(r, reached.asRunner),
+      pause: {
+        before: r.step_paused ?? '',
+        ...(pause?.stopsAt ? { stopsAt: pause.stopsAt } : {}),
+      },
+    });
+  }
+  items.push(...(await failedOf(db, who, now, reach, levelOn, runOf)));
 
   // Drafts the asker changed and nobody saved, and whether their flow moved on since.
-  items.push(...(await draftsOf(deps, who, places, levelOn)));
+  const drafts = await draftsOf(deps, who, places, levelOn);
+  items.push(...drafts.items);
 
   // The server's certificate, to its administrators, when it ends soon.
   const info = who.admin && !who.only ? deps.certificate?.() : undefined;
@@ -293,13 +280,136 @@ export async function inboxFor(
     (a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind) || a.since.localeCompare(b.since),
   );
   return {
-    // Every item counts, also those past the most a kind lists.
-    count: items.filter((i) => i.kind !== 'request').length,
+    // Every item counts, also those past the most a kind lists (drafts are read for those listed).
+    count: items.filter((i) => i.kind !== 'request').length + drafts.total - drafts.items.length,
     items: trimmed(items),
     today: await dayOf(db, who, places, who.since),
     week: await weekOf(db, who, places, now),
     runners: await runnersOf(deps),
   };
+}
+
+/** A step-by-step record that asked for a debug run. */
+function isDebug(json: string | null): boolean {
+  if (!json) return false;
+  try {
+    return !!(JSON.parse(json) as { debug?: boolean }).debug;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The asker's runs that failed (or were lost) in the last days and were not decided against, and
+ * that nothing ran after: a run of the same launch configuration (or, without one, of the same
+ * flow) made later, a check run too, means it is being dealt with. Every one is counted; the list
+ * shows the first few.
+ */
+async function failedOf(
+  db: Db,
+  who: Asker,
+  now: Date,
+  reach: (
+    project: string,
+    file: string,
+    config: string | null,
+  ) => { place: Place; asRunner?: true } | undefined,
+  levelOn: (place: Place, file: string) => Level | undefined,
+  runOf: (
+    r: {
+      id: string;
+      number: number;
+      flow_file: string;
+      flow_name: string;
+      mode: string;
+      config_name: string | null;
+      step_json: string | null;
+    },
+    asRunner?: true,
+  ) => InboxRun,
+): Promise<InboxItem[]> {
+  const failed = await db
+    .selectFrom('run')
+    .select([
+      'id',
+      'number',
+      'project_id',
+      'flow_file',
+      'flow_name',
+      'mode',
+      'config_id',
+      'config_name',
+      'state',
+      'step_json',
+      'error',
+      'host_count',
+      'failed_count',
+      'created_at',
+      'ended_at',
+    ])
+    .where('requested_by', '=', who.id)
+    .where('state', 'in', ['failed', 'lost'])
+    .where('ended_at', '>=', new Date(now.getTime() - FAILED_DAYS * DAY_MS).toISOString())
+    .where((eb) =>
+      eb(
+        'id',
+        'not in',
+        eb
+          .selectFrom('run_gate')
+          .select('run_gate.run_id')
+          .where('run_gate.status', 'in', ['rejected', 'timed out']),
+      ),
+    )
+    .orderBy('created_at', 'desc')
+    .execute();
+  if (!failed.length) return [];
+  // The newest run of each configuration (and of each flow run without one) since the oldest of
+  // these failed runs, in one query.
+  const oldest = failed.map((r) => r.created_at).sort()[0] as string;
+  const latest = new Map<string, string>();
+  for (const r of await db
+    .selectFrom('run')
+    .select(['project_id', 'config_id', 'flow_file'])
+    .select((eb) => eb.fn.max('created_at').as('last'))
+    .where('project_id', 'in', [...new Set(failed.map((r) => r.project_id))])
+    .where('created_at', '>', oldest)
+    .groupBy(['project_id', 'config_id', 'flow_file'])
+    .execute()) {
+    const key = r.config_id
+      ? `${r.project_id} config ${r.config_id}`
+      : `${r.project_id} flow ${r.flow_file}`;
+    const last = String(r.last);
+    if (!latest.has(key) || last > (latest.get(key) as string)) latest.set(key, last);
+  }
+  const out: InboxItem[] = [];
+  for (const r of failed) {
+    const key = r.config_id
+      ? `${r.project_id} config ${r.config_id}`
+      : `${r.project_id} flow ${r.flow_file}`;
+    if ((latest.get(key) ?? '') > r.created_at) continue;
+    const reached = reach(r.project_id, r.flow_file, r.config_id);
+    if (!reached) continue;
+    const run = runOf(r, reached.asRunner);
+    const operator = atLeast(levelOn(reached.place, r.flow_file) || undefined, 'operator');
+    const lost = r.state === 'lost';
+    out.push({
+      kind: 'failed',
+      ...reached.place,
+      title: `Your run ${r.flow_name} #${r.number} ${lost ? 'was lost' : 'failed'}`,
+      since: r.ended_at ?? r.created_at,
+      // Run again asks operator on the flow; a debug run is debugged again from its page.
+      verbs: operator && !run.debug ? ['open', 'runAgain'] : ['open'],
+      run,
+      failure: {
+        ...(r.error ? { error: r.error } : {}),
+        ...(r.host_count != null
+          ? { hosts: { total: r.host_count, failed: r.failed_count ?? 0 } }
+          : {}),
+        ...(lost ? { lost: true as const } : {}),
+      },
+    });
+  }
+  return out;
 }
 
 /** At most `MOST` of each kind. */
@@ -329,12 +439,34 @@ function pauseOf(view: string | null): { since: string; stopsAt: string } | unde
   }
 }
 
+/**
+ * The files a project's branch changed between two commits, kept for a while: Home asks again
+ * every few seconds, and a draft's base and its project's head rarely move. Bounded: the oldest
+ * goes first.
+ */
+const CHANGED_KEPT = 200;
+const changed = new Map<string, Promise<Set<string>>>();
+function changedFiles(git: Git, project: string, from: string, to: string): Promise<Set<string>> {
+  const key = `${project} ${from} ${to}`;
+  let files = changed.get(key);
+  if (!files) {
+    files = git
+      .changedFiles(project, from, to)
+      .then((list) => new Set(list.map((f) => f.file)))
+      .catch(() => new Set<string>());
+    changed.set(key, files);
+    if (changed.size > CHANGED_KEPT) changed.delete(changed.keys().next().value as string);
+  }
+  return files;
+}
+
+/** The drafts the asker may still finish, the newest first: all counted, the first few listed. */
 async function draftsOf(
   deps: InboxDeps,
   who: Asker,
   places: Map<string, Place>,
-  levelOn: (place: Place, file: string) => string | undefined,
-): Promise<InboxItem[]> {
+  levelOn: (place: Place, file: string) => Level | undefined,
+): Promise<{ items: InboxItem[]; total: number }> {
   const { db } = deps;
   const drafts = await db
     .selectFrom('flow_draft')
@@ -344,7 +476,6 @@ async function draftsOf(
       'flow_draft.project_id',
       'flow_draft.file',
       'flow_draft.base_commit',
-      'flow_draft.text',
       'flow_draft.updated_at',
       'project.commit_id',
     ])
@@ -360,35 +491,41 @@ async function draftsOf(
         .where('flow_draft_edit.undone', '=', 0),
     )
     .orderBy('flow_draft.updated_at', 'desc')
-    .limit(MOST)
     .execute();
-  const out: InboxItem[] = [];
-  for (const d of drafts) {
+  // A draft is edited with rw on its flow: without it now, it is not the asker's to finish. Left
+  // out before the list is cut, so drafts they lost rw on never hide those they may finish.
+  const theirs = drafts.flatMap((d) => {
     const place = places.get(d.project_id);
-    // A draft is edited with rw on its flow: without it now, it is not the asker's to finish.
-    if (!place || !atLeast((levelOn(place, d.file) as 'rw' | undefined) || undefined, 'rw'))
-      continue;
-    const others = await db
+    return place && atLeast(levelOn(place, d.file), 'rw') ? [{ ...d, place }] : [];
+  });
+  const shown = theirs.slice(0, MOST);
+  if (!shown.length) return { items: [], total: theirs.length };
+  const ids = shown.map((d) => d.id);
+  const [others, texts, behind] = await Promise.all([
+    db
       .selectFrom('flow_draft_edit')
       .innerJoin('user_account', 'user_account.id', 'flow_draft_edit.user_id')
-      .select(['user_account.login', 'user_account.name'])
-      .where('flow_draft_edit.draft_id', '=', d.id)
+      .select(['flow_draft_edit.draft_id', 'user_account.login', 'user_account.name'])
+      .where('flow_draft_edit.draft_id', 'in', ids)
       .where('flow_draft_edit.user_id', '!=', who.id)
-      .groupBy(['user_account.login', 'user_account.name'])
-      .execute();
-    let behind = false;
-    if (deps.git && d.commit_id && d.commit_id !== d.base_commit) {
-      const head = d.commit_id;
-      behind = await deps.git
-        .changedFiles(d.project_id, d.base_commit, head)
-        .then((files) => files.some((f) => f.file === d.file))
-        .catch(() => false);
-    }
-    const flow = flowName(d.file, d.text);
-    out.push({
+      .groupBy(['flow_draft_edit.draft_id', 'user_account.login', 'user_account.name'])
+      .execute(),
+    db.selectFrom('flow_draft').select(['id', 'text']).where('id', 'in', ids).execute(),
+    Promise.all(
+      shown.map(async (d) =>
+        deps.git && d.commit_id && d.commit_id !== d.base_commit
+          ? (await changedFiles(deps.git, d.project_id, d.base_commit, d.commit_id)).has(d.file)
+          : false,
+      ),
+    ),
+  ]);
+  const items = shown.map((d, i): InboxItem => {
+    const flow = flowName(d.file, texts.find((t) => t.id === d.id)?.text ?? '');
+    const moved = behind[i] ?? false;
+    return {
       kind: 'draft',
-      ...place,
-      title: behind
+      ...d.place,
+      title: moved
         ? `Your draft of ${flow} is not saved, and the flow changed since it began`
         : `Your draft of ${flow} is not saved`,
       since: d.updated_at,
@@ -397,12 +534,12 @@ async function draftsOf(
         id: d.id,
         file: d.file,
         flow,
-        others: others.map((o) => o.name || o.login),
-        behind,
+        others: others.filter((o) => o.draft_id === d.id).map((o) => o.name || o.login),
+        behind: moved,
       },
-    });
-  }
-  return out;
+    };
+  });
+  return { items, total: theirs.length };
 }
 
 function flowName(file: string, text: string): string {
@@ -434,60 +571,62 @@ function seenRuns(db: Db, who: Asker, places: Map<string, Place>) {
   );
 }
 
+/**
+ * The day's runs by state and mode, counted by the database: only the paused ones are read (for
+ * which of them are debug runs), and the rejected ones counted apart.
+ */
 async function dayOf(
   db: Db,
   who: Asker,
   places: Map<string, Place>,
   since: Date,
 ): Promise<InboxDay> {
-  const runs = await seenRuns(db, who, places)
-    .select(['id', 'state', 'mode', 'step_paused', 'step_json'])
-    .where('created_at', '>=', since.toISOString())
-    .execute();
-  const against = new Set(
-    (
-      await db
-        .selectFrom('run_gate')
-        .select('run_id')
-        .where('status', 'in', ['rejected', 'timed out'])
-        .where(
-          'run_id',
+  const from = since.toISOString();
+  const [counts, paused, against] = await Promise.all([
+    seenRuns(db, who, places)
+      .select(['state', 'mode'])
+      .select((eb) => eb.fn.countAll<number | string>().as('n'))
+      .where('created_at', '>=', from)
+      .groupBy(['state', 'mode'])
+      .execute(),
+    seenRuns(db, who, places)
+      .select(['step_json'])
+      .where('created_at', '>=', from)
+      .where('state', '=', 'running')
+      .where('step_paused', 'is not', null)
+      .execute(),
+    seenRuns(db, who, places)
+      .select((eb) => eb.fn.countAll<number | string>().as('n'))
+      .where('created_at', '>=', from)
+      .where('state', '=', 'failed')
+      .where((eb) =>
+        eb(
+          'id',
           'in',
-          runs
-            .filter((r) => r.state === 'failed')
-            .map((r) => r.id)
-            .concat(''),
-        )
-        .execute()
-    ).map((g) => g.run_id),
-  );
-  const day: InboxDay = {
-    runs: runs.length,
-    real: 0,
-    check: 0,
-    succeeded: 0,
-    failed: 0,
-    rejected: 0,
-    cancelled: 0,
-    going: 0,
-    waiting: 0,
-    paused: 0,
-    pausedDebug: 0,
+          eb
+            .selectFrom('run_gate')
+            .select('run_gate.run_id')
+            .where('run_gate.status', 'in', ['rejected', 'timed out']),
+        ),
+      )
+      .executeTakeFirst(),
+  ]);
+  const of = (state: string) =>
+    counts.filter((c) => c.state === state).reduce((n, c) => n + Number(c.n), 0);
+  const rejected = Number(against?.n ?? 0);
+  return {
+    runs: counts.reduce((n, c) => n + Number(c.n), 0),
+    real: counts.filter((c) => c.mode !== 'check').reduce((n, c) => n + Number(c.n), 0),
+    check: counts.filter((c) => c.mode === 'check').reduce((n, c) => n + Number(c.n), 0),
+    succeeded: of('succeeded'),
+    failed: of('failed') - rejected + of('lost'),
+    rejected,
+    cancelled: of('cancelled'),
+    going: of('queued') + of('running') - paused.length,
+    waiting: of('waiting'),
+    paused: paused.length,
+    pausedDebug: paused.filter((r) => isDebug(r.step_json)).length,
   };
-  for (const r of runs) {
-    if (r.mode === 'check') day.check++;
-    else day.real++;
-    if (r.state === 'succeeded') day.succeeded++;
-    else if (r.state === 'failed' && against.has(r.id)) day.rejected++;
-    else if (r.state === 'failed' || r.state === 'lost') day.failed++;
-    else if (r.state === 'cancelled') day.cancelled++;
-    else if (r.state === 'waiting') day.waiting++;
-    else if (r.state === 'running' && r.step_paused != null) {
-      day.paused++;
-      if (r.step_json && JSON.parse(r.step_json).debug) day.pausedDebug++;
-    } else if (r.state === 'running' || r.state === 'queued') day.going++;
-  }
-  return day;
 }
 
 async function weekOf(db: Db, who: Asker, places: Map<string, Place>, now: Date) {
