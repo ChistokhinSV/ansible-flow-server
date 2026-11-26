@@ -9,6 +9,18 @@ import { type Migration, type MigrationProvider, Migrator } from 'kysely/migrati
 import { hostCounts } from '../runs/hostCounts';
 
 const MIGRATIONS: Record<string, Migration> = {
+  // AFS-271: an approval that waits names the last check run of its run's launch configuration
+  // (approvals/gates.ts evidenceOf), on every read of the approvals: by configuration, mode and
+  // when it was launched, not a scan of every run.
+  '0042_run_config_mode': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createIndex('run_config_mode_created')
+        .on('run')
+        .columns(['config_id', 'mode', 'created_at'])
+        .execute();
+    },
+  },
   // AFS-250: a person's watches on a flow, kept by the server (they ran in the name of whoever
   // signed in next on the same browser when the browser kept them).
   '0041_debug_watch': {

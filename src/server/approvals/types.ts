@@ -32,7 +32,27 @@ export interface Gate {
   deciders?: string[];
   /** AFS-146: the step each decision sends the waiting hosts to, by its title. */
   next?: { approved?: string; rejected?: string; timeout?: string };
+  /**
+   * AFS-271: the steps the hosts go through once approved, by title, in order (from the flow at
+   * the run's commit), up to an end or a branch: what an approver lets happen.
+   */
+  after?: string[];
+  /**
+   * AFS-271: what a decider can weigh while it waits: the last check run of the same launch
+   * configuration that had ended when this run was launched (none: an empty object). Absent for a
+   * run of no configuration.
+   */
+  evidence?: { checkRun?: CheckRunEvidence };
   createdAt: string;
+}
+
+/** AFS-271: a check run a decider can weigh: how it went, when, and whether at the same commit. */
+export interface CheckRunEvidence {
+  id: string;
+  number: number;
+  state: string;
+  endedAt?: string;
+  sameCommit: boolean;
 }
 
 /**

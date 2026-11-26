@@ -38,6 +38,19 @@ server that stops and starts again keeps the run waiting.
   the hosts waiting, the run's inputs (secret-looking values as `***`), whether it is a real run,
   and when it times out. The Approvals page and the run's page show the same, how long it has
   waited, and **Who decides**.
+- **What a decision lets happen** is said on the approval before anyone decides, on the
+  Approvals page and on the run's page (the side bar's Details view):
+  - **If approved:** the steps the hosts go through, in order, to an end or to a step where the
+    way branches ("The hosts go on: Upgrade › Post-checks › Done");
+  - **If rejected:** the step the hosts go to;
+  - **If nobody decides:** when it times out, and where the hosts go then;
+  - **Evidence:** the last check run of the same launch configuration that had ended when this
+    run was launched (what was known then), how it went, when, and whether it ran at the same
+    commit, with a link to it ("No check run of this launch configuration before this run" when
+    there is none).
+
+  On a phone, **Approve…** and **Reject…** stay at the bottom of the screen while you read the
+  approval.
 - **Timeout:** an approval with `settings.timeout` that nobody decides in time times out: its
   hosts take the approval's `timeout` port (or `rejected` when it has none).
 - **A stopped run** asks nobody any more.
@@ -58,9 +71,9 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
   -d '{"decision":"approved","comment":"Window confirmed with the NOC"}'
 ```
 
-| Address (under `/api/v1`)           | Does                                                                                                                                    | Who                          |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `GET /approvals`                    | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided | signed in                    |
-| `GET /runs/:id/approvals`           | A run's approvals: waiting or decided, by whom (`decidedByName`), when, why; `mayDecide`, `why`; `deciders` (who may decide)            | `ro`                         |
-| `POST /runs/:id/approvals/:node`    | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                 | `approve`, and the approvers |
-| `GET /projects/:id/approvers?path=` | Who an approval of the flow asks when its approvers are empty (`approvers`, by name), and `selfApprove`                                 | `ro` on the flow             |
+| Address (under `/api/v1`)           | Does                                                                                                                                                                                                             | Who                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `GET /approvals`                    | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided                                                                          | signed in                    |
+| `GET /runs/:id/approvals`           | A run's approvals: waiting or decided, by whom (`decidedByName`), when, why; `mayDecide`, `why`; `deciders` (who may decide); `next`, `after` (the steps once approved) and, while it waits, `evidence.checkRun` | `ro`                         |
+| `POST /runs/:id/approvals/:node`    | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                                                                                          | `approve`, and the approvers |
+| `GET /projects/:id/approvers?path=` | Who an approval of the flow asks when its approvers are empty (`approvers`, by name), and `selfApprove`                                                                                                          | `ro` on the flow             |
