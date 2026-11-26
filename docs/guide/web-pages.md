@@ -65,7 +65,9 @@ never opens the browser's Save dialog.
   empties the field. `/` and Ctrl+K work while the flow canvas has the focus too. The same over the API: `GET /api/v1/search?q=` (a token made for one workspace searches
   there only).
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
-  The flow canvas keeps the designer's own look in the same theme.
+  The flow canvas takes the page's colours in the same theme (its ground, panels, lines, text and
+  accent), and turns light or dark with the page when the page follows the device. A flow opened
+  at a commit on a page of its own keeps the designer's colours.
 - **A run's state** has a shape of its own beside its words, so it reads without colour: a dashed
   circle for queued, a turning arc for running, two bars for paused, a diamond for waiting for a
   decision (the approval's shape on the canvas), a tick for went well, a cross for failed, a

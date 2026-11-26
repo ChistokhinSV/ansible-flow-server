@@ -8,6 +8,7 @@ import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
 import { changeWords } from './draftWords';
 import { guide } from './guide';
+import { followPageColours, pageColours } from './palette';
 import { isSaveKey } from './saveKey';
 import { typingInField } from './typing';
 import { flowInventory, openCodeIn, projectKeys, type RepoVars, repoVars } from './viewerVars';
@@ -409,7 +410,8 @@ export function editDraft(options: {
     });
   });
 
-  mount(root, {
+  const designer = mount(root, {
+    ...pageColours(), // AFS-270, as on the view (viewer.ts)
     theme: options.theme,
     transport: {
       hostName: 'Ansible Flow Server',
@@ -535,6 +537,7 @@ export function editDraft(options: {
       },
     },
   });
+  followPageColours(designer);
 }
 
 /** AFS-119: a web link the designer asks to open, in a new tab; anything else is ignored. */

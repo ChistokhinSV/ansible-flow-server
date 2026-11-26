@@ -5208,3 +5208,28 @@ button.rail-item:hover:not(:disabled) {
     min-height: 44px;
   }
 }
+
+/* AFS-270 (ADR-0039 §6): the canvas's roles. The flow's frame reads them from this page and gives
+   them to the designer (palette.ts), so the canvas wears the page's colours in either theme. They
+   point at the raw colours, so a theme changes only those. Plain colours only: the designer takes
+   hex, rgb() and hsl() values and nothing else. */
+:root {
+  --canvas-ground: var(--bg);
+  --canvas-text: var(--fg);
+  --canvas-muted: var(--muted);
+  --canvas-faint: var(--faint);
+  --canvas-grid: var(--input-border);
+  --canvas-panel: var(--panel);
+  --canvas-raised: var(--raised);
+  --canvas-line: var(--border);
+  --canvas-hover: var(--button-hover);
+  --canvas-button: var(--button);
+  --canvas-accent: var(--accent);
+  --canvas-accent-fg: var(--accent-fg);
+  --canvas-link: var(--link);
+  --canvas-input: var(--input-bg);
+  --canvas-input-line: var(--input-border);
+  --canvas-code: var(--code-bg);
+  --canvas-error: var(--bad);
+  --canvas-warning: var(--warn);
+}
