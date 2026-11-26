@@ -345,6 +345,13 @@ export const SCHEMAS = {
       decidedByName: str,
       deciders: strings,
       next: obj({}, { approved: str, rejected: str, timeout: str }),
+      after: strings,
+      evidence: obj(
+        {},
+        {
+          checkRun: obj({ id: str, number: int, state: str, sameCommit: bool }, { endedAt: time }),
+        },
+      ),
       mayDecide: bool,
       why: str,
     },

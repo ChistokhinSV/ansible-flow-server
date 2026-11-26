@@ -41,7 +41,7 @@ import {
   segmentsSummary,
 } from '@ansible-flow/node/run/segments';
 import type { Kysely } from 'kysely';
-import { approvalsOf, gatesOf, lastGate, openGate } from '../approvals/gates';
+import { approvalsOf, approvedPath, gatesOf, lastGate, openGate } from '../approvals/gates';
 import { createRunToken, revokeRunTokens } from '../auth/tokens';
 import type { Schema } from '../db/schema';
 import { schemaIssues } from '../flows';
@@ -1236,6 +1236,7 @@ export class Executor implements Stepper {
             ...(node?.approval ? { approval: node.approval } : {}),
             ...(node?.intent ? { intent: node.intent } : {}),
             next: nextSteps(doc, current.gate),
+            after: approvedPath(doc, current.gate),
           });
           const waiting: RunView = {
             ...whole,

@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGrant } from '../../src/server/access/grants';
 import { buildApp } from '../../src/server/app';
-import { gatesOf, timeOutDue } from '../../src/server/approvals/gates';
+import { approvedPath, gatesOf, PATH_STEPS, timeOutDue } from '../../src/server/approvals/gates';
 import { listAudit } from '../../src/server/audit/store';
 import { createRunToken, createToken, listTokens } from '../../src/server/auth/tokens';
 import { createGroup, createUser, setMembers } from '../../src/server/auth/users';
@@ -606,5 +606,132 @@ describe('a run of a flow with an approval', () => {
     await ex.stop();
     expect(ran).toEqual([]);
     expect((await queue.get(run.id))?.error).toMatch(/approvals cannot wait for a person/);
+  });
+
+  it('AFS-271: says the steps an approval lets happen, and the last check run of its configuration', async () => {
+    // An earlier check run of the same configuration that went well; a later check run of
+    // another configuration, which is not evidence for this one.
+    const earlier = await launch();
+    const endedAt = new Date(Date.now() - 60_000).toISOString();
+    await database.db
+      .updateTable('run')
+      .set({
+        mode: 'check',
+        state: 'succeeded',
+        ended_at: endedAt,
+        // The newest check run of this configuration (an earlier test ran one too).
+        created_at: new Date().toISOString(),
+      })
+      .where('id', '=', earlier.id)
+      .execute();
+    const other = await launch(twoGates);
+    await database.db
+      .updateTable('run')
+      .set({ mode: 'check', state: 'failed', ended_at: new Date().toISOString() })
+      .where('id', '=', other.id)
+      .execute();
+
+    await new Promise((done) => setTimeout(done, 5));
+    const ex = executor(join(root, 'data-271'));
+    const run = await launch();
+    await ex.start();
+    await stateIs(run.id, 'waiting');
+    const [mine] = (await call('omar', 'GET', `/api/v1/runs/${run.id}/approvals`)).json();
+    expect(mine.after).toEqual(['Apply the change', 'Done']);
+    expect(mine.next).toMatchObject({ approved: 'Apply the change', rejected: 'Notify on-call' });
+    expect(mine.evidence).toEqual({
+      checkRun: {
+        id: earlier.id,
+        number: earlier.number,
+        state: 'succeeded',
+        endedAt,
+        sameCommit: true,
+      },
+    });
+    // The inbox carries the same, for the same gate.
+    const listed = (
+      (await call('omar', 'GET', '/api/v1/approvals')).json() as {
+        run: { id: string };
+        gate: { evidence?: unknown; after?: string[] };
+      }[]
+    ).find((a) => a.run.id === run.id);
+    expect(listed?.gate).toMatchObject({
+      after: ['Apply the change', 'Done'],
+      evidence: { checkRun: { id: earlier.id, sameCommit: true } },
+    });
+
+    // A check run at another commit is said to be so.
+    await database.db
+      .updateTable('run')
+      .set({ commit_id: '0'.repeat(40) })
+      .where('id', '=', earlier.id)
+      .execute();
+    const [again] = (await call('omar', 'GET', `/api/v1/runs/${run.id}/approvals`)).json();
+    expect(again.evidence.checkRun.sameCommit).toBe(false);
+
+    // Decided, it says what was decided, not what to weigh.
+    expect(
+      (
+        await call('omar', 'POST', `/api/v1/runs/${run.id}/approvals/${GATE}`, {
+          decision: 'approved',
+          comment: 'Check run went well',
+        })
+      ).statusCode,
+    ).toBe(200);
+    await stateIs(run.id, 'succeeded');
+    await ex.stop();
+    const [decided] = (await call('omar', 'GET', `/api/v1/runs/${run.id}/approvals`)).json();
+    expect(decided.evidence).toBeUndefined();
+  });
+});
+
+describe('AFS-271: the steps an approval lets happen', () => {
+  const node = (id: string, type = 'task') => ({ id, title: id.toUpperCase(), type });
+  const edge = (from: string, port: string, to: string) => ({
+    from: { node: from, port },
+    to: { node: to },
+  });
+
+  it('goes by the ok port of each step to an end', () => {
+    const doc = {
+      nodes: [
+        node('g', 'approval'),
+        node('a'),
+        node('b', 'subflow'),
+        node('done', 'end'),
+        node('r'),
+      ],
+      edges: [
+        edge('g', 'approved', 'a'),
+        edge('g', 'rejected', 'r'),
+        edge('a', 'failed_hosts', 'r'),
+        edge('a', 'ok_hosts', 'b'),
+        edge('b', 'ok_hosts', 'done'),
+      ],
+    };
+    expect(approvedPath(doc, 'g')).toEqual(['A', 'B', 'DONE']);
+  });
+
+  it('stops at a step that branches, at a loop, and after a few steps', () => {
+    const branching = {
+      nodes: [node('g', 'approval'), node('a'), node('d', 'decision'), node('x')],
+      edges: [edge('g', 'approved', 'a'), edge('a', 'ok_hosts', 'd'), edge('d', 'true', 'x')],
+    };
+    expect(approvedPath(branching, 'g')).toEqual(['A', 'D']);
+    const loop = {
+      nodes: [node('g', 'approval'), node('a'), node('b')],
+      edges: [edge('g', 'approved', 'a'), edge('a', 'ok_hosts', 'b'), edge('b', 'ok_hosts', 'a')],
+    };
+    expect(approvedPath(loop, 'g')).toEqual(['A', 'B']);
+    const ids = Array.from({ length: 20 }, (_, i) => `s${i}`);
+    const long = {
+      nodes: [node('g', 'approval'), ...ids.map((id) => node(id))],
+      edges: [
+        edge('g', 'approved', 's0'),
+        ...ids.slice(1).map((id, i) => edge(`s${i}`, 'ok_hosts', id)),
+      ],
+    };
+    expect(approvedPath(long, 'g')).toHaveLength(PATH_STEPS);
+    expect(approvedPath({ nodes: [node('g', 'approval')], edges: [] }, 'g')).toEqual([]);
   });
 });

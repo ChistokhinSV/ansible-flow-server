@@ -14,7 +14,7 @@ import type { RunApproval } from '@ansible-flow/core/protocol';
 import type { Kysely } from 'kysely';
 import type { Access } from '../access/grants';
 import type { Schema } from '../db/schema';
-import type { Gate, GateStatus } from './types';
+import type { CheckRunEvidence, Gate, GateStatus } from './types';
 
 export type { Gate, GateStatus };
 
@@ -47,6 +47,7 @@ const gateOf = (row: Row): Gate => {
   const approval = (row.approval_json ? JSON.parse(row.approval_json) : {}) as ApprovalFields & {
     next?: Gate['next'];
     intent?: string;
+    after?: string[];
   };
   const hosts = waitingHosts(row.carried_json, row.node_key);
   return {
@@ -65,6 +66,7 @@ const gateOf = (row: Row): Gate => {
     ...(row.comment ? { comment: row.comment } : {}),
     ...(hosts ? { hosts } : {}),
     ...(approval.next && Object.keys(approval.next).length ? { next: approval.next } : {}),
+    ...(approval.after?.length ? { after: approval.after } : {}),
     createdAt: row.created_at,
   };
 };
@@ -81,6 +83,8 @@ export interface NewGate {
   next?: Gate['next'];
   /** AFS-193: the approval step's intent: what the approvers read when it has no message. */
   intent?: string;
+  /** AFS-271: the steps on the approved path, by title (`approvedPath`). */
+  after?: string[];
 }
 
 /** A run reached an approval: the gate waits. */
@@ -96,11 +100,12 @@ export async function openGate(db: Db, input: NewGate, now = new Date()): Promis
     carried_json: JSON.stringify(input.carried),
     deadline: input.deadline ? input.deadline.toISOString() : null,
     approval_json:
-      input.approval || input.next || input.intent
+      input.approval || input.next || input.intent || input.after?.length
         ? JSON.stringify({
             ...input.approval,
             ...(input.next ? { next: input.next } : {}),
             ...(input.intent?.trim() ? { intent: input.intent.trim() } : {}),
+            ...(input.after?.length ? { after: input.after } : {}),
           })
         : null,
     decided_by: null,
@@ -110,6 +115,69 @@ export async function openGate(db: Db, input: NewGate, now = new Date()): Promis
   };
   await db.insertInto('run_gate').values(row).execute();
   return gateOf(row);
+}
+
+/** How far `approvedPath` lists: enough to see what an approval lets happen, short enough to read. */
+export const PATH_STEPS = 8;
+
+/**
+ * AFS-271: the steps the hosts go through once an approval is approved, by title, in order: the
+ * approved port's step, then each step's ok port, up to an end. A step that branches (a decision,
+ * another approval, parallel paths) is the last one listed: past it the way depends on the hosts.
+ */
+export function approvedPath(
+  doc: {
+    nodes: { id: string; title: string; type?: string }[];
+    edges?: { from: { node: string; port: string }; to: { node: string } }[];
+  },
+  gate: string,
+): string[] {
+  const titles: string[] = [];
+  const seen = new Set<string>([gate]);
+  let edge = doc.edges?.find((e) => e.from.node === gate && e.from.port === 'approved');
+  while (edge && titles.length < PATH_STEPS) {
+    const to = edge.to.node;
+    const node = doc.nodes.find((n) => n.id === to);
+    if (!node || seen.has(node.id)) break;
+    seen.add(node.id);
+    titles.push(node.title);
+    if (node.type === 'end') break;
+    edge = doc.edges?.find((e) => e.from.node === node.id && e.from.port === 'ok_hosts');
+  }
+  return titles;
+}
+
+const ENDED = ['succeeded', 'failed', 'cancelled', 'lost'];
+
+/**
+ * AFS-271: the last check run of a run's launch configuration that ended before the run was
+ * launched: what a decider can weigh. A run of no configuration has none to weigh (undefined).
+ */
+export async function evidenceOf(
+  db: Db,
+  run: { id: string; config?: string | undefined; commit: string; createdAt: string },
+): Promise<Gate['evidence']> {
+  if (!run.config) return undefined;
+  const last = await db
+    .selectFrom('run')
+    .select(['id', 'number', 'state', 'ended_at', 'commit_id'])
+    .where('config_id', '=', run.config)
+    .where('mode', '=', 'check')
+    .where('id', '!=', run.id)
+    .where('state', 'in', ENDED)
+    .where('created_at', '<', run.createdAt)
+    .orderBy('created_at', 'desc')
+    .limit(1)
+    .executeTakeFirst();
+  if (!last) return {};
+  const checkRun: CheckRunEvidence = {
+    id: last.id,
+    number: last.number,
+    state: last.state,
+    ...(last.ended_at ? { endedAt: last.ended_at } : {}),
+    sameCommit: last.commit_id === run.commit,
+  };
+  return { checkRun };
 }
 
 export async function gatesOf(db: Db, run: string): Promise<Gate[]> {

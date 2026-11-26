@@ -18,6 +18,7 @@ import {
   type Decision,
   decideGate,
   decidersOf,
+  evidenceOf,
   type Gate,
   gatesOf,
   whyNot,
@@ -75,17 +76,20 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
       : 'It is decided';
 
   /**
-   * AFS-146: a gate as the pages show it: while it waits, who may decide it (by name).
+   * AFS-146: a gate as the pages show it: while it waits, who may decide it (by name). AFS-271:
+   * and what the deciders can weigh (`evidence`).
    */
   const dressed = async (
     gate: Gate,
     place: { workspace: string; project: string; flowFile: string },
     launcher: { id: string; login: string },
     selfApprove: boolean,
+    run: { id: string; config?: string | undefined; commit: string; createdAt: string },
   ): Promise<Gate> => {
     if (gate.status !== 'waiting') return gate;
     const deciders = await decidersOf(db, gate, place, selfApprove ? undefined : launcher);
-    return { ...gate, deciders };
+    const evidence = await evidenceOf(db, run);
+    return { ...gate, deciders, ...(evidence ? { evidence } : {}) };
   };
 
   /**
@@ -142,7 +146,12 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         gates.map(async (gate) => {
           const why = judge(who, gate, run, place);
           return {
-            ...(await dressed(gate, where, run.requestedBy, place.self_approve === 1)),
+            ...(await dressed(gate, where, run.requestedBy, place.self_approve === 1, {
+              id: run.id,
+              config: run.config?.id,
+              commit: run.commit,
+              createdAt: run.createdAt,
+            })),
             mayDecide: !why,
             ...(why && gate.status === 'waiting' ? { why } : {}),
           };
@@ -268,6 +277,9 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         'run.requested_login',
         'run.mode',
         'run.inputs_shown_json',
+        'run.config_id',
+        'run.commit_id',
+        'run.created_at',
         'project.name as project_name',
         'workspace.id as workspace',
         'workspace.name as workspace_name',
@@ -308,6 +320,12 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): voi
         { workspace: row.workspace, project: row.project_id, flowFile: row.flow_file },
         { id: row.requested_by, login: row.requested_login },
         row.self_approve === 1,
+        {
+          id: row.run,
+          config: row.config_id ?? undefined,
+          commit: row.commit_id,
+          createdAt: row.created_at,
+        },
       );
       const requestedByName = launcherName.get(row.requested_by);
       const byName = requestedByName ? { requestedByName } : {};
