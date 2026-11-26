@@ -310,3 +310,49 @@ for (const [width, height] of SIZES)
     expect(page.url()).toBe(`${stack.base}/w/network`);
     expect(found, `the question at ${width}px`).toEqual([]);
   });
+
+// AFS-274: the menu folded to its icon rail (its three groups and the account), and the menus its
+// buttons open (the workspace switcher, the account): nothing off the window or past the frame,
+// and the open menu inside the window.
+for (const width of [1024, 1440] as const)
+  test(`the menu folded at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem('afs.menu.folded', '1');
+      } catch {
+        // A window without storage shows the menu unfolded: then this checks that.
+      }
+    });
+    await page.goto(stack.base + (stack.pages?.runs ?? '/runs'));
+    await expect(page.locator('main h1').first()).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('.side.rail')).toBeVisible();
+    await page.waitForTimeout(600);
+    expect(await page.evaluate(look), `folded at ${width}px`).toEqual([]);
+  });
+
+for (const [width, height] of [
+  [390, 844],
+  [1280, 720],
+] as const)
+  for (const menu of ['Workspace', 'Account'])
+    test(`the ${menu.toLowerCase()} menu open at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto(stack.base + (stack.pages?.home ?? '/'));
+      await expect(page.locator('main h1').first()).toBeVisible({ timeout: 45_000 });
+      if (width <= 860) await page.getByRole('button', { name: 'Menu' }).click();
+      await page.getByRole('button', { name: new RegExp(`^${menu}: `) }).click();
+      const list = page.getByRole('menu');
+      await expect(list).toBeVisible();
+      const box = await list.boundingBox();
+      const found = await page.evaluate(look);
+      if (
+        !box ||
+        box.x < 0 ||
+        box.y < 0 ||
+        box.x + box.width > width + 1 ||
+        box.y + box.height > height + 1
+      )
+        found.push(`the ${menu} menu is not inside the window: ${JSON.stringify(box)}`);
+      expect(found, `${menu} menu at ${width}px`).toEqual([]);
+    });

@@ -1,7 +1,15 @@
 // The application: who is signed in, the frame around every page (a side menu, AFS-64), and
 // which page an address is.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
 import { ActionEditPage } from './actionEdit';
@@ -19,7 +27,7 @@ import { FilesPage } from './files';
 import { FlowPage } from './flow';
 import { GuidePage } from './guidePage';
 import { HelpPage } from './help';
-import { Home } from './home';
+import { Home, midnight } from './home';
 import { LaunchConfigEdit, LaunchConfigPage } from './launch';
 import { LibraryPage } from './library';
 import { NotificationsPage } from './notifications';
@@ -30,6 +38,7 @@ import { RunPage, RunsPage } from './runs';
 import { listenForSaveKey } from './saveKey';
 import { SearchBox } from './search';
 import { SecretProvidersPage } from './secretProviders';
+import { ServerPage } from './serverPage';
 import { SignInPage } from './signin';
 import { StreamsPage } from './streams';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
@@ -121,6 +130,8 @@ function Page({
   // AFS-241: where credentials may read their secrets from.
   if (path === '/admin/secret-providers') return me.admin ? <SecretProvidersPage /> : <AdminOnly />;
   if (path === '/admin/streams') return me.admin ? <StreamsPage /> : <AdminOnly />;
+  // AFS-274: Govern's Server: the server's parts, each with how it stands and its page.
+  if (path === '/admin/server') return me.admin ? <ServerPage /> : <AdminOnly />;
   if (path === '/admin/sign-in') return me.admin ? <SignInPage /> : <AdminOnly />;
   if (path === '/admin/people') return me.admin ? <PeoplePage tab="people" /> : <AdminOnly />;
   if (path === '/admin/groups') return me.admin ? <PeoplePage tab="groups" /> : <AdminOnly />;
@@ -244,90 +255,119 @@ const PHONE_MENU = '(max-width: 860px)';
 
 /** The items of an open menu, in order. */
 const menuItems = (box: HTMLElement | null): HTMLElement[] => [
-  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]') ?? []),
 ];
 
+/** AFS-274: an item of a menu opened from a button: a page to go to, or a thing to do. */
+interface PopItem {
+  label: string;
+  to?: string;
+  current?: 'page' | undefined;
+  onSelect?: () => void;
+  /** One choice among several (a workspace): said as chosen or not. */
+  checked?: boolean;
+  /** Doing it leaves the menu open: the theme, whose item then says its new value. */
+  stays?: boolean;
+}
+
 /**
- * AFS-266: a button of the icon rail that opens a menu of pages beside the rail (Workspaces,
- * Administration): scrollable when long, the arrows go through it, Escape closes it and gives the
- * focus back to its button, a click outside or a page picked closes it.
+ * AFS-266, AFS-274: a button that opens a menu: the rail's (beside the rail), the workspace
+ * switcher (under its button) and the account (over its button). Held to the window, so the
+ * menu's own scroller does not cut it off. The arrows, Home and End go through it; Escape closes
+ * it and gives the focus back to its button (and leaves the phone menu open); a click outside, a
+ * page picked or Tab closes it.
  */
-function RailMenu({
-  icon,
+function PopMenu({
   label,
+  title,
+  className,
+  children,
   items,
   path,
+  place,
 }: {
-  icon: IconName;
   label: string;
-  items: { to: string; label: string; current?: 'page' | undefined }[];
+  title: string;
+  className: string;
+  children: ReactNode;
+  items: PopItem[];
   path: string;
+  place: 'beside' | 'below' | 'above';
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const [top, setTop] = useState(0);
+  const [at, setAt] = useState<CSSProperties>({});
   // A page picked closes it (Link's own click navigates: one of the menu's would replace it).
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every new page
   useEffect(() => setOpen(false), [path]);
   useEffect(() => {
     if (!open) return;
-    menuItems(box.current)[0]?.focus();
+    (
+      menuItems(box.current).find((i) => i.getAttribute('aria-checked') === 'true') ??
+      menuItems(box.current)[0]
+    )?.focus();
     const away = (e: MouseEvent) => {
       if (!box.current?.contains(e.target as Node)) setOpen(false);
     };
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      setOpen(false);
-      button.current?.focus();
-    };
     document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', key);
-    };
+    return () => document.removeEventListener('mousedown', away);
   }, [open]);
-  // Beside its button, kept inside the window when it is long.
+  // Beside the rail's button, or under or over the menu's, kept inside the window when long.
   useLayoutEffect(() => {
     if (!open) return;
-    const at = button.current?.getBoundingClientRect().top ?? 0;
+    const r = button.current?.getBoundingClientRect();
+    if (!r) return;
     const tall = list.current?.offsetHeight ?? 0;
-    setTop(Math.max(8, Math.min(at, window.innerHeight - tall - 8)));
-  }, [open]);
+    const room = window.innerHeight - tall - 8;
+    setAt(
+      place === 'beside'
+        ? { top: Math.max(8, Math.min(r.top, room)) }
+        : place === 'below'
+          ? { top: Math.max(8, Math.min(r.bottom + 4, room)), left: r.left, minWidth: r.width }
+          : { top: Math.max(8, r.top - tall - 4), left: r.left, minWidth: r.width },
+    );
+  }, [open, place]);
   const here = items.some((i) => i.current);
   return (
-    <div className="rail-menu" ref={box}>
+    <div className="pop-menu" ref={box}>
       <button
         ref={button}
         type="button"
-        className={`rail-item${here ? ' here' : ''}`}
+        className={`${className}${here ? ' here' : ''}`}
         aria-label={label}
-        title={label}
+        title={title}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <Icon name={icon} />
+        {children}
       </button>
       {open && (
         <div
           ref={list}
-          className="rail-menu-list"
+          className={place === 'beside' ? 'rail-menu-list' : 'rail-menu-list pop-menu-list'}
           role="menu"
           aria-label={label}
           tabIndex={-1}
-          style={{ top }}
+          style={at}
           onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              // The menu, not the phone menu around it.
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+              button.current?.focus();
+              return;
+            }
             const all = menuItems(box.current);
-            const at = all.indexOf(document.activeElement as HTMLElement);
+            const now = all.indexOf(document.activeElement as HTMLElement);
             const to =
               e.key === 'ArrowDown'
-                ? (at + 1) % all.length
+                ? (now + 1) % all.length
                 : e.key === 'ArrowUp'
-                  ? (at - 1 + all.length) % all.length
+                  ? (now - 1 + all.length) % all.length
                   : e.key === 'Home'
                     ? 0
                     : e.key === 'End'
@@ -339,18 +379,90 @@ function RailMenu({
             } else if (e.key === 'Tab') setOpen(false);
           }}
         >
-          {items.map((i) => (
-            <Link key={i.to} to={i.to} role="menuitem" aria-current={i.current}>
-              {i.label}
-            </Link>
-          ))}
+          {items.map((i) =>
+            i.to ? (
+              <Link key={i.label} to={i.to} role="menuitem" aria-current={i.current}>
+                {i.label}
+              </Link>
+            ) : (
+              <button
+                key={i.label}
+                type="button"
+                role={i.checked === undefined ? 'menuitem' : 'menuitemradio'}
+                {...(i.checked === undefined ? {} : { 'aria-checked': i.checked })}
+                onClick={() => {
+                  i.onSelect?.();
+                  if (!i.stays) setOpen(false);
+                }}
+              >
+                {i.label}
+              </button>
+            ),
+          )}
         </div>
       )}
     </div>
   );
 }
 
-/** The side menu: the places, the workspaces, and the person's own things at the end. */
+/** AFS-274: where this browser keeps the workspace the Build group was last on. */
+export const KEPT_WORKSPACE = 'afs.workspace';
+const keptWorkspace = (): string | undefined => {
+  try {
+    return window.localStorage.getItem(KEPT_WORKSPACE) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+const keepWorkspace = (key: string) => {
+  try {
+    window.localStorage.setItem(KEPT_WORKSPACE, key);
+  } catch {
+    // Storage closed (a private window): kept for this page's life only.
+  }
+};
+
+/** A name's initials: the rail's mark for a workspace, and the account's. */
+const initials = (name: string) =>
+  name
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('') || '?';
+
+/** The Build tab a workspace's page is on (environments, credentials, access), to stay on it. */
+const buildTab = (path: string) => {
+  const m = /^\/w\/[^/]+\/(?:-\/(environments|credentials|access)\b|(environments)\/)/.exec(path);
+  return m?.[1] ?? m?.[2];
+};
+
+/** The Server page's parts: the menu's Server is where any of them is. */
+const SERVER_PAGES = [
+  '/admin/server',
+  '/admin/sign-in',
+  '/admin/secret-providers',
+  '/admin/certificate',
+  '/admin/notifications',
+  '/admin/streams',
+];
+
+/** A link of the menu: where it goes, its icon, and a count where there is one. */
+interface MenuLink {
+  to: string;
+  icon: IconName;
+  label: string;
+  current: boolean;
+  count?: number;
+  /** What the count is, in words ("2 waiting for you"). */
+  counted?: string;
+}
+
+/**
+ * The side menu (AFS-274, ADR-0039 §10): Work (across every workspace you may see), Build (in the
+ * workspace its switcher shows), Govern (administrators), and your account at its end. The same
+ * groups folded to an icon rail, and on a phone behind Menu.
+ */
 function Side({
   me,
   path,
@@ -376,23 +488,33 @@ function Side({
   };
   const workspaces = useLoad(api.workspaces, []);
   const approvals = useLoad(api.approvals, []);
-  // Approvals arrive while pages are open: the count looks again now and then.
+  // AFS-274: the inbox's count, of every workspace (an action-only person has no inbox).
+  const actionOnly = !!reach?.actionOnly;
+  const inbox = useLoad(
+    async () => (actionOnly ? undefined : api.inbox(midnight()).catch(() => undefined)),
+    [actionOnly],
+  );
+  // Approvals arrive while pages are open: the counts look again now and then.
   useEffect(() => {
-    const timer = setInterval(approvals.reload, 30_000);
+    const again = () => {
+      approvals.reload();
+      inbox.reload();
+    };
+    const timer = setInterval(again, 30_000);
     // AFS-133: a decision made on any page counts at once.
-    window.addEventListener(APPROVALS_CHANGED, approvals.reload);
+    window.addEventListener(APPROVALS_CHANGED, again);
     // AFS-146: and one made on a run's canvas (the designer's frame says so).
     const fromFrame = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if ((event.data as { type?: string } | null)?.type === APPROVALS_CHANGED) approvals.reload();
+      if ((event.data as { type?: string } | null)?.type === APPROVALS_CHANGED) again();
     };
     window.addEventListener('message', fromFrame);
     return () => {
       clearInterval(timer);
-      window.removeEventListener(APPROVALS_CHANGED, approvals.reload);
+      window.removeEventListener(APPROVALS_CHANGED, again);
       window.removeEventListener('message', fromFrame);
     };
-  }, [approvals.reload]);
+  }, [approvals.reload, inbox.reload]);
   // AFS-193: and on every page opened: a run stopped or decided elsewhere drops out of the count.
   const firstPath = useRef(path);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reads again when the page changes
@@ -400,6 +522,7 @@ function Side({
     if (firstPath.current === path) return;
     firstPath.current = '';
     approvals.reload();
+    inbox.reload();
   }, [path]);
   // A workspace made or renamed since: the list reads again when one it lacks is opened.
   const here = /^\/w\/([^/]+)/.exec(path)?.[1];
@@ -424,31 +547,191 @@ function Side({
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const waiting = approvals.data?.filter((a) => a.mayDecide).length ?? 0;
-  const at = (to: string): 'page' | undefined =>
-    path === to ||
-    (to === '/runs' && path.startsWith('/runs/')) ||
-    // People and groups are one place of the administration, at several addresses.
-    (to === '/admin/people' && (path === '/admin' || path.startsWith('/admin/groups'))) ||
-    (to.startsWith('/admin/') && path.startsWith(`${to}/`)) ||
-    (to !== '/' && to.startsWith('/w/') && path.startsWith(`${to}/`))
-      ? 'page'
-      : undefined;
+  // AFS-274: the workspace Build shows: the page's, else the one last picked, else the first.
+  const list = workspaces.data ?? [];
+  const [kept, setKept] = useState(keptWorkspace);
+  const onPage = list.find((w) => w.key === here);
+  useEffect(() => {
+    if (!onPage) return;
+    keepWorkspace(onPage.key);
+    setKept(onPage.key);
+  }, [onPage]);
+  const current = onPage ?? list.find((w) => w.key === kept) ?? list[0];
+  const pick = (key: string) => {
+    keepWorkspace(key);
+    setKept(key);
+    // The same Build page, in the workspace picked; from anything else, its projects.
+    const tab = buildTab(path);
+    navigate(`/w/${encodeURIComponent(key)}${tab ? `/-/${tab}` : ''}`);
+  };
 
-  const adminPages: { to: string; label: string }[] = [
-    { to: '/admin/people', label: 'People and groups' },
-    { to: '/admin/sign-in', label: 'Sign-in' },
-    { to: '/admin/secret-providers', label: 'Secret providers' },
-    { to: '/admin/certificate', label: 'Server certificate' },
-    { to: '/admin/notifications', label: 'Notifications' },
-    { to: '/admin/streams', label: 'Event streaming' },
-    { to: '/admin/audit', label: 'Audit log' },
+  const waiting = approvals.data?.filter((a) => a.mayDecide).length ?? 0;
+  const needs = inbox.data?.count ?? 0;
+  const ws = current ? `/w/${current.key}` : '';
+  const works: MenuLink[] = actionOnly
+    ? [
+        {
+          to: '/actions',
+          icon: 'actions',
+          label: 'Actions',
+          current: path === '/' || path.startsWith('/actions'),
+        },
+      ]
+    : [
+        {
+          to: '/',
+          icon: 'inbox',
+          label: 'Inbox',
+          current: path === '/',
+          count: needs,
+          counted: `${needs} ${needs === 1 ? 'needs' : 'need'} you`,
+        },
+        { to: '/runs', icon: 'runs', label: 'Runs', current: /^\/runs(\/|$)/.test(path) },
+        {
+          to: '/approvals',
+          icon: 'approvals',
+          label: 'Approvals',
+          current: path === '/approvals',
+          count: waiting,
+          counted: `${waiting} waiting for you`,
+        },
+        ...(reach?.actions
+          ? [
+              {
+                to: '/actions',
+                icon: 'actions' as const,
+                label: 'Actions',
+                current: path.startsWith('/actions'),
+              },
+            ]
+          : []),
+      ];
+  const builds: MenuLink[] = [
+    ...(current
+      ? [
+          {
+            to: ws,
+            icon: 'projects' as const,
+            label: 'Projects',
+            current:
+              path === ws ||
+              (path.startsWith(`${ws}/`) &&
+                !path.startsWith(`${ws}/-/`) &&
+                !path.startsWith(`${ws}/environments/`)),
+          },
+        ]
+      : []),
+    // Libraries are offered to every project: the switcher does not narrow Library.
+    { to: '/library', icon: 'library', label: 'Library', current: path === '/library' },
+    ...(current
+      ? [
+          {
+            to: `${ws}/-/environments`,
+            icon: 'environments' as const,
+            label: 'Environments',
+            current: path === `${ws}/-/environments` || path.startsWith(`${ws}/environments/`),
+          },
+          {
+            to: `${ws}/-/credentials`,
+            icon: 'credentials' as const,
+            label: 'Credentials',
+            current: path === `${ws}/-/credentials`,
+          },
+        ]
+      : []),
   ];
+  const governs: MenuLink[] = me.admin
+    ? [
+        // Access is a workspace's: the switcher's (AFS-274 plan, decision 1).
+        ...(current
+          ? [
+              {
+                to: `${ws}/-/access`,
+                icon: 'access' as const,
+                label: 'Access',
+                current: path === `${ws}/-/access`,
+              },
+            ]
+          : []),
+        {
+          to: '/admin/audit',
+          icon: 'audit',
+          label: 'Audit log',
+          current: path.startsWith('/admin/audit'),
+        },
+        {
+          to: '/admin/people',
+          icon: 'people',
+          label: 'People',
+          current:
+            path === '/admin' ||
+            path.startsWith('/admin/people') ||
+            path.startsWith('/admin/groups'),
+        },
+        {
+          to: '/admin/server',
+          icon: 'server',
+          label: 'Server',
+          current: SERVER_PAGES.some((p) => path === p || path.startsWith(`${p}/`)),
+        },
+      ]
+    : [];
+  const switchItems: PopItem[] = [
+    ...list.map((w) => ({
+      label: w.name,
+      checked: w.key === current?.key,
+      onSelect: () => pick(w.key),
+    })),
+    {
+      to: '/workspaces',
+      label: 'All workspaces',
+      current: path === '/workspaces' ? ('page' as const) : undefined,
+    },
+  ];
+  const accountItems: PopItem[] = [
+    { to: '/account', label: 'Profile', current: path === '/account' ? 'page' : undefined },
+    {
+      to: '/account/tokens',
+      label: 'Access tokens',
+      current: path === '/account/tokens' ? 'page' : undefined,
+    },
+    { label: THEME_LABEL[theme], onSelect: onTheme, stays: true },
+    // The help pages, at their other addresses too (/guide, /docs).
+    {
+      to: '/help',
+      label: 'Help',
+      current: /^\/(help|guide)(\/|$)/.test(path) || path === '/docs' ? 'page' : undefined,
+    },
+    { label: 'Sign out', onSelect: onSignOut },
+  ];
+  const switcherWords = current
+    ? {
+        label: `Workspace: ${current.name}, change`,
+        title: `Workspace: ${current.name}. Projects, Environments and Credentials are of this one`,
+      }
+    : undefined;
+  const accountWords = {
+    label: `Account: ${me.name}`,
+    title: `${me.name}: profile, access tokens, theme, help, sign out`,
+  };
+  const page = (current: boolean): 'page' | undefined => (current ? 'page' : undefined);
 
   if (folded && !phone) {
-    const item = (to: string, icon: IconName, label: string, current = at(to)) => (
-      <Link to={to} className="rail-item" aria-label={label} title={label} aria-current={current}>
-        <Icon name={icon} />
+    const item = (i: MenuLink) => (
+      <Link
+        key={i.to}
+        to={i.to}
+        className="rail-item"
+        aria-label={i.count ? `${i.label}, ${i.counted}` : i.label}
+        title={i.count ? `${i.label}: ${i.counted}` : i.label}
+        aria-current={page(i.current)}
+      >
+        <Icon name={i.icon} />
+        {!!i.count && (
+          <span className="count rail-count" aria-hidden="true" data-count={i.icon}>
+            {i.count}
+          </span>
+        )}
       </Link>
     );
     return (
@@ -461,87 +744,46 @@ function Side({
         >
           <img src={logo} alt="" width="28" height="28" />
         </Link>
-        <nav aria-label="Main" className="rail-nav">
-          {reach?.actionOnly ? (
-            item(
-              '/actions',
-              'actions',
-              'Actions',
-              path === '/' || path.startsWith('/actions') ? 'page' : undefined,
-            )
-          ) : (
-            <>
-              {item('/', 'home', 'Home')}
-              {!!reach?.actions &&
-                item(
-                  '/actions',
-                  'actions',
-                  'Actions',
-                  path.startsWith('/actions') ? 'page' : undefined,
-                )}
-              {item('/runs', 'runs', 'Runs')}
-              <Link
-                to="/approvals"
-                className="rail-item"
-                aria-label={waiting > 0 ? `Approvals, ${waiting} waiting for you` : 'Approvals'}
-                title={waiting > 0 ? `Approvals: ${waiting} waiting for you` : 'Approvals'}
-                aria-current={at('/approvals')}
-              >
-                <Icon name="approvals" />
-                {waiting > 0 && (
-                  <span className="count rail-count" aria-hidden="true" data-approvals-count>
-                    {waiting}
-                  </span>
-                )}
-              </Link>
-              {item('/library', 'library', 'Library')}
-            </>
-          )}
-          {(me.admin || !!workspaces.data?.length) && (
-            <RailMenu
-              icon="workspaces"
-              label="Workspaces"
-              path={path}
-              items={[
-                { to: '/workspaces', label: 'All workspaces', current: at('/workspaces') },
-                ...(workspaces.data ?? []).map((w) => ({
-                  to: `/w/${w.key}`,
-                  label: w.name,
-                  current: at(`/w/${w.key}`),
-                })),
-              ]}
-            />
-          )}
-          {me.admin && (
-            <RailMenu
-              icon="admin"
-              label="Administration"
-              path={path}
-              items={adminPages.map((p) => ({ ...p, current: at(p.to) }))}
-            />
-          )}
+        <nav aria-label="Work" className="rail-nav">
+          {works.map(item)}
         </nav>
+        {!actionOnly && (
+          <nav aria-label="Build" className="rail-nav rail-group">
+            {current && switcherWords && (
+              <PopMenu
+                place="beside"
+                className="rail-item"
+                label={switcherWords.label}
+                title={switcherWords.title}
+                items={switchItems}
+                path={path}
+              >
+                <span className="menu-mark" aria-hidden="true">
+                  {initials(current.name)}
+                </span>
+              </PopMenu>
+            )}
+            {builds.map(item)}
+          </nav>
+        )}
+        {governs.length > 0 && (
+          <nav aria-label="Govern" className="rail-nav rail-group">
+            {governs.map(item)}
+          </nav>
+        )}
         <div className="rail-end">
-          {item('/help', 'help', 'Help')}
-          {item('/account', 'account', `Account: ${me.name}`, at('/account'))}
-          <button
-            type="button"
+          <PopMenu
+            place="beside"
             className="rail-item"
-            aria-label={THEME_LABEL[theme]}
-            title={THEME_LABEL[theme]}
-            onClick={onTheme}
+            label={accountWords.label}
+            title={accountWords.title}
+            items={accountItems}
+            path={path}
           >
-            <Icon name="theme" />
-          </button>
-          <button
-            type="button"
-            className="rail-item"
-            aria-label="Sign out"
-            title="Sign out"
-            onClick={onSignOut}
-          >
-            <Icon name="signout" />
-          </button>
+            <span className="menu-mark account-mark" aria-hidden="true">
+              {initials(me.name)}
+            </span>
+          </PopMenu>
           <button
             type="button"
             className="rail-item"
@@ -557,6 +799,17 @@ function Side({
     );
   }
 
+  const link = (i: MenuLink) => (
+    <Link key={i.to} to={i.to} aria-current={page(i.current)}>
+      <Icon name={i.icon} />
+      <span className="side-text">{i.label}</span>
+      {!!i.count && (
+        <span className="count" title={i.counted} data-count={i.icon}>
+          {i.count}
+        </span>
+      )}
+    </Link>
+  );
   return (
     <div className={open ? 'side open' : 'side'}>
       <div className="side-head">
@@ -576,81 +829,83 @@ function Side({
         </button>
       </div>
       <div className="side-body" id="side-menu">
-        {reach?.actionOnly ? (
-          // AFS-175: who has only actions has nothing else to go to.
-          <nav aria-label="Main" className="side-nav">
-            <Link
-              to="/actions"
-              aria-current={path === '/' || path.startsWith('/actions') ? 'page' : undefined}
-            >
-              Actions
-            </Link>
-          </nav>
-        ) : (
-          <nav aria-label="Main" className="side-nav">
-            <Link to="/" aria-current={at('/')}>
-              Home
-            </Link>
-            {!!reach?.actions && (
-              <Link to="/actions" aria-current={path.startsWith('/actions') ? 'page' : undefined}>
-                Actions
-              </Link>
-            )}
-            <Link to="/runs" aria-current={at('/runs')}>
-              Runs
-            </Link>
-            <Link to="/approvals" aria-current={at('/approvals')}>
-              Approvals
-              {waiting > 0 && (
-                <span className="count" title={`${waiting} waiting for you`}>
-                  {waiting}
-                </span>
-              )}
-            </Link>
-            <Link to="/library" aria-current={at('/library')}>
-              Library
-            </Link>
-          </nav>
-        )}
-        {/* AFS-152: no empty heading for who has no workspace yet (Home says whom to ask). */}
-        {(me.admin || !!workspaces.data?.length) && (
-          <nav aria-label="Workspaces" className="side-nav">
-            <span className="side-label">
-              <Link to="/workspaces" aria-current={at('/workspaces')}>
-                Workspaces
-              </Link>
+        <nav aria-label="Work" className="side-nav">
+          {/* AFS-175: who has only actions has nothing else to go to. */}
+          {!actionOnly && (
+            <span className="side-label" aria-hidden="true">
+              Work
             </span>
-            {workspaces.data?.map((w) => (
-              <Link key={w.id} to={`/w/${w.key}`} aria-current={at(`/w/${w.key}`)}>
-                {w.name}
-              </Link>
-            ))}
+          )}
+          {works.map(link)}
+        </nav>
+        {!actionOnly && (
+          <nav aria-label="Build" className="side-nav">
+            <span className="side-label" aria-hidden="true">
+              Build
+            </span>
+            {current && switcherWords ? (
+              <PopMenu
+                place="below"
+                className="switcher"
+                label={switcherWords.label}
+                title={switcherWords.title}
+                items={switchItems}
+                path={path}
+              >
+                <span className="menu-mark" aria-hidden="true">
+                  {initials(current.name)}
+                </span>
+                <span className="menu-words">
+                  <span className="menu-name">{current.name}</span>
+                  <span className="menu-sub">
+                    {current.projects} {current.projects === 1 ? 'project' : 'projects'}
+                  </span>
+                </span>
+                <Icon name="chevron-down" />
+              </PopMenu>
+            ) : (
+              // AFS-152: who has no workspace yet is told so (Home says whom to ask).
+              workspaces.data && (
+                <p className="side-note">
+                  No workspace yet
+                  {me.admin && (
+                    <>
+                      {' · '}
+                      <Link to="/workspaces">Add a workspace</Link>
+                    </>
+                  )}
+                </p>
+              )
+            )}
+            {builds.map(link)}
           </nav>
         )}
-        {me.admin && (
-          // AFS-87: the administration's pages are in the menu, not behind an index page.
-          <nav aria-label="Administration" className="side-nav">
-            <span className="side-label">Administration</span>
-            {adminPages.map((p) => (
-              <Link key={p.to} to={p.to} aria-current={at(p.to)}>
-                {p.label}
-              </Link>
-            ))}
+        {governs.length > 0 && (
+          <nav aria-label="Govern" className="side-nav">
+            <span className="side-label" aria-hidden="true">
+              Govern
+            </span>
+            {governs.map(link)}
           </nav>
         )}
         <div className="side-end">
-          <Link to="/help" aria-current={at('/help')}>
-            Help
-          </Link>
-          <Link to="/account" aria-current={at('/account')}>
-            {me.name}
-          </Link>
-          <button type="button" onClick={onTheme}>
-            {THEME_LABEL[theme]}
-          </button>
-          <button type="button" onClick={onSignOut}>
-            Sign out
-          </button>
+          <PopMenu
+            place="above"
+            className="account-button"
+            label={accountWords.label}
+            title={accountWords.title}
+            items={accountItems}
+            path={path}
+          >
+            <span className="menu-mark account-mark" aria-hidden="true">
+              {initials(me.name)}
+            </span>
+            <span className="menu-words">
+              <span className="menu-name">{me.name}</span>
+              <span className="menu-sub">{me.admin ? 'Administrator' : me.login}</span>
+            </span>
+            <Icon name="chevron-up" />
+          </PopMenu>
           <button
             type="button"
             className="menu-fold icon-button"

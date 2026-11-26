@@ -218,8 +218,9 @@ describe('focus and keys (AFS-142)', () => {
     open(dana);
     routes['GET /workspaces'] = () => ({ body: [] });
     await screen.findByRole('heading', { name: 'Approvals' });
-    fireEvent.click(screen.getByRole('link', { name: 'Workspaces' }));
-    const title = await screen.findByRole('heading', { level: 1, name: 'Workspaces' });
+    // AFS-274: Build's Library, as any page the menu goes to.
+    fireEvent.click(screen.getByRole('link', { name: 'Library' }));
+    const title = await screen.findByRole('heading', { level: 1, name: 'Library' });
     await waitFor(() => expect(document.activeElement).toBe(title));
   });
 

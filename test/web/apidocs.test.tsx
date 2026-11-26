@@ -46,9 +46,11 @@ describe('the API reference page', () => {
     vi.spyOn(frame.contentWindow as Window, 'postMessage').mockImplementation((m) => {
       sent.push(m);
     });
-    // Dark, light, as the device: the frame is told, and stays the same page.
-    await act(async () => screen.getByRole('button', { name: /^Theme/ }).click());
-    await act(async () => screen.getByRole('button', { name: /^Theme/ }).click());
+    // Dark, light, as the device: the frame is told, and stays the same page. AFS-274: the theme
+    // is in the account's menu.
+    await act(async () => screen.getByRole('button', { name: /^Account: / }).click());
+    await act(async () => screen.getByRole('menuitem', { name: /^Theme/ }).click());
+    await act(async () => screen.getByRole('menuitem', { name: /^Theme/ }).click());
     expect(sent).toEqual([
       { type: THEME_MESSAGE, theme: 'light' },
       { type: THEME_MESSAGE, theme: 'auto' },

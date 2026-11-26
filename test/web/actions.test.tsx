@@ -117,13 +117,15 @@ describe('actions', () => {
     const link = await screen.findByRole('link', { name: /Restart the edge switch/ });
     expect(link.getAttribute('href')).toBe('/actions/c1');
     expect(link.textContent).toMatch(/You ran it just now: went well/);
-    const menu = screen.getByRole('navigation', { name: 'Main' });
+    // AFS-274: their Work group is Actions, and there is no Build or Govern.
+    const menu = screen.getByRole('navigation', { name: 'Work' });
     expect(
       within(menu)
         .getAllByRole('link')
         .map((l) => l.textContent),
     ).toEqual(['Actions']);
-    expect(screen.queryByRole('navigation', { name: 'Workspaces' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Build' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Govern' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Runs' })).toBeNull();
     // AFS-254: Search is there too: it finds the actions they may run.
     expect(screen.getByRole('combobox', { name: 'Search' })).toBeTruthy();
@@ -189,7 +191,7 @@ describe('actions', () => {
     render(<App />);
     const link = await screen.findByRole('link', { name: /Restart the edge switch/ });
     expect(link.textContent).toMatch(/Switched off for now.*ask Dana/);
-    const menu = screen.getByRole('navigation', { name: 'Main' });
+    const menu = screen.getByRole('navigation', { name: 'Work' });
     expect(
       within(menu)
         .getAllByRole('link')
@@ -206,7 +208,7 @@ describe('actions', () => {
     };
     window.history.replaceState(null, '', '/');
     render(<App />);
-    const menu = await screen.findByRole('navigation', { name: 'Main' });
+    const menu = await screen.findByRole('navigation', { name: 'Work' });
     await waitFor(() =>
       expect(
         within(menu)

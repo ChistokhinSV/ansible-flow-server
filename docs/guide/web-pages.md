@@ -10,9 +10,25 @@
 
 The server serves its own pages at its address. A new server shows the first-run setup (the
 setup code from its log); after that, sign-in: a card over a quiet picture of a flow, which says
-nothing about the server (the page is public). Signed in, a side menu leads to Home, Runs,
-Approvals (with how many wait for you), Library, each workspace and, for administrators, the
-administration's pages; **Help**, your name, the theme and Sign out are at its end. **Help**
+nothing about the server (the page is public). Signed in, a side menu has three groups and your
+account at its end:
+
+- **Work**: **Inbox** (Home, with how many things need you), **Runs**, **Approvals** (with how many
+  wait for you) and **Actions** (when you may run some). They span every workspace you may see.
+- **Build**, headed by the **workspace switcher**: **Projects**, **Library**, **Environments** and
+  **Credentials**. Projects, Environments and Credentials are of the workspace the switcher shows;
+  Library is every project's. The switcher shows the workspace of the page you are on, elsewhere
+  the one you picked last (this browser keeps it), else the first; it opens a menu of your
+  workspaces and **All workspaces** (where administrators add one). Picking one keeps you on the
+  same page (Credentials stays Credentials) in that workspace. With no workspace yet it says so.
+- **Govern**, for administrators: **Access** (the switcher's workspace's Access tab, which has a
+  **Workspace** choice of its own), **Audit log**, **People** (and groups) and **Server**: one page
+  with each part of the server (sign-in, secret providers, the certificate, notifications, event
+  streaming, the default image), how it stands and a link to its page.
+- **Your name** opens one menu: **Profile**, **Access tokens**, **Theme** (it goes round in place),
+  **Help** and **Sign out**.
+
+Someone who may only run actions has Actions only. **Help**
 (`/help`) lists this guide's pages and the API reference, and most pages link the guide page
 about them with **Help** beside their title. The server shows this guide itself, as it was for its
 version, at `/help/guide/<page>`: it needs no internet. A link in it that leaves the server says
@@ -20,10 +36,10 @@ where it goes (GitHub). A page that is not there, or not shared with you (a work
 flow, a run, a launch configuration), says what was looked for, a way back to a page you can open,
 and which administrators give access. Long pages are split into tabs; each tab has its own
 address. At phone width it folds into **Menu**. On a wider screen **Fold the menu** (the « icon at
-its end) folds it to a rail of icons, each with its name as a tooltip: Home, Runs, Approvals (with
-its count), Library, **Workspaces** and **Administration** (each a menu of its pages, scrolling
-when long; arrows go through it, Esc closes it), Help, your account, the theme and Sign out.
-» unfolds it. The browser keeps the choice. Ctrl+S (Cmd+S) submits the form you are typing in,
+its end) folds it to a rail of icons with the same groups, each icon with its name as a tooltip and
+the counts kept; the switcher and your account are buttons with their initials, opening the same
+menus (arrows, Home and End go through a menu, Esc closes it and the focus goes back to its
+button). » unfolds it. The browser keeps the choice. Ctrl+S (Cmd+S) submits the form you are typing in,
 or the page's only form (never one that deletes), and saves a flow's draft while you edit it; it
 never opens the browser's Save dialog.
 
@@ -83,7 +99,7 @@ never opens the browser's Save dialog.
   - **Waiting for others**: your runs that wait for someone else's decision, and whose. They are
     not counted.
   - **Running now** and **Launch again** beside it, and the latest runs with their workspace.
-- Dark by default; the theme button in the side menu goes to light, then to following the device.
+- Dark by default; **Theme** in your account's menu goes to light, then to following the device.
   The flow canvas takes the page's colours in the same theme (its ground, panels, lines, text and
   accent), and turns light or dark with the page when the page follows the device. A flow opened
   at a commit on a page of its own keeps the designer's colours.
@@ -359,7 +375,7 @@ An administrator makes a project a **library** on its page (**Make it a library*
 subflows (a backup with its check, a maintenance window, an approval chain) are then offered to
 every project on the server, to people who may read the library's workspace (`ro` or more).
 
-- **Library** (the side menu) lists what the libraries offer: each subflow, its flow, version and
+- **Library** (the menu's Build group; every project's, whatever the switcher shows) lists what the libraries offer: each subflow, its flow, version and
   commit.
 - While a flow is edited in the pages, **Insert Shared Subflow…** on the canvas opens a picker
   over the canvas (in full screen too; Escape closes it): the subflow picked is copied into the draft, pinned to the library flow's version and commit

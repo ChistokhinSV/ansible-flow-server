@@ -166,7 +166,16 @@ The glyph is decoration: the word stays the accessible text.
   - Access stays per workspace: a row appears only where the person may see it, and its actions
     follow that workspace's access level.
 - **A workspace's Access page** is of one workspace while Govern does not follow the switcher.
-  Where it sits is settled in AFS-274's plan.
+  Settled in AFS-274's plan review (product owner, 2026-11-26):
+  - Govern › Access opens the Access tab of the **switcher's workspace** (`/w/<key>/-/access`); the
+    tab has a Workspace choice of its own.
+  - **The switcher shows** the workspace of the page you are on, elsewhere the one last picked
+    (kept in the browser), else the first.
+  - The Work group's first item is **Inbox** (at `/`), with the inbox's count.
+  - Govern › **Server** is one page of the server's parts (sign-in, secret providers, the
+    certificate, notifications, event streaming, the default image), each with how it stands and
+    its page; those pages keep their addresses.
+  - Library stays every project's: the switcher does not narrow it.
 - **Your name** opens one account menu: profile, access tokens, theme, help, sign out.
 - **The folded menu** keeps the same groups.
 - This restructures `app.tsx`, which the debugger work changes often, so it comes last and its

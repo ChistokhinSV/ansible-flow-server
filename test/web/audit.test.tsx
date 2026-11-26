@@ -1,6 +1,6 @@
 // The audit log page with the server played by the test: entries, a filter, older entries, the
 // export links; and that only administrators have it.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 
@@ -62,9 +62,11 @@ describe('the audit log', () => {
     render(<App />);
     const link = await screen.findByRole('link', { name: /Audit log/ });
     expect(link.getAttribute('href')).toBe('/admin/audit');
-    // AFS-87: the administration's own address opens People and groups.
+    // AFS-87: the administration's own address opens People and groups (Govern's People).
     expect(
-      screen.getByRole('link', { name: 'People and groups' }).getAttribute('aria-current'),
+      within(screen.getByRole('navigation', { name: 'Govern' }))
+        .getByRole('link', { name: 'People' })
+        .getAttribute('aria-current'),
     ).toBe('page');
   });
 
