@@ -5209,6 +5209,261 @@ button.rail-item:hover:not(:disabled) {
   }
 }
 
+/* AFS-270 (ADR-0039 §6): the canvas's roles. The flow's frame reads them from this page and gives
+   them to the designer (palette.ts), so the canvas wears the page's colours in either theme. They
+   point at the raw colours, so a theme changes only those. Plain colours only: the designer takes
+   hex, rgb() and hsl() values and nothing else. */
+:root {
+  --canvas-ground: var(--bg);
+  --canvas-text: var(--fg);
+  --canvas-muted: var(--muted);
+  --canvas-faint: var(--faint);
+  --canvas-grid: var(--input-border);
+  --canvas-panel: var(--panel);
+  --canvas-raised: var(--raised);
+  --canvas-line: var(--border);
+  --canvas-hover: var(--button-hover);
+  --canvas-button: var(--button);
+  --canvas-accent: var(--accent);
+  --canvas-accent-fg: var(--accent-fg);
+  --canvas-link: var(--link);
+  --canvas-input: var(--input-bg);
+  --canvas-input-line: var(--input-border);
+  --canvas-code: var(--code-bg);
+  --canvas-error: var(--bad);
+  --canvas-warning: var(--warn);
+}
+
+/* ADR-0039 §8, AFS-272: a launch configuration's Launch tab. Beside the form on a wide screen,
+   what will run, in sight while the form is filled in; under it where there is no room. */
+.launch-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 1101px) {
+  .launch-grid {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+  /* Beside the form, a hairline on its side, not over it as a section under another has. */
+  .launch-grid > .will-run {
+    position: sticky;
+    top: 16px;
+    border-top: 0;
+    padding-top: 0;
+    border-left: 1px solid var(--line);
+    padding-left: 24px;
+  }
+}
+.will-run dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Check or Real: two choices, each saying what it does. */
+.mode-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+}
+.mode-choice legend {
+  margin-bottom: 6px;
+}
+.mode-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+.mode-option input {
+  margin-top: 3px;
+}
+.mode-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mode-option-text .mode-badge {
+  align-self: flex-start;
+}
+.mode-option:has(input:checked) {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.mode-option.real:has(input:checked) {
+  box-shadow: inset 0 0 0 2px var(--mode-real);
+}
+.mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* A real run's Launch says so in its colour too: it changes the hosts. */
+button.primary.real {
+  background: var(--mode-real);
+  color: var(--mode-real-fg);
+}
+button.primary.real:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mode-real) 85%, var(--fg));
+}
+
+/* AFS-212 (ADR-0039 §9): Home is an inbox. Four numbers, what needs you with what you may do
+   about it, and beside it what runs now and what you may launch again. */
+.inbox-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.inbox-filter select {
+  min-width: 0;
+  max-width: 14rem;
+}
+.inbox-numbers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.inbox-numbers li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.inbox-numbers .label,
+.inbox-numbers .sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.inbox-numbers .number {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.inbox .home-split > .inbox-main,
+.inbox .home-split > .inbox-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2.25rem;
+}
+.inbox h2 .count {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  vertical-align: 0.15em;
+}
+.inbox-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.inbox-items > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 14px;
+}
+.inbox-items > li + li {
+  border-top: 1px solid var(--line);
+}
+/* What waits for your decision is the first thing to do: it is tinted, as before (AFS-101). */
+.inbox-items > li[data-kind="approval"] {
+  background: var(--warn-bg);
+}
+.inbox-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--muted);
+}
+.inbox-glyph[data-kind="approval"],
+.inbox-glyph[data-kind="request"] {
+  color: var(--state-waiting);
+}
+.inbox-glyph[data-kind="paused"] {
+  color: var(--state-paused);
+}
+.inbox-glyph[data-kind="failed"] {
+  color: var(--state-failed);
+}
+.inbox-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.inbox-title {
+  overflow-wrap: anywhere;
+}
+.inbox-facts {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.inbox-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.inbox-verbs .button,
+.inbox-verbs button {
+  min-height: 2rem;
+  padding: 0.25rem 0.8rem;
+  font-size: 13px;
+}
+.inbox-sub {
+  margin: 1rem 0 0.5rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.inbox-items.quiet {
+  background: none;
+}
+.inbox-side .list .title .state-glyph {
+  vertical-align: -0.15em;
+  color: var(--state-running);
+}
+.inbox-side .list .sub .mode-badge {
+  margin-right: 4px;
+}
+/* On a phone the verbs go under the words, at the start, where the thumb is. */
+@media (max-width: 640px) {
+  .inbox-items > li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .inbox-verbs {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .inbox-numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inbox .page-head {
+    flex-wrap: wrap;
+  }
+}
+
 /* AFS-273 (ADR-0039 §5, §7): the quiet button, the rows' ⋯ menus, questions asked in their row,
    and quiet tables: a panel with a title bar, zebra rows, one main button in the title bar. */
 :root {

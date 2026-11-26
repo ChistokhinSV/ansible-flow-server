@@ -29,7 +29,7 @@ never opens the browser's Save dialog.
 
 | Page                                              | Shows                                                                                                                                                                                                                                                              |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/`                                               | Home: the day in a sentence, the approvals waiting for you, the launch configurations you used lately (Launch again), the latest runs, the workspaces                                                                                                              |
+| `/`                                               | Home, the inbox: the day in a sentence and four numbers; **Needs you**, from every workspace you may see, each with its workspace and what you may do there; **Running now**, **Launch again** and the latest runs (below)                                         |
 | `/workspaces`                                     | The workspaces; administrators add one                                                                                                                                                                                                                             |
 | `/w/<workspace>`                                  | A workspace in tabs. **Projects**: its projects; administrators add one, kept by the server or external (with what it signs in with)                                                                                                                               |
 | `/w/<workspace>/-/environments`                   | **Execution environments** of the workspace                                                                                                                                                                                                                        |
@@ -43,7 +43,7 @@ never opens the browser's Save dialog.
 | `/w/<workspace>/<project>/settings`               | **Settings**: the `git clone` command, what an external source signs in with, its SSH host key, the push hook, library                                                                                                                                             |
 | `/w/<workspace>/<project>/flow/<file>`            | One flow on the designer's canvas; its launch configurations (Launch) and newest runs above it; "Open on its own page"                                                                                                                                             |
 | `.../flow/<file>?commit=<hash>`                   | The flow as that commit left it, read only, in the Changes lens against the version before                                                                                                                                                                         |
-| `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form with Launch on top, what would run, keep start values                                                                                                                                                         |
+| `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form, Check or Real as a choice, What will run beside it, the button that names the run, what would run, keep start values                                                                                         |
 | `.../launch/<id>/runs`, `/schedules`, `/settings` | Its **Runs** (older ones a page at a time), its **Schedules**, and its **Settings** (change, delete; `rw` on its flow)                                                                                                                                             |
 | `/w/<workspace>/<project>/launch/new`             | Add a launch configuration (`rw` on its flow)                                                                                                                                                                                                                      |
 | `/runs`                                           | Every run you may see, the newest first, filtered by state, by project and one of its launch configurations, and to your own (Mine); the choices are in the address; older runs a page at a time                                                                   |
@@ -64,8 +64,29 @@ never opens the browser's Save dialog.
   pages the person may see; people and groups for administrators. Arrows and Enter open one, Esc
   empties the field. `/` and Ctrl+K work while the flow canvas has the focus too. The same over the API: `GET /api/v1/search?q=` (a token made for one workspace searches
   there only).
+- **Home** is an inbox. It spans every workspace you may see (the menu's workspace does not
+  narrow it); **Workspace** at the top narrows it to one, kept in the address (`/?workspace=<key>`).
+  - The day in a sentence (each count a link to those runs) and four numbers: runs today (real
+    and check), how many went well in the last 7 days, how many things need you (and how long the
+    oldest has waited), and the server's runners (busy of how many at once, and how many queued).
+  - **Needs you**, an approval you may decide first, then your runs, then the rest; each names its
+    workspace (or "This server") and has only what your access there allows:
+    - an approval you may decide: **Review**;
+    - a run of yours paused step by step or by the debugger: **Continue**, **Step**, **Open**, and
+      when it stops by itself;
+    - a run of yours that failed in the last 7 days, until its launch configuration (or its flow)
+      runs again: **Open**, and **Run again** with operator on the flow (it opens the run's Run
+      again menu, with its choices);
+    - a draft you changed that nobody saved: **Open draft**, with who else changed it and whether
+      the flow changed on its branch since the draft began;
+    - for administrators, the server's certificate in its last 30 days: **Replace**.
+  - **Waiting for others**: your runs that wait for someone else's decision, and whose. They are
+    not counted.
+  - **Running now** and **Launch again** beside it, and the latest runs with their workspace.
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
-  The flow canvas keeps the designer's own look in the same theme.
+  The flow canvas takes the page's colours in the same theme (its ground, panels, lines, text and
+  accent), and turns light or dark with the page when the page follows the device. A flow opened
+  at a commit on a page of its own keeps the designer's colours.
 - **A run's state** has a shape of its own beside its words, so it reads without colour: a dashed
   circle for queued, a turning arc for running, two bars for paused, a diamond for waiting for a
   decision (the approval's shape on the canvas), a tick for went well, a cross for failed, a

@@ -119,6 +119,10 @@ export interface LaunchForm {
    * wins over). Only on the form route's answer.
    */
   origins?: Record<string, string>;
+  /** AFS-272: the steps a run goes through when everything goes well, by title (`stepsOf`). */
+  steps?: string[];
+  /** AFS-272: the flow's approvals, by title, with the approvers each names (none: the default). */
+  approvals?: { title: string; approvers: string[] }[];
 }
 
 export type Prepared =
@@ -130,6 +134,39 @@ export interface PrepareDeps {
   git: Git;
   sync: ProjectSync;
 }
+
+/** How far `stepsOf` lists: enough to see what a run does, short enough to read beside a form. */
+export const STEPS_SHOWN = 12;
+
+/**
+ * AFS-272: the steps a run goes through when everything goes well, by title, from the start to an
+ * end: each step's ok port, an approval's approved port. A step that branches (a decision, parallel
+ * paths) is the last one listed: past it the way depends on the hosts. Top level only: a subflow is
+ * one step, as the canvas shows it.
+ */
+export function stepsOf(doc: Pick<FlowDocument, 'nodes' | 'edges'>): string[] {
+  const titles: string[] = [];
+  let at = doc.nodes.find((n) => n.type === 'start');
+  const seen = new Set<string>();
+  while (at && titles.length < STEPS_SHOWN) {
+    seen.add(at.id);
+    const from: string = at.id;
+    const port = at.type === 'approval' ? 'approved' : 'ok_hosts';
+    const edge = doc.edges?.find((e) => e.from.node === from && e.from.port === port);
+    const next = edge && doc.nodes.find((n) => n.id === edge.to.node);
+    if (!next || seen.has(next.id) || next.type === 'end') break;
+    // A step with no title is named by its key: an empty name reads as "A ›  › B".
+    titles.push(next.title?.trim() || next.key || 'an untitled step');
+    at = next;
+  }
+  return titles;
+}
+
+/** AFS-272: the flow's approvals, with the approvers each names: what a real run waits for. */
+export const approvalsOf = (doc: Pick<FlowDocument, 'nodes'>) =>
+  doc.nodes
+    .filter((n) => n.type === 'approval')
+    .map((n) => ({ title: n.title, approvers: [...(n.approval?.approvers ?? [])] }));
 
 const flowOf = (doc: FlowDocument, file: string): PreparedLaunch['flow'] => ({
   file,
@@ -201,6 +238,8 @@ export async function prepareLaunch(
   }
   const fields = launchFields(flow.doc, config.inputs, mode === 'check', false);
   markTargets(flow.doc, fields);
+  const steps = stepsOf(flow.doc);
+  const approvals = approvalsOf(flow.doc);
   const form: LaunchForm = {
     commit,
     ...(pinned ? {} : { ref: ref ?? project.gitRef }),
@@ -210,6 +249,8 @@ export async function prepareLaunch(
     ...(config.inventory ? { inventory: config.inventory } : {}),
     ...(eeImage ? { eeImage } : {}),
     ...(limit ? { limit } : {}),
+    ...(steps.length ? { steps } : {}),
+    ...(approvals.length ? { approvals } : {}),
   };
 
   const problems: Problem[] = [];

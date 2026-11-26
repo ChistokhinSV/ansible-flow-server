@@ -85,7 +85,9 @@ a run decide, see [Approvals](approvals.md)).
 
 **Actions** in the side menu lists the actions you may run, each with your last run of it. Someone
 whose only access is actions lands on Actions when they sign in, and the menu holds only Actions
-and Help.
+and Help. There, **Your runs** says which of their own runs need a look: one that failed in the
+last 7 days (until the action runs again), or one that waits for someone's decision. Each opens
+its progress.
 
 An action opens its form: the values it asks, **What will happen** (check or real, the steps it
 goes through by title, the approvals it waits at and who decides them (by name: an approval with no

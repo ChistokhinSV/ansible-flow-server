@@ -47,6 +47,12 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
   configuration's id) and `by` (the login of who asked for the run), and read a page at a time
   with `limit` and `before`, see [Runs](runs.md). A list never shows more than you may see,
   whatever it is asked for.
+- `GET /api/v1/inbox` is Home's inbox in one call: what needs you across the workspaces you may
+  see, each item with its `kind` (`approval`, `paused`, `failed`, `draft`, `certificate`,
+  `request`), its `workspace` (none for the server's certificate) and the `verbs` you may use
+  there; `count` (every item but your runs that wait for someone else); the day's numbers from
+  `since` (the start of your day, at most 7 days back; else the last 24 hours), the last 7 days' and the runners'.
+  `?workspace=<key>` narrows it to one workspace; a token made for one workspace sees only that one.
 - Each route is described in one list on the server (what it does, who may call it, which
   workspace it reaches); a route that is not in it stops the server from starting.
 

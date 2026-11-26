@@ -238,6 +238,7 @@ export function RunAgainMenu({
   change,
   mayDebug,
   busy,
+  openAtStart = false,
   onAgain,
   onChange,
 }: {
@@ -247,10 +248,12 @@ export function RunAgainMenu({
   change?: string;
   mayDebug: boolean;
   busy: boolean;
+  /** AFS-212: open when shown (Run again in Home's inbox comes here for its choices). */
+  openAtStart?: boolean;
   onAgain(body?: RelaunchBody): void;
   onChange(to: string): void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(openAtStart);
   const [debugging, setDebugging] = useState(false);
   // AFS-251: an item is named by its label; the line under it describes it.
   const uid = useId();

@@ -1,12 +1,14 @@
-// Home (AFS-64): who is here, what waits for them, the latest runs, and the workspaces. Plain
-// sentences and short lists; the only tinted thing is the first approval that waits.
+// Home (AFS-64), an inbox since AFS-212 (ADR-0039 §9, §10): the day in one sentence and four
+// numbers, what needs this person with what they may do about it, what runs now, what they may
+// launch again and the latest runs. It spans every workspace they may see (it does not follow the
+// menu's workspace); `?workspace=<key>` narrows it to one.
 // AFS-85: and what this person launched lately, one step from launching it again.
-import { Fragment, type ReactNode, useEffect } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import { launchesAny, useMyAccess } from './access';
-import { api, type Run, type User, type Workspace } from './api';
+import { api, type InboxItem, type InboxVerb, type Run, type User, type Workspace } from './api';
 import { launchAddress } from './launch';
-import { Link } from './router';
-import { RunList } from './runs';
+import { Link, navigate, useSearch } from './router';
+import { ModeBadge, RunList, StateGlyph } from './runs';
 import { ago, Loading, PageHead, span, useLoad } from './ui';
 
 const greeting = (hour: number) =>
@@ -20,34 +22,59 @@ const greeting = (hour: number) =>
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** How many configurations "Launch again" offers. */
+/** How many configurations "Launch again" offers, and runs "Running now" lists. */
 const AGAIN = 5;
+const RUNNING = 5;
 
-interface Again {
-  to: string;
+/** The start of this person's day, by their clock: the day's numbers count from it. */
+export const midnight = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+interface ProjectAt {
+  id: string;
+  key: string;
   name: string;
-  flow: string;
-  project: string;
-  at: string;
+  workspace: { key: string; name: string };
 }
 
-/**
- * The launch configurations of these runs, with their addresses. A run names its project and its
- * configuration by id: the keys an address is made of are read from the workspaces' projects, and
- * a configuration that is gone since, or whose project this person no longer sees, is left out.
- */
-async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[]> {
-  if (!runs.length) return [];
-  const projects = (
+/** Every project of the workspaces this person sees, with its workspace: runs name only ids. */
+async function projectsOf(workspaces: Workspace[]): Promise<ProjectAt[]> {
+  return (
     await Promise.all(
       workspaces.map((w) =>
         api.projects(w.key).then(
-          (list) => list.map((p) => ({ id: p.id, key: p.key, name: p.name, workspace: w.key })),
+          (list) =>
+            list.map((p) => ({
+              id: p.id,
+              key: p.key,
+              name: p.name,
+              workspace: { key: w.key, name: w.name },
+            })),
           () => [],
         ),
       ),
     )
   ).flat();
+}
+
+interface Again {
+  to: string;
+  name: string;
+  flow: string;
+  workspace: string;
+  mode: string;
+  at: string;
+}
+
+/**
+ * The launch configurations of these runs, with their addresses. A configuration that is gone
+ * since, or whose project this person no longer sees, is left out.
+ */
+async function launchAgain(runs: Run[], projects: ProjectAt[]): Promise<Again[]> {
+  if (!runs.length) return [];
   const configs = new Map<string, Promise<{ id: string; name: string; flowGone?: string }[]>>();
   const configsOf = (project: string) => {
     let asked = configs.get(project);
@@ -65,10 +92,11 @@ async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[
       // AFS-187: a configuration whose flow is gone cannot be launched again.
       if (!config || config.flowGone) return undefined;
       return {
-        to: launchAddress(project.workspace, project.key, config.id),
+        to: launchAddress(project.workspace.key, project.key, config.id),
         name: config.name,
         flow: run.flow.name,
-        project: project.name,
+        workspace: project.workspace.name,
+        mode: run.mode,
         at: run.startedAt ?? run.createdAt,
       };
     }),
@@ -76,294 +104,568 @@ async function launchAgain(runs: Run[], workspaces: Workspace[]): Promise<Again[
   return rows.filter((r): r is Again => !!r).slice(0, AGAIN);
 }
 
+/** "12 min": how long until `at`, never less than nothing. */
+const until = (at: string) => {
+  const minutes = Math.max(0, Math.round((Date.parse(at) - Date.now()) / 60_000));
+  return minutes >= 120 ? `${Math.round(minutes / 60)} h` : `${minutes} min`;
+};
+
+/** Where an item's run opens: its page, or an action's progress for who only runs the action. */
+export const runAddress = (run: NonNullable<InboxItem['run']>) =>
+  run.asRunner
+    ? `/actions/runs/${encodeURIComponent(run.id)}`
+    : `/runs/${encodeURIComponent(run.id)}`;
+
+const draftAddress = (item: InboxItem) =>
+  item.workspace && item.project && item.draft
+    ? `/w/${item.workspace.key}/${item.project.key}/flow/${item.draft.file}?edit=1`
+    : '/';
+
+/** The item's shape: a run's state where it is about a run. */
+function KindGlyph({ item }: { item: InboxItem }) {
+  if (item.kind === 'approval' || item.kind === 'request') return <StateGlyph state="waiting" />;
+  if (item.kind === 'paused') return <StateGlyph state="paused" />;
+  if (item.kind === 'failed') return <StateGlyph state={item.failure?.lost ? 'lost' : 'failed'} />;
+  // A draft: a pen; the certificate: a padlock.
+  return (
+    <svg
+      className="state-glyph"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {item.kind === 'draft' ? (
+        <path d="M3 13l1-3.5 6.5-6.5 2.5 2.5-6.5 6.5zM9.5 4l2.5 2.5" />
+      ) : (
+        <path d="M4.5 7.5h7v6h-7zM6 7.5V5.5a2 2 0 0 1 4 0v2" />
+      )}
+    </svg>
+  );
+}
+
+/** What the item is, in a line, and the facts under it (its workspace first). */
+function itemWords(item: InboxItem): { what: ReactNode; facts: string[] } {
+  const run = item.run;
+  const named = run ? `${run.flow.name} #${run.number}` : '';
+  const place = item.workspace?.name ?? 'This server';
+  switch (item.kind) {
+    case 'approval':
+      return {
+        what: (
+          <>
+            <strong>{item.approval?.step}</strong> · {named}
+          </>
+        ),
+        facts: [
+          place,
+          `launched by ${item.approval?.requestedBy}`,
+          `${run?.mode === 'check' ? 'check' : 'real'} run`,
+          `waiting ${span(item.since)}`,
+        ],
+      };
+    case 'request':
+      return {
+        what: (
+          <>
+            <strong>{named}</strong> waits for a decision
+          </>
+        ),
+        facts: [
+          place,
+          item.approval?.deciders?.length
+            ? `by ${item.approval.deciders.join(' or ')}`
+            : `at ${item.approval?.step || 'its approval'}`,
+          `for ${span(item.since)}`,
+        ],
+      };
+    case 'paused':
+      return {
+        what: (
+          <>
+            <strong>{named}</strong> is paused before {item.pause?.before}
+          </>
+        ),
+        facts: [
+          place,
+          run?.debug ? 'debug run' : 'step by step',
+          ...(item.pause?.stopsAt ? [`stops by itself in ${until(item.pause.stopsAt)}`] : []),
+        ],
+      };
+    case 'failed':
+      return {
+        what: (
+          <>
+            <strong>{named}</strong> {item.failure?.lost ? 'was lost' : 'failed'}
+          </>
+        ),
+        facts: [
+          place,
+          ...(item.failure?.hosts?.failed
+            ? [`${plural(item.failure.hosts.failed, 'host', 'hosts')} failed`]
+            : []),
+          ...(item.failure?.error ? [item.failure.error] : []),
+          ago(item.since),
+        ],
+      };
+    case 'draft':
+      return {
+        what: (
+          <>
+            <strong>Your draft of {item.draft?.flow}</strong> is not saved
+          </>
+        ),
+        facts: [
+          place,
+          ...(item.draft?.behind ? ['the flow changed since it began'] : []),
+          ...(item.draft?.others.length ? [`${item.draft.others.join(', ')} edited it too`] : []),
+          `last changed ${ago(item.since)}`,
+        ],
+      };
+    default:
+      return {
+        what: <strong>{item.title}</strong>,
+        facts: [place, ...(item.certificate?.names.slice(0, 1) ?? [])],
+      };
+  }
+}
+
+const VERB_WORDS: Record<InboxVerb, string> = {
+  review: 'Review',
+  open: 'Open',
+  step: 'Step',
+  continue: 'Continue',
+  runAgain: 'Run again',
+  openDraft: 'Open draft',
+  replace: 'Replace',
+};
+
+function InboxRow({ item, onDone }: { item: InboxItem; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const { what, facts } = itemWords(item);
+  const run = item.run;
+  // The visible word first, then what it is about: a list of "Open" buttons says which is which.
+  const about = run ? `${run.flow.name} #${run.number}` : (item.draft?.flow ?? item.title);
+  const step = async (command: 'step' | 'continue') => {
+    if (!run) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.stepRun(run.id, { command });
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verb = (v: InboxVerb, main: boolean) => {
+    const label = `${VERB_WORDS[v]}: ${about}`;
+    const className = main ? 'button primary' : 'button';
+    if (v === 'step' || v === 'continue')
+      return (
+        <button
+          key={v}
+          type="button"
+          className={main ? 'primary' : undefined}
+          disabled={busy}
+          aria-label={label}
+          onClick={() => void step(v)}
+        >
+          {VERB_WORDS[v]}
+        </button>
+      );
+    const to =
+      v === 'openDraft'
+        ? draftAddress(item)
+        : v === 'replace'
+          ? '/admin/certificate'
+          : run
+            ? // Run again opens the run's own Run again menu: its choices and questions live there.
+              `${runAddress(run)}${v === 'runAgain' ? '?again=1' : ''}`
+            : '/';
+    return (
+      <Link key={v} to={to} className={className} aria-label={label}>
+        {VERB_WORDS[v]}
+      </Link>
+    );
+  };
+  // An approval's Review is the main thing to do; one's own run waiting for others is only said.
+  const verbs =
+    item.kind === 'paused'
+      ? (['continue', 'step', 'open'] as InboxVerb[]).filter((v) => item.verbs.includes(v))
+      : item.verbs;
+  return (
+    <li data-kind={item.kind}>
+      <span className="inbox-glyph" data-kind={item.kind}>
+        <KindGlyph item={item} />
+      </span>
+      <span className="inbox-what">
+        <span className="inbox-title">{what}</span>
+        <span className="inbox-facts">{facts.join(' · ')}</span>
+        {error && (
+          <span className="bad-text" role="alert">
+            {error}
+          </span>
+        )}
+      </span>
+      <span className="inbox-verbs">
+        {verbs.map((v, i) => verb(v, i === 0 && item.kind !== 'request'))}
+      </span>
+    </li>
+  );
+}
+
 export function Home({ me }: { me: User }) {
+  const chosen = new URLSearchParams(useSearch()).get('workspace') ?? undefined;
+  const inbox = useLoad(() => api.inbox(midnight(), chosen), [chosen]);
   const runs = useLoad(() => api.runs({ limit: 100 }), []);
-  const approvals = useLoad(() => api.approvals(), []);
   const workspaces = useLoad(api.workspaces, []);
+  const projects = useLoad(() => projectsOf(workspaces.data ?? []), [workspaces.data]);
   const myAccess = useMyAccess();
   // Runs end and approvals arrive while the page is open: it looks again now and then.
   useEffect(() => {
     const timer = setInterval(() => {
+      inbox.reload();
       runs.reload();
-      approvals.reload();
     }, 15_000);
     return () => clearInterval(timer);
-  }, [runs.reload, approvals.reload]);
+  }, [inbox.reload, runs.reload]);
 
-  const mine = approvals.data?.filter((a) => a.mayDecide) ?? [];
-  const yours = [
-    ...new Set(
-      (approvals.data ?? [])
-        .filter((a) => !a.mayDecide && a.requestedBy === me.login)
-        .map((a) => a.run.id),
-    ),
-  ];
-  const today = new Date().toDateString();
-  const todays = (runs.data ?? []).filter((r) => new Date(r.createdAt).toDateString() === today);
-  const well = todays.filter((r) => r.state === 'succeeded').length;
-  // AFS-102: what did not go well is said too, not only what did.
-  // AFS-193: a run decided against at its approval is counted as rejected, not failed.
-  const failed = todays.filter(
-    (r) => (r.state === 'failed' && !r.decidedAgainst) || r.state === 'lost',
-  ).length;
-  const rejected = todays.filter((r) => r.state === 'failed' && r.decidedAgainst).length;
-  const waiting = todays.filter((r) => r.state === 'waiting').length;
-  // AFS-147: every run of the day is counted somewhere: stopped and still going too.
-  const stopped = todays.filter((r) => r.state === 'cancelled').length;
-  // AFS-205: a step-by-step run paused before a step waits for someone, it does not go.
-  const pausedRuns = todays.filter((r) => r.state === 'running' && r.pausedBefore);
-  const paused = pausedRuns.length;
-  // AFS-249: debug runs are said as debug runs, not "step by step".
-  const pausedDebug = pausedRuns.filter((r) => r.step?.debug).length;
-  const pausedWords =
-    pausedDebug === 0
-      ? `${paused} paused step by step`
-      : pausedDebug === paused
-        ? `${plural(paused, 'debug run', 'debug runs')} paused`
-        : `${paused} paused`;
-  const going = todays.filter(
-    (r) => (r.state === 'running' && !r.pausedBefore) || r.state === 'queued',
-  ).length;
-  // AFS-205: your own paused runs (of any day): they wait for you.
-  const yourPaused = (runs.data ?? []).filter(
-    (r) => r.state === 'running' && r.pausedBefore && r.requestedBy.login === me.login,
+  const at = new Map((projects.data ?? []).map((p) => [p.id, p]));
+  // The runs of the workspace asked for; all of them otherwise. Until the projects are read, a
+  // run's workspace is not known: none is left out for that.
+  const here = (runs.data ?? []).filter(
+    (r) => !chosen || !projects.data || at.get(r.project)?.workspace.key === chosen,
   );
-  // AFS-208: each count is a link to those runs, as the runs that wait are.
-  const counts: [string, ReactNode][] = [
-    ['well', <Link key="well" to="/runs?state=succeeded">{`${well} went well`}</Link>],
-    ...(failed
-      ? [
-          ['failed', <Link key="failed" to="/runs?state=failed">{`${failed} failed`}</Link>] as [
-            string,
-            ReactNode,
-          ],
-        ]
-      : []),
-    ...(rejected
-      ? [
-          [
-            'rejected',
-            <Link key="rejected" to="/runs?state=rejected">{`${rejected} rejected`}</Link>,
-          ] as [string, ReactNode],
-        ]
-      : []),
-    ...(stopped
-      ? [
-          [
-            'stopped',
-            <Link key="stopped" to="/runs?state=cancelled">{`${stopped} stopped`}</Link>,
-          ] as [string, ReactNode],
-        ]
-      : []),
-    ...(going
-      ? [
-          [
-            'going',
-            <Link
-              key="going"
-              to="/runs?state=going"
-            >{`${going} still ${going === 1 ? 'goes' : 'go'}`}</Link>,
-          ] as [string, ReactNode],
-        ]
-      : []),
-  ];
-  // AFS-146: whose decision your own held run waits for, when it is one run.
-  const heldFor =
-    yours.length === 1
-      ? approvals.data?.find((a) => a.run.id === yours[0])?.gate.deciders
-      : undefined;
-  const summary = (
+  const shownWorkspace = workspaces.data?.find((w) => w.key === chosen);
+
+  const box = inbox.data;
+  const today = box?.today;
+  const needs = box?.items.filter((i) => i.kind !== 'request') ?? [];
+  const requests = box?.items.filter((i) => i.kind === 'request') ?? [];
+  // AFS-249: debug runs are said as debug runs, not "step by step".
+  const pausedWords = !today
+    ? ''
+    : today.pausedDebug === 0
+      ? `${today.paused} paused step by step`
+      : today.pausedDebug === today.paused
+        ? `${plural(today.paused, 'debug run', 'debug runs')} paused`
+        : `${today.paused} paused`;
+  // AFS-208: each count is a link to those runs.
+  const counts: [string, ReactNode][] = today
+    ? [
+        [
+          'well',
+          <Link key="well" to="/runs?state=succeeded">{`${today.succeeded} went well`}</Link>,
+        ],
+        ...(today.failed
+          ? [
+              [
+                'failed',
+                <Link key="failed" to="/runs?state=failed">{`${today.failed} failed`}</Link>,
+              ] as [string, ReactNode],
+            ]
+          : []),
+        ...(today.rejected
+          ? [
+              [
+                'rejected',
+                <Link
+                  key="rejected"
+                  to="/runs?state=rejected"
+                >{`${today.rejected} rejected`}</Link>,
+              ] as [string, ReactNode],
+            ]
+          : []),
+        ...(today.cancelled
+          ? [
+              [
+                'stopped',
+                <Link
+                  key="stopped"
+                  to="/runs?state=cancelled"
+                >{`${today.cancelled} stopped`}</Link>,
+              ] as [string, ReactNode],
+            ]
+          : []),
+        ...(today.going
+          ? [
+              [
+                'going',
+                <Link
+                  key="going"
+                  to="/runs?state=going"
+                >{`${today.going} still ${today.going === 1 ? 'goes' : 'go'}`}</Link>,
+              ] as [string, ReactNode],
+            ]
+          : []),
+        ...(today.waiting
+          ? [
+              [
+                'waiting',
+                <Link
+                  key="waiting"
+                  to="/runs?state=waiting"
+                >{`${today.waiting} ${today.waiting === 1 ? 'waits' : 'wait'} for a decision`}</Link>,
+              ] as [string, ReactNode],
+            ]
+          : []),
+        ...(today.paused
+          ? [
+              [
+                'paused',
+                <Link key="paused" to="/runs?state=paused">
+                  {pausedWords}
+                </Link>,
+              ] as [string, ReactNode],
+            ]
+          : []),
+      ]
+    : [];
+  const summary = box && today && (
     <>
-      {todays.length ? (
+      {today.runs ? (
         <>
           {/* AFS-208: everyone's runs you may see, not only yours. */}
-          {plural(todays.length, 'run', 'runs')} today, by everyone:{' '}
+          {plural(today.runs, 'run', 'runs')} today
+          {shownWorkspace ? ` in ${shownWorkspace.name}` : ''}, by everyone:{' '}
           {counts.map(([k, c], i) => (
             <Fragment key={k}>
               {i ? ', ' : ''}
               {c}
             </Fragment>
           ))}
-          {waiting ? (
-            <>
-              {', '}
-              {/* AFS-147: the runs that wait are a link to them. */}
-              <Link to="/runs?state=waiting">
-                {waiting} {waiting === 1 ? 'waits' : 'wait'} for a decision
-              </Link>
-            </>
-          ) : null}
-          {paused ? (
-            <>
-              {', '}
-              <Link to="/runs?state=paused">{pausedWords}</Link>
-            </>
-          ) : null}
           .
         </>
       ) : (
         'No run yet today.'
       )}{' '}
-      {mine.length
-        ? `${plural(mine.length, 'approval is', 'approvals are')} waiting for you.`
-        : yourPaused.length
-          ? null
-          : 'Nothing waits for you.'}
-      {/* AFS-205: your run paused step by step waits for your Step or Continue. */}
-      {yourPaused.length > 0 && (
-        <>
-          {mine.length ? ' ' : ''}
-          <Link
-            to={
-              yourPaused.length === 1 ? `/runs/${yourPaused[0]?.id}` : '/runs?state=paused&mine=1'
-            }
-          >
-            {yourPaused.length === 1
-              ? `Your run #${yourPaused[0]?.number} of ${yourPaused[0]?.flow.name} is paused before ${yourPaused[0]?.pausedBefore}`
-              : `${yourPaused.length} runs of yours are paused`}
-          </Link>
-          : Step or Continue goes on.
-        </>
-      )}
-      {/* AFS-144: your own runs held at a gate for someone else are said too. */}
-      {yours.length > 0 && (
-        <>
-          {' '}
-          <Link to={yours.length === 1 ? `/runs/${yours[0]}` : '/runs?state=waiting&mine=1'}>
-            {heldFor?.length
-              ? `1 run of yours waits for a decision by ${heldFor.length === 1 ? heldFor[0] : `${heldFor.slice(0, -1).join(', ')} or ${heldFor.at(-1)}`}`
-              : `${plural(yours.length, 'run', 'runs')} of yours ${yours.length === 1 ? 'waits' : 'wait'} for someone else's decision`}
-          </Link>
-          .
-        </>
-      )}
+      {box.count ? `${plural(box.count, 'thing needs', 'things need')} you.` : 'Nothing needs you.'}
     </>
   );
+  // How long a run has waited for this person: a draft or the certificate does not wait so.
+  const oldest = needs
+    .filter((i) => i.kind === 'approval' || i.kind === 'paused' || i.kind === 'failed')
+    .reduce<string | undefined>((o, i) => (!o || i.since < o ? i.since : o), undefined);
+  const week = box?.week;
+  const runners = box?.runners;
   const first = me.name.split(/\s+/)[0] || me.name;
   // AFS-85: the newest run of each configuration this person launched themselves (a schedule's
   // runs are its owner's, and not launched by hand). A few more than are shown, for the ones
   // that are gone since.
   const started: Run[] = [];
-  for (const run of runs.data ?? []) {
+  for (const run of here) {
     if (!run.config || run.schedule || run.requestedBy.login !== me.login) continue;
     if (started.some((r) => r.config?.id === run.config?.id)) continue;
     if (started.push(run) >= AGAIN + 3) break;
   }
   const again = useLoad(
-    () => launchAgain(started, workspaces.data ?? []),
-    [started.map((r) => `${r.config?.id}@${r.id}`).join(' '), workspaces.data],
+    () => launchAgain(started, projects.data ?? []),
+    [started.map((r) => `${r.config?.id}@${r.id}`).join(' '), projects.data],
   );
+  const going = here.filter(
+    (r) => r.state === 'queued' || (r.state === 'running' && !r.pausedBefore),
+  );
+  const workspaceOf = (run: Run) => at.get(run.project)?.workspace.name;
 
   return (
-    <div className="home">
+    <div className="home inbox">
       <PageHead
         help="web-pages.md"
         title={`${greeting(new Date().getHours())}, ${first}`}
-        lead={runs.data && approvals.data ? summary : undefined}
-      />
-      {mine.length > 0 && (
-        <section aria-labelledby="waiting">
-          <h2 id="waiting">Waiting for you</h2>
-          <ul className="waiting">
-            {mine.slice(0, 5).map((a) => (
-              <li key={a.gate.id}>
-                <Link to={`/runs/${a.run.id}`}>
-                  <span className="what">
-                    <span>
-                      <strong>{a.gate.node.title}</strong>{' '}
-                      <span className="muted">
-                        · {a.run.flow.name} #{a.run.number}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="since">waiting for {span(a.gate.createdAt)}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {mine.length > 5 && (
-            <p className="small">
-              <Link to="/approvals">All {mine.length} approvals</Link>
-            </p>
-          )}
-        </section>
-      )}
-      {!!again.data?.length && (
-        <section aria-labelledby="again">
-          <h2 id="again">Launch again</h2>
-          <ul className="list">
-            {again.data.map((a) => (
-              <li key={a.to}>
-                <Link to={a.to}>
-                  <span className="two">
-                    <span className="title">{a.name}</span>
-                    <span className="sub">
-                      {a.flow} · {a.project}
-                    </span>
-                  </span>
-                  <span className="end">last run {ago(a.at)}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
+        lead={summary || undefined}
+      >
+        {/* AFS-212: the inbox spans workspaces; this narrows it to one, kept in the address. */}
+        {(workspaces.data?.length ?? 0) > 1 || chosen ? (
+          <label className="inbox-filter">
+            Workspace{' '}
+            <select
+              value={chosen ?? ''}
+              onChange={(e) =>
+                navigate(
+                  e.target.value ? `/?workspace=${encodeURIComponent(e.target.value)}` : '/',
+                  { replace: true },
+                )
+              }
+            >
+              <option value="">All workspaces</option>
+              {workspaces.data?.map((w) => (
+                <option key={w.id} value={w.key}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </PageHead>
+      <Loading state={inbox} />
+      {box && today && week && runners && (
+        <ul className="inbox-numbers" aria-label="The day in numbers">
+          <li>
+            <span className="label">Runs today</span>
+            <span className="number">{today.runs}</span>
+            <span className="sub">
+              {today.real} real · {today.check} check
+            </span>
+          </li>
+          <li>
+            <span className="label">Went well, 7 days</span>
+            <span className="number">
+              {week.ended ? `${Math.round((100 * week.succeeded) / week.ended)}%` : '–'}
+            </span>
+            <span className="sub">
+              {week.ended
+                ? `${week.succeeded} of ${plural(week.ended, 'run', 'runs')}`
+                : 'no run ended'}
+            </span>
+          </li>
+          <li>
+            <span className="label">Needs you</span>
+            <span className={box.count ? 'number warn-text' : 'number'}>{box.count}</span>
+            <span className="sub">{oldest ? `oldest ${span(oldest)}` : 'nothing waits'}</span>
+          </li>
+          <li>
+            <span className="label">Runners</span>
+            <span className="number">
+              {runners.busy} of {runners.slots}
+            </span>
+            <span className="sub">
+              busy · {runners.queued ? `${runners.queued} queued` : 'nothing queued'}
+            </span>
+          </li>
+        </ul>
       )}
       <div className="home-split">
-        <section aria-labelledby="recent">
-          <div className="section-head">
-            <h2 id="recent">Latest runs</h2>
-            <Link to="/runs">All runs</Link>
-          </div>
-          <Loading state={runs} />
-          {runs.data?.length === 0 && (
-            <p className="empty">
-              {/* AFS-152: where runs start, only to who may start one. */}
-              {launchesAny(myAccess.data)
-                ? 'No run yet. Runs start from a launch configuration of a project.'
-                : 'No run yet.'}
-            </p>
-          )}
-          {!!runs.data?.length && <RunList runs={runs.data.slice(0, 8)} me={me} />}
-        </section>
-        <section aria-labelledby="spaces">
-          <div className="section-head">
-            <h2 id="spaces">Workspaces</h2>
-            <Link to="/workspaces">All workspaces</Link>
-          </div>
-          <Loading state={workspaces} />
-          {workspaces.data?.length === 0 && (
-            <p className="empty">
-              {me.admin ? (
-                <>
-                  No workspace yet. <Link to="/workspaces">Add the first one.</Link>
-                </>
-              ) : (
-                // AFS-135: the server may have workspaces this person has no access to yet.
-                // AFS-152: who to ask.
-                `You have no access to a workspace yet: ask an administrator for it${
-                  myAccess.data?.administrators.length
-                    ? ` (${myAccess.data.administrators.slice(0, 3).join(', ')})`
-                    : ''
-                }.`
+        <div className="inbox-main">
+          <section aria-labelledby="needs">
+            <div className="section-head">
+              <h2 id="needs">Needs you {box && <span className="count">{box.count}</span>}</h2>
+              {needs.some((i) => i.kind === 'approval') && (
+                <Link to="/approvals">All approvals</Link>
               )}
-            </p>
+            </div>
+            {workspaces.data?.length === 0 ? (
+              <p className="empty">
+                {me.admin ? (
+                  <>
+                    No workspace yet. <Link to="/workspaces">Add the first one.</Link>
+                  </>
+                ) : (
+                  // AFS-135: the server may have workspaces this person has no access to yet.
+                  // AFS-152: who to ask.
+                  `You have no access to a workspace yet: ask an administrator for it${
+                    myAccess.data?.administrators.length
+                      ? ` (${myAccess.data.administrators.slice(0, 3).join(', ')})`
+                      : ''
+                  }.`
+                )}
+              </p>
+            ) : box && !needs.length ? (
+              <p className="empty">Nothing needs you.</p>
+            ) : (
+              <ul className="inbox-items">
+                {needs.map((item) => (
+                  <InboxRow
+                    key={`${item.kind}:${item.run?.id ?? item.draft?.id ?? item.title}`}
+                    item={item}
+                    onDone={inbox.reload}
+                  />
+                ))}
+              </ul>
+            )}
+            {/* AFS-144: your own runs held at a gate for someone else are said too. */}
+            {requests.length > 0 && (
+              <>
+                <h3 className="inbox-sub">Waiting for others</h3>
+                <ul className="inbox-items quiet">
+                  {requests.map((item) => (
+                    <InboxRow key={`request:${item.run?.id}`} item={item} onDone={inbox.reload} />
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+          <section aria-labelledby="recent">
+            <div className="section-head">
+              <h2 id="recent">Latest runs</h2>
+              <Link to="/runs">All runs</Link>
+            </div>
+            <Loading state={runs} />
+            {runs.data && here.length === 0 && (
+              <p className="empty">
+                {/* AFS-152: where runs start, only to who may start one. */}
+                {launchesAny(myAccess.data)
+                  ? 'No run yet. Runs start from a launch configuration of a project.'
+                  : 'No run yet.'}
+              </p>
+            )}
+            {here.length > 0 && (
+              <RunList runs={here.slice(0, 8)} me={me} workspaceOf={workspaceOf} />
+            )}
+          </section>
+        </div>
+        <div className="inbox-side">
+          <section aria-labelledby="running">
+            <div className="section-head">
+              <h2 id="running">Running now</h2>
+              {going.length > 0 && <Link to="/runs?state=going">{going.length}</Link>}
+            </div>
+            {runs.data && going.length === 0 && <p className="empty">Nothing runs now.</p>}
+            {going.length > 0 && (
+              <ul className="list">
+                {going.slice(0, RUNNING).map((r) => (
+                  <li key={r.id}>
+                    <Link to={`/runs/${r.id}`}>
+                      <span className="two">
+                        <span className="title">
+                          <StateGlyph state={r.state} /> {r.flow.name}{' '}
+                          <span className="muted">#{r.number}</span>
+                        </span>
+                        <span className="sub">
+                          {[
+                            workspaceOf(r),
+                            r.state === 'queued'
+                              ? 'queued'
+                              : `started ${ago(r.startedAt ?? r.createdAt)}`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          {!!again.data?.length && (
+            <section aria-labelledby="again">
+              <h2 id="again">Launch again</h2>
+              <ul className="list">
+                {again.data.map((a) => (
+                  <li key={a.to}>
+                    <Link to={a.to}>
+                      <span className="two">
+                        <span className="title">{a.name}</span>
+                        <span className="sub">
+                          <ModeBadge mode={a.mode} /> {a.flow} · {a.workspace}
+                        </span>
+                      </span>
+                      <span className="end">last run {ago(a.at)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
-          {!!workspaces.data?.length && (
-            <ul className="list">
-              {workspaces.data.map((w) => (
-                <li key={w.id}>
-                  <Link to={`/w/${w.key}`}>
-                    <span className="two">
-                      <span className="title">{w.name}</span>
-                      {w.description && <span className="sub">{w.description}</span>}
-                    </span>
-                    <span className="end">{plural(w.projects, 'project', 'projects')}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
       </div>
     </div>
   );
