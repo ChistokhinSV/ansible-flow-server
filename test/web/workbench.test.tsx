@@ -215,8 +215,8 @@ describe('at a pause', () => {
     expect((document.getElementById('wb-side') as HTMLElement).hidden).toBe(false);
     expect(screen.getByRole('heading', { name: 'Variables' })).toBeTruthy();
     expect(document.title).toBe('⏸ Paused · Edge baseline #412');
-    // The canvas shows the step and marks the first failed host.
-    expect(posted).toContainEqual({ type: 'afs-reveal', node: PUSH });
+    // The canvas marks the first failed host; the step is not selected (the canvas keeps its room).
+    expect(posted.some((m) => (m as { type: string }).type === 'afs-reveal')).toBe(false);
     await waitFor(() => expect(posted).toContainEqual({ type: 'afs-host', host: 'sw-edge-02' }));
     // The run goes on: the title is the run's again.
     page.rerender(<Bench step={running} />);

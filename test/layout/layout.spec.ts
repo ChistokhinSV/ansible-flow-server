@@ -240,20 +240,26 @@ for (const [width, height] of SIZES)
         });
         if (bar) found.push(bar);
       }
-      // AFS-250: a debug run's reason line and buttons are in sight without scrolling: on a phone
-      // in the Debugger tab (Run · Debugger · Output), from tablet width up beside the canvas.
+      // AFS-250, AFS-265: a debug run's reason (the status line) and toolbar are in sight without
+      // scrolling. On a phone the workbench is tabs (Flow · Debug · Console); from tablet width up
+      // the side bar is left of the canvas and the only tabs are the bottom panel's.
       if (name === 'debugRun') {
         const reason = await page.locator('[data-debug-reason]').boundingBox();
         const stop = await page.locator('[data-debugger] [data-step-command="stop"]').boundingBox();
         if (!reason || !stop || stop.y + stop.height > height)
-          found.push(`the Debugger's buttons are not in the window: ${JSON.stringify(stop)}`);
+          found.push(
+            `the debug toolbar or status line is not in the window: ${JSON.stringify(stop)}`,
+          );
         const tabs = await page.getByRole('tablist').count();
-        if (width <= 860 && tabs !== 1) found.push('no Run · Debugger · Output tabs');
-        if (width > 860 && tabs !== 0) found.push(`tabs at ${width}px`);
+        const panelTabs = await page.locator('.wb-panel [role="tablist"]').count();
+        if (width <= 860 && tabs < 1) found.push('no Flow · Debug · Console tabs');
+        if (width > 860 && tabs !== panelTabs)
+          found.push(`tabs other than the panel's at ${width}px`);
         if (width > 860) {
           const frame = await page.locator('iframe.flow-frame').boundingBox();
-          if (!frame || !reason || reason.x < frame.x + frame.width - 1)
-            found.push('the Debugger is not beside the canvas');
+          const side = await page.locator('.wb-side').boundingBox();
+          if (!frame || (side && side.x > frame.x))
+            found.push('the side bar is not left of the canvas');
         }
       }
       expect(found, `${path} at ${width}px`).toEqual([]);

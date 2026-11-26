@@ -327,7 +327,7 @@ export function DebugWorkbench({
     return () => document.removeEventListener('keydown', onKey);
   }, [active, debug, hasViews]);
 
-  // At a new pause: the side bar on Variables, the host on the canvas, the focus on Continue.
+  // At a new pause: the side bar on Variables, the host marked on the canvas, the focus on Continue.
   const pauseId = s.pause?.id;
   const seen = useRef<string | undefined>(undefined);
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per pause
@@ -337,7 +337,8 @@ export function DebugWorkbench({
     state.setSide('debug');
     state.setSideOpen(true);
     if (phone) state.setTab('side');
-    if (s.pause) tellFrame(frame(), { type: 'afs-reveal', node: s.pause.node });
+    // Not revealed: that selects the step, and the canvas's own panel then takes half its room
+    // (CI layout check). The canvas marks the paused step itself; Hosts and Pause points reveal.
     const typing = document.activeElement?.closest?.('textarea, input, select');
     if (!typing) continueRef.current?.focus({ preventScroll: true });
     notify(s);
