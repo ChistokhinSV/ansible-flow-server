@@ -14,6 +14,9 @@ import {
   toggleName,
 } from '../../src/web/launch';
 
+/** AFS-272: Launch names the run it starts. */
+const LAUNCH = /^Launch (check|real) run$/;
+
 const dana = { id: 'u1', login: 'dana', name: 'Dana Whitfield', admin: true, groups: [] };
 const omar = { id: 'u2', login: 'omar', name: 'Omar Haddad', admin: false, groups: [] };
 const COMMIT = '9f2c1e7ab3d45c60e8a1f2b3c4d5e6f708192a3b';
@@ -205,7 +208,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
   it('Launch: the form first, the rare fields folded, the settings in one line', async () => {
     routes = common(dana);
     page('launch');
-    const launch = await screen.findByRole('button', { name: 'Launch' });
+    const launch = await screen.findByRole('button', { name: LAUNCH });
     // AFS-152: the form is read once the configuration is there.
     await screen.findByLabelText(/^devices/);
     // The inputs come before the button; AFS-138: the branch and limit too, folded, before the
@@ -213,10 +216,10 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     const precedes = (a: Element, b: Element) =>
       !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(precedes(screen.getByLabelText(/^devices/), launch)).toBe(true);
-    expect(precedes(screen.getByLabelText(/^Real/), launch)).toBe(true);
+    expect(precedes(screen.getByLabelText(/^real run/i), launch)).toBe(true);
     const fold = screen.getByLabelText(/^Branch/).closest('details') as HTMLDetailsElement;
     expect(precedes(screen.getByLabelText(/^devices/), fold)).toBe(true);
-    expect(precedes(fold, screen.getByLabelText(/^Real/))).toBe(true);
+    expect(precedes(fold, screen.getByLabelText(/^real run/i))).toBe(true);
     expect(fold.open).toBe(false);
     expect(fold.contains(screen.getByLabelText('Limit'))).toBe(true);
     // No settings section over the form: one line, with the flow as a link to its page.
@@ -386,7 +389,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
         .getAttribute('aria-current'),
     ).toBe('page');
     // The launch form is on its own tab.
-    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: LAUNCH })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'What the flow needs' })).toBeNull();
   });
 
@@ -422,7 +425,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     page('schedules');
     await screen.findByRole('heading', { name: 'Schedules' });
     expect(await screen.findByText('No schedule.')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: LAUNCH })).toBeNull();
   });
 
   it('Settings: the form is changed in place and says Saved; Delete is under it', async () => {
@@ -446,7 +449,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     page('settings');
     const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
     expect(name.value).toBe('Nightly check');
-    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: LAUNCH })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
     fireEvent.change(screen.getByLabelText(/^Inventory/), {
       target: { value: 'inventory/lab.yaml' },
@@ -522,7 +525,7 @@ describe('the launch form', () => {
     expect(secret.type).toBe('password');
     expect((screen.getByLabelText(/^devices/) as HTMLInputElement).value).toBe('fw-edge-01');
     // Someone who is not an administrator asks, and does not launch.
-    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: LAUNCH })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'What would run' }));
     await waitFor(() => expect(secret.getAttribute('aria-invalid')).toBe('true'));
@@ -765,7 +768,7 @@ describe('the launch form', () => {
       },
     );
     yes = true;
-    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
     expect(questions).toHaveLength(1);
     const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
@@ -838,14 +841,14 @@ describe('the launch form', () => {
     const secret = await screen.findByLabelText(/api_password/);
     fireEvent.change(secret, { target: { value: 's3cret-value' } });
     fireEvent.change(screen.getByLabelText(/^retries/), { target: { value: '5' } });
-    fireEvent.click(screen.getByLabelText(/^Real/));
+    fireEvent.click(screen.getByLabelText(/^real run/i));
 
     fireEvent.click(screen.getByRole('button', { name: 'Keep as start values' }));
     await screen.findByText(/Start values kept: devices, retries/);
     const patch = asked.find((a) => a.key === 'PATCH /launch-configs/c1');
     expect(patch?.body).toEqual({ inputs: { devices: ['fw-edge-01'], retries: 5 } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
     const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
     expect(launched?.body).toMatchObject({
@@ -877,7 +880,7 @@ describe('a step-by-step launch', () => {
     const tick = screen.getByLabelText(/^Step by step/) as HTMLInputElement;
     expect(tick.checked).toBe(false);
     fireEvent.click(tick);
-    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
     const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
     expect(launched?.body).toMatchObject({
@@ -899,7 +902,7 @@ describe('a step-by-step launch', () => {
     fireEvent.change(await screen.findByLabelText(/api_password/), {
       target: { value: 's3cret-value' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
     const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
     expect((launched?.body as { step?: unknown } | undefined)?.step).toBeUndefined();
@@ -965,7 +968,7 @@ describe('a debug launch', () => {
     expect(
       (screen.getByLabelText(/^Pause before the first step/) as HTMLInputElement).checked,
     ).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
     const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
     expect((launched?.body as { step?: unknown } | undefined)?.step).toBeUndefined();
@@ -982,7 +985,7 @@ describe('what a level shows', () => {
     };
     window.history.replaceState(null, '', '/w/net/core/launch/c1');
     render(<App />);
-    expect(await screen.findByRole('button', { name: 'Launch' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: LAUNCH })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Keep as start values' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
     // AFS-264: no Debug here, so no tick of its own either.
@@ -1215,9 +1218,9 @@ describe('AFS-208: launching says what it is about', () => {
     await screen.findByRole('group', { name: 'Groups for devices' });
     fireEvent.click(screen.getByRole('button', { name: 'What would run' }));
     expect(await screen.findByText('check (nothing is changed)')).toBeTruthy();
-    fireEvent.click(screen.getByRole('radio', { name: /^Real/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /^real run/i }));
     expect(screen.queryByRole('heading', { name: 'What would run' })).toBeNull();
-    fireEvent.click(await screen.findByRole('button', { name: 'Launch' }));
+    fireEvent.click(await screen.findByRole('button', { name: LAUNCH }));
     await waitFor(() => expect(questions).toHaveLength(1));
     expect(questions[0]).toMatch(/^Run Firewall upgrade for real on 2 hosts\? It changes/);
   });
@@ -1299,5 +1302,173 @@ describe('AFS-208: launching says what it is about', () => {
       ]),
     ).toEqual(['hosts.yml', 'inventory/']);
     expect(inventoryGuess([{ path: 'site.yml' }])).toEqual([]);
+  });
+});
+
+// ADR-0039 §8: beside the form, what will run, kept current; Check or Real as a choice that says
+// what it does; the button names the run it starts.
+describe('AFS-272: what will run, and the run Launch starts', () => {
+  const steps = ['Pre-checks', 'Backup', 'Change approval', 'Upgrade'];
+  const approvals = [{ title: 'Change approval', approvers: ['change-board'] }];
+  const facts = {
+    facts: {
+      sources: ['devices'],
+      count: 2,
+      hosts: ['fw-01', 'fw-02'],
+      unknown: [],
+      uses: [],
+      prod: [],
+      vault: false,
+      environment: 'ee:1 (docker)',
+    },
+    environment: 'ee:1 (docker)',
+    commit: COMMIT,
+  };
+
+  it('says the flow, its steps, the hosts, the approvals ahead and the last run, as the mode is', async () => {
+    routes = {
+      ...common(dana),
+      'GET /launch-configs/c1': () => ({
+        body: {
+          ...config,
+          credentialNames: ['fw-ssh'],
+          lastRun: {
+            id: 'r8',
+            number: 8,
+            state: 'succeeded',
+            createdAt: '2026-11-13T12:00:00.000Z',
+            endedAt: '2026-11-13T12:02:00.000Z',
+          },
+        },
+      }),
+      'GET /launch-configs/c1/form?': () => ({ body: { ...form, steps, approvals } }),
+      'GET /launch-configs/c1/form?mode=real': () => ({
+        body: { ...form, mode: 'real', steps, approvals },
+      }),
+      'POST /launch-configs/c1/facts': () => ({ body: facts }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const summary = async () =>
+      (await screen.findByRole('heading', { name: 'What will run' })).closest(
+        'aside',
+      ) as HTMLElement;
+    const aside = await summary();
+    expect(within(aside).getByText('Firewall upgrade')).toBeTruthy();
+    expect(within(aside).getByText('Pre-checks › Backup › Change approval › Upgrade')).toBeTruthy();
+    // The hosts the targets match, as the inventory says them now.
+    await waitFor(() =>
+      expect(aside.querySelector('[data-will-hosts]')?.textContent).toBe('2 hosts: fw-01, fw-02'),
+    );
+    expect(aside.querySelector('[data-will-approvals]')?.textContent).toBe(
+      'Change approval: a check run passes it by itself',
+    );
+    expect(within(aside).getByText('fw-ssh')).toBeTruthy();
+    expect(within(aside).getByRole('link', { name: /#8/ }).getAttribute('href')).toBe('/runs/r8');
+    // The choice says what check means, never that nothing changes.
+    expect(
+      screen.getByRole('radio', { name: /^check run/i }).closest('label')?.textContent,
+    ).toMatch(/Ansible's check mode: .*check_mode: false still runs/);
+    const check = screen.getByRole('button', { name: 'Launch check run' });
+    expect(check.className).toBe('primary');
+    expect(check.getAttribute('aria-keyshortcuts')).toBe('Control+Enter');
+
+    // Real: the button, the choice and the summary say so.
+    fireEvent.click(screen.getByRole('radio', { name: /^real run/i }));
+    const real = await screen.findByRole('button', { name: 'Launch real run' });
+    expect(real.className).toBe('primary real');
+    expect(screen.getByRole('radio', { name: /^real run/i }).closest('label')?.textContent).toMatch(
+      /It changes the hosts: 2 hosts\. Approvals wait for a decision\./,
+    );
+    await waitFor(async () =>
+      expect((await summary()).querySelector('[data-will-approvals]')?.textContent).toBe(
+        'Change approval waits for a decision (change-board)',
+      ),
+    );
+  });
+
+  it('a warning about the targets is said once, at the field, not again beside it', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/facts': () => ({
+        body: { ...facts, facts: { ...facts.facts, count: 0, hosts: [] } },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const aside = (await screen.findByRole('heading', { name: 'What will run' })).closest(
+      'aside',
+    ) as HTMLElement;
+    await waitFor(() =>
+      expect(aside.querySelector('[data-will-hosts]')?.textContent).toBe('no host would run'),
+    );
+  });
+
+  it('Ctrl+Enter launches from any field', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const retries = await screen.findByLabelText(/^retries/);
+    fireEvent.change(retries, { target: { value: '4' } });
+    fireEvent.keyDown(retries, { key: 'Enter' });
+    expect(asked.some((a) => a.key === 'POST /launch-configs/c1/launch')).toBe(false);
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    expect(asked.find((a) => a.key === 'POST /launch-configs/c1/launch')?.body).toMatchObject({
+      inputs: { retries: '4' },
+    });
+  });
+
+  it('two Ctrl+Enter (or one held down) ask once and launch one real run', async () => {
+    routes = {
+      ...common(dana),
+      // The hosts are known before the keys: nothing is read between a key and its question.
+      'POST /launch-configs/c1/facts': () => ({
+        body: {
+          facts: {
+            sources: ['inventory/prod/hosts.yaml'],
+            count: 2,
+            hosts: ['fw-01', 'sw-edge-01'],
+            unknown: [],
+            uses: [],
+            prod: [],
+            vault: false,
+          },
+          commit: COMMIT,
+        },
+      }),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    const questions: string[] = [];
+    vi.stubGlobal('confirm', (text: string) => {
+      questions.push(text);
+      return true;
+    });
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const retries = await screen.findByLabelText(/^retries/);
+    fireEvent.click(screen.getByRole('radio', { name: /^real run/i }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-will-hosts]')?.textContent).toMatch(/^2 hosts/),
+    );
+    // The second before the first question is answered, and a key repeat.
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(retries, { key: 'Enter', ctrlKey: true, repeat: true });
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatch(/for real/);
+    expect(asked.filter((a) => a.key === 'POST /launch-configs/c1/launch')).toHaveLength(1);
   });
 });

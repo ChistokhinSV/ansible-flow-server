@@ -81,6 +81,9 @@ project's list of flows says the same of each flow.
   selected, and opened for editing when you may edit the flow. The configuration's other
   settings still save while it stays on that flow, branch and commit; its start values are
   kept as they are when the flow cannot be read at all (it is gone).
+- **The form** (`GET /launch-configs/:id/form`) also carries `steps` (the flow's steps when all
+  goes well, by title) and `approvals` (each approval's title and the approvers it names), which
+  What will run shows.
 - **Read by id**, a configuration also says its credentials by name (`credentialNames`) and its
   environment by name with the image a launch gets now, or why there is none
   (`environmentInfo`). In the list and by id, `flowGone` says that its flow is not on the
@@ -98,13 +101,30 @@ project's list of flows says the same of each flow.
   A limit given at launch replaces the configuration's; an empty one runs with no limit. A real
   launch asks first; a launch with targets the inventory does not have names them first, and one
   on which no host would run (no target in the inventory, or a limit that leaves none) asks
-  first, from the launch page and from the canvas's Run dialog alike. Enter in a field is Launch.
+  first, from the launch page and from the canvas's Run dialog alike. Enter in a field is Launch;
+  Ctrl+Enter (Cmd+Enter) is Launch from any field, a multi-line one too.
 
 **On the pages:** a project's page lists its launch configurations. A configuration's page
 shows its settings and the launch form:
 
-- Check or real, and another branch or a commit; the form shows the flow's inputs at that
-  commit, starting with the configuration's values.
+- **Check or Real** is a choice of two, each saying what it does:
+  - **Check run:** Ansible's check mode. Tasks say what they would change, and a task marked
+    `check_mode: false` still runs. Approvals pass by themselves.
+  - **Real run:** it changes the hosts (how many, once the inventory has said). Approvals wait for
+    a decision.
+- Another branch or a commit; the form shows the flow's inputs at that commit, starting with the
+  configuration's values.
+- **What will run**, beside the form on a wide screen and under it on a narrow one, kept current as
+  the form changes:
+  - the flow and its version, and the commit;
+  - the steps a run goes through when everything goes well, up to an end or to a step where the
+    way branches ("Pre-checks › Backup › Change approval › Upgrade");
+  - the hosts the targets match as the inventory says now (why none would run is said at the
+    targets' field);
+  - the image and the credentials;
+  - the approvals ahead: each waits for a decision in a real run, with its approvers; a check run
+    passes them by itself;
+  - the configuration's last run.
 - Secret-looking inputs are typed hidden and never kept.
 - Under each input, one line says where it goes: the steps that read it, its default, and what it
   wins over. A flow input reaches the run as an extra var, so it beats a step input of the same
@@ -121,8 +141,9 @@ shows its settings and the launch form:
 - **What would run** shows the commit, the inputs as the flow gets them (secrets as `***`), the
   hosts it starts on, the inventory, image and credentials; what stands in the way is shown at
   its field.
-- **Launch** (`operator` on the flow) queues the run and opens its page; another branch or
-  commit than the configuration's needs `rw`.
+- **Launch check run** or **Launch real run** (`operator` on the flow): the button names the run
+  it starts, and a real one has a colour of its own. It queues the run and opens its page;
+  another branch or commit than the configuration's needs `rw`.
 - **Keep as start values** (`rw` on the flow) saves the typed values that are not secret as the
   configuration's.
 - **Hosts in the inventory** (`operator`): under What would run, the hosts the targets match,
