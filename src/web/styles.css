@@ -5308,3 +5308,158 @@ button.primary.real {
 button.primary.real:hover:not(:disabled) {
   background: color-mix(in srgb, var(--mode-real) 85%, var(--fg));
 }
+
+/* AFS-212 (ADR-0039 §9): Home is an inbox. Four numbers, what needs you with what you may do
+   about it, and beside it what runs now and what you may launch again. */
+.inbox-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.inbox-filter select {
+  min-width: 0;
+  max-width: 14rem;
+}
+.inbox-numbers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.inbox-numbers li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.inbox-numbers .label,
+.inbox-numbers .sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.inbox-numbers .number {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.inbox .home-split > .inbox-main,
+.inbox .home-split > .inbox-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2.25rem;
+}
+.inbox h2 .count {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  vertical-align: 0.15em;
+}
+.inbox-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.inbox-items > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 14px;
+}
+.inbox-items > li + li {
+  border-top: 1px solid var(--line);
+}
+/* What waits for your decision is the first thing to do: it is tinted, as before (AFS-101). */
+.inbox-items > li[data-kind="approval"] {
+  background: var(--warn-bg);
+}
+.inbox-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--muted);
+}
+.inbox-glyph[data-kind="approval"],
+.inbox-glyph[data-kind="request"] {
+  color: var(--state-waiting);
+}
+.inbox-glyph[data-kind="paused"] {
+  color: var(--state-paused);
+}
+.inbox-glyph[data-kind="failed"] {
+  color: var(--state-failed);
+}
+.inbox-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.inbox-title {
+  overflow-wrap: anywhere;
+}
+.inbox-facts {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.inbox-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.inbox-verbs .button,
+.inbox-verbs button {
+  min-height: 2rem;
+  padding: 0.25rem 0.8rem;
+  font-size: 13px;
+}
+.inbox-sub {
+  margin: 1rem 0 0.5rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.inbox-items.quiet {
+  background: none;
+}
+.inbox-side .list .title .state-glyph {
+  vertical-align: -0.15em;
+  color: var(--state-running);
+}
+.inbox-side .list .sub .mode-badge {
+  margin-right: 4px;
+}
+/* On a phone the verbs go under the words, at the start, where the thumb is. */
+@media (max-width: 640px) {
+  .inbox-items > li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .inbox-verbs {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .inbox-numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inbox .page-head {
+    flex-wrap: wrap;
+  }
+}

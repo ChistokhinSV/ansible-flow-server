@@ -18,6 +18,7 @@ import { registerStartFrom } from './drafts/startFromRoutes';
 import { registerFlowChecks } from './environments/checkRoutes';
 import type { Environments } from './environments/environments';
 import { registerEnvironments } from './environments/routes';
+import { registerInbox } from './inbox/routes';
 import { LaunchConfigs } from './launch/configs';
 import { type InventoryReader, registerLaunch } from './launch/routes';
 import type { Logger } from './log';
@@ -282,11 +283,20 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ...(deps.stepper ? { stepper: deps.stepper } : {}),
       ...(notifier ? { gateClosed: (run, gate) => notifier.approvalCancelled(run, gate) } : {}),
     });
-    registerApprovals(app, {
+    const approvals = registerApprovals(app, {
       db: deps.database.db,
       queue: deps.runs,
       ...(deps.hub ? { hub: deps.hub } : {}),
       ...(notifier ? { decided: (run, gate) => notifier.approvalDecided(run, gate) } : {}),
+    });
+    // AFS-212: Home's inbox, what needs the person now.
+    const certificate = deps.certificate?.store;
+    registerInbox(app, {
+      db: deps.database.db,
+      queue: deps.runs,
+      approvals,
+      ...(deps.projects ? { git: deps.projects.git } : {}),
+      ...(certificate ? { certificate: () => certificate.current()?.info } : {}),
     });
   }
   if (deps.certificate) registerCertificate(app, deps.certificate);

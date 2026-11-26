@@ -49,6 +49,7 @@ const values = { type: 'object', additionalProperties: true } as const;
 const textMap = { type: 'object', additionalProperties: str } as const;
 const of = (...items: string[]) => ({ type: 'string', enum: items });
 const listOf = (items: JsonSchema) => ({ type: 'array', items });
+const PLACE = obj({ id: str, key: str, name: str });
 
 /** An object: the fields it always has, and those it may have. */
 export function obj(
@@ -356,6 +357,79 @@ export const SCHEMAS = {
       why: str,
     },
     "An approval of a run: a step where the run waits for someone's decision",
+  ),
+  // AFS-212: Home's inbox (inbox/inbox.ts).
+  Inbox: obj(
+    {
+      count: {
+        ...int,
+        description:
+          "How many items need you: every item but your runs that wait for someone else's decision",
+      },
+      items: listOf(
+        obj(
+          {
+            kind: of('approval', 'paused', 'failed', 'draft', 'certificate', 'request'),
+            title: str,
+            since: time,
+            verbs: {
+              ...listOf(
+                of('review', 'open', 'step', 'continue', 'runAgain', 'openDraft', 'replace'),
+              ),
+              description:
+                "What you may do from here, in the workspace's access; the first is the main one",
+            },
+          },
+          {
+            workspace: { ...PLACE, description: 'Absent: about the whole server' },
+            project: PLACE,
+            run: obj(
+              {
+                id: str,
+                number: int,
+                flow: obj({ file: str, name: str }),
+                mode: of('check', 'real'),
+              },
+              {
+                config: str,
+                debug: bool,
+                asRunner: {
+                  ...bool,
+                  description:
+                    "You reach it only as an action's runner: it opens as the action's progress",
+                },
+              },
+            ),
+            approval: obj({ gate: str, step: str, requestedBy: str }, { deciders: strings }),
+            pause: obj({ before: str }, { stopsAt: time }),
+            failure: obj({}, { error: str, hosts: obj({ total: int, failed: int }), lost: bool }),
+            draft: obj({ id: str, file: str, flow: str, others: strings, behind: bool }),
+            certificate: obj({ notAfter: time, daysLeft: int, names: strings }),
+          },
+        ),
+      ),
+      today: obj(
+        Object.fromEntries(
+          [
+            'runs',
+            'real',
+            'check',
+            'succeeded',
+            'failed',
+            'rejected',
+            'cancelled',
+            'going',
+            'waiting',
+            'paused',
+            'pausedDebug',
+          ].map((k) => [k, int]),
+        ),
+      ),
+      week: obj({ ended: int, succeeded: int }),
+      runners: obj({ busy: int, slots: int, queued: int }),
+    },
+    {},
+    "What needs you now, across the workspaces you may see, and the day's numbers",
   ),
   WaitingApproval: obj(
     {

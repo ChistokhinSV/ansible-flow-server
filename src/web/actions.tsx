@@ -18,6 +18,7 @@ import {
   type LaunchRequest,
 } from './api';
 import { ask } from './confirm';
+import { midnight, runAddress } from './home';
 import { holdUnsaved, Link, navigate } from './router';
 import { StateBadge } from './runs';
 import { ago, Labelled, Loading, messageOf, PageHead, Scroll, useLoad } from './ui';
@@ -79,8 +80,41 @@ function countOf(value: string, hosts: ActionHosts | undefined): number | undefi
 /** The actions this person may run (empty for who has none). */
 export const useActions = () => useLoad(() => api.actions().catch(() => [] as ActionCard[]), []);
 
-/** `home`: the page is one's Home (an action-only person's); it reads the same either way. */
-export function ActionsPage(_: { home?: boolean }) {
+/**
+ * AFS-212: as one's Home, the inbox of one's own runs: those that failed or wait for someone's
+ * decision (an action-only person has no other inbox).
+ */
+function YourRuns() {
+  const inbox = useLoad(() => api.inbox(midnight()), []);
+  const items = inbox.data?.items.filter((i) => i.run) ?? [];
+  if (!items.length) return null;
+  return (
+    <section aria-labelledby="your-runs" className="your-runs">
+      <h2 id="your-runs">Your runs</h2>
+      <ul className="list">
+        {items.map((i) =>
+          i.run ? (
+            <li key={`${i.kind}:${i.run.id}`}>
+              <Link to={runAddress(i.run)}>
+                <span className="two">
+                  <span className="title">{i.title}</span>
+                  <span className="sub">
+                    {[i.workspace?.name, i.failure?.error, ago(i.since)]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ) : null,
+        )}
+      </ul>
+    </section>
+  );
+}
+
+/** `home`: the page is one's Home (an action-only person's). */
+export function ActionsPage({ home }: { home?: boolean }) {
   const actions = useLoad(api.actions, []);
   return (
     <>
@@ -90,6 +124,7 @@ export function ActionsPage(_: { home?: boolean }) {
         lead="The actions you may run: pick one, fill in what it asks, and Run."
         help="actions.md"
       />
+      {home && <YourRuns />}
       <Loading state={actions} />
       {actions.data?.length === 0 && (
         <p className="empty">

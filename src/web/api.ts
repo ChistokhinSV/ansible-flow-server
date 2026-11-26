@@ -56,6 +56,7 @@ import type {
   FlowCheck,
 } from '../server/environments/types';
 import type { FlowError } from '../server/flowErrors';
+import type { Inbox, InboxItem, InboxVerb } from '../server/inbox/types';
 import type { LaunchConfig, LaunchConfigInput } from '../server/launch/configs';
 import type { FactsReply } from '../server/launch/facts';
 import type {
@@ -131,6 +132,9 @@ export type {
   GroupGrant,
   HostAt,
   HostSets,
+  Inbox,
+  InboxItem,
+  InboxVerb,
   LastRun,
   LaunchConfig,
   LaunchConfigInput,
@@ -899,6 +903,18 @@ export const api = {
     ),
 
   approvals: () => call<WaitingApproval[]>('GET', '/approvals'),
+  /**
+   * AFS-212: what needs you now, across the workspaces you may see (or `workspace`, a key), and
+   * the numbers of your day since `since` (your midnight).
+   */
+  inbox: (since: Date, workspace?: string) =>
+    call<Inbox>(
+      'GET',
+      `/inbox?${new URLSearchParams({
+        ...(workspace ? { workspace } : {}),
+        since: since.toISOString(),
+      })}`,
+    ),
   /** AFS-133: the newest decided approvals this person may see. */
   decidedApprovals: () => call<WaitingApproval[]>('GET', '/approvals?decided=1'),
   runApprovals: (run: string) =>

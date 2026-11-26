@@ -129,6 +129,50 @@ describe('actions', () => {
     expect(screen.getByRole('combobox', { name: 'Search' })).toBeTruthy();
   });
 
+  it('AFS-212: an action-only Home says which of their own runs need a look', async () => {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    routes = {
+      ...actionOnly(),
+      [`GET /inbox?${new URLSearchParams({ since: midnight.toISOString() })}`]: () => ({
+        body: {
+          count: 1,
+          items: [
+            {
+              kind: 'failed',
+              workspace: { id: 'w1', key: 'net', name: 'Network team' },
+              project: { id: 'p1', key: 'edge', name: 'Edge' },
+              title: 'Your run Restart the edge switch #12 failed',
+              since: new Date().toISOString(),
+              verbs: ['open'],
+              run: {
+                id: 'r12',
+                number: 12,
+                flow: { file: 'flows/restart.flow.yaml', name: 'Restart the edge switch' },
+                mode: 'real',
+                asRunner: true,
+              },
+              failure: { error: 'sw-edge-01 did not answer' },
+            },
+          ],
+          today: {},
+          week: { ended: 0, succeeded: 0 },
+          runners: { busy: 0, slots: 4, queued: 0 },
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/');
+    render(<App />);
+    const mine = (await screen.findByRole('heading', { name: 'Your runs' })).closest(
+      'section',
+    ) as HTMLElement;
+    const link = within(mine).getByRole('link');
+    // Opened as the action's progress: the run's own page needs access they do not have.
+    expect(link.getAttribute('href')).toBe('/actions/runs/r12');
+    expect(link.textContent).toContain('Your run Restart the edge switch #12 failed');
+    expect(link.textContent).toContain('Network team · sw-edge-01 did not answer');
+  });
+
   it("AFS-260: a switched-off action stays on its runner's Actions, said to be off", async () => {
     routes = {
       ...actionOnly(),
