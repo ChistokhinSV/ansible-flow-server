@@ -874,7 +874,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     'signed in',
     P,
   )(
-    'Your watch expressions on a flow (`path`): what the Debugger panel asks your debug runs of it at each pause',
+    'Your watch expressions on a flow (`path`): what Watch asks your debug runs of it at each pause',
     json(ANSWERS.watches),
   ),
   'PUT /api/v1/projects/:id/watches': S(
