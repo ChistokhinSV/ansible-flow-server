@@ -202,8 +202,10 @@ describe('the panel', () => {
       />,
     );
     expect(screen.getByRole('status').textContent).toContain('1 of 6 hosts failed (attempt 1)');
-    expect(screen.getByText(/Changes on hosts are not undone/).textContent).toBe(
-      'Retry runs Apply config again on edge-02. Changes on hosts are not undone.',
+    // AFS-266: the warning is Retry's tooltip, not a line of its own.
+    expect(screen.queryByText(/Changes on hosts are not undone/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Retry' }).getAttribute('title')).toBe(
+      'Retry the step (like Restart Frame): runs Apply config again on edge-02. Changes on hosts are not undone.',
     );
     // The Hosts view starts at the failed host, and the failure is said.
     const hosts = screen.getByRole('list', { name: 'Hosts at the pause' });
@@ -238,7 +240,7 @@ describe('the panel', () => {
     fireEvent.change(screen.getByLabelText('Expression to watch'), {
       target: { value: '{{ vlan_id }}' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.submit(screen.getByLabelText('Expression to watch'));
     await waitFor(() => expect(asked.at(-1)).toEqual({ op: 'watch', exprs: ['vlan_id'] }));
     fireEvent.click(await screen.findByRole('button', { name: 'Compare vlan_id across hosts' }));
     const table = await screen.findByRole('table');
@@ -277,9 +279,7 @@ describe('the panel', () => {
     expect(screen.getByRole('status').textContent).toContain(
       'Paused by Dana: only Dana or an administrator drives it',
     );
-    expect(within(screen.getByRole('toolbar', { name: 'Debug' })).queryAllByRole('button')).toEqual(
-      [],
-    );
+    expect(screen.queryByRole('toolbar', { name: 'Debug' })).toBeNull();
     expect(screen.queryByRole('list', { name: 'Hosts at the pause' })).toBeNull();
     expect(screen.queryByLabelText('Jinja expression to evaluate')).toBeNull();
     expect(asked).toEqual([]);
@@ -480,7 +480,7 @@ describe('AFS-250, AFS-253: watches per person, keys, Stop for an operator, log 
     fireEvent.change(screen.getByLabelText('Expression to watch'), {
       target: { value: 'vlan_id' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.submit(screen.getByLabelText('Expression to watch'));
     await waitFor(() => expect(kept).toEqual([['site', 'vlan_id']]));
     expect(window.localStorage.length).toBe(0);
   });
@@ -519,7 +519,7 @@ describe('AFS-250, AFS-253: watches per person, keys, Stop for an operator, log 
     expect(
       within(toolbar)
         .getAllByRole('button')
-        .map((b) => b.textContent),
+        .map((b) => b.getAttribute('aria-label')),
     ).toEqual(['Stop']);
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     await waitFor(() => expect(commands).toEqual([{ command: 'stop' }]));
@@ -656,7 +656,7 @@ describe('AFS-258: round 2', () => {
       'Jinja expression to evaluate',
     )) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: 'vlan_id + 1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Evaluate' }));
+    fireEvent.keyDown(box, { key: 'Enter' });
     await screen.findByText('0');
     // A REPL: the box is empty again, the line evaluated stays above it.
     expect(box.value).toBe('');

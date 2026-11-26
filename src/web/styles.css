@@ -4564,3 +4564,475 @@ fieldset.copy-link h4 {
   white-space: nowrap;
   font-size: 13px;
 }
+
+/* AFS-266: the workbench trimmed to VS Code's density. The debug toolbar floats over the canvas,
+   icons only; the side bar folds to its activity bar, the panel to its tab strip. In the side bar
+   and the panel: 13px words, 12px code, rows of about 22px, section heads of 11px capitals,
+   fields of 26px, a tab strip of 30px. */
+.wb-float {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  z-index: 7;
+  transform: translateX(calc(-50% + var(--wb-float-x, 0px)));
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px 2px 1px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+}
+.wb-grip {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 1px;
+  color: var(--faint);
+  cursor: grab;
+  touch-action: none;
+}
+.wb-grip:active {
+  cursor: grabbing;
+}
+.wb-float .wb-toolbar,
+.wb-bar .wb-toolbar:has(.icon-button) {
+  flex: none;
+  gap: 2px;
+}
+.wb-tool.icon-button {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg2);
+}
+.wb-tool.icon-button:hover:not([aria-disabled="true"]) {
+  background: var(--button-hover);
+  color: var(--fg);
+}
+.wb-tool.icon-button[data-step-command="continue"],
+.wb-tool.icon-button[data-step-command="pause"] {
+  color: var(--link);
+}
+.wb-tool.icon-button[data-step-command="retry"] {
+  color: var(--warn);
+}
+.wb-tool.icon-button[data-step-command="stop"] {
+  color: var(--bad);
+}
+.wb-tool.icon-button[data-restart] {
+  color: var(--ok);
+}
+/* The phone's row keeps the toolbar of the same size, at its start. */
+.wb-phone .wb-bar {
+  padding: 3px 8px;
+}
+
+.wb-side,
+.wb-panel {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.wb-side button,
+.wb-panel button {
+  font-size: 13px;
+  min-height: 22px;
+  padding: 1px 8px;
+  border-radius: 4px;
+}
+.wb-side button.link,
+.wb-panel button.link {
+  padding: 0 2px;
+}
+.wb-side .icon-button,
+.wb-panel .icon-button {
+  min-width: 22px;
+  padding: 0 3px;
+}
+.wb-side input:not([type="radio"], [type="checkbox"]),
+.wb-side textarea,
+.wb-side select,
+.wb-panel input:not([type="radio"], [type="checkbox"]),
+.wb-panel textarea,
+.wb-panel select {
+  font-size: 13px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.wb-side h2,
+.wb-side h3 {
+  font-size: 13px;
+}
+.wb-side .small,
+.wb-panel .small {
+  font-size: 12px;
+}
+.wb-side code,
+.wb-side .mono,
+.wb-panel code,
+.wb-panel .mono,
+.wb-side .dbg-name,
+.wb-side .dbg-value,
+.wb-panel .dbg-name,
+.wb-panel .dbg-value {
+  font-size: 12px;
+}
+.wb-activity {
+  gap: 2px;
+  padding: 4px 3px;
+}
+.wb-activity .icon-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+.wb-activity .icon-button:hover {
+  background: transparent;
+  color: var(--fg);
+}
+.wb-activity .icon-button .icon {
+  width: 20px;
+  height: 20px;
+}
+.wb-overlay .wb-side {
+  left: 41px;
+}
+.wb-section > summary {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+}
+.wb-section > summary h3 {
+  font-size: 11px;
+  font-weight: 700;
+}
+.wb-section-body {
+  padding: 4px 8px 8px 12px;
+}
+.wb-empty {
+  padding: 4px 12px;
+}
+.wb-host-line {
+  margin: 0 0 2px;
+}
+.dbg-vars {
+  font-size: 13px;
+}
+.debug-scopes summary {
+  padding: 1px 0;
+  min-height: 22px;
+}
+.debug-scopes > details > summary .dbg-name {
+  font-size: 13px;
+}
+.dbg-var,
+.dbg-watch {
+  align-items: center;
+  gap: 0 8px;
+  min-height: 22px;
+  padding: 1px 0;
+}
+.dbg-watch-actions {
+  gap: 2px;
+}
+.wb-row-button.icon-button {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.wb-row-button.icon-button:hover {
+  color: var(--fg);
+  background: var(--button-hover);
+}
+.wb-row-button .icon {
+  width: 14px;
+  height: 14px;
+}
+.debug-add {
+  margin-top: 4px;
+}
+.wb-host {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  min-height: 22px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.wb-filters {
+  gap: 0;
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+.wb-filters label,
+.wb-point-list li {
+  min-height: 22px;
+}
+.wb-point-list li {
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.wb-point-settings {
+  padding-left: 22px;
+}
+.wb-side .run-side {
+  padding: 8px 12px 16px;
+  gap: 1rem;
+}
+.wb-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+.wb-strip .wb-tabs {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+}
+.wb-tabs [role="tab"] {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wb-fold.icon-button {
+  flex: none;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  margin-right: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.wb-fold.icon-button:hover {
+  color: var(--fg);
+  background: var(--button-hover);
+}
+.wb-panel-folded {
+  height: auto;
+}
+.wb-panel-body {
+  padding: 4px 12px;
+}
+.debug-logs h3 {
+  margin: 2px 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wb-said li {
+  margin: 0 0 2px;
+}
+.wb-said .dbg-result,
+.wb-panel .dbg-result {
+  margin: 1px 0 0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.wb-said-expr {
+  font-size: 12px;
+}
+.wb-prompt {
+  gap: 6px;
+  padding: 4px 0;
+}
+.wb-prompt textarea {
+  font: 12px / 1.5 var(--mono);
+  resize: none;
+}
+.wb-prompt-host {
+  padding-top: 4px;
+  font-size: 12px;
+}
+.wb-panel-body .output {
+  font-size: 12px;
+}
+.wb-status {
+  min-height: 22px;
+  padding: 1px 10px;
+  font-size: 12px;
+}
+.wb-status .debug-reason {
+  font-size: 12px;
+}
+.wb-status button.link {
+  min-height: 0;
+  padding: 0 2px;
+}
+
+/* AFS-266: the app menu folds to an icon rail on a wide screen (the phone's menu stays as it is).
+   Workspaces and Administration open a menu beside the rail, scrollable when long. */
+.menu-fold.icon-button {
+  flex: none;
+  min-width: 28px;
+  min-height: 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+}
+.menu-fold.icon-button:hover {
+  color: var(--fg);
+  background: var(--raised);
+}
+.side-head .brand {
+  min-width: 0;
+}
+.side.rail {
+  flex: 0 0 52px;
+  width: 52px;
+  padding: 14px 6px 10px;
+  align-items: center;
+  gap: 2px;
+  overflow: visible;
+}
+.rail-brand {
+  display: flex;
+  margin-bottom: 14px;
+}
+.rail-nav,
+.rail-end {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.rail-end {
+  margin-top: auto;
+  padding-top: 14px;
+}
+.rail-item,
+button.rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg2);
+}
+.rail-item .icon {
+  width: 20px;
+  height: 20px;
+}
+.rail-item:hover,
+button.rail-item:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--fg);
+}
+.rail-item[aria-current="page"],
+.rail-item.here,
+.rail-item[aria-expanded="true"] {
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.rail-count {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 15px;
+}
+.rail-menu-list {
+  position: fixed;
+  left: 54px;
+  z-index: 40;
+  min-width: 13rem;
+  max-width: 20rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: var(--menu-shadow);
+}
+.rail-menu-list a {
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--fg2);
+  text-decoration: none;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.rail-menu-list a:hover,
+.rail-menu-list a:focus-visible {
+  background: var(--button-hover);
+  color: var(--fg);
+}
+.rail-menu-list a[aria-current="page"] {
+  color: var(--fg);
+  font-weight: 500;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+@media (max-width: 860px) {
+  .menu-fold.icon-button {
+    display: none;
+  }
+}
+/* The rail gives the page the room the menu had: the frame grows by the menu's width. It lies over
+   the page, so its menus do too. */
+.shell:has(> .side.rail) {
+  --frame: 1416px;
+}
+@media (min-width: 1880px) {
+  .shell:has(> .side.rail) {
+    --frame: 1656px;
+  }
+}
+.side.rail {
+  z-index: 20;
+}
+.wb-host {
+  justify-content: flex-start;
+}
+.side-end .menu-fold.icon-button {
+  align-self: flex-start;
+  margin: 4px 0 0 6px;
+}
+/* Over the canvas (861 to 1100 px) an open side bar covers its left part: the toolbar keeps to the
+   centre of what is left in sight. */
+.wb-overlay.wb-side-open .wb-float {
+  left: calc(var(--wb-side, 320px) + (100% - var(--wb-side, 320px)) / 2);
+}
+/* A finger needs a bigger target than a pointer. */
+.wb-phone .wb-tool.icon-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}

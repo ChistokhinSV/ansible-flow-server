@@ -679,7 +679,24 @@ export type IconName =
   | 'restart'
   | 'compare'
   | 'close'
-  | 'reveal';
+  | 'reveal'
+  // AFS-266: folding the workbench's parts and the app menu, and the app menu's icon rail.
+  | 'fold'
+  | 'unfold'
+  | 'chevron-down'
+  | 'chevron-up'
+  | 'grip'
+  | 'home'
+  | 'actions'
+  | 'runs'
+  | 'approvals'
+  | 'library'
+  | 'workspaces'
+  | 'admin'
+  | 'help'
+  | 'account'
+  | 'theme'
+  | 'signout';
 
 /** AFS-265: the line drawings of the workbench's icons, on a 16 px grid. */
 const PATHS: Partial<Record<IconName, string>> = {
@@ -696,6 +713,21 @@ const PATHS: Partial<Record<IconName, string>> = {
   close: 'M4 4l8 8M12 4l-8 8',
   reveal:
     'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8M8 6.25a1.75 1.75 0 1 0 0 3.5a1.75 1.75 0 1 0 0-3.5',
+  fold: 'M7.5 4 3.5 8l4 4M12.5 4l-4 4 4 4',
+  unfold: 'M3.5 4l4 4-4 4M8.5 4l4 4-4 4',
+  'chevron-down': 'M4 6l4 4 4-4',
+  'chevron-up': 'M4 10l4-4 4 4',
+  home: 'M2.5 7.5 8 3l5.5 4.5M4 6.5v6.5h3V10h2v3h3V6.5',
+  actions: 'M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z',
+  runs: 'M2.5 3.5h11M2.5 8h4M2.5 12.5h4M9 6.5l5 3-5 3z',
+  approvals: 'M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5M5.25 8.25l2 2 3.5-4',
+  library: 'M2.5 2.5h3v11h-3zM6.5 2.5h3v11h-3zM10.6 3.2l2.5-.6 2 10.4-2.5.6z',
+  workspaces: 'M1.5 3.5h4.5l1.5 1.5h7v7.5h-13z',
+  admin: 'M2.5 4h6M11.5 4h2M2.5 8h2M7.5 8h6M2.5 12h7M12.5 12h1M10 2.5v3M6 6.5v3M11 10.5v3',
+  help: 'M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5M6.25 6.25a1.75 1.75 0 1 1 2.5 1.6c-.5.25-.75.6-.75 1.15M8 11.25h.01',
+  account: 'M8 2.5a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5M2.75 13.5a5.25 5.25 0 0 1 10.5 0',
+  theme: 'M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5M8 1.75v12.5M8 5h4.5M8 8h6M8 11h4.5',
+  signout: 'M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6',
 };
 
 export function Icon({ name }: { name: IconName }) {
@@ -716,6 +748,8 @@ export function Icon({ name }: { name: IconName }) {
         <path d={PATHS[name]} />
       ) : name === 'external' ? (
         <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5H7" />
+      ) : name === 'grip' ? (
+        <path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01" strokeWidth="2.25" />
       ) : name === 'more' ? (
         <path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth="2.5" />
       ) : name === 'info' ? (
@@ -802,6 +836,25 @@ export function useKeptSize(key: string, initial: number): [number, (size: numbe
     [key],
   );
   return [size, keep];
+}
+
+/**
+ * AFS-266: whether a part (the workbench's side bar or panel, the app menu) is folded, kept in this
+ * browser as useKeptSize keeps a size. Storage may be closed: the fold is kept for the page's life.
+ */
+export function keptFold(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+export function keepFold(key: string, folded: boolean): void {
+  try {
+    window.localStorage.setItem(key, folded ? '1' : '0');
+  } catch {
+    // Not kept: the next page starts unfolded.
+  }
 }
 
 /**

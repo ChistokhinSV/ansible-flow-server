@@ -19,7 +19,11 @@ version, at `/help/guide/<page>`: it needs no internet. A link in it that leaves
 where it goes (GitHub). A page that is not there, or not shared with you (a workspace, a project, a
 flow, a run, a launch configuration), says what was looked for, a way back to a page you can open,
 and which administrators give access. Long pages are split into tabs; each tab has its own
-address. At phone width it folds into **Menu**. Ctrl+S (Cmd+S) submits the form you are typing in,
+address. At phone width it folds into **Menu**. On a wider screen **Fold the menu** (the « icon at
+its end) folds it to a rail of icons, each with its name as a tooltip: Home, Runs, Approvals (with
+its count), Library, **Workspaces** and **Administration** (each a menu of its pages, scrolling
+when long; arrows go through it, Esc closes it), Help, your account, the theme and Sign out.
+» unfolds it. The browser keeps the choice. Ctrl+S (Cmd+S) submits the form you are typing in,
 or the page's only form (never one that deletes), and saves a flow's draft while you edit it; it
 never opens the browser's Save dialog.
 

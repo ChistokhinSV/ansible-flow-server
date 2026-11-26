@@ -360,12 +360,10 @@ describe('the views and the canvas', () => {
     expect(side.hidden).toBe(false);
   });
 
-  it('a reader has no toolbar buttons and tells the canvas nothing of a toolbar', () => {
+  it('a reader has no toolbar and tells the canvas nothing of a toolbar', () => {
     width(1440);
     render(<Bench step={paused} mayDrive={false} />);
-    expect(within(screen.getByRole('toolbar', { name: 'Debug' })).queryAllByRole('button')).toEqual(
-      [],
-    );
+    expect(screen.queryByRole('toolbar', { name: 'Debug' })).toBeNull();
     expect(posted).toContainEqual({ type: 'afs-host-toolbar', on: false });
     expect(posted).not.toContainEqual({ type: 'afs-host-toolbar', on: true });
   });
@@ -409,6 +407,138 @@ describe('the layout', () => {
     expect(screen.queryByRole('separator')).toBeNull();
     expect(screen.getByRole('toolbar', { name: 'Debug' })).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('Paused after Push baseline');
+  });
+});
+
+describe('AFS-266: the toolbar over the canvas', () => {
+  it('is icons only, each with its name and its key, floating over the canvas', async () => {
+    width(1440);
+    render(<Bench step={paused} />);
+    const bar = screen.getByRole('toolbar', { name: 'Debug' });
+    const buttons = within(bar).getAllByRole('button');
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Continue',
+      'Step',
+      'Retry',
+      'Stop',
+    ]);
+    expect(bar.textContent?.trim()).toBe('');
+    expect(buttons.map((b) => b.getAttribute('title'))).toEqual([
+      'Continue (F5)',
+      'Step over (F10)',
+      'Retry the step (like Restart Frame): runs Push baseline again on sw-edge-02. Changes on hosts are not undone.',
+      'Stop (Shift+F5)',
+    ]);
+    // Over the canvas, not in a row above it; the reason is said once, in the status line.
+    expect(document.getElementById('wb-canvas')?.contains(bar)).toBe(true);
+    expect(document.querySelector('.wb-bar')).toBeNull();
+    expect(screen.getAllByText(/Paused after Push baseline/)).toHaveLength(1);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Continue' })),
+    );
+  });
+
+  it('has Retry at a failure pause only', () => {
+    width(1440);
+    render(<Bench step={{ ...paused, paused: { ...pause, kind: 'point', failed: [] } }} />);
+    const bar = screen.getByRole('toolbar', { name: 'Debug' });
+    expect(within(bar).queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(
+      within(bar)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Continue', 'Step', 'Stop']);
+  });
+
+  it('while the run goes: Pause, and Step that waits for a pause', () => {
+    width(1440);
+    render(<Bench step={running} />);
+    const bar = screen.getByRole('toolbar', { name: 'Debug' });
+    expect(
+      within(bar)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Pause', 'Step', 'Stop']);
+    expect(within(bar).getByRole('button', { name: 'Step' }).getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+  });
+
+  it('on a phone it stays in sight above the tabs', () => {
+    width(390);
+    render(<Bench step={paused} />);
+    const bar = screen.getByRole('toolbar', { name: 'Debug' });
+    expect(document.getElementById('wb-canvas')?.contains(bar)).toBe(false);
+  });
+});
+
+describe('AFS-266: folding the side bar and the panel', () => {
+  const side = () => document.getElementById('wb-side') as HTMLElement;
+  const consoleBody = () => document.getElementById('wb-panel-console') as HTMLElement;
+
+  it('Ctrl+B folds the side bar to its activity bar and opens it, and the choice is kept', () => {
+    width(1440);
+    const first = render(<Bench step={running} />);
+    expect(side().hidden).toBe(false);
+    fireEvent.keyDown(document, { key: 'b', ctrlKey: true });
+    expect(side().hidden).toBe(true);
+    expect(screen.getByRole('navigation', { name: 'Side bar views' })).toBeTruthy();
+    expect(window.localStorage.getItem('afs.workbench.sideFolded')).toBe('1');
+    first.unmount();
+    render(<Bench step={running} />);
+    expect(side().hidden).toBe(true);
+    // The active view's icon opens it again, as in VS Code.
+    fireEvent.click(screen.getByRole('button', { name: 'Run and Debug' }));
+    expect(side().hidden).toBe(false);
+    expect(window.localStorage.getItem('afs.workbench.sideFolded')).toBe('0');
+    fireEvent.click(screen.getByRole('button', { name: 'Run and Debug' }));
+    expect(side().hidden).toBe(true);
+  });
+
+  it('Ctrl+Shift+D folds it and is kept too; a pause opens it, without changing what is kept', async () => {
+    width(1440);
+    const page = render(<Bench step={running} />);
+    fireEvent.keyDown(document, { key: 'D', ctrlKey: true, shiftKey: true });
+    expect(side().hidden).toBe(true);
+    expect(window.localStorage.getItem('afs.workbench.sideFolded')).toBe('1');
+    page.rerender(<Bench step={paused} />);
+    await waitFor(() => expect(side().hidden).toBe(false));
+    expect(window.localStorage.getItem('afs.workbench.sideFolded')).toBe('1');
+  });
+
+  it('Ctrl+J and the chevron fold the panel to its tab strip; a tab opens it; kept', () => {
+    width(1440);
+    const first = render(<Bench step={paused} />);
+    expect(consoleBody().hidden).toBe(false);
+    fireEvent.keyDown(document, { key: 'j', ctrlKey: true });
+    expect(consoleBody().hidden).toBe(true);
+    // The strip stays, and the splitter goes.
+    expect(screen.getByRole('tablist', { name: 'Panel views' })).toBeTruthy();
+    expect(screen.queryByRole('separator', { name: 'Panel height' })).toBeNull();
+    const chevron = screen.getByRole('button', { name: 'Unfold the panel' });
+    expect(chevron.getAttribute('aria-expanded')).toBe('false');
+    expect(chevron.getAttribute('title')).toBe('Unfold the panel (Ctrl+J)');
+    expect(window.localStorage.getItem('afs.workbench.panelFolded')).toBe('1');
+    first.unmount();
+    render(<Bench step={paused} />);
+    expect(consoleBody().hidden).toBe(true);
+    // A tab of a folded panel opens it.
+    fireEvent.click(screen.getByRole('tab', { name: 'Terminal' }));
+    expect((document.getElementById('wb-panel-terminal') as HTMLElement).hidden).toBe(false);
+    expect(window.localStorage.getItem('afs.workbench.panelFolded')).toBe('0');
+    fireEvent.click(screen.getByRole('button', { name: 'Fold the panel' }));
+    expect((document.getElementById('wb-panel-terminal') as HTMLElement).hidden).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Unfold the panel' }));
+    expect((document.getElementById('wb-panel-terminal') as HTMLElement).hidden).toBe(false);
+  });
+
+  it('Watch adds with Enter and Evaluate evaluates with Enter: no text buttons', async () => {
+    width(1440);
+    render(<Bench step={paused} />);
+    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Evaluate' })).toBeNull();
+    const box = await screen.findByLabelText('Jinja expression to evaluate');
+    expect(box.getAttribute('placeholder')).toContain('Shift+Enter');
   });
 });
 

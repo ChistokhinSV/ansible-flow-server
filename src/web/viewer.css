@@ -118,3 +118,11 @@ body.afs-host-toolbar .afd-failure-bar [data-step-command],
 body.afs-host-toolbar .afd-failure-note {
   display: none;
 }
+
+/* AFS-266: why the run paused is said once, in the page's status line: on a designer that does not
+   know hostToolbar (1.2.0-rc.3) its failure bar and its "Paused after ..." pill go too. The node
+   badges stay. */
+body.afs-host-toolbar .afd-failure-bar,
+body.afs-host-toolbar .afd-run-status[data-run-state="paused"] {
+  display: none;
+}

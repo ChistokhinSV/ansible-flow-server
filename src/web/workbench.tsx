@@ -4,6 +4,10 @@
 // Restart), a bottom panel (Debug Console, Terminal, Problems) and a status line. The same frame
 // holds a run on its page (/runs/:id) and a debug run on the flow's page, in place: the canvas stays
 // where it was and the debug views open around it.
+// AFS-266: the debug toolbar floats over the canvas, icons only (dragged sideways by its grip); why
+// it paused is said once, in the status line. The side bar folds to its activity bar (Ctrl+B,
+// Ctrl+Shift+D, or its active icon), the panel to its tab strip (Ctrl+J or its chevron); both folds
+// are kept in this browser.
 // At a pause the side bar opens on Variables at the first failed or matching host, Continue takes
 // the focus (the page does not scroll), the window's title says "⏸ Paused", a hidden tab shows a
 // notification (once the person allowed them), and a phone shows the Debug tab.
@@ -16,6 +20,7 @@ import type { FailureFilters, PausePoint, PointSpec } from '@ansible-flow/core/r
 import {
   type CSSProperties,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -38,7 +43,7 @@ import {
 } from './debugger';
 import { tellFrame } from './runFeed';
 import type { ShownStep } from './stepBar';
-import { Icon, Splitter, useKeptSize } from './ui';
+import { Icon, keepFold, keptFold, Splitter, useKeptSize } from './ui';
 
 export type SideView = 'debug' | 'details';
 export type PanelTab = 'console' | 'terminal' | 'problems';
@@ -50,9 +55,14 @@ export interface WorkbenchState {
   side: SideView;
   setSide(view: SideView): void;
   sideOpen: boolean;
-  setSideOpen(open: boolean): void;
+  /** `keep`: the person folded or unfolded it (kept in this browser); a pause opening it is not. */
+  setSideOpen(open: boolean, keep?: boolean): void;
   panel: PanelTab;
+  /** Shows a tab of the panel, unfolding the panel. */
   setPanel(tab: PanelTab): void;
+  /** AFS-266: the panel folded to its tab strip. */
+  panelOpen: boolean;
+  setPanelOpen(open: boolean): void;
   tab: PhoneTab;
   setTab(tab: PhoneTab): void;
 }
@@ -61,28 +71,62 @@ export interface WorkbenchState {
 export const NOT_WIDE = '(max-width: 1100px)';
 /** Up to this width, the parts are tabs. */
 export const PHONE = '(max-width: 860px)';
+/** AFS-266: where this browser keeps the folds (the same on a run's page and a flow's page). */
+export const SIDE_FOLDED = 'afs.workbench.sideFolded';
+export const PANEL_FOLDED = 'afs.workbench.panelFolded';
+export const TOOLBAR_AT = 'afs.workbench.toolbarX';
 
 export function useWorkbenchState(debug: boolean): WorkbenchState {
   const wide = !useNarrow(NOT_WIDE);
+  const wideRef = useRef(wide);
+  wideRef.current = wide;
   const [side, setSide] = useState<SideView>(debug ? 'debug' : 'details');
-  const [sideOpen, setSideOpen] = useState(wide);
-  const [panel, setPanel] = useState<PanelTab>(debug ? 'console' : 'terminal');
+  // Over the canvas (1100 px or less) it starts closed; beside it, as the person last left it.
+  const [sideOpen, setSideShown] = useState(() => wide && !keptFold(SIDE_FOLDED));
+  const [panel, setPanelTab] = useState<PanelTab>(debug ? 'console' : 'terminal');
+  const [panelOpen, setPanelShown] = useState(() => !keptFold(PANEL_FOLDED));
   const [tab, setTab] = useState<PhoneTab>(debug ? 'side' : 'flow');
+  const setSideOpen = useCallback((open: boolean, keep = false) => {
+    setSideShown(open);
+    if (keep && wideRef.current) keepFold(SIDE_FOLDED, !open);
+  }, []);
+  const setPanelOpen = useCallback((open: boolean) => {
+    setPanelShown(open);
+    keepFold(PANEL_FOLDED, !open);
+  }, []);
+  const setPanel = useCallback(
+    (next: PanelTab) => {
+      setPanelTab(next);
+      setPanelOpen(true);
+    },
+    [setPanelOpen],
+  );
   // A debug run seen after the page opened (the run's record came later): its views first.
   useEffect(() => {
     if (!debug) return;
     setSide('debug');
-    setPanel('console');
+    setPanelTab('console');
   }, [debug]);
-  // The window crossed the width: beside the canvas it is open, over it closed (not at first: a
+  // The window crossed the width: beside the canvas it is as kept, over it closed (not at first: a
   // pause may have opened it already).
   const wasWide = useRef(wide);
   useEffect(() => {
     if (wasWide.current === wide) return;
     wasWide.current = wide;
-    setSideOpen(wide);
+    setSideShown(wide && !keptFold(SIDE_FOLDED));
   }, [wide]);
-  return { side, setSide, sideOpen, setSideOpen, panel, setPanel, tab, setTab };
+  return {
+    side,
+    setSide,
+    sideOpen,
+    setSideOpen,
+    panel,
+    setPanel,
+    panelOpen,
+    setPanelOpen,
+    tab,
+    setTab,
+  };
 }
 
 /** A run's pause points as the canvas has them: the ids, with the settings of those that have some. */
@@ -169,6 +213,7 @@ export function DebugWorkbench({
   const phone = useNarrow(PHONE);
   const wide = !useNarrow(NOT_WIDE);
   const debug = active && debugRun;
+  const hasViews = debug || !!details;
   const s = useDebugSession({
     run,
     step,
@@ -251,25 +296,36 @@ export function DebugWorkbench({
     return () => document.removeEventListener('keydown', onKey);
   }, [drives, paused]);
 
-  // Ctrl+Shift+D: the Run and Debug view, as in VS Code (again: the side bar closes).
+  // Ctrl+Shift+D: the Run and Debug view, as in VS Code (again: the side bar closes). AFS-266:
+  // Ctrl+B folds the side bar and unfolds it, Ctrl+J the panel; the person's choice is kept.
   const stateRef = useRef(state);
   stateRef.current = state;
   useEffect(() => {
-    if (!debug) return;
+    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.key.toLowerCase() !== 'd') return;
-      e.preventDefault();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
       const st = stateRef.current;
-      if (window.matchMedia?.(PHONE).matches) return st.setTab('side');
-      if (st.sideOpen && st.side === 'debug') st.setSideOpen(false);
-      else {
-        st.setSide('debug');
-        st.setSideOpen(true);
+      const onPhone = !!window.matchMedia?.(PHONE).matches;
+      if (key === 'd' && e.shiftKey && debug) {
+        e.preventDefault();
+        if (onPhone) return st.setTab('side');
+        if (st.sideOpen && st.side === 'debug') st.setSideOpen(false, true);
+        else {
+          st.setSide('debug');
+          st.setSideOpen(true, true);
+        }
+      } else if (key === 'b' && !e.shiftKey && hasViews && !onPhone) {
+        e.preventDefault();
+        st.setSideOpen(!st.sideOpen, true);
+      } else if (key === 'j' && !e.shiftKey && !onPhone) {
+        e.preventDefault();
+        st.setPanelOpen(!st.panelOpen);
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [debug]);
+  }, [active, debug, hasViews]);
 
   // At a new pause: the side bar on Variables, the host on the canvas, the focus on Continue.
   const pauseId = s.pause?.id;
@@ -337,6 +393,12 @@ export function DebugWorkbench({
     { id: 'panel', label: debug ? 'Console' : 'Output' },
   ];
   const shows = (t: PhoneTab) => !phone || state.tab === t;
+  // A phone shows one part at a time: the panel is never folded there.
+  const panelOpen = phone || state.panelOpen;
+  const tools = debug && ((going && (s.mayDrive || s.mayStop)) || (!going && !!onRestart));
+  const debugBar = (
+    <DebugToolbar s={s} going={going} onRestart={onRestart} continueRef={continueRef} />
+  );
 
   const status = debug ? (
     <>
@@ -367,14 +429,8 @@ export function DebugWorkbench({
       }
       data-workbench
     >
-      {active && (debug || toolbar) && (
-        <div className="wb-bar">
-          {debug ? (
-            <DebugToolbar s={s} going={going} onRestart={onRestart} continueRef={continueRef} />
-          ) : (
-            toolbar
-          )}
-        </div>
+      {active && (phone ? debug && tools : !debug && toolbar) && (
+        <div className="wb-bar">{debug ? debugBar : toolbar}</div>
       )}
       {active && phone && (
         <WorkbenchTabs
@@ -395,14 +451,14 @@ export function DebugWorkbench({
                 type="button"
                 className="icon-button"
                 aria-label={v.label}
-                title={`${v.label}${v.id === 'debug' ? ' (Ctrl+Shift+D)' : ''}`}
+                title={`${v.label} (${v.id === 'debug' ? 'Ctrl+Shift+D' : 'Ctrl+B'})`}
                 aria-pressed={sideShown && view === v.id}
                 aria-controls="wb-side"
                 onClick={() => {
-                  if (sideShown && view === v.id) state.setSideOpen(false);
+                  if (sideShown && view === v.id) state.setSideOpen(false, true);
                   else {
                     state.setSide(v.id);
-                    state.setSideOpen(true);
+                    state.setSideOpen(true, true);
                   }
                 }}
               >
@@ -493,9 +549,9 @@ export function DebugWorkbench({
             {...(phone ? { role: 'tabpanel', 'aria-labelledby': 'wb-tab-flow' } : {})}
           >
             {canvas}
-            {/* Under 1100 px the side bar lies over the canvas: a click on the canvas's edge closes it. */}
+            {debug && tools && !phone && <FloatingBar>{debugBar}</FloatingBar>}
           </section>
-          {active && !phone && (
+          {active && !phone && panelOpen && (
             <Splitter
               orientation="horizontal"
               size={panelSize}
@@ -508,7 +564,7 @@ export function DebugWorkbench({
           )}
           {active && (
             <section
-              className="wb-panel"
+              className={panelOpen ? 'wb-panel' : 'wb-panel wb-panel-folded'}
               id="wb-panel"
               aria-label="Panel"
               hidden={!shows('panel')}
@@ -525,6 +581,21 @@ export function DebugWorkbench({
                 label="Panel views"
                 idOf={(t) => `wb-panel-tab-${t}`}
                 controls={(t) => `wb-panel-${t}`}
+                end={
+                  !phone && (
+                    <button
+                      type="button"
+                      className="icon-button wb-fold"
+                      aria-label={panelOpen ? 'Fold the panel' : 'Unfold the panel'}
+                      title={`${panelOpen ? 'Fold the panel' : 'Unfold the panel'} (Ctrl+J)`}
+                      aria-expanded={panelOpen}
+                      aria-keyshortcuts="Control+J"
+                      onClick={() => state.setPanelOpen(!panelOpen)}
+                    >
+                      <Icon name={panelOpen ? 'chevron-down' : 'chevron-up'} />
+                    </button>
+                  )
+                }
               />
               {debug && (
                 <div
@@ -532,7 +603,7 @@ export function DebugWorkbench({
                   id="wb-panel-console"
                   role="tabpanel"
                   aria-labelledby="wb-panel-tab-console"
-                  hidden={panel !== 'console'}
+                  hidden={!panelOpen || panel !== 'console'}
                 >
                   {mayDrive ? (
                     <ConsoleView s={s} />
@@ -548,7 +619,7 @@ export function DebugWorkbench({
                 id="wb-panel-terminal"
                 role="tabpanel"
                 aria-labelledby="wb-panel-tab-terminal"
-                hidden={panel !== 'terminal'}
+                hidden={!panelOpen || panel !== 'terminal'}
               >
                 {terminal}
               </div>
@@ -558,7 +629,7 @@ export function DebugWorkbench({
                   id="wb-panel-problems"
                   role="tabpanel"
                   aria-labelledby="wb-panel-tab-problems"
-                  hidden={panel !== 'problems'}
+                  hidden={!panelOpen || panel !== 'problems'}
                 >
                   {problems}
                 </div>
@@ -605,6 +676,7 @@ function WorkbenchTabs<T extends string>({
   label,
   idOf,
   controls,
+  end,
 }: {
   tabs: { id: T; label: string }[];
   tab: T;
@@ -612,8 +684,10 @@ function WorkbenchTabs<T extends string>({
   label: string;
   idOf(tab: T): string;
   controls(tab: T): string;
+  /** AFS-266: after the tabs, at the strip's end (the panel's fold). */
+  end?: ReactNode;
 }) {
-  return (
+  const strip = (
     <div className="wb-tabs" role="tablist" aria-label={label}>
       {tabs.map((t, i) => (
         <button
@@ -643,6 +717,82 @@ function WorkbenchTabs<T extends string>({
           {t.label}
         </button>
       ))}
+    </div>
+  );
+  if (!end) return strip;
+  return (
+    <div className="wb-strip">
+      {strip}
+      {end}
+    </div>
+  );
+}
+
+/** Where the floating toolbar was left, as px from the canvas's centre (0 there, or none kept). */
+function keptOffset(): number {
+  try {
+    const at = Number(window.localStorage.getItem(TOOLBAR_AT));
+    return Number.isFinite(at) ? at : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * AFS-266: the debug toolbar floats over the top centre of the canvas, under the canvas's own top
+ * bar, as VS Code's does over the editor. Its grip drags it sideways (a step it covers comes out
+ * from under it); where it was left is kept in this browser. A double click on the grip centres it.
+ */
+function FloatingBar({ children }: { children: ReactNode }) {
+  const [offset, setOffset] = useState(keptOffset);
+  const box = useRef<HTMLDivElement>(null);
+  const place = (next: number) => {
+    setOffset(next);
+    try {
+      window.localStorage.setItem(TOOLBAR_AT, String(Math.round(next)));
+    } catch {
+      // Not kept: the next page has it in the centre.
+    }
+  };
+  const onPointerDown = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget;
+    const from = e.clientX;
+    const start = offset;
+    const bar = box.current;
+    const room = bar?.parentElement;
+    // It stays inside the canvas: half the canvas's width less half its own each way.
+    const most = room && bar ? Math.max(0, (room.clientWidth - bar.offsetWidth) / 2 - 8) : 0;
+    grip.setPointerCapture?.(e.pointerId);
+    const move = (m: PointerEvent) =>
+      place(Math.min(most, Math.max(-most, start + m.clientX - from)));
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+  };
+  return (
+    <div
+      className="wb-float"
+      ref={box}
+      style={{ '--wb-float-x': `${offset}px` } as CSSProperties}
+      data-debug-float
+    >
+      <span
+        className="wb-grip"
+        aria-hidden="true"
+        title="Drag to move the toolbar; double-click to centre it"
+        onPointerDown={onPointerDown}
+        onDoubleClick={() => place(0)}
+      >
+        <Icon name="grip" />
+      </span>
+      {children}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // The application: who is signed in, the frame around every page (a side menu, AFS-64), and
 // which page an address is.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import logo from '../../media/icons/svg/afs-icon-small.svg';
 import { Account } from './account';
 import { ActionEditPage } from './actionEdit';
@@ -12,6 +12,7 @@ import { ApiDocs } from './apiPage';
 import { APPROVALS_CHANGED, ApprovalsPage } from './approvals';
 import { AuditPage } from './audit';
 import { CertificateBanner, CertificatePage } from './certificate';
+import { useNarrow } from './debugger';
 import { Entry, Setup, SignIn } from './entry';
 import { EnvironmentPage } from './environments';
 import { FilesPage } from './files';
@@ -32,7 +33,7 @@ import { SecretProvidersPage } from './secretProviders';
 import { SignInPage } from './signin';
 import { StreamsPage } from './streams';
 import { applyTheme, nextTheme, storedTheme, type ThemeChoice } from './theme';
-import { BarSlot, useLoad } from './ui';
+import { BarSlot, Icon, type IconName, keepFold, keptFold, useLoad } from './ui';
 
 type Session =
   | { state: 'loading' }
@@ -236,6 +237,119 @@ export function useFocusOnNewPage(path: string): void {
   }, [path]);
 }
 
+/** AFS-266: where this browser keeps the app menu folded to its icon rail. */
+export const MENU_FOLDED = 'afs.menu.folded';
+/** Up to this width the menu is the phone's (a Menu button over the page); it never folds there. */
+const PHONE_MENU = '(max-width: 860px)';
+
+/** The items of an open menu, in order. */
+const menuItems = (box: HTMLElement | null): HTMLElement[] => [
+  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+];
+
+/**
+ * AFS-266: a button of the icon rail that opens a menu of pages beside the rail (Workspaces,
+ * Administration): scrollable when long, the arrows go through it, Escape closes it and gives the
+ * focus back to its button, a click outside or a page picked closes it.
+ */
+function RailMenu({
+  icon,
+  label,
+  items,
+  path,
+}: {
+  icon: IconName;
+  label: string;
+  items: { to: string; label: string; current?: 'page' | undefined }[];
+  path: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [top, setTop] = useState(0);
+  // A page picked closes it (Link's own click navigates: one of the menu's would replace it).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every new page
+  useEffect(() => setOpen(false), [path]);
+  useEffect(() => {
+    if (!open) return;
+    menuItems(box.current)[0]?.focus();
+    const away = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      setOpen(false);
+      button.current?.focus();
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open]);
+  // Beside its button, kept inside the window when it is long.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const at = button.current?.getBoundingClientRect().top ?? 0;
+    const tall = list.current?.offsetHeight ?? 0;
+    setTop(Math.max(8, Math.min(at, window.innerHeight - tall - 8)));
+  }, [open]);
+  const here = items.some((i) => i.current);
+  return (
+    <div className="rail-menu" ref={box}>
+      <button
+        ref={button}
+        type="button"
+        className={`rail-item${here ? ' here' : ''}`}
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name={icon} />
+      </button>
+      {open && (
+        <div
+          ref={list}
+          className="rail-menu-list"
+          role="menu"
+          aria-label={label}
+          tabIndex={-1}
+          style={{ top }}
+          onKeyDown={(e) => {
+            const all = menuItems(box.current);
+            const at = all.indexOf(document.activeElement as HTMLElement);
+            const to =
+              e.key === 'ArrowDown'
+                ? (at + 1) % all.length
+                : e.key === 'ArrowUp'
+                  ? (at - 1 + all.length) % all.length
+                  : e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? all.length - 1
+                      : undefined;
+            if (to !== undefined) {
+              e.preventDefault();
+              all[to]?.focus();
+            } else if (e.key === 'Tab') setOpen(false);
+          }}
+        >
+          {items.map((i) => (
+            <Link key={i.to} to={i.to} role="menuitem" aria-current={i.current}>
+              {i.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The side menu: the places, the workspaces, and the person's own things at the end. */
 function Side({
   me,
@@ -253,6 +367,13 @@ function Side({
   onSignOut(): void;
 }) {
   const [open, setOpen] = useState(false);
+  // AFS-266: on a wide screen the menu folds to an icon rail, as this browser last left it.
+  const phone = useNarrow(PHONE_MENU);
+  const [folded, setFolded] = useState(() => keptFold(MENU_FOLDED));
+  const fold = (to: boolean) => {
+    setFolded(to);
+    keepFold(MENU_FOLDED, to);
+  };
   const workspaces = useLoad(api.workspaces, []);
   const approvals = useLoad(api.approvals, []);
   // Approvals arrive while pages are open: the count looks again now and then.
@@ -304,7 +425,7 @@ function Side({
   }, [open]);
 
   const waiting = approvals.data?.filter((a) => a.mayDecide).length ?? 0;
-  const at = (to: string) =>
+  const at = (to: string): 'page' | undefined =>
     path === to ||
     (to === '/runs' && path.startsWith('/runs/')) ||
     // People and groups are one place of the administration, at several addresses.
@@ -313,6 +434,128 @@ function Side({
     (to !== '/' && to.startsWith('/w/') && path.startsWith(`${to}/`))
       ? 'page'
       : undefined;
+
+  const adminPages: { to: string; label: string }[] = [
+    { to: '/admin/people', label: 'People and groups' },
+    { to: '/admin/sign-in', label: 'Sign-in' },
+    { to: '/admin/secret-providers', label: 'Secret providers' },
+    { to: '/admin/certificate', label: 'Server certificate' },
+    { to: '/admin/notifications', label: 'Notifications' },
+    { to: '/admin/streams', label: 'Event streaming' },
+    { to: '/admin/audit', label: 'Audit log' },
+  ];
+
+  if (folded && !phone) {
+    const item = (to: string, icon: IconName, label: string, current = at(to)) => (
+      <Link to={to} className="rail-item" aria-label={label} title={label} aria-current={current}>
+        <Icon name={icon} />
+      </Link>
+    );
+    return (
+      <div className="side rail">
+        <Link
+          to="/"
+          className="rail-brand"
+          aria-label="Ansible Flow Server"
+          title="Ansible Flow Server"
+        >
+          <img src={logo} alt="" width="28" height="28" />
+        </Link>
+        <nav aria-label="Main" className="rail-nav">
+          {reach?.actionOnly ? (
+            item(
+              '/actions',
+              'actions',
+              'Actions',
+              path === '/' || path.startsWith('/actions') ? 'page' : undefined,
+            )
+          ) : (
+            <>
+              {item('/', 'home', 'Home')}
+              {!!reach?.actions &&
+                item(
+                  '/actions',
+                  'actions',
+                  'Actions',
+                  path.startsWith('/actions') ? 'page' : undefined,
+                )}
+              {item('/runs', 'runs', 'Runs')}
+              <Link
+                to="/approvals"
+                className="rail-item"
+                aria-label={waiting > 0 ? `Approvals, ${waiting} waiting for you` : 'Approvals'}
+                title={waiting > 0 ? `Approvals: ${waiting} waiting for you` : 'Approvals'}
+                aria-current={at('/approvals')}
+              >
+                <Icon name="approvals" />
+                {waiting > 0 && (
+                  <span className="count rail-count" aria-hidden="true" data-approvals-count>
+                    {waiting}
+                  </span>
+                )}
+              </Link>
+              {item('/library', 'library', 'Library')}
+            </>
+          )}
+          {(me.admin || !!workspaces.data?.length) && (
+            <RailMenu
+              icon="workspaces"
+              label="Workspaces"
+              path={path}
+              items={[
+                { to: '/workspaces', label: 'All workspaces', current: at('/workspaces') },
+                ...(workspaces.data ?? []).map((w) => ({
+                  to: `/w/${w.key}`,
+                  label: w.name,
+                  current: at(`/w/${w.key}`),
+                })),
+              ]}
+            />
+          )}
+          {me.admin && (
+            <RailMenu
+              icon="admin"
+              label="Administration"
+              path={path}
+              items={adminPages.map((p) => ({ ...p, current: at(p.to) }))}
+            />
+          )}
+        </nav>
+        <div className="rail-end">
+          {item('/help', 'help', 'Help')}
+          {item('/account', 'account', `Account: ${me.name}`, at('/account'))}
+          <button
+            type="button"
+            className="rail-item"
+            aria-label={THEME_LABEL[theme]}
+            title={THEME_LABEL[theme]}
+            onClick={onTheme}
+          >
+            <Icon name="theme" />
+          </button>
+          <button
+            type="button"
+            className="rail-item"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={onSignOut}
+          >
+            <Icon name="signout" />
+          </button>
+          <button
+            type="button"
+            className="rail-item"
+            aria-label="Unfold the menu"
+            title="Unfold the menu"
+            aria-expanded={false}
+            onClick={() => fold(false)}
+          >
+            <Icon name="unfold" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={open ? 'side open' : 'side'}>
@@ -388,27 +631,11 @@ function Side({
           // AFS-87: the administration's pages are in the menu, not behind an index page.
           <nav aria-label="Administration" className="side-nav">
             <span className="side-label">Administration</span>
-            <Link to="/admin/people" aria-current={at('/admin/people')}>
-              People and groups
-            </Link>
-            <Link to="/admin/sign-in" aria-current={at('/admin/sign-in')}>
-              Sign-in
-            </Link>
-            <Link to="/admin/secret-providers" aria-current={at('/admin/secret-providers')}>
-              Secret providers
-            </Link>
-            <Link to="/admin/certificate" aria-current={at('/admin/certificate')}>
-              Server certificate
-            </Link>
-            <Link to="/admin/notifications" aria-current={at('/admin/notifications')}>
-              Notifications
-            </Link>
-            <Link to="/admin/streams" aria-current={at('/admin/streams')}>
-              Event streaming
-            </Link>
-            <Link to="/admin/audit" aria-current={at('/admin/audit')}>
-              Audit log
-            </Link>
+            {adminPages.map((p) => (
+              <Link key={p.to} to={p.to} aria-current={at(p.to)}>
+                {p.label}
+              </Link>
+            ))}
           </nav>
         )}
         <div className="side-end">
@@ -423,6 +650,16 @@ function Side({
           </button>
           <button type="button" onClick={onSignOut}>
             Sign out
+          </button>
+          <button
+            type="button"
+            className="menu-fold icon-button"
+            aria-label="Fold the menu"
+            title="Fold the menu to icons"
+            aria-expanded
+            onClick={() => fold(true)}
+          >
+            <Icon name="fold" />
           </button>
         </div>
       </div>

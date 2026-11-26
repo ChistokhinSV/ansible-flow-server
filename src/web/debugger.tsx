@@ -838,6 +838,7 @@ export function VariablesView({ s }: { s: DebugSession }) {
 /**
  * AFS-265: the Watch view: each expression's value for the chosen host, with an inline "compare
  * across hosts" (the values grouped, each with its hosts) and a remove, and a box to add one.
+ * AFS-266: Enter adds it (no Add button).
  */
 export function WatchView({ s }: { s: DebugSession }) {
   const [text, setText] = useState('');
@@ -911,11 +912,13 @@ export function WatchView({ s }: { s: DebugSession }) {
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="An expression, without {{ }}"
+          placeholder="Add an expression: Enter"
           aria-label="Expression to watch"
+          aria-keyshortcuts="Enter"
+          title="An expression, without {{ }}: Enter adds it"
+          enterKeyHint="done"
           data-debug-watch-input
         />
-        <button type="submit">Add</button>
       </form>
     </div>
   );
@@ -1123,15 +1126,13 @@ export function ConsoleView({ s }: { s: DebugSession }) {
             value={s.expr}
             onChange={(e) => s.setExpr(e.target.value)}
             onKeyDown={onKey}
-            placeholder="A Jinja expression for this host: Enter evaluates"
+            placeholder="A Jinja expression: Enter evaluates, Shift+Enter a new line"
             aria-label="Jinja expression to evaluate"
             aria-keyshortcuts="Enter Control+Enter"
-            title="Read-only: lookups are refused, 2 s at most"
+            title="Enter evaluates, Shift+Enter is a new line. Read-only: lookups are refused, 2 s at most"
+            enterKeyHint="go"
             data-debug-expr
           />
-          <button type="button" onClick={() => void s.evaluate()} title="Enter">
-            Evaluate
-          </button>
         </div>
       ) : (
         <p className="muted small wb-empty">
@@ -1146,6 +1147,8 @@ export function ConsoleView({ s }: { s: DebugSession }) {
  * AFS-265: the one debug toolbar, over the canvas: Continue or Pause (F5), Step (F10), Retry (a
  * failure pause only), Stop (Shift+F5), and Restart (Run again, once the run has ended). Readers
  * have none of them; an operator of the flow has Stop (AFS-253).
+ * AFS-266: icons only, as VS Code's: each button's name is its aria-label, its title says the key.
+ * Why it paused is the status line's alone; Retry's warning is its title.
  */
 export function DebugToolbar({
   s,
@@ -1162,15 +1165,15 @@ export function DebugToolbar({
   const button = (
     command: StepCommand,
     label: string,
-    titleText: string,
-    options: { primary?: boolean; key?: string; off?: string; ref?: Ref<HTMLButtonElement> } = {},
+    options: { key?: string; tip?: string; off?: string; ref?: Ref<HTMLButtonElement> } = {},
   ) => (
     <button
       type="button"
       ref={options.ref}
-      className={`wb-tool${command === 'stop' ? ' danger' : options.primary ? ' primary' : ''}`}
+      className="wb-tool icon-button"
+      aria-label={label}
       aria-disabled={s.busy || options.off ? true : undefined}
-      title={`${options.off ?? titleText}${options.key ? ` (${options.key})` : ''}`}
+      title={options.off ?? `${options.tip ?? label}${options.key ? ` (${options.key})` : ''}`}
       aria-keyshortcuts={options.key}
       data-step-command={command}
       onClick={() => {
@@ -1178,59 +1181,47 @@ export function DebugToolbar({
       }}
     >
       <Icon name={command} />
-      <span className="wb-tool-label">{label}</span>
     </button>
   );
-  const retryOffered = s.pause?.kind === 'failure' && !s.pause.retryRefused;
   const failedHosts = (s.pause?.failed ?? []).map((f) => f.host);
+  const drives = going && s.mayDrive;
+  const stops = going && !s.mayDrive && s.mayStop;
+  const restarts = !going && !!onRestart;
+  if (!drives && !stops && !restarts) return null;
   return (
     <div className="wb-toolbar" role="toolbar" aria-label="Debug" data-debugger>
-      {going && s.mayDrive && (
-        <>
-          {paused
-            ? button('continue', 'Continue', 'Run on; pause only at a pause point', {
-                key: 'F5',
-                primary: s.pause?.kind !== 'failure',
-                ...(continueRef ? { ref: continueRef } : {}),
-              })
-            : button('pause', 'Pause', 'Pause before the next step', { key: 'F5' })}
-          {button('step', 'Step', 'Run this step, then pause before the next one', {
-            key: 'F10',
-            ...(paused ? {} : { off: 'The run is going: Step answers its next pause' }),
-          })}
-          {s.pause?.kind === 'failure' &&
-            button('retry', 'Retry', `Run ${s.title} again on the hosts that failed`, {
-              primary: true,
-              ...(s.pause.retryRefused ? { off: s.pause.retryRefused } : {}),
-            })}
-          {button('stop', 'Stop', 'End the run before its next step; what ran is kept', {
-            key: 'Shift+F5',
-          })}
-        </>
-      )}
-      {going &&
-        !s.mayDrive &&
-        s.mayStop &&
-        button('stop', 'Stop', `End ${s.launcher}'s run before its next step; what ran is kept`)}
-      {!going && onRestart && (
+      {drives &&
+        (paused
+          ? button('continue', 'Continue', {
+              key: 'F5',
+              ...(continueRef ? { ref: continueRef } : {}),
+            })
+          : button('pause', 'Pause', { key: 'F5' }))}
+      {drives &&
+        button('step', 'Step', {
+          key: 'F10',
+          tip: 'Step over',
+          ...(paused ? {} : { off: 'Step (F10): the run is going, Step answers its next pause' }),
+        })}
+      {drives &&
+        s.pause?.kind === 'failure' &&
+        button('retry', 'Retry', {
+          tip: `Retry the step (like Restart Frame): runs ${s.title} again on ${failedHosts.join(', ')}. Changes on hosts are not undone.`,
+          ...(s.pause.retryRefused ? { off: s.pause.retryRefused } : {}),
+        })}
+      {drives && button('stop', 'Stop', { key: 'Shift+F5' })}
+      {stops && button('stop', 'Stop', { tip: `Stop ${s.launcher}'s run` })}
+      {restarts && (
         <button
           type="button"
-          className="wb-tool"
-          title="Run it again: the same commit, inputs and pause points"
+          className="wb-tool icon-button"
+          aria-label="Restart"
+          title="Restart: the same commit, inputs and pause points"
           onClick={onRestart}
           data-restart
         >
           <Icon name="restart" />
-          <span className="wb-tool-label">Restart</span>
         </button>
-      )}
-      {going && s.mayDrive && retryOffered && (
-        <span className="debug-warn small wb-tool-note" data-retry-warning>
-          Retry runs {s.title} again on {failedHosts.join(', ')}. Changes on hosts are not undone.
-        </span>
-      )}
-      {going && s.mayDrive && s.pause?.kind === 'failure' && s.pause.retryRefused && (
-        <span className="muted small wb-tool-note">{s.pause.retryRefused}</span>
       )}
     </div>
   );

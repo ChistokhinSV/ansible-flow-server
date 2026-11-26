@@ -45,27 +45,36 @@ A debug run is debugged as in VS Code: the canvas stays in the middle and the de
 around it. A debug run you start from the flow's canvas is debugged right there, on the flow's
 page; its run's page (**The run's page** in the status line) has the same views.
 
-- **The toolbar** over the canvas: **Continue** (F5) or **Pause** while the run goes, **Step**
-  (F10), **Retry** at a failure pause, **Stop** (Shift+F5) and, once the run has ended,
-  **Restart** (the run again, at the same commit, with the same inputs and pause points). F8 does
-  what F5 does, as on the canvas. The canvas's own step buttons give way to this toolbar.
+- **The toolbar** floats over the top of the canvas, under the canvas's own bar, as in VS Code.
+  It has icons only, each named in its tooltip with its key: **Continue** (F5) or **Pause** while
+  the run goes, **Step** (F10), **Retry** at a failure pause, **Stop** (Shift+F5) and, once the run
+  has ended, **Restart** (the run again, at the same commit, with the same inputs and pause
+  points). F8 does what F5 does, as on the canvas. Drag it sideways by its grip (⋮⋮) when it
+  covers a step; a double click on the grip puts it back in the middle. The browser keeps where
+  you left it. The canvas's own step buttons give way to this toolbar.
 - **The side bar**, on the left: the activity bar beside it picks its view (**Run and Debug**,
   and on a run's page **Details**: approvals, hosts, outputs, what ran and its inputs). A second
-  click on the open view folds the side bar; **Ctrl+Shift+D** does the same. Drag its edge, or
-  focus the edge and use the arrow keys (Shift: further, Home and End: the ends), to size it.
+  click on the open view's icon folds the side bar to the activity bar; **Ctrl+B** folds it and
+  opens it again, and **Ctrl+Shift+D** does so for Run and Debug. Drag its edge, or focus the
+  edge and use the arrow keys (Shift: further, Home and End: the ends), to size it.
 - **The panel** under the canvas: **Debug Console**, **Terminal** (the run's output) and
-  **Problems** (why each host failed). Size it by its top edge.
-- **The status line** at the bottom names the step, the count of hosts and why the run paused,
-  who paused it and when the pause stops the run by itself: "Paused after Apply config: 1 of 6
-  hosts failed (attempt 1) · stops by itself in 52 min · paused by Dana Whitfield", or "Paused
-  before Validate · condition held on sw-edge-03, sw-edge-04 (2 of 4 hosts)". The page's header
-  says the same: "after" at a failure pause, "before" elsewhere. Stop at a failure pause reads
-  "Stopped after Push baseline · 1 host failed, 3 stopped after it".
+  **Problems** (why each host failed). **Ctrl+J**, or the chevron at the end of its tabs, folds it
+  to its tabs; a tab of the folded panel opens it again. Size it by its top edge.
+- **The status line** at the bottom is the one place that says why the run paused. It names the
+  step, the count of hosts and why, who paused it and when the pause stops the run by itself:
+  "Paused after Apply config: 1 of 6 hosts failed (attempt 1) · stops by itself in 52 min ·
+  paused by Dana Whitfield", or "Paused before Validate · condition held on sw-edge-03,
+  sw-edge-04 (2 of 4 hosts)". The page's header says "after" at a failure pause, "before"
+  elsewhere. Stop at a failure pause reads "Stopped after Push baseline · 1 host failed, 3
+  stopped after it". The canvas marks the steps (its badges) and leaves the words to this line.
+
+The side bar and the panel are dense, as in VS Code: small type, rows of about 22 px. **Watch**
+adds an expression with Enter, and the console evaluates with Enter; neither has a button.
 
 From about 1100 px wide the side bar is beside the canvas; on a laptop or a tablet held sideways
 (about 1024 px) it lies over the canvas and opens when the run pauses. Up to 860 px wide (a
 phone) the page has tabs, **Flow · Debug · Console**; the toolbar and the status line stay in
-sight on each. The sizes you choose are kept in this browser.
+sight on each. The sizes you choose, and what you folded, are kept in this browser.
 
 **At a pause** the side bar opens on Run and Debug at the first failed host (else the first that
 matched a condition), Continue takes the focus (unless you are typing in the console), the
@@ -85,7 +94,8 @@ The Run and Debug view holds:
   text, marked "(template, not rendered)". The engine's own variables (`afd_repo_root` and the
   like) are not listed. A value longer than 64 KB is cut, and says where and how big it is:
   "(cut at 64 KB of 164.9 KB)". Facts not gathered yet say so.
-- **Watch:** expressions kept for you on this flow by the server: each person has their own, on
+- **Watch:** type an expression in its box and press Enter. Watches are kept for you on this
+  flow by the server: each person has their own, on
   any browser, and nobody else's run in their name. Each shows its value for the host chosen.
   The compare icon on a row groups all paused hosts by the value they have. A watch that fails
   shows its error and stays in the list.
@@ -99,7 +109,7 @@ The Run and Debug view holds:
   your points too, as on the canvas.
 
 **Retry** runs the step again on the hosts that failed. The step's changes on the hosts are not
-undone, and the toolbar says so before you press it. A second failure pauses again (attempt 2).
+undone: its tooltip ("Retry the step (like Restart Frame)") says so, and it asks before it runs. A second failure pauses again (attempt 2).
 Retry is refused for a rolling subflow and for a failure outside the step's rescue; Run again
 offers a new run there.
 

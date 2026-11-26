@@ -1270,3 +1270,107 @@ describe('AFS-152: one own access, in words', () => {
     expect(screen.queryByRole('navigation', { name: 'Workspaces' })).toBeNull();
   });
 });
+
+describe('AFS-266: the app menu folded to an icon rail', () => {
+  const waitingRun = (id: string) => ({
+    id,
+    run: { id: `r-${id}`, number: 7 },
+    node: 'n1',
+    title: 'Approve the change',
+    mayDecide: true,
+  });
+  const many = Array.from({ length: 30 }, (_, i) => ({
+    id: `w${i + 2}`,
+    key: `lab-${i + 2}`,
+    name: `Lab ${i + 2}`,
+    projects: 0,
+  }));
+
+  it('folds to icons with titles, keeps the Approvals count, and is remembered', async () => {
+    routes = {
+      ...signedInAs(dana),
+      'GET /approvals': () => ({ body: [waitingRun('a1'), waitingRun('a2')] }),
+    };
+    window.history.replaceState(null, '', '/workspaces');
+    const first = render(<App />);
+    await screen.findAllByRole('link', { name: /Network team/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Fold the menu' }));
+    expect(window.localStorage.getItem('afs.menu.folded')).toBe('1');
+    const main = screen.getByRole('navigation', { name: 'Main' });
+    const icons = within(main).getAllByRole('link');
+    expect(icons.map((l) => l.getAttribute('aria-label'))).toEqual([
+      'Home',
+      'Runs',
+      'Approvals, 2 waiting for you',
+      'Library',
+    ]);
+    for (const l of icons) expect(l.getAttribute('title')).toBeTruthy();
+    expect(icons.every((l) => !l.textContent?.replace(/\d/g, '').trim())).toBe(true);
+    expect(within(main).getByText('2').hasAttribute('data-approvals-count')).toBe(true);
+    const end = document.querySelector('.rail-end') as HTMLElement;
+    expect(
+      [...end.querySelectorAll('a, button')].map((e) => [
+        e.getAttribute('aria-label'),
+        e.getAttribute('title'),
+      ]),
+    ).toEqual([
+      ['Help', 'Help'],
+      ['Account: Dana Whitfield', 'Account: Dana Whitfield'],
+      ['Theme: dark', 'Theme: dark'],
+      ['Sign out', 'Sign out'],
+      ['Unfold the menu', 'Unfold the menu'],
+    ]);
+    first.unmount();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Unfold the menu' });
+    fireEvent.click(screen.getByRole('button', { name: 'Unfold the menu' }));
+    expect(window.localStorage.getItem('afs.menu.folded')).toBe('0');
+    expect(screen.getByRole('link', { name: 'Audit log' })).toBeTruthy();
+  });
+
+  it('Workspaces opens a menu of all of them, scrollable, keyboard driven; a link goes there', async () => {
+    routes = {
+      ...signedInAs(dana),
+      'GET /workspaces': () => ({ body: [network, ...many] }),
+      'GET /approvals': () => ({ body: [] }),
+    };
+    window.localStorage.setItem('afs.menu.folded', '1');
+    window.history.replaceState(null, '', '/workspaces');
+    render(<App />);
+    const button = await screen.findByRole('button', { name: 'Workspaces' });
+    expect(button.getAttribute('aria-haspopup')).toBe('menu');
+    // The page lists them once they are read: the menu has them too.
+    await screen.findAllByRole('link', { name: /Lab 31/ });
+    fireEvent.click(button);
+    expect(screen.getAllByRole('menuitem', { name: /Lab/ })).toHaveLength(30);
+    const menu = screen.getByRole('menu', { name: 'Workspaces' });
+    const items = within(menu).getAllByRole('menuitem');
+    expect(items.map((i) => i.textContent).slice(0, 3)).toEqual([
+      'All workspaces',
+      'Network team',
+      'Lab 2',
+    ]);
+    expect(items[0]?.getAttribute('aria-current')).toBe('page');
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(document.activeElement).toBe(items.at(-1));
+    // Escape closes it, and the focus is back on its button.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Network team' }));
+    await screen.findByRole('heading', { name: 'Network team' });
+    expect(window.location.pathname).toBe('/w/network');
+    expect(screen.queryByRole('menu')).toBeNull();
+    // Administration is a menu of its pages.
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }));
+    expect(
+      within(screen.getByRole('menu', { name: 'Administration' }))
+        .getAllByRole('menuitem')
+        .map((i) => i.textContent),
+    ).toContain('Audit log');
+  });
+});
