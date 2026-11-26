@@ -61,6 +61,59 @@ afterEach(() => {
 });
 
 describe('approvals', () => {
+  it('AFS-274: names each one’s workspace, decided ones too, and narrows to one in the address', async () => {
+    const inWs = (id: string, mayDecide: boolean, key: string, name: string) => {
+      const w = waiting(id, mayDecide);
+      return {
+        ...w,
+        run: { ...w.run, projectName: 'Edge', workspaceName: name, workspace: { key, name } },
+      };
+    };
+    const all = [inWs('r1', true, 'net', 'Network team'), inWs('r2', true, 'lab', 'Lab')];
+    const decided = {
+      ...inWs('r3', false, 'lab', 'Lab'),
+      gate: gate({ id: 'g-r3', run: 'r3', status: 'approved', decidedBy: 'omar' }),
+    };
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /workspaces': () => ({
+        body: [
+          { id: 'w1', key: 'net', name: 'Network team', projects: 1 },
+          { id: 'w2', key: 'lab', name: 'Lab', projects: 1 },
+        ],
+      }),
+      'GET /approvals': () => ({ body: all }),
+      'GET /approvals?workspace=lab': () => ({ body: all.slice(1) }),
+      'GET /approvals?decided=1': () => ({ body: [decided] }),
+      'GET /approvals?decided=1&workspace=lab': () => ({ body: [decided] }),
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    const yours = (await screen.findByRole('heading', { name: 'Yours to decide' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(yours.textContent).toContain('Network team / Edge');
+    expect(yours.textContent).toContain('Lab / Edge');
+    const history = (await screen.findByRole('heading', { name: 'Decided lately' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(history.textContent).toContain('Approve the change · Lab');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Workspace' }), {
+      target: { value: 'lab' },
+    });
+    expect(window.location.pathname + window.location.search).toBe('/approvals?workspace=lab');
+    await waitFor(() => expect(yours.textContent).not.toContain('Network team'));
+    expect(asked.map((a) => a.key)).toEqual(
+      expect.arrayContaining([
+        'GET /approvals?workspace=lab',
+        'GET /approvals?decided=1&workspace=lab',
+      ]),
+    );
+    // The menu's count is of every workspace: it never asks for one.
+    const menu = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals2');
+  });
+
   it('the inbox: yours to decide with a comment, and others with why not', async () => {
     let list = [
       waiting('r1', true),

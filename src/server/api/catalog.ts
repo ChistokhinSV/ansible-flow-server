@@ -62,8 +62,11 @@ export type Reach =
   | { environment: string }
   | { grant: string }
   | { gitWorkspace: string }
-  /** A list narrowed by its query: to a project, else to a launch configuration (its project's). */
-  | { projectQuery: string; configQuery?: string }
+  /**
+   * A list narrowed by its query: to a project, else to a launch configuration (its project's),
+   * else (AFS-274) to a workspace by its key.
+   */
+  | { projectQuery: string; configQuery?: string; workspaceQuery?: string }
   /** AFS-76: a flow's draft, which reaches its project and flow. */
   | { draft: string };
 
@@ -774,8 +777,12 @@ export const ROUTES: Record<string, RouteDoc> = {
     json({ type: 'array', items: ANSWERS.workspaceAction }),
   ),
 
-  'GET /api/v1/runs': S('Runs', 'signed in', { projectQuery: 'project', configQuery: 'config' })(
-    "Runs, newest first; filters project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
+  'GET /api/v1/runs': S('Runs', 'signed in', {
+    projectQuery: 'project',
+    configQuery: 'config',
+    workspaceQuery: 'workspace',
+  })(
+    "Runs, newest first; filters workspace (a key), project, flow, state, config (a launch configuration), by (who asked, a login), q (words in the flow's name or file, the configuration's name or a login; or a run number); `limit` and `before` (the last run's createdAt,number,id, or a time) for paging",
     list('Run'),
   ),
   'GET /api/v1/runs/:id': S(
@@ -940,12 +947,14 @@ export const ROUTES: Record<string, RouteDoc> = {
     "What needs you now, in every workspace you may see: approvals you may decide, your paused and failed runs, your drafts nobody saved, the certificate's end for administrators, and your runs that wait for someone else's decision. Each item names its workspace and the verbs you may use there. With the day's numbers (`since`: the start of your day, at most 7 days back; else the last 24 hours), the last 7 days', and the server's runners. `?workspace=<key>`: of that workspace only",
     one('Inbox'),
   ),
+  // AFS-274: across workspaces, as the Work pages are; a token made for one workspace is narrowed
+  // to it by the route itself.
   'GET /api/v1/approvals': S(
     'Approvals',
     'signed in',
-    'server',
+    'self',
   )(
-    'Approvals that wait for a decision, that you may see; each says whether you may decide it. `?decided=1`: the newest 50 decided ones instead',
+    'Approvals that wait for a decision, that you may see, in every workspace; each says whether you may decide it, and its workspace. `?decided=1`: the newest 50 decided ones instead. `?workspace=<key>`: of that workspace only',
     list('WaitingApproval'),
   ),
   'GET /api/v1/runs/:id/approvals': S(
@@ -1607,6 +1616,16 @@ async function targetOf(
     if (query[reach.projectQuery]) return ofProject(query[reach.projectQuery]);
     // No project named, a launch configuration is: the list reaches that one's project.
     const config = reach.configQuery ? query[reach.configQuery] : undefined;
+    // AFS-274: neither, a workspace is: the list reaches that workspace.
+    const space = reach.workspaceQuery ? query[reach.workspaceQuery] : undefined;
+    if (!config && space) {
+      const row = await db
+        .selectFrom('workspace')
+        .select('id')
+        .where((eb) => eb.or([eb('id', '=', space), eb('key', '=', space)]))
+        .executeTakeFirst();
+      return row ? { workspace: row.id } : undefined;
+    }
     if (!config) return undefined;
     const row = await db
       .selectFrom('launch_config')

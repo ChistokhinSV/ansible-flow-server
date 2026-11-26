@@ -10,6 +10,7 @@ import { type Access, accessOf } from '../access/grants';
 import { signedIn } from '../auth/guards';
 import { getUser } from '../auth/users';
 import type { Schema } from '../db/schema';
+import { getWorkspace } from '../projects/store';
 import type { RunHub } from '../runs/hub';
 import type { RunQueue } from '../runs/queue';
 import {
@@ -260,10 +261,14 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
     },
   );
 
-  /** The approvals someone may see: those that wait, or (`decided`) the newest decided ones. */
+  /**
+   * The approvals someone may see: those that wait, or (`decided`) the newest decided ones; of
+   * one workspace (`only`, its id) when asked (AFS-274), before the lists are cut.
+   */
   const approvalsFor = async (
     who: NonNullable<Awaited<ReturnType<typeof deciderFor>>>,
     decided: boolean,
+    only?: string,
   ): Promise<WaitingApproval[]> => {
     let query = db
       .selectFrom('run_gate')
@@ -286,10 +291,12 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
         'run.created_at',
         'project.name as project_name',
         'workspace.id as workspace',
+        'workspace.key as workspace_key',
         'workspace.name as workspace_name',
         'workspace.self_approve',
       ])
       .orderBy('run_gate.created_at', decided ? 'desc' : 'asc');
+    if (only) query = query.where('workspace.id', '=', only);
     query = decided
       ? query.where('run_gate.status', 'in', ['approved', 'rejected', 'timed out']).limit(200)
       : query.where('run_gate.status', '=', 'waiting').where('run.state', '=', 'waiting');
@@ -333,6 +340,8 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
       );
       const requestedByName = launcherName.get(row.requested_by);
       const byName = requestedByName ? { requestedByName } : {};
+      // AFS-274: every approval names its workspace, decided ones too.
+      const workspace = { key: row.workspace_key, name: row.workspace_name };
       if (decided) {
         out.push({
           run: {
@@ -340,6 +349,7 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
             number: row.number,
             project: row.project_id,
             flow: { file: row.flow_file, name: row.flow_name },
+            workspace,
           },
           requestedBy: row.requested_login,
           ...byName,
@@ -367,6 +377,7 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
           flow: { file: row.flow_file, name: row.flow_name },
           projectName: row.project_name,
           workspaceName: row.workspace_name,
+          workspace,
           mode: row.mode as 'check' | 'real',
           ...(inputs ? { inputs } : {}),
         },
@@ -380,15 +391,48 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
     return out;
   };
 
-  app.get<{ Querystring: { decided?: string } }>('/api/v1/approvals', async (request, reply) => {
-    if (!signedIn(request, reply)) return reply;
-    const who = await deciderFor(request);
-    if (!who) return reply;
-    // AFS-133: `?decided=1`: the newest decided approvals the person may see (50), not those
-    // that wait.
-    const decided = request.query.decided === '1' || request.query.decided === 'true';
-    return approvalsFor(who, decided);
-  });
+  app.get<{ Querystring: { decided?: string; workspace?: string } }>(
+    '/api/v1/approvals',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            decided: { type: 'string', maxLength: 10 },
+            workspace: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = signedIn(request, reply);
+      if (!me) return reply;
+      const who = await deciderFor(request);
+      if (!who) return reply;
+      // AFS-133: `?decided=1`: the newest decided approvals the person may see (50), not those
+      // that wait.
+      const decided = request.query.decided === '1' || request.query.decided === 'true';
+      // AFS-274: across workspaces, as the inbox: a token made for one workspace sees that one
+      // only; `?workspace=` narrows to one the person may see.
+      const scoped = me.token?.workspace;
+      let only = scoped;
+      const asked = request.query.workspace;
+      if (asked) {
+        const workspace = await getWorkspace(db, asked);
+        if (!workspace || !who.access.sees(workspace.id))
+          return reply
+            .code(404)
+            .send({ error: 'not_found', message: `There is no workspace ${asked}` });
+        if (scoped && workspace.id !== scoped)
+          return reply.code(403).send({
+            error: 'out_of_scope',
+            message: 'This token is for one workspace: it cannot reach this',
+          });
+        only = workspace.id;
+      }
+      return approvalsFor(who, decided, only);
+    },
+  );
 
   // AFS-212: the inbox lists the same approvals as this page, with the same rule for each.
   return {

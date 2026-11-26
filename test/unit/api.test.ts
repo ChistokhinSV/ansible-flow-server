@@ -134,7 +134,7 @@ for (const [name, config] of databases) {
       // The filters of a list are its parameters.
       expect(
         doc.paths['/api/v1/runs'].get.parameters.map((p: { name: string }) => p.name).sort(),
-      ).toEqual(['before', 'by', 'config', 'flow', 'limit', 'project', 'q', 'state']);
+      ).toEqual(['before', 'by', 'config', 'flow', 'limit', 'project', 'q', 'state', 'workspace']);
       expect(doc.paths['/api/v1/users/{id}/access'].get.description).toMatch(
         /Who: administrators.$/,
       );
@@ -244,6 +244,13 @@ for (const [name, config] of databases) {
       expect(await status('GET', `/api/v1/workspaces/${lab.id}/projects`)).toBe(403);
       expect(await status('GET', `/api/v1/projects/${toys.id}`)).toBe(403);
       expect(await status('GET', `/api/v1/runs?project=${toys.id}`)).toBe(403);
+      // AFS-274: its own workspace's runs by the workspace's key, not another's.
+      expect(await status('GET', '/api/v1/runs?workspace=net')).toBe(200);
+      expect(await status('GET', '/api/v1/runs?workspace=lab')).toBe(403);
+      // The approvals list spans workspaces and narrows itself to the token's, as the inbox does.
+      expect(await status('GET', '/api/v1/approvals')).toBe(200);
+      expect(await status('GET', '/api/v1/approvals?workspace=net')).toBe(200);
+      expect(await status('GET', '/api/v1/approvals?workspace=lab')).toBe(403);
       // What spans workspaces is out of its reach.
       expect(await status('GET', '/api/v1/workspaces')).toBe(403);
       expect(await status('GET', '/api/v1/runs')).toBe(403);

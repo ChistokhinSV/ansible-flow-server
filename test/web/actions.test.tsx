@@ -173,6 +173,44 @@ describe('actions', () => {
     expect(link.textContent).toContain('Network team · sw-edge-01 did not answer');
   });
 
+  it('AFS-274: each action names its workspace, and narrows to one, from the actions themselves', async () => {
+    routes = {
+      ...actionOnly(),
+      'GET /actions': () => ({
+        body: [
+          card,
+          {
+            ...card,
+            id: 'c2',
+            title: 'Check the lab switch',
+            mode: 'check',
+            workspace: { key: 'lab', name: 'Lab' },
+          },
+        ],
+      }),
+    };
+    window.history.replaceState(null, '', '/actions');
+    render(<App />);
+    const restart = await screen.findByRole('link', { name: /Restart the edge switch/ });
+    expect(restart.textContent).toMatch(/Network · You have not run it yet/);
+    expect(screen.getByRole('link', { name: /Check the lab switch/ }).textContent).toMatch(
+      /Lab · You have not run it yet/,
+    );
+    // An action-only person sees no workspace in /workspaces: the choices are the actions' own.
+    const filter = screen.getByRole('combobox', { name: 'Workspace' }) as HTMLSelectElement;
+    expect([...filter.options].map((o) => o.textContent)).toEqual([
+      'All workspaces',
+      'Network',
+      'Lab',
+    ]);
+    fireEvent.change(filter, { target: { value: 'lab' } });
+    expect(window.location.pathname + window.location.search).toBe('/actions?workspace=lab');
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: /Restart the edge switch/ })).toBeNull(),
+    );
+    expect(screen.getByRole('link', { name: /Check the lab switch/ })).toBeTruthy();
+  });
+
   it("AFS-260: a switched-off action stays on its runner's Actions, said to be off", async () => {
     routes = {
       ...actionOnly(),

@@ -321,6 +321,8 @@ export interface WhoCan {
 /** What a list of runs is narrowed to. */
 export interface RunsFilter {
   state?: string;
+  /** AFS-274: a workspace's key: its runs. */
+  workspace?: string;
   project?: string;
   flow?: string;
   /** A launch configuration's id: its runs. */
@@ -902,7 +904,12 @@ export const api = {
       `/workspaces/${encodeURIComponent(workspace)}/action-grants`,
     ),
 
-  approvals: () => call<WaitingApproval[]>('GET', '/approvals'),
+  /** AFS-274: `workspace`, a key: of that workspace only (the menu's count asks for all). */
+  approvals: (workspace?: string) =>
+    call<WaitingApproval[]>(
+      'GET',
+      `/approvals${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''}`,
+    ),
   /**
    * AFS-212: what needs you now, across the workspaces you may see (or `workspace`, a key), and
    * the numbers of your day since `since` (your midnight).
@@ -916,7 +923,11 @@ export const api = {
       })}`,
     ),
   /** AFS-133: the newest decided approvals this person may see. */
-  decidedApprovals: () => call<WaitingApproval[]>('GET', '/approvals?decided=1'),
+  decidedApprovals: (workspace?: string) =>
+    call<WaitingApproval[]>(
+      'GET',
+      `/approvals?decided=1${workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''}`,
+    ),
   runApprovals: (run: string) =>
     call<(Gate & { mayDecide: boolean; why?: string })[]>(
       'GET',

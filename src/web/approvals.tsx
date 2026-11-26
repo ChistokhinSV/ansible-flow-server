@@ -4,8 +4,8 @@
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { decidersWords } from '../server/approvals/types';
 import { api, type Gate } from './api';
-import { Link } from './router';
-import { ago, Loading, messageOf, PageHead, span, Time, useLoad } from './ui';
+import { Link, useSearch } from './router';
+import { ago, Loading, messageOf, PageHead, span, Time, useLoad, WorkspaceFilter } from './ui';
 
 /** AFS-133: the sidebar's count and other lists read again once a decision is made. */
 export const APPROVALS_CHANGED = 'afs-approvals-changed';
@@ -323,7 +323,10 @@ export function RunApprovals({ run, changed }: { run: string; changed: string })
 
 /** Everything that waits for a decision, that this person may see. */
 export function ApprovalsPage() {
-  const list = useLoad(() => api.approvals(), []);
+  // AFS-274: every workspace the person may see; `?workspace=<key>` narrows to one.
+  const chosen = new URLSearchParams(useSearch()).get('workspace') ?? undefined;
+  const workspaces = useLoad(api.workspaces, []);
+  const list = useLoad(() => api.approvals(chosen), [chosen]);
   // AFS-133: what was just decided here, said until the next decision.
   const [decided, setDecided] = useState<{ text: string; run: string }>();
   // Runs reach approvals while the page is open: it looks again now and then.
@@ -331,7 +334,10 @@ export function ApprovalsPage() {
     const timer = setInterval(list.reload, 15_000);
     return () => clearInterval(timer);
   }, [list.reload]);
-  const decidedList = useLoad(() => api.decidedApprovals().catch(() => []), [decided]);
+  const decidedList = useLoad(
+    () => api.decidedApprovals(chosen).catch(() => []),
+    [decided, chosen],
+  );
   // AFS-146: the sidebar's count follows what this page reads (a run that arrived, one decided
   // elsewhere), not its own slower look.
   const count = list.data?.filter((a) => a.mayDecide).length;
@@ -352,7 +358,10 @@ export function ApprovalsPage() {
           {a.run.projectName && (
             <>
               {' '}
-              · {a.run.workspaceName ? `${a.run.workspaceName} / ` : ''}
+              ·{' '}
+              {(a.run.workspace?.name ?? a.run.workspaceName)
+                ? `${a.run.workspace?.name ?? a.run.workspaceName} / `
+                : ''}
               {a.run.projectName}
             </>
           )}
@@ -390,7 +399,9 @@ export function ApprovalsPage() {
                 : 'No run waits for a decision.'
             : undefined
         }
-      />
+      >
+        <WorkspaceFilter workspaces={workspaces.data ?? []} chosen={chosen} />
+      </PageHead>
       {decided && (
         <p className="notice ok" role="status">
           {decided.text} <Link to={`/runs/${decided.run}`}>Open the run</Link>
@@ -419,7 +430,11 @@ export function ApprovalsPage() {
                   <Link to={`/runs/${a.run.id}`}>
                     {a.run.flow.name} #{a.run.number}
                   </Link>{' '}
-                  <span className="muted">· {a.gate.node.title}</span>{' '}
+                  <span className="muted">
+                    · {a.gate.node.title}
+                    {/* AFS-274: decided ones name their workspace too. */}
+                    {a.run.workspace ? ` · ${a.run.workspace.name}` : ''}
+                  </span>{' '}
                   <span className={`badge ${STATUS_TONE[a.gate.status] ?? ''}`}>
                     {gateWord(a.gate.status)}
                   </span>{' '}

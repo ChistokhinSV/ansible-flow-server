@@ -46,9 +46,9 @@ never opens the browser's Save dialog.
 | `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form, Check or Real as a choice, What will run beside it, the button that names the run, what would run, keep start values                                                                                         |
 | `.../launch/<id>/runs`, `/schedules`, `/settings` | Its **Runs** (older ones a page at a time), its **Schedules**, and its **Settings** (change, delete; `rw` on its flow)                                                                                                                                             |
 | `/w/<workspace>/<project>/launch/new`             | Add a launch configuration (`rw` on its flow)                                                                                                                                                                                                                      |
-| `/runs`                                           | Every run you may see, the newest first, filtered by state, by project and one of its launch configurations, and to your own (Mine); the choices are in the address; older runs a page at a time                                                                   |
+| `/runs`                                           | Every run you may see in every workspace, the newest first, each with its workspace; filtered by workspace, state, project and one of its launch configurations, and to your own (Mine); the choices are in the address; older runs a page at a time               |
 | `/runs/<id>`                                      | One run: where it belongs (workspace, project, launch configuration), where it stands in a sentence, the run on the canvas, beside it the approval that waits, its hosts (those with a problem first), why one failed and what ran; its output; Stop and Run again |
-| `/approvals`                                      | What waits for a decision: yours each in a tinted box with the decision (and a comment), others' as rows with why not                                                                                                                                              |
+| `/approvals`                                      | What waits for a decision in every workspace, each with its workspace: yours each in a tinted box with the decision (and a comment), others' as rows with why not; **Workspace** narrows it to one (`?workspace=<key>`)                                            |
 | `/docs/api`                                       | The API reference, from the server's OpenAPI document: Test Request as you or a pasted token                                                                                                                                                                       |
 | `/account`, `/account/tokens`                     | Your **Profile** (name, email address; webhook for administrators) and your **Access tokens**                                                                                                                                                                      |
 | `/admin/people`, `/admin/groups`                  | **People** (filtered by name and kind) and **Groups**, each a tab; add a person, service account or group                                                                                                                                                          |
@@ -83,6 +83,11 @@ never opens the browser's Save dialog.
   - **Waiting for others**: your runs that wait for someone else's decision, and whose. They are
     not counted.
   - **Running now** and **Launch again** beside it, and the latest runs with their workspace.
+- **The Work pages** (Home, Runs, Approvals, Actions) list every workspace you may see, and each
+  row names its workspace (on a phone, at the start of its second line). **Workspace** at the
+  top narrows a page to one, kept in the address (`?workspace=<key>`); it shows where there is
+  more than one workspace to choose from. Actions offers the workspaces of the actions you may
+  run.
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
   The flow canvas takes the page's colours in the same theme (its ground, panels, lines, text and
   accent), and turns light or dark with the page when the page follows the device. A flow opened
