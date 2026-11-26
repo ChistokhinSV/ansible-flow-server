@@ -665,6 +665,8 @@ describe('signed in', () => {
     expect(Object.fromEntries(src.searchParams)).toEqual({
       project: 'p1',
       path: 'flows/os-upgrade.flow.yaml',
+      // AFS-265: the page feeds the canvas its runs (one stream for both).
+      feed: '1',
       theme: 'dark',
     });
     expect(document.querySelector('.flow-line')?.textContent).toContain(
@@ -689,8 +691,9 @@ describe('signed in', () => {
     // Full screen and its own page are icon buttons with their names.
     const canvas = screen.getByTitle(/OS upgrade on the designer/) as HTMLIFrameElement;
     // AFS-114: the canvas with what opens over it (the library picker) goes full screen.
-    const stage = canvas.parentElement as HTMLElement;
-    expect(stage.className).toBe('flow-stage');
+    // AFS-265: the canvas sits in the debug workbench, which opens around it for a debug run.
+    const stage = canvas.closest('.flow-stage') as HTMLElement;
+    expect(canvas.parentElement?.className).toBe('wb-canvas');
     const asked: Element[] = [];
     stage.requestFullscreen = async function (this: Element) {
       asked.push(this);

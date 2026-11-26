@@ -1,12 +1,12 @@
-// The run pages: every run, newest first; and one run, live while it goes: its canvas, and beside
-// it the approval that waits, its hosts, what went wrong and what ran; its output below (AFS-64).
+// The run pages: every run, newest first; and one run, live while it goes, in the debug workbench
+// (AFS-64, AFS-265): its canvas, the side bar with the approval that waits, its hosts and what ran
+// (and a debug run's views), its output and what went wrong in the panel below.
 
 import type { RunView } from '@ansible-flow/core/protocol';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { atLeast, flowLevel, launchesAny, useMyAccess, useProjectAccess } from './access';
 import { AnsiText } from './ansi';
 import {
-  ApiError,
   api,
   type HostAt,
   type HostSets,
@@ -20,12 +20,13 @@ import {
 } from './api';
 import { APPROVALS_CHANGED, RunApprovals } from './approvals';
 import { ask } from './confirm';
-import { DebugKept, DebugPanel, useNarrow } from './debugger';
+import { DebugKept } from './debugger';
 import { environmentAddress } from './environments';
 import { Missing } from './help';
 import { decidedOutcomes, quietEndOrigins } from './outputText';
 import { Link, navigate } from './router';
 import { RunAgainMenu, relaunchWords } from './runAgain';
+import { useFrameFeed, useRunFeed } from './runFeed';
 import { RunStepBar } from './stepBar';
 import type { ThemeChoice } from './theme';
 import {
@@ -33,6 +34,7 @@ import {
   Breadcrumb,
   formatTime,
   HelpLink,
+  Icon,
   Loading,
   PageHead,
   span,
@@ -41,6 +43,7 @@ import {
   WorkspaceName,
 } from './ui';
 import { stopQuestion } from './viewerRuns';
+import { DebugWorkbench, useWorkbenchState } from './workbench';
 
 export const ACTIVE = ['queued', 'running', 'waiting'];
 /**
@@ -53,8 +56,6 @@ export const shownState = (run: { state: string; pausedBefore?: string | undefin
 export const personOf = (p: { login: string; name?: string | undefined }) => p.name || p.login;
 /** How many runs the list asks for at once. */
 const PAGE = 100;
-/** The output a page keeps; the rest is in the run's output file. */
-const KEEP_OUTPUT = 2 * 1024 * 1024;
 
 const LABEL: Record<string, string> = {
   queued: 'queued',
@@ -1065,23 +1066,110 @@ export function limitWords(run: Pick<Run, 'hostLimit'>): string | undefined {
   return h.count === 1 ? `only ${names}` : `only ${h.count} hosts: ${names}`;
 }
 
+/** The items of an open menu, in order. */
+const menuItems = (box: HTMLElement | null): HTMLElement[] => [
+  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+];
+
+/** AFS-265: the run's page header's More menu: All runs, and the whole output as text. */
+function RunMoreMenu({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    menuItems(box.current)[0]?.focus();
+    const away = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (box.current?.contains(document.activeElement)) button.current?.focus();
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open]);
+  return (
+    <div className="more-menu" ref={box}>
+      <button
+        ref={button}
+        type="button"
+        className="icon-button"
+        aria-label="More"
+        title="More: all runs, the output as text"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name="more" />
+      </button>
+      {open && (
+        <div
+          className="more-menu-list"
+          role="menu"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            const all = menuItems(box.current);
+            const at = all.indexOf(document.activeElement as HTMLElement);
+            const to =
+              e.key === 'ArrowDown'
+                ? (at + 1) % all.length
+                : e.key === 'ArrowUp'
+                  ? (at - 1 + all.length) % all.length
+                  : undefined;
+            if (to !== undefined) {
+              e.preventDefault();
+              all[to]?.focus();
+            } else if (e.key === 'Tab') setOpen(false);
+          }}
+        >
+          <Link to="/runs" role="menuitem" className="run-link" onClick={() => setOpen(false)}>
+            All runs
+          </Link>
+          <a
+            role="menuitem"
+            href={`/api/v1/runs/${encodeURIComponent(id)}/output`}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setOpen(false)}
+          >
+            The output as text
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One run (AFS-64), in the debug workbench (AFS-265): the canvas in the middle with the toolbar
+ * over it, the side bar (Run and Debug for a debug run, Details: approvals, hosts, outputs, what
+ * ran), the bottom panel (Debug Console, Terminal, Problems) and the status line.
+ */
 export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeChoice }) {
-  const [run, setRun] = useState<Run>();
-  const [view, setView] = useState<RunView>();
+  const fed = useRunFeed(id);
+  const { output, missing, error, setError, setRun, setView } = fed;
+  const run = fed.run?.id === id ? fed.run : undefined;
+  const view = fed.view;
   /** AFS-177: a step-by-step run's state, from its live view (as the canvas hears it). */
-  const [step, setStep] = useState<RunView['step']>();
+  const step = fed.step;
   const access = useProjectAccess(run?.project).data;
-  const [output, setOutput] = useState('');
   // AFS-181: no generated-code excerpt under a failed end's error (the output file keeps it).
   // AFS-193: and a rejected host's end says rejected, not failed.
   const shown = useMemo(() => decidedOutcomes(quietEndOrigins(output)), [output]);
-  const [error, setError] = useState<string>();
-  /** AFS-152: the run is not there, or not shared with this person. */
-  const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const pre = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
   const below = useRef<HTMLElement>(null);
+  const frameEl = useRef<HTMLIFrameElement>(null);
+  const frame = useCallback(() => frameEl.current, []);
+  // AFS-265: the canvas takes the run's events from this page's stream.
+  useFrameFeed(frame, fed.feed);
   const projectId = run?.project;
   const flowFile = run?.flow.file;
   const configId = run?.config?.id;
@@ -1090,71 +1178,17 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     [projectId, flowFile, configId],
   ).data;
   // AFS-214: once the run has ended, how its hosts went and what Run again offers.
-  const over = !!run && run.id === id && !ACTIVE.includes(run.state);
+  const over = !!run && !ACTIVE.includes(run.state);
   const offer = useLoad(
     async () => (over ? await api.relaunchOffer(id).catch(() => undefined) : undefined),
     [id, over, run?.state],
   ).data;
-
-  useEffect(() => {
-    setRun(undefined);
-    setView(undefined);
-    setStep(undefined);
-    setOutput('');
-    setError(undefined);
-    setMissing(false);
-    let live = true;
-    let stream: EventSource | undefined;
-    // AFS-152: the run's events are asked for once the run is there: not after a 404.
-    api.run(id).then(
-      (found) => {
-        if (!live) return;
-        setRun(found);
-        // Everything after: the run's record, its output, as they change.
-        const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
-        stream = events;
-        events.addEventListener('run', (event) => setRun(JSON.parse((event as MessageEvent).data)));
-        // AFS-177: where a step-by-step run is paused, as soon as it pauses (not every 5 s).
-        let lastStep = '';
-        events.addEventListener('view', (event) => {
-          const said = JSON.parse((event as MessageEvent).data) as RunView;
-          // AFS-258: the view of a run that ended comes here (not from /view, which has none for a
-          // run that never started).
-          setView(said);
-          if (!found.step) return;
-          const next = said.step;
-          const text = JSON.stringify(next ?? null);
-          if (text === lastStep) return;
-          lastStep = text;
-          setStep(next);
-        });
-        events.addEventListener('output', (event) => {
-          const { text } = JSON.parse((event as MessageEvent).data) as { text: string };
-          setOutput((before) => {
-            const all = before + text;
-            if (all.length <= KEEP_OUTPUT) return all;
-            // Cut at a line's start, so no colour code is cut in two.
-            const cut = all.indexOf(String.fromCharCode(10), all.length - KEEP_OUTPUT);
-            return cut < 0 ? all.slice(all.length - KEEP_OUTPUT) : all.slice(cut + 1);
-          });
-        });
-        events.addEventListener('end', () => events.close());
-      },
-      (e: Error) => {
-        if (!live) return;
-        if (e instanceof ApiError && e.status === 404) setMissing(true);
-        else setError(e.message);
-      },
-    );
-    return () => {
-      live = false;
-      stream?.close();
-    };
-  }, [id]);
+  const debugRun = !!run?.step?.debug;
+  const wb = useWorkbenchState(debugRun);
 
   // AFS-193: a run that stops waiting (decided, stopped, timed out) changes the sidebar's count of
   // approvals: it looks again, not only on its timer.
-  const state = run?.id === id ? run.state : undefined;
+  const state = run?.state;
   const wasWaiting = useRef(false);
   useEffect(() => {
     if (wasWaiting.current && state !== 'waiting')
@@ -1162,8 +1196,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     wasWaiting.current = state === 'waiting';
   }, [state]);
 
-  // AFS-193: the canvas fits the window under whatever is above it (a notice of why the run
-  // ended, targets left out): its zoom controls stay in sight.
+  // AFS-193: the workbench fits the window under whatever is above it (a notice of why the run
+  // ended, targets left out): the canvas's zoom controls and the status line stay in sight.
   const body = useRef<HTMLDivElement>(null);
   const notes = `${run?.error ?? ''}|${error ?? ''}|${run?.skippedTargets?.length ?? 0}`;
   // biome-ignore lint/correctness/useExhaustiveDependencies: measured again when the notes change
@@ -1182,12 +1216,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
 
   // Its hosts, from how it went: read when it changes, and now and then while it goes.
   const going = run ? ACTIVE.includes(run.state) : false;
-  // AFS-147: of this run: right after Run again the run shown is still the one before for a moment
-  // (its start time would ask for the new run's view before it has one).
-  const started = !!run?.startedAt && run.id === id;
-  // AFS-258: a run that ended before it ran anything (it could not read its credential, say) has
-  // no view: not asked for (its events say so too). A run stopped before its first step has hosts
-  // to list (AFS-256): stopped runs are always asked.
+  // AFS-147: of this run: right after Run again the run shown is still the one before for a moment.
+  const started = !!run?.startedAt;
+  // AFS-258: a run that ended before it ran anything has no view: not asked for. A run stopped
+  // before its first step has hosts to list (AFS-256): stopped runs are always asked.
   const viewless = !going && !!run?.error && !run?.hosts && run?.state !== 'cancelled';
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the run's state changes
   useEffect(() => {
@@ -1213,18 +1245,13 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
     if (el && follow.current) el.scrollTop = el.scrollHeight;
   }, [output]);
 
-  // AFS-96: Show Terminal on the canvas of this page scrolls to the output (the canvas asks, in its
-  // frame); from elsewhere it opens this page at #output. The output is marked for a moment, so it
-  // is plain where the eye should go.
+  // AFS-96: Show Terminal on the canvas of this page opens the panel's Terminal (the canvas asks,
+  // in its frame); from elsewhere it opens this page at #output. The output is marked for a moment,
+  // so it is plain where the eye should go.
   const [shownOutput, setShownOutput] = useState(0);
-  // AFS-250: on a phone (and a narrow tablet, where the parts would stack) a debug run's page has
-  // tabs, Run · Debugger · Output, the Debugger first.
-  const phone = useNarrow('(max-width: 860px)');
-  const [tab, setTab] = useState<RunTab>('debugger');
   const toOutput = () => {
-    setTab('output');
-    below.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
-    below.current?.focus({ preventScroll: true });
+    wb.setPanel('terminal');
+    wb.setTab('panel');
     setShownOutput((n) => n + 1);
   };
   const toOutputRef = useRef(toOutput);
@@ -1244,6 +1271,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   }, [loaded]);
   useEffect(() => {
     if (!shownOutput) return;
+    // Once the Terminal is shown (this effect runs after it is drawn).
+    below.current?.scrollIntoView?.({ block: 'nearest' });
+    below.current?.focus({ preventScroll: true });
     const timer = setTimeout(() => setShownOutput(0), 1600);
     return () => clearTimeout(timer);
   }, [shownOutput]);
@@ -1251,8 +1281,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   // AFS-139, AFS-143: a run is "flow #number", as the lists, the audit log and the mails name it.
   const title = run ? `${run.flow.name} #${run.number}` : 'Run';
   useEffect(() => {
-    document.title = `${title} · Ansible Flow Server`;
-  }, [title]);
+    if (!run) document.title = `${title} · Ansible Flow Server`;
+  }, [title, run]);
 
   // AFS-152: a run not there (or not shared) is the same page as a project not there.
   if (missing && !run)
@@ -1278,7 +1308,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
         </p>
       </div>
     );
-  if (!run || run.id !== id)
+  if (!run)
     return (
       <div className="run-below">
         <Loading state={{ loading: true }} />
@@ -1321,21 +1351,202 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
   };
   const viewer = `/viewer.html?project=${encodeURIComponent(run.project)}&path=${encodeURIComponent(
     run.flow.file,
-  )}&commit=${run.commit}&run=${run.id}&theme=${theme === 'system' ? 'auto' : theme}`;
+  )}&commit=${run.commit}&run=${run.id}&feed=1&theme=${theme === 'system' ? 'auto' : theme}`;
   const lines = view ? hostLines(view, run.state, run.decidedAgainst, offer?.sets) : [];
   const failed = lines.filter((l) => l.tone === 'bad-text').length;
   // AFS-258: a run paused before its first step counts the hosts waiting there.
   const hostCount = lines.length || ((step ?? view?.step)?.paused?.hosts.length ?? 0);
-  const why = lines.find((l) => l.why);
+  const whys = lines.filter((l) => l.why);
   const by = personOf(run.requestedBy);
   // AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop.
   const stepBar = !!run.step && going && run.state === 'running' && !!run.startedAt;
-  // AFS-179: a debug run going has the Debugger panel instead (its own reason line and buttons);
-  // its launcher and administrators drive it and see variables, others the reason line.
-  const debugging = stepBar && !!run.step?.debug;
+  // AFS-179: a debug run going has the debug toolbar and views; its launcher and administrators
+  // drive it and see variables, others the reason line.
+  const debugging = stepBar && debugRun;
   const debugDriver = me.admin || run.requestedBy.login === me.login;
-  const tabbed = debugging && phone;
-  const shows = (t: RunTab) => !tabbed || tab === t;
+  const restart =
+    mayAct && !going && debugRun
+      ? async () => {
+          if (again.confirm && !(await ask(again.confirm, { yes: again.yes }))) return;
+          void relaunch();
+        }
+      : undefined;
+
+  const details = (
+    <div className="run-side" data-run-details>
+      <RunApprovals run={run.id} changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`} />
+      <Hosts run={run.id} lines={lines} />
+      {view?.summary?.outputs || view?.summary?.outputsTooLarge ? (
+        <Outputs summary={view.summary} />
+      ) : null}
+      <section aria-labelledby="facts">
+        <h2 id="facts">What ran</h2>
+        <dl className="facts">
+          <dt>Flow</dt>
+          <dd>
+            {where?.flow ? <Link to={where.flow}>{run.flow.name}</Link> : run.flow.name}{' '}
+            <span className="muted">
+              ({run.flow.file}, version {run.flow.version})
+            </span>
+          </dd>
+          <dt>Commit</dt>
+          <dd>
+            <code>{run.commit.slice(0, 12)}</code>
+            {run.ref && <span className="muted"> · newest of {run.ref} at launch</span>}
+          </dd>
+          <dt>Launched</dt>
+          <dd>
+            by <span title={run.requestedBy.login}>{by}</span>
+            {run.config && (
+              <>
+                {' '}
+                from{' '}
+                {where?.config ? (
+                  <Link to={where.config}>{run.config.name}</Link>
+                ) : (
+                  <>“{run.config.name}”</>
+                )}
+              </>
+            )}
+            , <Time at={run.createdAt} />
+          </dd>
+          <dt>Started</dt>
+          <dd>
+            <Time at={run.startedAt} />
+          </dd>
+          <dt>Ended</dt>
+          <dd>{going ? 'not yet' : <Time at={run.endedAt} />}</dd>
+          <dt>Number</dt>
+          <dd>{run.number}, counted over the project's runs</dd>
+          <dt>Mode</dt>
+          <dd>{run.mode === 'real' ? 'real' : 'check (nothing changed)'}</dd>
+          <dt>Hosts</dt>
+          <dd>
+            {run.targets.join(', ') || 'none'}
+            {!!run.skippedTargets?.length && (
+              <span className="warn-text">
+                {' '}
+                (not in the inventory: {run.skippedTargets.join(', ')})
+              </span>
+            )}
+          </dd>
+          <dt>Limit</dt>
+          <dd data-limit>{limitWords(run) ?? (run.limit ? <code>{run.limit}</code> : 'none')}</dd>
+          <dt>Inventory</dt>
+          <dd>{run.inventory ? <code>{run.inventory}</code> : 'what ansible.cfg names'}</dd>
+          <dt>Environment</dt>
+          <dd>
+            {run.environment ? (
+              where ? (
+                <Link to={environmentAddress(where.workspace, run.environment.id)}>
+                  {run.environment.name}
+                </Link>
+              ) : (
+                run.environment.name
+              )
+            ) : (
+              'none'
+            )}
+            {run.eeImage ? (
+              <>
+                {' '}
+                · <code>{run.eeImage}</code>
+                {/* AFS-163: the image came from the server's default, not the configuration. */}
+                {run.serverDefault && <span className="muted"> (the server's default)</span>}
+              </>
+            ) : (
+              <span className="muted"> · the server's default image</span>
+            )}
+          </dd>
+          <dt>Credentials</dt>
+          <dd>{(run.credentialNames ?? run.credentials).join(', ') || 'none'}</dd>
+        </dl>
+        {/* AFS-147: the inputs it ran with (secret ones as ***): what Run again reuses. */}
+        <h3>Inputs</h3>
+        {Object.keys(run.inputs).length ? (
+          <dl className="facts" data-run-inputs>
+            {Object.entries(run.inputs).map(([name, value]) => (
+              <div key={name} className="fact">
+                <dt className="mono">{name}</dt>
+                <dd>
+                  <code>{inputText(value)}</code>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="muted small">The flow took no inputs.</p>
+        )}
+      </section>
+    </div>
+  );
+  const problems = whys.length ? (
+    <div className="wb-problems">
+      {whys.map((why) => (
+        <section key={why.host} className="why" aria-labelledby={`why-${why.host}`}>
+          <h2 id={`why-${why.host}`}>
+            Why {why.host} {why.words === 'not reachable' ? 'was not reached' : 'failed'}
+          </h2>
+          <p>At “{why.why?.task}”.</p>
+          {why.why?.msg && <pre>{why.why.msg}</pre>}
+        </section>
+      ))}
+    </div>
+  ) : undefined;
+  const terminal = (
+    <section
+      ref={below}
+      tabIndex={-1}
+      id="output"
+      className={`run-output${shownOutput ? ' run-output-shown' : ''}`}
+      aria-labelledby="output-head"
+    >
+      <div className="section-head">
+        <h2 id="output-head" className="sr-only">
+          Terminal output
+        </h2>
+      </div>
+      {output ? (
+        <pre
+          ref={pre}
+          className="output"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            follow.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
+          }}
+        >
+          <AnsiText text={shown} />
+        </pre>
+      ) : (
+        <p className="muted">{going ? 'Nothing yet.' : 'No output.'}</p>
+      )}
+    </section>
+  );
+  const standingNow = standing(run, (step ?? view?.step)?.paused);
+  const toolbar =
+    stepBar && !debugging ? (
+      <RunStepBar
+        run={run}
+        step={step ?? view?.step}
+        mayDrive={mayAct}
+        launcher={by}
+        mine={run.requestedBy.login === me.login}
+        onRun={setRun}
+        onError={setError}
+      />
+    ) : mayAct && going && !stepBar ? (
+      <div className="wb-toolbar" role="toolbar" aria-label="Run">
+        <button
+          type="button"
+          className="wb-tool danger"
+          disabled={busy || run.cancelRequested}
+          onClick={() => act('cancel')}
+        >
+          <Icon name="stop" />
+          <span className="wb-tool-label">Stop</span>
+        </button>
+      </div>
+    ) : undefined;
 
   return (
     <>
@@ -1376,9 +1587,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           </div>
           <p>
             <StateBadge state={shownState(run)} against={run.decidedAgainst} />
-            {standing(run, (step ?? view?.step)?.paused) &&
-              ` ${standing(run, (step ?? view?.step)?.paused)}`}{' '}
-            · started by {by} · {run.mode === 'real' ? 'real run' : 'check run'}
+            {standingNow && ` ${standingNow}`} · started by {by} ·{' '}
+            {run.mode === 'real' ? 'real run' : 'check run'}
             {hostCount > 0 && (
               <>
                 {' '}
@@ -1465,30 +1675,6 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           )}
         </div>
         <div className="actions">
-          <button
-            type="button"
-            onClick={() => {
-              // The output is the last thing on a long page: go there, and read on from there.
-              toOutput();
-            }}
-          >
-            To the output
-          </button>
-          <Link to="/runs" className="run-link">
-            All runs
-          </Link>
-          {/* AFS-205: a step-by-step run going has its Stop in its bar (one Stop, which asks
-              when the run is someone else's). */}
-          {mayAct && going && !stepBar && (
-            <button
-              type="button"
-              className="danger"
-              disabled={busy || run.cancelRequested}
-              onClick={() => act('cancel')}
-            >
-              Stop
-            </button>
-          )}
           {/* AFS-214: Run again ▾: as it was, changed, only the hosts that did not go well, or
               Debug this failure. */}
           {mayAct && !going && (
@@ -1501,27 +1687,13 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 : {})}
               mayDebug={mayDebug}
               busy={busy}
-              onAgain={(body) => void relaunch(body)}
+              onAgain={(b) => void relaunch(b)}
               onChange={navigate}
             />
           )}
+          <RunMoreMenu id={run.id} />
         </div>
       </header>
-      {tabbed && <RunTabs tab={tab} onTab={setTab} />}
-      {/* AFS-177: a step-by-step run going: paused where, and Step, Continue, Pause, Stop. */}
-      {stepBar && !debugging && (
-        <div className="run-below run-notes">
-          <RunStepBar
-            run={run}
-            step={step ?? view?.step}
-            mayDrive={mayAct}
-            launcher={by}
-            mine={run.requestedBy.login === me.login}
-            onRun={setRun}
-            onError={setError}
-          />
-        </div>
-      )}
       {(run.error || error || !!run.skippedTargets?.length) && (
         <div className="run-below run-notes">
           {run.error && (
@@ -1545,240 +1717,50 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           )}
         </div>
       )}
-      <div className={debugging ? 'run-body debugging' : 'run-body'} ref={body}>
-        <section
-          className="run-flow"
-          aria-label="The run on the flow's canvas"
-          id="run-canvas"
-          hidden={!shows('run')}
-          {...(tabbed ? { role: 'tabpanel', 'aria-labelledby': 'run-tab-run' } : {})}
-        >
-          {run.startedAt ? (
-            <iframe
-              key={`${run.id}:${theme}`}
-              className="flow-frame"
-              src={viewer}
-              title={`Run ${run.number} on the canvas`}
-            />
-          ) : (
-            <p className="muted">The canvas shows the run once it started.</p>
-          )}
-        </section>
-        {debugging && (
-          <DebugPanel
-            run={run}
-            step={step ?? view?.step}
-            mayDrive={debugDriver}
-            mayStop={mayAct}
-            launcher={by}
-            hidden={!shows('debugger')}
-            onRun={setRun}
-            onError={setError}
-          />
-        )}
-        <aside
-          className="run-side"
-          aria-label="Run details"
-          id="run-details"
-          hidden={!shows('run')}
-        >
-          <RunApprovals
-            run={run.id}
-            changed={`${run.state}|${run.attempts}|${run.endedAt ?? ''}`}
-          />
-          <Hosts run={run.id} lines={lines} />
-          {/* AFS-179: a debug run that ended: what its pauses showed, for who could look then. */}
-          {!!run.step?.debug && !going && debugDriver && (
-            <DebugKept run={run} logs={view?.step?.logs ?? []} />
-          )}
-          {view?.summary?.outputs || view?.summary?.outputsTooLarge ? (
-            <Outputs summary={view.summary} />
-          ) : null}
-          {why?.why && (
-            <section className="why" aria-labelledby="why">
-              <h2 id="why">
-                Why {why.host} {why.words === 'not reachable' ? 'was not reached' : 'failed'}
-              </h2>
-              <p>At “{why.why.task}”.</p>
-              {why.why.msg && <pre>{why.why.msg}</pre>}
-            </section>
-          )}
-          <section aria-labelledby="facts">
-            <h2 id="facts">What ran</h2>
-            <dl className="facts">
-              <dt>Flow</dt>
-              <dd>
-                {where?.flow ? <Link to={where.flow}>{run.flow.name}</Link> : run.flow.name}{' '}
-                <span className="muted">
-                  ({run.flow.file}, version {run.flow.version})
-                </span>
-              </dd>
-              <dt>Commit</dt>
-              <dd>
-                <code>{run.commit.slice(0, 12)}</code>
-                {run.ref && <span className="muted"> · newest of {run.ref} at launch</span>}
-              </dd>
-              <dt>Launched</dt>
-              <dd>
-                by <span title={run.requestedBy.login}>{by}</span>
-                {run.config && (
-                  <>
-                    {' '}
-                    from{' '}
-                    {where?.config ? (
-                      <Link to={where.config}>{run.config.name}</Link>
-                    ) : (
-                      <>“{run.config.name}”</>
-                    )}
-                  </>
-                )}
-                , <Time at={run.createdAt} />
-              </dd>
-              <dt>Started</dt>
-              <dd>
-                <Time at={run.startedAt} />
-              </dd>
-              <dt>Ended</dt>
-              <dd>{going ? 'not yet' : <Time at={run.endedAt} />}</dd>
-              <dt>Number</dt>
-              <dd>{run.number}, counted over the project's runs</dd>
-              <dt>Mode</dt>
-              <dd>{run.mode === 'real' ? 'real' : 'check (nothing changed)'}</dd>
-              <dt>Hosts</dt>
-              <dd>
-                {run.targets.join(', ') || 'none'}
-                {!!run.skippedTargets?.length && (
-                  <span className="warn-text">
-                    {' '}
-                    (not in the inventory: {run.skippedTargets.join(', ')})
-                  </span>
-                )}
-              </dd>
-              <dt>Limit</dt>
-              <dd data-limit>
-                {limitWords(run) ?? (run.limit ? <code>{run.limit}</code> : 'none')}
-              </dd>
-              <dt>Inventory</dt>
-              <dd>{run.inventory ? <code>{run.inventory}</code> : 'what ansible.cfg names'}</dd>
-              <dt>Environment</dt>
-              <dd>
-                {run.environment ? (
-                  where ? (
-                    <Link to={environmentAddress(where.workspace, run.environment.id)}>
-                      {run.environment.name}
-                    </Link>
-                  ) : (
-                    run.environment.name
-                  )
-                ) : (
-                  'none'
-                )}
-                {run.eeImage ? (
-                  <>
-                    {' '}
-                    · <code>{run.eeImage}</code>
-                    {/* AFS-163: the image came from the server's default, not the configuration. */}
-                    {run.serverDefault && <span className="muted"> (the server's default)</span>}
-                  </>
-                ) : (
-                  <span className="muted"> · the server's default image</span>
-                )}
-              </dd>
-              <dt>Credentials</dt>
-              <dd>{(run.credentialNames ?? run.credentials).join(', ') || 'none'}</dd>
-            </dl>
-            {/* AFS-147: the inputs it ran with (secret ones as ***): what Run again reuses. */}
-            <h3>Inputs</h3>
-            {Object.keys(run.inputs).length ? (
-              <dl className="facts" data-run-inputs>
-                {Object.entries(run.inputs).map(([name, value]) => (
-                  <div key={name} className="fact">
-                    <dt className="mono">{name}</dt>
-                    <dd>
-                      <code>{inputText(value)}</code>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+      <div className="run-workbench" ref={body}>
+        <DebugWorkbench
+          run={run}
+          step={step ?? view?.step}
+          debug={debugRun}
+          going={going}
+          mayDrive={debugDriver}
+          mayStop={mayAct}
+          launcher={by}
+          state={wb}
+          frame={frame}
+          sizeKey="run"
+          titleBase={`${title} · Ansible Flow Server`}
+          canvas={
+            run.startedAt ? (
+              <iframe
+                ref={frameEl}
+                key={`${run.id}:${theme}`}
+                className="flow-frame"
+                src={viewer}
+                title={`Run ${run.number} on the canvas`}
+              />
             ) : (
-              <p className="muted small">The flow took no inputs.</p>
-            )}
-          </section>
-        </aside>
+              <p className="muted wb-empty">The canvas shows the run once it started.</p>
+            )
+          }
+          details={details}
+          kept={debugDriver ? <DebugKept run={run} logs={view?.step?.logs ?? []} /> : undefined}
+          terminal={terminal}
+          problems={problems}
+          problemCount={whys.length}
+          toolbar={toolbar}
+          statusText={
+            <>
+              <strong>{LABEL[shownState(run)] ?? run.state}</strong>
+              {standingNow && ` · ${standingNow}`}
+              {hostCount > 0 && ` · ${hostCount} ${hostCount === 1 ? 'host' : 'hosts'}`}
+            </>
+          }
+          onRestart={restart ? () => void restart() : undefined}
+          onRun={setRun}
+          onError={setError}
+        />
       </div>
-      <section
-        ref={below}
-        tabIndex={-1}
-        id="output"
-        className={`run-below run-output${shownOutput ? ' run-output-shown' : ''}`}
-        aria-labelledby="output-head"
-        hidden={!shows('output')}
-      >
-        <div className="section-head">
-          <h2 id="output-head">Terminal output</h2>
-          <a href={`/api/v1/runs/${run.id}/output`} target="_blank" rel="noreferrer">
-            All of it as text
-          </a>
-        </div>
-        {output ? (
-          <pre
-            ref={pre}
-            className="output"
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              follow.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
-            }}
-          >
-            <AnsiText text={shown} />
-          </pre>
-        ) : (
-          <p className="muted">{going ? 'Nothing yet.' : 'No output.'}</p>
-        )}
-      </section>
     </>
-  );
-}
-
-/** AFS-250: the parts of a debug run's page on a phone. */
-type RunTab = 'run' | 'debugger' | 'output';
-const RUN_TABS: { id: RunTab; label: string; controls: string }[] = [
-  { id: 'run', label: 'Run', controls: 'run-canvas run-details' },
-  { id: 'debugger', label: 'Debugger', controls: 'run-debugger' },
-  { id: 'output', label: 'Output', controls: 'output' },
-];
-
-/** AFS-250: Run · Debugger · Output, with the arrow keys between them. */
-function RunTabs({ tab, onTab }: { tab: RunTab; onTab(tab: RunTab): void }) {
-  return (
-    <div className="run-tabs" role="tablist" aria-label="Parts of the run's page">
-      {RUN_TABS.map((t, i) => (
-        <button
-          key={t.id}
-          type="button"
-          role="tab"
-          id={`run-tab-${t.id}`}
-          aria-selected={tab === t.id}
-          aria-controls={t.controls}
-          tabIndex={tab === t.id ? 0 : -1}
-          onClick={() => onTab(t.id)}
-          onKeyDown={(e) => {
-            const to =
-              e.key === 'ArrowRight'
-                ? (i + 1) % RUN_TABS.length
-                : e.key === 'ArrowLeft'
-                  ? (i - 1 + RUN_TABS.length) % RUN_TABS.length
-                  : undefined;
-            if (to === undefined) return;
-            e.preventDefault();
-            const next = RUN_TABS[to];
-            if (!next) return;
-            onTab(next.id);
-            document.getElementById(`run-tab-${next.id}`)?.focus();
-          }}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
   );
 }

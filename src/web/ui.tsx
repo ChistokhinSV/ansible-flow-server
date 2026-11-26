@@ -3,6 +3,8 @@ import {
   createContext,
   type FormEvent,
   type InputHTMLAttributes,
+  type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
   useCallback,
   useContext,
@@ -661,7 +663,42 @@ export function Breadcrumb({ children }: { children: ReactNode }) {
 }
 
 /** AFS-107: small line icons for icon buttons (their name is the button's label). */
-export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' | 'info' }) {
+export type IconName =
+  | 'external'
+  | 'fullscreen'
+  | 'more'
+  | 'info'
+  // AFS-265: the debug workbench's icons (its activity bar, toolbar and rows).
+  | 'debug'
+  | 'details'
+  | 'continue'
+  | 'pause'
+  | 'step'
+  | 'retry'
+  | 'stop'
+  | 'restart'
+  | 'compare'
+  | 'close'
+  | 'reveal';
+
+/** AFS-265: the line drawings of the workbench's icons, on a 16 px grid. */
+const PATHS: Partial<Record<IconName, string>> = {
+  debug:
+    'M5.5 4.5a2.5 2.5 0 0 1 5 0M4.5 6.5h7v3.5a3.5 3.5 0 0 1-7 0zM8 6.5v7M2 8.5h2.5M11.5 8.5H14M2.5 5l2 1.5M13.5 5l-2 1.5M2.5 13l2-1.5M13.5 13l-2-1.5',
+  details: 'M2.5 3.5h11M2.5 6.5h11M2.5 9.5h7M2.5 12.5h7',
+  continue: 'M3.5 2.5v11M6.5 3l7 5-7 5z',
+  pause: 'M5 3v10M11 3v10',
+  step: 'M3 9a5 5 0 0 1 9.5-2M13 3.5v3.5H9.5M8 12.5h.01',
+  retry: 'M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3',
+  stop: 'M3.5 3.5h9v9h-9z',
+  restart: 'M3 8a5 5 0 1 0 1.5-3.5M3 2.5v3h3',
+  compare: 'M5.5 2.5v11M10.5 2.5v11M2.5 5.5h3M10.5 10.5h3',
+  close: 'M4 4l8 8M12 4l-8 8',
+  reveal:
+    'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8M8 6.25a1.75 1.75 0 1 0 0 3.5a1.75 1.75 0 1 0 0-3.5',
+};
+
+export function Icon({ name }: { name: IconName }) {
   return (
     <svg
       className="icon"
@@ -675,7 +712,9 @@ export function Icon({ name }: { name: 'external' | 'fullscreen' | 'more' | 'inf
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {name === 'external' ? (
+      {PATHS[name] ? (
+        <path d={PATHS[name]} />
+      ) : name === 'external' ? (
         <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5H7" />
       ) : name === 'more' ? (
         <path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth="2.5" />
@@ -735,5 +774,116 @@ export function Scroll({ children, className }: { children: ReactNode; className
     <div ref={box} className={className ? `scroll ${className}` : 'scroll'}>
       {children}
     </div>
+  );
+}
+
+/**
+ * AFS-265: a size the person chose (the workbench's side bar and panel), kept in this browser.
+ * Storage may be closed (a private window): the size is then kept for the page's life only.
+ */
+export function useKeptSize(key: string, initial: number): [number, (size: number) => void] {
+  const [size, setSize] = useState(() => {
+    try {
+      const kept = Number(window.localStorage.getItem(key));
+      return Number.isFinite(kept) && kept > 0 ? kept : initial;
+    } catch {
+      return initial;
+    }
+  });
+  const keep = useCallback(
+    (next: number) => {
+      setSize(next);
+      try {
+        window.localStorage.setItem(key, String(Math.round(next)));
+      } catch {
+        // Not kept: the next page starts at the default size.
+      }
+    },
+    [key],
+  );
+  return [size, keep];
+}
+
+/**
+ * AFS-265: the line between two parts of the workbench, dragged with the pointer or moved with the
+ * arrow keys (Shift: further), Home and End (the least and the most). `vertical`: a line between
+ * columns, which sizes the part before it (the side bar); `horizontal`: a line over a part, which
+ * sizes the part under it (the bottom panel).
+ */
+export function Splitter({
+  orientation,
+  size,
+  min,
+  max,
+  label,
+  controls,
+  onSize,
+}: {
+  orientation: 'vertical' | 'horizontal';
+  size: number;
+  min: number;
+  max: number;
+  label: string;
+  controls: string;
+  onSize(size: number): void;
+}) {
+  const clamp = (n: number) => Math.round(Math.min(max, Math.max(min, n)));
+  const step = 16;
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const by = e.shiftKey ? step * 4 : step;
+    const more = orientation === 'vertical' ? 'ArrowRight' : 'ArrowUp';
+    const less = orientation === 'vertical' ? 'ArrowLeft' : 'ArrowDown';
+    const to =
+      e.key === more
+        ? size + by
+        : e.key === less
+          ? size - by
+          : e.key === 'Home'
+            ? min
+            : e.key === 'End'
+              ? max
+              : undefined;
+    if (to === undefined) return;
+    e.preventDefault();
+    onSize(clamp(to));
+  };
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const line = e.currentTarget;
+    const from = orientation === 'vertical' ? e.clientX : e.clientY;
+    const start = size;
+    // The canvas is a frame: without the capture it takes the pointer's moves over it.
+    line.setPointerCapture?.(e.pointerId);
+    line.classList.add('dragging');
+    const move = (m: globalThis.PointerEvent) => {
+      const at = orientation === 'vertical' ? m.clientX : m.clientY;
+      onSize(clamp(orientation === 'vertical' ? start + at - from : start - (at - from)));
+    };
+    const up = () => {
+      line.classList.remove('dragging');
+      line.removeEventListener('pointermove', move);
+      line.removeEventListener('pointerup', up);
+      line.removeEventListener('pointercancel', up);
+    };
+    line.addEventListener('pointermove', move);
+    line.addEventListener('pointerup', up);
+    line.addEventListener('pointercancel', up);
+  };
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a moveable separator has no element of its own
+    <div
+      role="separator"
+      tabIndex={0}
+      aria-orientation={orientation}
+      aria-label={label}
+      aria-controls={controls}
+      aria-valuenow={Math.round(size)}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      className={`splitter splitter-${orientation}`}
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+    />
   );
 }

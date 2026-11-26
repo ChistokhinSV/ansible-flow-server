@@ -1,6 +1,7 @@
-// AFS-179: the Debugger panel of a debug run on its page: the reason line, Retry with its warning,
-// the host picker at the first failed host, scopes read lazily, Watch with compare across hosts,
-// Evaluate (Ctrl+Enter), masked values with their reason; read-only for others watching.
+// AFS-179: the debugger of a debug run, in the debug workbench's views (AFS-265): the reason line,
+// Retry with its warning, the Hosts view at the first failed host, scopes read lazily, Watch with
+// compare across hosts, the Debug Console (Enter, Ctrl+Enter), masked values with their reason;
+// read-only for others watching.
 import type { InspectAnswer, StepPause } from '@ansible-flow/core/run/step';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +10,6 @@ import {
   answerText,
   bare,
   compareHosts,
-  DebugPanel,
   entryText,
   firstHost,
   hostOrder,
@@ -19,6 +19,32 @@ import {
   stoppedLine,
 } from '../../src/web/debugger';
 import type { ShownStep } from '../../src/web/stepBar';
+import { DebugWorkbench, useWorkbenchState } from '../../src/web/workbench';
+
+/** The debugger's views in the workbench, as a run's page has them. */
+function DebugPanel(props: {
+  run: Run;
+  step: ShownStep | undefined;
+  mayDrive: boolean;
+  mayStop?: boolean;
+  launcher: string;
+  onRun(run: Run): void;
+  onError(message: string | undefined): void;
+}) {
+  const state = useWorkbenchState(true);
+  return (
+    <DebugWorkbench
+      {...props}
+      debug
+      going
+      state={state}
+      frame={() => null}
+      canvas={<div />}
+      terminal={<p>No output.</p>}
+      sizeKey="test"
+    />
+  );
+}
 
 const APPLY = '01JZAPPLY0000000000000000A';
 const pause: StepPause = {
@@ -179,8 +205,18 @@ describe('the panel', () => {
     expect(screen.getByText(/Changes on hosts are not undone/).textContent).toBe(
       'Retry runs Apply config again on edge-02. Changes on hosts are not undone.',
     );
-    // The host picker starts at the failed host, and the failure is said.
-    expect((screen.getByLabelText(/Host/) as HTMLSelectElement).value).toBe('edge-02');
+    // The Hosts view starts at the failed host, and the failure is said.
+    const hosts = screen.getByRole('list', { name: 'Hosts at the pause' });
+    expect(
+      within(hosts)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('data-debug-host')),
+    ).toEqual(['edge-02', 'edge-01', 'edge-03', 'core-01', 'core-02', 'lb-01']);
+    expect(
+      within(hosts)
+        .getByRole('button', { name: /edge-02/ })
+        .getAttribute('aria-current'),
+    ).toBe('true');
     expect(screen.getByText(/VLAN 210 is in use/)).toBeTruthy();
     await screen.findByText('Step inputs');
     expect(asked[0]).toEqual({ op: 'scopes', host: 'edge-02' });
@@ -204,7 +240,7 @@ describe('the panel', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(asked.at(-1)).toEqual({ op: 'watch', exprs: ['vlan_id'] }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Compare across hosts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare vlan_id across hosts' }));
     const table = await screen.findByRole('table');
     expect(
       within(table)
@@ -241,8 +277,11 @@ describe('the panel', () => {
     expect(screen.getByRole('status').textContent).toContain(
       'Paused by Dana: only Dana or an administrator drives it',
     );
-    expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.queryByLabelText(/Host/)).toBeNull();
+    expect(within(screen.getByRole('toolbar', { name: 'Debug' })).queryAllByRole('button')).toEqual(
+      [],
+    );
+    expect(screen.queryByRole('list', { name: 'Hosts at the pause' })).toBeNull();
+    expect(screen.queryByLabelText('Jinja expression to evaluate')).toBeNull();
     expect(asked).toEqual([]);
   });
 });
@@ -476,7 +515,12 @@ describe('AFS-250, AFS-253: watches per person, keys, Stop for an operator, log 
         onError={() => undefined}
       />,
     );
-    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop']);
+    const toolbar = screen.getByRole('toolbar', { name: 'Debug' });
+    expect(
+      within(toolbar)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Stop']);
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     await waitFor(() => expect(commands).toEqual([{ command: 'stop' }]));
     expect(confirm.mock.calls[0]?.[0]).toContain("Stop Dana's debug run #412?");
@@ -598,7 +642,7 @@ describe('AFS-258: round 2', () => {
     ]);
   });
 
-  it('the Evaluate answer stays when the panel is drawn again (the window crossed a width)', async () => {
+  it('the Debug Console keeps its lines and what is typed when drawn again (a width crossed)', async () => {
     const props = {
       run,
       step,
@@ -614,15 +658,24 @@ describe('AFS-258: round 2', () => {
     fireEvent.change(box, { target: { value: 'vlan_id + 1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Evaluate' }));
     await screen.findByText('0');
+    // A REPL: the box is empty again, the line evaluated stays above it.
+    expect(box.value).toBe('');
+    expect(screen.getByText('vlan_id + 1')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'site' } });
     first.unmount();
     render(<DebugPanel {...props} />);
     expect(
       ((await screen.findByLabelText('Jinja expression to evaluate')) as HTMLTextAreaElement).value,
-    ).toBe('vlan_id + 1');
+    ).toBe('site');
     expect(screen.getByText('0')).toBeTruthy();
+    // The arrow up brings back what was evaluated.
+    const again = screen.getByLabelText('Jinja expression to evaluate') as HTMLTextAreaElement;
+    fireEvent.change(again, { target: { value: '' } });
+    fireEvent.keyDown(again, { key: 'ArrowUp' });
+    expect(again.value).toBe('vlan_id + 1');
   });
 
-  it('the buttons are in the canvas’s order: Retry, Step, Continue, Stop', async () => {
+  it('the toolbar is in VS Code’s order: Continue, Step, Retry, Stop', async () => {
     render(
       <DebugPanel
         run={run}
@@ -633,13 +686,12 @@ describe('AFS-258: round 2', () => {
         onError={() => undefined}
       />,
     );
-    const head = (await screen.findByText(/Paused after/)).closest(
-      '[data-debugger]',
-    ) as HTMLElement;
+    await screen.findByText(/Paused after/);
+    const head = screen.getByRole('toolbar', { name: 'Debug' });
     expect(
       [...head.querySelectorAll('[data-step-command]')].map((b) =>
         b.getAttribute('data-step-command'),
       ),
-    ).toEqual(['retry', 'step', 'continue', 'stop']);
+    ).toEqual(['continue', 'step', 'retry', 'stop']);
   });
 });
