@@ -9,6 +9,9 @@
 //                [&draft=<draft id>]  AFS-76: the flow's draft, edited (viewerDraft.ts)
 //                [&tab=<id>]          AFS-149: the page (tab) around it, for a draft's Save
 //                [&node=<step id>]    AFS-164: that step selected and in view (a flow's error)
+//                [&feed=1]            AFS-265: in a page's frame, the run shown comes from the
+//                                     page's stream (runFeed.ts), and the page's debug workbench
+//                                     talks to the canvas (workbench.tsx lists the messages)
 // The flow comes from the server once, as a snapshot; this page answers the designer's
 // messages itself. The flow's past runs are in the designer's run list; picking one shows it.
 // Run opens the designer's launch dialog over a launch configuration (AFS-67, viewerLaunch.ts).
@@ -51,6 +54,14 @@ const path = params.get('path') ?? '';
 const commit = params.get('commit') ?? '';
 const runId = params.get('run') ?? '';
 const node = params.get('node') ?? '';
+/** AFS-265: the page around the frame feeds the runs shown here and holds the debug toolbar. */
+const fed = params.get('feed') === '1' && window.parent !== window;
+/** AFS-265: says something to the page around the frame. */
+const tellPage = (message: { type: string } & Record<string, unknown>) => {
+  if (window.parent !== window) window.parent.postMessage(message, window.location.origin);
+};
+/** AFS-265: the page's workbench has the step buttons (designer: config.hostToolbar). */
+let hostToolbar = false;
 const wanted = params.get('theme');
 const theme = wanted === 'light' || wanted === 'dark' ? wanted : 'auto';
 const root = document.getElementById('root') as HTMLElement;
@@ -79,6 +90,18 @@ window.addEventListener(
     e.preventDefault();
     if (window.parent !== window && !e.repeat)
       window.parent.postMessage({ type: SAVE_KEY }, window.location.origin);
+  },
+  true,
+);
+
+// AFS-265: F5 and Shift+F5 are the page's debug toolbar's (Continue or Pause, Stop) while it has
+// one: never the browser's reload here. The canvas sends F10 and F8 itself.
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!hostToolbar || e.key !== 'F5' || e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (!e.repeat) tellPage({ type: 'afs-debug-key', key: 'F5', shift: e.shiftKey });
   },
   true,
 );
@@ -142,6 +165,13 @@ export function withPoint(
   const rest = points.filter((p) => pointNode(p) !== node);
   return point ? normalPoints([...rest, { ...point, node }]) : rest;
 }
+
+/** What a run's view says, as far as this page reads it. */
+type RunViewSeen = {
+  summary?: { running?: string };
+  step?: { debug?: boolean };
+  approvals?: Record<string, { status: string; mayDecide?: boolean }>;
+} & Record<string, unknown>;
 
 /** Opens a page of the application: in the window that holds this frame, when there is one. */
 function go(to: string): void {
@@ -236,7 +266,7 @@ async function start(): Promise<void> {
     stepping && mayDebugFlow(access?.ok ? (access.data as ProjectAccess) : undefined, path);
   // AFS-253: a debug run's page: only who drives it (who launched it, an administrator) has its
   // pause points and Step on the canvas, which the server refuses to others. An operator of the
-  // flow stops it with Stop in the page's Debugger panel.
+  // flow stops it with Stop in the page's debug toolbar (AFS-265).
   const driverAsked: Promise<void> =
     stepping && runId
       ? Promise.all([
@@ -323,20 +353,22 @@ async function start(): Promise<void> {
       window.parent.postMessage({ type: 'afs-flow-runs' }, window.location.origin);
   };
 
+  /** AFS-265: the run the page feeds (`fed`): its events, as the page passes them on. */
+  let feeding:
+    | { id: string; on: (kind: 'run' | 'view' | 'end', data: unknown) => void }
+    | undefined;
   /** Shows a run on the canvas: live while it goes, from its record once it ended. */
   const showRun = (id: string, past: boolean) => {
     shown = id;
     stream?.close();
-    const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
-    stream = events;
+    stream = undefined;
     // AFS-139: the run's record (the events send it first) says where it ran and how it stands.
     let record = known.find((r) => r.id === id);
     let ended = !!record && !going(record.state);
-    events.addEventListener('run', (event) => {
-      record = JSON.parse((event as MessageEvent).data) as RunRecord;
-    });
-    events.addEventListener('view', (event) => {
-      const seen = JSON.parse((event as MessageEvent).data);
+    const onRun = (data: unknown) => {
+      record = data as RunRecord;
+    };
+    const onView = (seen: RunViewSeen) => {
       lastRunning = seen?.summary?.running;
       // AFS-205: a reader (who may not go on) is told who may.
       const who =
@@ -357,17 +389,36 @@ async function start(): Promise<void> {
             ...(approvals ? { approvals } : {}),
             ...(past ? { past: true } : {}),
           },
-        }),
+        } as HostMessage),
       );
-    });
-    events.addEventListener('end', () => {
-      events.close();
+    };
+    const onEnd = () => {
       // AFS-139: a run that ended while shown: the run list and the page's Latest runs say how.
       if (!ended) {
         ended = true;
         void runs();
         runsChanged();
       }
+    };
+    if (fed) {
+      feeding = {
+        id,
+        on: (kind, data) => {
+          if (kind === 'run') onRun(data);
+          else if (kind === 'view') onView(data as RunViewSeen);
+          else onEnd();
+        },
+      };
+      tellPage({ type: 'afs-watch-run', id });
+      return;
+    }
+    const events = new EventSource(`/api/v1/runs/${encodeURIComponent(id)}/events`);
+    stream = events;
+    events.addEventListener('run', (event) => onRun(JSON.parse((event as MessageEvent).data)));
+    events.addEventListener('view', (event) => onView(JSON.parse((event as MessageEvent).data)));
+    events.addEventListener('end', () => {
+      events.close();
+      onEnd();
     });
   };
 
@@ -438,6 +489,12 @@ async function start(): Promise<void> {
     if (latest && !shown) showRun(latest.id, !going(latest.state));
   };
 
+  /** The pause points on the canvas, and in the page's workbench (AFS-265). */
+  const showPoints = () => {
+    send(pointsMessage(points, failures));
+    tellPage({ type: 'afs-points', points, ...(failures ? { failures } : {}) });
+  };
+
   const launch = launcher({
     project,
     path,
@@ -449,6 +506,8 @@ async function start(): Promise<void> {
     ...(stepping ? { stepPoints: () => points } : {}),
     ...(debugging ? { debugFailures: () => failures } : {}),
     launched: (id) => {
+      // AFS-265: the page opens its debug workbench around the canvas for a debug run.
+      tellPage({ type: 'afs-run-started', id });
       void runs().then(() => showRun(id, false));
       runsChanged();
     },
@@ -467,7 +526,58 @@ async function start(): Promise<void> {
       ...(stepping ? { stepRuns: true } : {}),
       ...(debugging ? { debugRuns: true } : {}),
       ...(implied ? { impliedApprovers: implied } : {}),
+      ...(hostToolbar ? { hostToolbar: true } : {}),
     } as HostMessage);
+  let configSent = false;
+  // AFS-265: what the page's debug workbench says to the canvas.
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || event.source !== window.parent) return;
+    const data = event.data as {
+      type?: string;
+      id?: string;
+      kind?: 'run' | 'view' | 'end';
+      data?: unknown;
+      on?: boolean;
+      host?: string | null;
+      node?: string;
+      points?: PointSpec[];
+      failures?: FailureFilters;
+    } | null;
+    switch (data?.type) {
+      case 'afs-run-event':
+        if (feeding && data.id === feeding.id && data.id === shown && data.kind)
+          feeding.on(data.kind, data.data);
+        return;
+      case 'afs-host-toolbar':
+        if (hostToolbar === !!data.on) return;
+        hostToolbar = !!data.on;
+        // rc.3 of the designer does not know hostToolbar: its buttons are hidden by viewer.css.
+        document.body.classList.toggle('afs-host-toolbar', hostToolbar);
+        if (configSent) sendConfig();
+        return;
+      case 'afs-host':
+        send({ type: 'highlightHost', host: data.host ?? null } as unknown as HostMessage);
+        return;
+      case 'afs-reveal':
+        if (!data.node) return;
+        send({ type: 'revealNode', node: data.node } as unknown as HostMessage);
+        // A designer before AFD-381 knows `reveal` only.
+        send({ type: 'reveal', node: data.node });
+        return;
+      case 'afs-set-points':
+        if (!stepping || !Array.isArray(data.points)) return;
+        if (data.failures && !debugging) return;
+        keepPoints(normalPoints(data.points), data.failures);
+        return;
+      case 'afs-show-run': {
+        const id = data.id;
+        if (!id) return;
+        void runs().then(() => showRun(id, false));
+        runsChanged();
+        return;
+      }
+    }
+  });
   const ready = () => {
     // AFS-258: on a run's page the page's Debugger has the failure's words and buttons: the
     // canvas's failure bar is kept short (viewer.css), and says no Retry, Continue and Stop to
@@ -475,6 +585,8 @@ async function start(): Promise<void> {
     document.body.classList.toggle('afs-run-page', !!runId);
     document.body.classList.toggle('afs-run-reader', !!runId && !stepping);
     sendConfig();
+    configSent = true;
+    tellPage({ type: 'afs-canvas-ready' });
     void get(
       `/api/v1/projects/${encodeURIComponent(project)}/approvers?path=${encodeURIComponent(path)}`,
     ).then(
@@ -498,7 +610,7 @@ async function start(): Promise<void> {
             failures = runDebug
               ? (reply.data.step.failures as FailureFilters | undefined)
               : undefined;
-            send(pointsMessage(points, failures));
+            showPoints();
           }
         },
         () => undefined,
@@ -511,7 +623,7 @@ async function start(): Promise<void> {
           if (!reply.ok) return;
           points = (reply.data?.points as PointSpec[] | undefined) ?? [];
           failures = reply.data?.failures as FailureFilters | undefined;
-          send(pointsMessage(points, failures));
+          showPoints();
         },
         () => undefined,
       );
@@ -551,11 +663,11 @@ async function start(): Promise<void> {
     const before = { points, failures };
     points = next;
     if (nextFailures) failures = nextFailures;
-    send(pointsMessage(points, failures));
+    showPoints();
     const undo = (text: string) => {
       points = before.points;
       failures = before.failures;
-      send(pointsMessage(points, failures));
+      showPoints();
       send({ type: 'notify', level: 'error', text });
     };
     const toRun = (id: string) =>
@@ -613,6 +725,14 @@ async function start(): Promise<void> {
         };
         if (saving.type === 'launchSave' && saving.token) {
           void launch.save(saving.token, saving.inputs ?? {});
+          return;
+        }
+        // AFS-265: the step chosen on the canvas, for the page's workbench (designer AFD-381).
+        if (saving.type === 'nodeSelected') {
+          tellPage({
+            type: 'afs-node-selected',
+            node: (message as unknown as { node?: string | null }).node ?? null,
+          });
           return;
         }
         switch (message.type) {

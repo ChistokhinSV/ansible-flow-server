@@ -1,8 +1,8 @@
-// AFS-179 (ADR-0038 §1): the Debugger panel of a debug run on its page. While the run is paused it
-// shows why (the reason line), Retry at a failure pause (with its warning), Continue, Step and Stop
-// (F10 Step, F8 Continue or Pause), a host picker that starts at the first failed or matching host,
-// the host's variables by scope (opened lazily, Facts on request), Watch with "compare across
-// hosts", and an Evaluate box (Ctrl+Enter). The answers come from the run itself
+// AFS-179: a debug run's debugger, in the views of the debug workbench (workbench.tsx, AFS-265):
+// why it paused (the reason line), Continue, Step, Retry and Stop, the hosts the pause holds (the
+// first failed or matching chosen), the chosen host's variables by scope (opened lazily, Facts on
+// request), Watch with "compare across hosts", the pause points and failure filters, and the Debug
+// Console (Evaluate, log point lines). The answers come from the run itself
 // (POST /runs/:id/inspect), masked there: a masked value says why, never its size.
 // Only who launched the run (and administrators) drive it and see values; others watching see the
 // reason line and who it waits for, and an operator of the flow has Stop (AFS-253).
@@ -10,6 +10,7 @@
 import { modelOf } from '@ansible-flow/core/flow/model';
 import type { FlowDocument } from '@ansible-flow/core/flow/types';
 import {
+  type FailureFilters,
   type InspectAnswer,
   type InspectArgs,
   type InspectOp,
@@ -23,11 +24,19 @@ import {
   type VarEntry,
   type VarScope,
 } from '@ansible-flow/core/run/step';
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  type Ref,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ApiError, api, type Run } from './api';
 import { ask } from './confirm';
 import { type ShownStep, stepKey, stepLine, stepName, stopsIn } from './stepBar';
-import { Time } from './ui';
+import { Icon, Time } from './ui';
 
 /** A masked value's reason in words (never its size). */
 export const MASK_WORDS: Record<MaskKind, string> = {
@@ -294,13 +303,6 @@ const listed = (scope: VarScope, path: readonly unknown[], items: VarEntry[]) =>
 
 type Ask = (op: InspectOp, args: InspectArgs) => Promise<InspectAnswer | undefined>;
 
-/** AFS-258: what was typed in Evaluate and its answer, per run and pause, for this page's life. */
-interface EvalKept {
-  expr: string;
-  evaluated?: { expr: string; answer: InspectAnswer; host: string };
-}
-const evalKept = new Map<string, EvalKept>();
-
 /** One variable, its items read when it is opened. */
 function VarRow({
   entry,
@@ -482,13 +484,84 @@ export function LogLines({
   );
 }
 
-export function DebugPanel({
+/** AFS-265: the command a key gives a debug run: F5 (or F8) Continue or Pause, F10 Step, Shift+F5 Stop. */
+export function debugKey(
+  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
+  paused: boolean,
+): StepCommand | undefined {
+  if (e.key === 'F5' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) return 'stop';
+  if (e.key === 'F5' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey)
+    return paused ? 'continue' : 'pause';
+  return stepKey(e, paused);
+}
+
+/** What a paused run said to one Evaluate: the expression, the host and the answer. */
+export interface Said {
+  expr: string;
+  host: string;
+  answer: InspectAnswer;
+}
+
+/**
+ * AFS-265: a debug run's state as its views share it (DebugWorkbench): the pause and its hosts,
+ * the host chosen, its scopes, the watches and their answers, the Debug Console's lines, and the
+ * commands. The answers come from the run itself (POST /runs/:id/inspect), masked there: a masked
+ * value says why, never its size. Only who launched the run (and administrators) drive it and see
+ * values; an operator of the flow has Stop (AFS-253). AFS-250: watches are kept by the server for
+ * each person (not by the browser).
+ */
+export interface DebugSession {
+  run: Run;
+  step: ShownStep | undefined;
+  pause: StepPause | undefined;
+  /** The step the run is paused at, by its path. */
+  title: string;
+  now: number;
+  mayDrive: boolean;
+  mayStop: boolean;
+  launcher: string;
+  busy: boolean;
+  /** The run answers questions at this pause. */
+  debuggable: boolean;
+  /** AFS-249: every host the pause holds (after a Retry the run names only the retried ones). */
+  allHosts: string[];
+  hosts: { host: string; note?: string }[];
+  host: string | undefined;
+  setHost(host: string): void;
+  scopes: InspectAnswer['scopes'];
+  scopeError: string | undefined;
+  forHost: Ask;
+  watches: string[];
+  addWatch(text: string): void;
+  dropWatch(expr: string): void;
+  watched: InspectAnswer['results'];
+  expr: string;
+  setExpr(text: string): void;
+  said: Said[];
+  evaluate(): Promise<void>;
+  /** The expressions evaluated at this pause, newest last (the console's history). */
+  history: string[];
+  logNames: ReadonlyMap<string, string>;
+  /** The reason line: why it paused, or where it runs, or where it stopped. */
+  reason: string;
+  send(command: StepCommand): Promise<void>;
+}
+
+/** AFS-258: what was typed in Evaluate and its answers, per run and pause, for this page's life. */
+interface ConsoleKept {
+  expr: string;
+  said: Said[];
+}
+const consoleKept = new Map<string, ConsoleKept>();
+/** The Debug Console's lines kept per pause: the newest. */
+const SAID_KEPT = 50;
+
+export function useDebugSession({
   run,
   step,
   mayDrive,
   mayStop = false,
   launcher,
-  hidden,
   onRun,
   onError,
 }: {
@@ -499,11 +572,9 @@ export function DebugPanel({
   /** AFS-253: an operator of the flow, who may Stop the run though not drive it. */
   mayStop?: boolean;
   launcher: string;
-  /** AFS-250: on a phone, another tab is shown (the panel keeps its state). */
-  hidden?: boolean;
   onRun(run: Run): void;
   onError(message: string | undefined): void;
-}) {
+}): DebugSession {
   const pause = step?.paused;
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
@@ -511,20 +582,15 @@ export function DebugPanel({
   const [scopes, setScopes] = useState<InspectAnswer['scopes']>();
   const [scopeError, setScopeError] = useState<string>();
   const [watches, setWatches] = useState<string[]>([]);
-  const [watchText, setWatchText] = useState('');
   const [watched, setWatched] = useState<InspectAnswer['results']>();
-  const [comparing, setComparing] = useState<string>();
   const pauseId = pause?.id;
   const keptKey = `${run.id}:${pauseId ?? ''}`;
-  const [expr, setExprState] = useState(() => evalKept.get(keptKey)?.expr ?? '');
-  const [evaluated, setEvaluatedState] = useState(() => evalKept.get(keptKey)?.evaluated);
-  const setExpr = (text: string) => {
-    setExprState(text);
-    evalKept.set(keptKey, { ...evalKept.get(keptKey), expr: text });
-  };
-  const setEvaluated = (said: EvalKept['evaluated']) => {
-    setEvaluatedState(said);
-    evalKept.set(keptKey, { expr: evalKept.get(keptKey)?.expr ?? '', evaluated: said });
+  const [kept, setKept] = useState<ConsoleKept>(
+    () => consoleKept.get(keptKey) ?? { expr: '', said: [] },
+  );
+  const keep = (next: ConsoleKept) => {
+    consoleKept.set(keptKey, next);
+    setKept(next);
   };
   const title = pause ? run.pausedBefore || stepName(pause.play) : '';
   // AFS-249: the hosts each step's pauses held: after a Retry the run names only the retried
@@ -533,11 +599,11 @@ export function DebugPanel({
   const allHosts = useMemo(() => {
     if (!pause) return [];
     const before = held.current.get(pause.node) ?? [];
-    const now = [
+    const all = [
       ...new Set([...before, ...pause.hosts, ...(pause.failed ?? []).map((f) => f.host)]),
     ];
-    held.current.set(pause.node, now);
-    return now;
+    held.current.set(pause.node, all);
+    return all;
   }, [pause]);
   const hits = pause ? pointAt(run.step?.points, pause.node)?.hits : undefined;
   // The names of the steps the run paused at, for its log points' lines; AFS-258: and of every
@@ -593,17 +659,14 @@ export function DebugPanel({
   );
 
   // A new pause starts at its first failed or matching host, and forgets the old answers (the
-  // Evaluate answer kept for this pause stays: the panel may have been drawn again, AFS-258).
-  const firstPause = useRef(true);
+  // console kept for this pause stays: the views may have been drawn again, AFS-258).
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per pause
   useEffect(() => {
-    const kept = evalKept.get(keptKey);
-    setHost(kept?.evaluated?.host ?? (pause ? firstHost(pause) : undefined));
+    const had = consoleKept.get(keptKey);
+    setHost(had?.said.at(-1)?.host ?? (pause ? firstHost(pause) : undefined));
     setScopes(undefined);
     setWatched(undefined);
-    if (!firstPause.current || !kept) setEvaluatedState(kept?.evaluated);
-    firstPause.current = false;
-    setComparing(undefined);
+    setKept(had ?? { expr: '', said: [] });
   }, [pauseId]);
 
   const debuggable = !!pause && pause.debug !== false;
@@ -643,6 +706,7 @@ export function DebugPanel({
 
   const send = async (command: StepCommand) => {
     if (busy) return;
+    if (!mayDrive && !(command === 'stop' && mayStop)) return;
     // AFS-253: an operator stopping someone else's debug run is asked first, naming whose.
     if (
       command === 'stop' &&
@@ -671,282 +735,504 @@ export function DebugPanel({
       setBusy(false);
     }
   };
-  const sendRef = useRef(send);
-  sendRef.current = send;
-  const paused = !!pause;
-  useEffect(() => {
-    if (!mayDrive) return;
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.defaultPrevented) return;
-      // AFS-249: F10 and F8 type nothing: they drive the run from the Evaluate box too.
-      const command = stepKey(e, paused);
-      if (!command) return;
-      e.preventDefault();
-      if (!e.repeat) void sendRef.current(command);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [mayDrive, paused]);
 
   const evaluate = async () => {
-    const text = bare(expr);
+    const text = bare(kept.expr);
     if (!text || !host) return;
     const answer = await forHost('eval', { expr: text });
-    if (answer) setEvaluated({ expr: text, answer, host });
+    if (!answer) return;
+    const now = consoleKept.get(keptKey) ?? kept;
+    keep({ expr: '', said: [...now.said, { expr: text, host, answer }].slice(-SAID_KEPT) });
   };
-  const onEvalKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      void evaluate();
-    }
-  };
-  const addWatch = () => {
-    const text = bare(watchText);
-    if (!text || watches.includes(text)) return setWatchText('');
-    keepWatches([...watches, text]);
-    setWatchText('');
-  };
-  const dropWatch = (w: string) => keepWatches(watches.filter((x) => x !== w));
 
   const hosts = useMemo(() => (pause ? hostOrder(pause, allHosts) : []), [pause, allHosts]);
-  const failedHosts = (pause?.failed ?? []).map((f) => f.host);
-  const retryOffered = pause?.kind === 'failure' && !pause.retryRefused;
+  const reason = pause
+    ? reasonLine(pause, title, now, { hosts: allHosts, ...(hits ? { hits } : {}) })
+    : step?.stopped
+      ? stoppedLine(
+          step.stopped as StoppedAt,
+          names.current.get(step.stopped.node) ?? run.pausedBefore ?? 'the step',
+        )
+      : stepLine(run, step, now);
+  return {
+    run,
+    step,
+    pause,
+    title,
+    now,
+    mayDrive,
+    mayStop,
+    launcher,
+    busy,
+    debuggable,
+    allHosts,
+    hosts,
+    host,
+    setHost,
+    scopes,
+    scopeError,
+    forHost,
+    watches,
+    addWatch: (text) => {
+      const expr = bare(text);
+      if (expr && !watches.includes(expr)) keepWatches([...watches, expr]);
+    },
+    dropWatch: (w) => keepWatches(watches.filter((x) => x !== w)),
+    watched,
+    expr: kept.expr,
+    setExpr: (text) => keep({ ...(consoleKept.get(keptKey) ?? kept), expr: text }),
+    said: kept.said,
+    evaluate,
+    history: kept.said.map((s) => s.expr),
+    logNames,
+    reason,
+    send,
+  };
+}
+
+/** AFS-265: the Variables view: the chosen host's scopes, read lazily (Facts on request). */
+export function VariablesView({ s }: { s: DebugSession }) {
+  if (!s.pause) return <p className="muted small wb-empty">The variables show at a pause.</p>;
+  if (!s.debuggable)
+    return <p className="warn-text small">{s.pause.why ?? 'This run cannot show variables'}</p>;
+  const note = s.hosts.find((h) => h.host === s.host)?.note;
+  return (
+    <div className="debug-scopes" data-debug-scopes>
+      <p className="wb-host-line small" data-debug-host-line>
+        <span className="mono">{s.host}</span>
+        {note && <span className={note === 'matched' ? 'muted' : 'bad-text'}> · {note}</span>}
+      </p>
+      {s.pause.kind === 'failure' &&
+        s.pause.failed
+          ?.filter((f) => f.host === s.host)
+          .map((f) => (
+            <p key={f.host} className="debug-failed small" data-debug-failed>
+              At “{f.task}”: {f.msg}
+            </p>
+          ))}
+      {s.scopeError && <p className="bad-text small">{s.scopeError}</p>}
+      {!s.scopes && !s.scopeError && <p className="muted small">Reading the variables…</p>}
+      {s.scopes?.map((scope) => (
+        <Items
+          key={`${s.host}:${scope.id}`}
+          label={scope.name}
+          summary={
+            scope.expensive
+              ? '(read on request)'
+              : scope.vars
+                ? plural(
+                    scope.vars.filter((v) => !internalName(scope.id, v.name)).length,
+                    'variable',
+                  )
+                : undefined
+          }
+          scope={scope.id}
+          path={[]}
+          inspect={s.forHost}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * AFS-265: the Watch view: each expression's value for the chosen host, with an inline "compare
+ * across hosts" (the values grouped, each with its hosts) and a remove, and a box to add one.
+ */
+export function WatchView({ s }: { s: DebugSession }) {
+  const [text, setText] = useState('');
+  const [comparing, setComparing] = useState<string>();
+  const pauseId = s.pause?.id;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closed at each pause
+  useEffect(() => setComparing(undefined), [pauseId]);
+  return (
+    <div className="debug-watch" data-debug-watch>
+      {s.watches.length === 0 && (
+        <p className="muted small wb-empty">No watch yet: add an expression below.</p>
+      )}
+      <ul className="dbg-vars">
+        {s.watches.map((w) => {
+          const mine = s.watched?.find((r) => r.expr === w && r.host === s.host);
+          const said = mine ? answerText(mine) : undefined;
+          const all = (s.watched ?? []).filter((r) => r.expr === w);
+          return (
+            <li key={w} className="dbg-watch">
+              <code className="dbg-name">{`{{ ${w} }}`}</code>
+              <span className={said?.bad ? 'dbg-value bad-text' : 'dbg-value'}>
+                {s.pause && s.debuggable ? (said?.text ?? '…') : 'shown at a pause'}
+              </span>
+              <span className="dbg-watch-actions">
+                {s.pause && s.debuggable && (
+                  <button
+                    type="button"
+                    className="icon-button wb-row-button"
+                    aria-label={`Compare ${w} across hosts`}
+                    title="Compare across hosts"
+                    aria-pressed={comparing === w}
+                    onClick={() => setComparing(comparing === w ? undefined : w)}
+                  >
+                    <Icon name="compare" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="icon-button wb-row-button"
+                  aria-label={`Remove the watch ${w}`}
+                  title="Remove"
+                  onClick={() => s.dropWatch(w)}
+                >
+                  <Icon name="close" />
+                </button>
+              </span>
+              {comparing === w && (
+                <table className="dbg-compare" data-debug-compare>
+                  <tbody>
+                    {compareHosts(all).map((g) => (
+                      <tr key={g.value}>
+                        <td className="mono">{g.value}</td>
+                        <td>{g.hosts.join(', ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <form
+        className="debug-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          s.addWatch(text);
+          setText('');
+        }}
+      >
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="An expression, without {{ }}"
+          aria-label="Expression to watch"
+          data-debug-watch-input
+        />
+        <button type="submit">Add</button>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * AFS-265: the Hosts view (VS Code's call stack): each host the pause holds, failed and matching
+ * first, with its state and where it waits; choosing one sets the host of Variables, Watch and the
+ * Debug Console, and marks it on the canvas.
+ */
+export function HostsView({ s, onHost }: { s: DebugSession; onHost?(host: string): void }) {
+  if (!s.pause) return <p className="muted small wb-empty">The hosts show at a pause.</p>;
+  const where = `${s.pause.kind === 'failure' ? 'after' : 'before'} ${s.title}`;
+  return (
+    <ul className="wb-hosts" aria-label="Hosts at the pause" data-debug-hosts>
+      {s.hosts.map((h) => (
+        <li key={h.host}>
+          <button
+            type="button"
+            className="wb-host"
+            aria-current={h.host === s.host ? 'true' : undefined}
+            data-debug-host={h.host}
+            onClick={() => {
+              s.setHost(h.host);
+              onHost?.(h.host);
+            }}
+          >
+            <span className="mono">{h.host}</span>
+            <span
+              className={`small ${h.note === 'failed' || h.note === 'unreachable' ? 'bad-text' : 'muted'}`}
+            >
+              {h.note ?? 'waiting'} · {where}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * AFS-265: the Pause points view: "Pause on failure" and "Pause on unreachable" on top, then each
+ * point with a box (cleared, it is taken off; a cleared one stays listed until the page is left, to
+ * be put back with its settings) and its step, which shows the step on the canvas.
+ */
+export function PointsView({
+  points,
+  failures,
+  names,
+  disabled,
+  onChange,
+  onReveal,
+  selected,
+}: {
+  points: readonly PointSpec[];
+  failures: FailureFilters | undefined;
+  names: ReadonlyMap<string, string>;
+  /** Readers, and runs that are not debug runs (no failure filters). */
+  disabled?: boolean;
+  onChange(points: PointSpec[], failures?: FailureFilters): void;
+  onReveal(node: string): void;
+  /** The step chosen on the canvas. */
+  selected?: string | undefined;
+}) {
+  const [off, setOff] = useState<PointSpec[]>([]);
+  const on = new Set(points.map(pointNode));
+  const listed = [...points, ...off.filter((p) => !on.has(pointNode(p)))];
+  const failed = failures?.failed ?? true;
+  const unreachable = failures?.unreachable ?? false;
+  const settingsOf = (p: PointSpec) =>
+    typeof p === 'string'
+      ? ''
+      : [
+          p.condition ? `if ${p.condition}` : '',
+          p.hits ? `after ${plural(p.hits, 'arrival')}` : '',
+          p.log ? `logs “${p.log}”` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  return (
+    <div className="wb-points" data-debug-points>
+      <fieldset className="wb-filters" disabled={disabled}>
+        <legend className="sr-only">Which failures pause the run</legend>
+        <label>
+          <input
+            type="checkbox"
+            checked={failed}
+            onChange={(e) => onChange([...points], { failed: e.target.checked, unreachable })}
+          />{' '}
+          Pause on failure
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={unreachable}
+            onChange={(e) => onChange([...points], { failed, unreachable: e.target.checked })}
+          />{' '}
+          Pause on unreachable
+        </label>
+      </fieldset>
+      {listed.length === 0 && (
+        <p className="muted small wb-empty">
+          No pause point. Right-click a step on the canvas to add one.
+        </p>
+      )}
+      <ul className="wb-point-list">
+        {listed.map((p) => {
+          const node = pointNode(p);
+          const name = names.get(node) ?? 'A step';
+          const settings = settingsOf(p);
+          return (
+            <li key={node} aria-current={selected === node ? 'true' : undefined}>
+              <input
+                type="checkbox"
+                checked={on.has(node)}
+                disabled={disabled}
+                aria-label={`Pause at ${name}`}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setOff((was) => was.filter((x) => pointNode(x) !== node));
+                    onChange([...points, p], failures);
+                  } else {
+                    setOff((was) => [...was.filter((x) => pointNode(x) !== node), p]);
+                    onChange(
+                      points.filter((x) => pointNode(x) !== node),
+                      failures,
+                    );
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="link wb-point-name"
+                title="Show the step on the canvas"
+                onClick={() => onReveal(node)}
+              >
+                {name}
+              </button>
+              {settings && <span className="muted small wb-point-settings">{settings}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * AFS-265: the Debug Console: the log points' lines, then each expression evaluated at this pause
+ * and its answer, and the box for the next one (Enter evaluates, Shift+Enter is a new line,
+ * the arrows up and down go through what was evaluated).
+ */
+export function ConsoleView({ s }: { s: DebugSession }) {
+  const [back, setBack] = useState(-1);
+  const end = useRef<HTMLDivElement>(null);
+  const count = s.said.length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the newest line in sight
+  useEffect(() => {
+    end.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [count]);
+  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      setBack(-1);
+      void s.evaluate();
+      return;
+    }
+    const single = !e.currentTarget.value.includes('\n');
+    if (single && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && s.history.length) {
+      e.preventDefault();
+      const next =
+        e.key === 'ArrowUp' ? Math.min(s.history.length - 1, back + 1) : Math.max(-1, back - 1);
+      setBack(next);
+      s.setExpr(next < 0 ? '' : (s.history[s.history.length - 1 - next] ?? ''));
+    }
+  };
+  const ready = !!s.pause && s.debuggable;
+  return (
+    <div className="wb-console" data-debug-eval>
+      <LogLines logs={s.step?.logs ?? []} names={s.logNames} />
+      <ol className="wb-said" aria-label="Evaluated at this pause">
+        {s.said.map((said, i) => {
+          const a = answerText(said.answer);
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: lines come in order and never move
+            <li key={i}>
+              <code className="wb-said-expr">
+                <span className="muted">{said.host} ›</span> {said.expr}
+              </code>
+              <pre className={a.bad ? 'dbg-result bad-text' : 'dbg-result'} data-debug-result>
+                {a.text}
+              </pre>
+            </li>
+          );
+        })}
+      </ol>
+      <div ref={end} />
+      {ready ? (
+        <div className="wb-prompt">
+          <span className="wb-prompt-host mono muted" aria-hidden="true">
+            {s.host} ›
+          </span>
+          <textarea
+            rows={1}
+            value={s.expr}
+            onChange={(e) => s.setExpr(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="A Jinja expression for this host: Enter evaluates"
+            aria-label="Jinja expression to evaluate"
+            aria-keyshortcuts="Enter Control+Enter"
+            title="Read-only: lookups are refused, 2 s at most"
+            data-debug-expr
+          />
+          <button type="button" onClick={() => void s.evaluate()} title="Enter">
+            Evaluate
+          </button>
+        </div>
+      ) : (
+        <p className="muted small wb-empty">
+          {s.pause ? (s.pause.why ?? 'This run cannot evaluate') : 'Evaluate works at a pause.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * AFS-265: the one debug toolbar, over the canvas: Continue or Pause (F5), Step (F10), Retry (a
+ * failure pause only), Stop (Shift+F5), and Restart (Run again, once the run has ended). Readers
+ * have none of them; an operator of the flow has Stop (AFS-253).
+ */
+export function DebugToolbar({
+  s,
+  going,
+  onRestart,
+  continueRef,
+}: {
+  s: DebugSession;
+  going: boolean;
+  onRestart?: (() => void) | undefined;
+  continueRef?: Ref<HTMLButtonElement>;
+}) {
+  const paused = !!s.pause;
   const button = (
     command: StepCommand,
     label: string,
     titleText: string,
-    options: { primary?: boolean; key?: string; off?: string } = {},
+    options: { primary?: boolean; key?: string; off?: string; ref?: Ref<HTMLButtonElement> } = {},
   ) => (
     <button
       type="button"
-      className={command === 'stop' ? 'danger' : options.primary ? 'primary' : undefined}
-      aria-disabled={busy || options.off ? true : undefined}
+      ref={options.ref}
+      className={`wb-tool${command === 'stop' ? ' danger' : options.primary ? ' primary' : ''}`}
+      aria-disabled={s.busy || options.off ? true : undefined}
       title={`${options.off ?? titleText}${options.key ? ` (${options.key})` : ''}`}
       aria-keyshortcuts={options.key}
       data-step-command={command}
       onClick={() => {
-        if (!options.off) void send(command);
+        if (!options.off) void s.send(command);
       }}
     >
-      {label}
+      <Icon name={command} />
+      <span className="wb-tool-label">{label}</span>
     </button>
   );
-
+  const retryOffered = s.pause?.kind === 'failure' && !s.pause.retryRefused;
+  const failedHosts = (s.pause?.failed ?? []).map((f) => f.host);
   return (
-    <section
-      className={`debugger${pause ? ' paused' : ''}`}
-      aria-label="Debugger"
-      data-debugger
-      id="run-debugger"
-      hidden={hidden}
-    >
-      {/* The reason and the buttons stay in sight while the panel scrolls. */}
-      <div className="debug-head">
-        <div className="debug-reason" role="status" aria-live="polite" data-debug-reason>
-          <strong>
-            {pause
-              ? reasonLine(pause, title, now, { hosts: allHosts, ...(hits ? { hits } : {}) })
-              : step?.stopped
-                ? stoppedLine(
-                    step.stopped as StoppedAt,
-                    names.current.get(step.stopped.node) ?? run.pausedBefore ?? 'the step',
-                  )
-                : stepLine(run, step, now)}
-          </strong>
-          {!mayDrive && (
-            <span className="muted">
-              {' '}
-              · {pause ? `Paused by ${launcher}` : `Debugged by ${launcher}`}: only {launcher} or an
-              administrator drives it and sees its variables
-            </span>
-          )}
-          {pause?.debug === false && (
-            <span className="warn-text"> · {pause.why ?? 'This run cannot show variables'}</span>
-          )}
-        </div>
-        {/* AFS-253: an operator of the flow may still Stop it (the server lets them). */}
-        {!mayDrive && mayStop && (
-          <div className="debug-actions">
-            <span className="step-actions">
-              {button(
-                'stop',
-                'Stop',
-                `End ${launcher}'s run before its next step; what ran is kept`,
-              )}
-            </span>
-          </div>
-        )}
-        {mayDrive && (
-          <div className="debug-actions">
-            <span className="step-actions">
-              {pause?.kind === 'failure' &&
-                button('retry', 'Retry', `Run ${title} again on the hosts that failed`, {
-                  primary: true,
-                  ...(pause.retryRefused ? { off: pause.retryRefused } : {}),
-                })}
-              {button('step', 'Step', 'Run this step, then pause before the next one', {
-                primary: pause?.kind !== 'failure',
-                key: 'F10',
-                ...(paused ? {} : { off: 'The run is going: Step answers its next pause' }),
-              })}
-              {paused
-                ? button('continue', 'Continue', 'Run on; pause only at a pause point', {
-                    key: 'F8',
-                  })
-                : button('pause', 'Pause', 'Pause before the next step', { key: 'F8' })}
-              {button('stop', 'Stop', 'End the run before its next step; what ran is kept')}
-            </span>
-            {retryOffered && (
-              <span className="debug-warn small" data-retry-warning>
-                Retry runs {title} again on {failedHosts.join(', ')}. Changes on hosts are not
-                undone.
-              </span>
-            )}
-            {pause?.kind === 'failure' && pause.retryRefused && (
-              <span className="muted small">{pause.retryRefused}</span>
-            )}
-          </div>
-        )}
-      </div>
-      {mayDrive && pause && debuggable && (
-        <div className="debug-body">
-          <label className="debug-host">
-            Host{' '}
-            <select value={host ?? ''} onChange={(e) => setHost(e.target.value)} data-debug-host>
-              {hosts.map((h) => (
-                <option key={h.host} value={h.host}>
-                  {h.note ? `${h.host} · ${h.note}` : h.host}
-                </option>
-              ))}
-            </select>
-          </label>
-          {pause.kind === 'failure' &&
-            pause.failed
-              ?.filter((f) => f.host === host)
-              .map((f) => (
-                <p key={f.host} className="debug-failed small" data-debug-failed>
-                  At “{f.task}”: {f.msg}
-                </p>
-              ))}
-          <div className="debug-scopes" data-debug-scopes>
-            {scopeError && <p className="bad-text small">{scopeError}</p>}
-            {!scopes && !scopeError && <p className="muted small">Reading the variables…</p>}
-            {scopes?.map((s) => (
-              <Items
-                key={`${host}:${s.id}`}
-                label={s.name}
-                summary={
-                  s.expensive
-                    ? '(read on request)'
-                    : s.vars
-                      ? plural(s.vars.filter((v) => !internalName(s.id, v.name)).length, 'variable')
-                      : undefined
-                }
-                scope={s.id}
-                path={[]}
-                inspect={forHost}
-              />
-            ))}
-          </div>
-
-          <div className="debug-watch" data-debug-watch>
-            <h3>Watch</h3>
-            <ul className="dbg-vars">
-              {watches.map((w) => {
-                const mine = watched?.find((r) => r.expr === w && r.host === host);
-                const said = mine ? answerText(mine) : undefined;
-                const all = (watched ?? []).filter((r) => r.expr === w);
-                return (
-                  <li key={w} className="dbg-watch">
-                    <code className="dbg-name">{`{{ ${w} }}`}</code>
-                    <span className={said?.bad ? 'dbg-value bad-text' : 'dbg-value'}>
-                      {said?.text ?? '…'}
-                    </span>
-                    <span className="dbg-watch-actions">
-                      <button
-                        type="button"
-                        className="link"
-                        aria-pressed={comparing === w}
-                        onClick={() => setComparing(comparing === w ? undefined : w)}
-                      >
-                        Compare across hosts
-                      </button>
-                      <button
-                        type="button"
-                        className="link"
-                        aria-label={`Remove the watch ${w}`}
-                        onClick={() => dropWatch(w)}
-                      >
-                        Remove
-                      </button>
-                    </span>
-                    {comparing === w && (
-                      <table className="dbg-compare" data-debug-compare>
-                        <tbody>
-                          {compareHosts(all).map((g) => (
-                            <tr key={g.value}>
-                              <td className="mono">{g.value}</td>
-                              <td>{g.hosts.join(', ')}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            <form
-              className="debug-add"
-              onSubmit={(e) => {
-                e.preventDefault();
-                addWatch();
-              }}
-            >
-              <input
-                value={watchText}
-                onChange={(e) => setWatchText(e.target.value)}
-                placeholder="An expression, without {{ }}"
-                aria-label="Expression to watch"
-                data-debug-watch-input
-              />
-              <button type="submit">Add</button>
-            </form>
-          </div>
-
-          <div className="debug-eval" data-debug-eval>
-            <h3>Evaluate{host ? ` (${host})` : ''}</h3>
-            <textarea
-              rows={2}
-              value={expr}
-              onChange={(e) => setExpr(e.target.value)}
-              onKeyDown={onEvalKey}
-              placeholder="A Jinja expression for this host"
-              aria-label="Jinja expression to evaluate"
-              aria-keyshortcuts="Control+Enter"
-              data-debug-expr
-            />
-            <div className="debug-eval-row">
-              <button type="button" onClick={() => void evaluate()} title="Ctrl+Enter">
-                Evaluate
-              </button>
-              <span className="muted small">Read-only: lookups are refused, 2 s at most.</span>
-            </div>
-            {evaluated && (
-              <pre
-                className={answerText(evaluated.answer).bad ? 'dbg-result bad-text' : 'dbg-result'}
-                data-debug-result
-              >
-                {answerText(evaluated.answer).text}
-              </pre>
-            )}
-          </div>
-          <LogLines logs={step?.logs ?? []} names={logNames} />
-        </div>
+    <div className="wb-toolbar" role="toolbar" aria-label="Debug" data-debugger>
+      {going && s.mayDrive && (
+        <>
+          {paused
+            ? button('continue', 'Continue', 'Run on; pause only at a pause point', {
+                key: 'F5',
+                primary: s.pause?.kind !== 'failure',
+                ...(continueRef ? { ref: continueRef } : {}),
+              })
+            : button('pause', 'Pause', 'Pause before the next step', { key: 'F5' })}
+          {button('step', 'Step', 'Run this step, then pause before the next one', {
+            key: 'F10',
+            ...(paused ? {} : { off: 'The run is going: Step answers its next pause' }),
+          })}
+          {s.pause?.kind === 'failure' &&
+            button('retry', 'Retry', `Run ${s.title} again on the hosts that failed`, {
+              primary: true,
+              ...(s.pause.retryRefused ? { off: s.pause.retryRefused } : {}),
+            })}
+          {button('stop', 'Stop', 'End the run before its next step; what ran is kept', {
+            key: 'Shift+F5',
+          })}
+        </>
       )}
-      {/* Log points of a run going on (no pause now): their lines so far. */}
-      {mayDrive && !pause && <LogLines logs={step?.logs ?? []} names={logNames} />}
-    </section>
+      {going &&
+        !s.mayDrive &&
+        s.mayStop &&
+        button('stop', 'Stop', `End ${s.launcher}'s run before its next step; what ran is kept`)}
+      {!going && onRestart && (
+        <button
+          type="button"
+          className="wb-tool"
+          title="Run it again: the same commit, inputs and pause points"
+          onClick={onRestart}
+          data-restart
+        >
+          <Icon name="restart" />
+          <span className="wb-tool-label">Restart</span>
+        </button>
+      )}
+      {going && s.mayDrive && retryOffered && (
+        <span className="debug-warn small wb-tool-note" data-retry-warning>
+          Retry runs {s.title} again on {failedHosts.join(', ')}. Changes on hosts are not undone.
+        </span>
+      )}
+      {going && s.mayDrive && s.pause?.kind === 'failure' && s.pause.retryRefused && (
+        <span className="muted small wb-tool-note">{s.pause.retryRefused}</span>
+      )}
+    </div>
   );
 }
 
@@ -1110,7 +1396,6 @@ export function useNarrow(query: string): boolean {
   const holdsNow = () =>
     typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
   const [holds, setHolds] = useState(holdsNow);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once per query
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
     const list = window.matchMedia(query);

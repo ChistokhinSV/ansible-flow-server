@@ -29,7 +29,7 @@ Right-click a step on the canvas and choose **Edit Pause Point…**:
   pause.
 - **After N arrivals:** pause when the count of hosts that reach the step gets to N.
 - **Log only:** a message rendered for each host goes to the run's **Log points** (masked as
-  any value is), and the run does not pause. The Debugger panel lists the lines under **Log
+  any value is), and the run does not pause. The Debug Console lists the lines under **Log
   points**: the step, the host and the message, or why the message could not be rendered.
 
 The popover also holds the failure filters: **A host failed** (on by default) and **A host is
@@ -39,47 +39,76 @@ On a run's page they are the run's, and the run uses them from its next step.
 Settings count only in debug runs. A step-by-step run that is not one pauses at the point as if
 it had none.
 
-## The Debugger panel
+## The debugger
 
-On a debug run's page the **Debugger** panel is a column beside the canvas on a wide window,
-and a drawer at the canvas's side on a laptop or tablet held sideways (about 1024 px): its reason
-line and buttons stay in sight while it scrolls. Up to 860 px wide (a phone) the page has tabs,
-**Run · Debugger · Output**, and opens on the Debugger.
+A debug run is debugged as in VS Code: the canvas stays in the middle and the debug views open
+around it. A debug run you start from the flow's canvas is debugged right there, on the flow's
+page; its run's page (**The run's page** in the status line) has the same views.
 
-- **The reason line** names the step, the count of hosts and why the run paused: a pause point
-  (with "after N arrivals" when the point counts them), a step, a condition (with the hosts it
-  held on), a failure or an unreachable host. It also says when the pause stops the run by
-  itself: "Paused after Apply config: 1 of 6 hosts failed (attempt 1) · stops by itself in
-  52 min", or "Paused before Validate · condition held on sw-edge-03, sw-edge-04 (2 of 4 hosts)".
-  The page's header says the same: "after" at a failure pause, "before" elsewhere. Stop at a
-  failure pause reads "Stopped after Push baseline · 1 host failed, 3 stopped after it".
-- **Retry, Continue, Step, Stop.** Retry is offered where hosts failed a step. It runs the step
-  again on those hosts. The step's changes on the hosts are not undone, and the panel says so
-  before you press it. A second failure pauses again (attempt 2). Retry is refused for a rolling
-  subflow and for a failure outside the step's rescue; Run again offers a new run there.
-- **Host:** starts at the first failed host (else the first that matched a condition). Every
-  pause holds all hosts, also after a Retry: "1 of 4 hosts failed (attempt 2)", with all four in
-  the picker.
+- **The toolbar** over the canvas: **Continue** (F5) or **Pause** while the run goes, **Step**
+  (F10), **Retry** at a failure pause, **Stop** (Shift+F5) and, once the run has ended,
+  **Restart** (the run again, at the same commit, with the same inputs and pause points). F8 does
+  what F5 does, as on the canvas. The canvas's own step buttons give way to this toolbar.
+- **The side bar**, on the left: the activity bar beside it picks its view (**Run and Debug**,
+  and on a run's page **Details**: approvals, hosts, outputs, what ran and its inputs). A second
+  click on the open view folds the side bar; **Ctrl+Shift+D** does the same. Drag its edge, or
+  focus the edge and use the arrow keys (Shift: further, Home and End: the ends), to size it.
+- **The panel** under the canvas: **Debug Console**, **Terminal** (the run's output) and
+  **Problems** (why each host failed). Size it by its top edge.
+- **The status line** at the bottom names the step, the count of hosts and why the run paused,
+  who paused it and when the pause stops the run by itself: "Paused after Apply config: 1 of 6
+  hosts failed (attempt 1) · stops by itself in 52 min · paused by Dana Whitfield", or "Paused
+  before Validate · condition held on sw-edge-03, sw-edge-04 (2 of 4 hosts)". The page's header
+  says the same: "after" at a failure pause, "before" elsewhere. Stop at a failure pause reads
+  "Stopped after Push baseline · 1 host failed, 3 stopped after it".
+
+From about 1100 px wide the side bar is beside the canvas; on a laptop or a tablet held sideways
+(about 1024 px) it lies over the canvas and opens when the run pauses. Up to 860 px wide (a
+phone) the page has tabs, **Flow · Debug · Console**; the toolbar and the status line stay in
+sight on each. The sizes you choose are kept in this browser.
+
+**At a pause** the side bar opens on Run and Debug at the first failed host (else the first that
+matched a condition), Continue takes the focus (unless you are typing in the console), the
+browser tab's title starts with "⏸ Paused", and a phone shows the Debug tab. While the tab is
+hidden a notification says the run paused, once you allowed notifications with **Notify me at
+pauses** in the status line.
+
+The Run and Debug view holds:
+
 - **Variables:** the host's scopes. Each opens when you open it:
   - **Step inputs:** the step's inputs as the step gets them;
   - **Host variables:** inventory variables, set_fact values and registered results;
   - **Flow data:** the run's extra variables;
   - **Facts:** read only when you open them.
 
-  A template is shown as its text, marked "(template, not rendered)". The engine's own variables
-  (`afd_repo_root` and the like) are not listed. A value longer than 64 KB is cut, and says where
-  and how big it is: "(cut at 64 KB of 164.9 KB)". Facts not gathered yet say so.
+  The failed task and its message come first at a failure pause. A template is shown as its
+  text, marked "(template, not rendered)". The engine's own variables (`afd_repo_root` and the
+  like) are not listed. A value longer than 64 KB is cut, and says where and how big it is:
+  "(cut at 64 KB of 164.9 KB)". Facts not gathered yet say so.
 - **Watch:** expressions kept for you on this flow by the server: each person has their own, on
-  any browser, and nobody else's run in their name. Each shows its value for the host picked.
-  **Compare across hosts** groups all paused hosts by the value they have. A watch that fails
+  any browser, and nobody else's run in their name. Each shows its value for the host chosen.
+  The compare icon on a row groups all paused hosts by the value they have. A watch that fails
   shows its error and stays in the list.
-- **Evaluate:** a Jinja expression for the host picked (Ctrl+Enter), written with or without
-  `{{ }}`. It is read-only and runs for at most 2 s. Lookups (`lookup`, `query`, `q`) and the
-  vault filters are refused: "lookups are not allowed in Evaluate". An expression left open
-  (`foo(`) says "a bracket or a quote is not closed".
+- **Hosts:** every host the pause holds, failed and matching first, with its state and where it
+  waits. Every pause holds all hosts, also after a Retry: "1 of 4 hosts failed (attempt 2)",
+  with all four listed. Choosing one sets the host of Variables, Watch and the Debug Console,
+  and marks the steps it ran on the canvas.
+- **Pause points:** **Pause on failure** and **Pause on unreachable** on top, then the run's
+  points with their settings. Clear a box to take a point off (it stays listed until you leave
+  the page, to be put back); a step's name shows it on the canvas. On the flow's page they are
+  your points too, as on the canvas.
 
-Keys: **F10** Step, **F8** Continue (or Pause while the run goes), **Ctrl+Enter** Evaluate. F10
-and F8 work while the cursor is in the Evaluate or Watch box too.
+**Retry** runs the step again on the hosts that failed. The step's changes on the hosts are not
+undone, and the toolbar says so before you press it. A second failure pauses again (attempt 2).
+Retry is refused for a rolling subflow and for a failure outside the step's rescue; Run again
+offers a new run there.
+
+The **Debug Console** evaluates a Jinja expression for the host chosen (**Enter**; Shift+Enter
+for a new line), written with or without `{{ }}`. Each answer stays above the box for the pause;
+the arrow up brings back what you evaluated. It is read-only and runs for at most 2 s. Lookups
+(`lookup`, `query`, `q`) and the vault filters are refused: "lookups are not allowed in
+Evaluate". An expression left open (`foo(`) says "a bracket or a quote is not closed". The log
+points' lines are listed above it.
 
 ### Secrets
 
@@ -100,11 +129,11 @@ server still hides the run's credential values in its output, as a second layer.
 - **Who launched the run, and administrators:** the buttons, the variables, Watch and Evaluate.
 - **Others who may see the run:** the reason line and the canvas, and who it waits for ("Paused
   by Dana Whitfield"). They see no values, no Step or Continue, and no Pause here on the canvas.
-  An operator of the flow has **Stop** in the panel, as for any run; it asks first, naming whose
+  An operator of the flow has **Stop** in the toolbar, as for any run; it asks first, naming whose
   run it is.
 - The run's record (`GET /runs/:id`), its view (`/view`) and its live events (`/events`) give
   others the steps of its pause points, not their conditions and log messages, which may hold a
-  literal value, and none of the log points' lines. In the run's output (the page's Output,
+  literal value, and none of the log points' lines. In the run's output (the panel's Terminal,
   `GET /runs/:id/output`, MCP `run_output`) a log point's line reads "Log point Backup config ·
   sw-edge-01: (only who launched the run reads this)" for them.
 - A refused Step or Continue says who drives the run: "Only dana (who launched it) or an
@@ -120,7 +149,7 @@ expression may be written with or without `{{ }}`, as on the page.
 ## After the run
 
 What each pause showed (masked) is kept with the run, at most 1 MB a run: the scopes, the values
-of each scope you opened, and the watches. The run's page lists them under **What the pauses
+of each scope you opened, and the watches. The run's page lists them in its Run and Debug view, under **What the pauses
 showed** for who could see them during the run: per host, the values of the scopes opened (the
 others by their count of variables), and each watch once, with its last answer. Pauses at the
 same step are told apart ("pause 2 of 3 here") with the time each paused. The log points'

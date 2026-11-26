@@ -1,8 +1,10 @@
 // One flow on the designer's canvas, and editing its draft together (AFS-76). AFS-85: a slim line
-// over the canvas leads to the flow's launch configurations and its latest runs.
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
+// over the canvas leads to the flow's launch configurations and its latest runs. AFS-265: a debug
+// run started from the canvas is debugged in place: the debug workbench opens around the canvas.
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { flowLevel, useProjectAccess } from './access';
+import { atLeast, flowLevel, useProjectAccess } from './access';
+import { AnsiText } from './ansi';
 import {
   ApiError,
   api,
@@ -18,8 +20,10 @@ import { FlowFileActions, FlowFileMenu } from './flowFiles';
 import { MissingProject } from './help';
 import { FlowHistory, flowAt } from './history';
 import { InsertFromLibrary, LibraryCopies } from './library';
+import { decidedOutcomes, quietEndOrigins } from './outputText';
 import { Link, navigate, useSearch } from './router';
-import { ACTIVE, RunWords, shownState } from './runs';
+import { tellFrame, useFrameAsked, useFrameForward, useRunFeed } from './runFeed';
+import { ACTIVE, personOf, RunWords, shownState } from './runs';
 import { useSaveKey } from './saveKey';
 import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
@@ -34,6 +38,7 @@ import {
   useLoad,
   WorkspaceName,
 } from './ui';
+import { DebugWorkbench, NO_RUN, useWorkbenchState } from './workbench';
 
 /**
  * One flow on the designer's canvas, read-only. The designer is a page of its own
@@ -46,7 +51,7 @@ export function FlowPage({
   file,
   theme,
 }: {
-  me: { login: string; name?: string };
+  me: { login: string; name?: string; admin?: boolean };
   workspace: string;
   project: string;
   file: string;
@@ -125,6 +130,15 @@ export function FlowPage({
   const [editing, setEditing] = useState<Draft>();
   // AFS-107: the canvas, for Full screen; AFS-114: with what opens over it (the library picker).
   const stage = useRef<HTMLDivElement>(null);
+  // AFS-265: the run the canvas shows comes from this page's one stream; a debug run started from
+  // the canvas (or one of yours that goes) is debugged here, in the workbench around the canvas.
+  const frame = useCallback(() => stage.current?.querySelector('iframe') ?? null, []);
+  const watched = useFrameAsked(frame);
+  const fed = useRunFeed(watched);
+  useFrameForward(frame, watched, fed.feed, true);
+  const [startedHere, setStartedHere] = useState<ReadonlySet<string>>(new Set());
+  const [closed, setClosed] = useState<string>();
+  const wb = useWorkbenchState(true);
   // AFS-149: this page, as the draft's frame and Save name it (the same person's other tabs are
   // other pages, asked for their typing before a save).
   const tab = useRef(
@@ -286,9 +300,15 @@ export function FlowPage({
         here?: boolean;
         coAuthors?: string[];
         unsent?: boolean;
+        id?: string;
       } | null;
       if (data?.type === 'afs-flow-shown' && data.commit) setShown(data.commit);
       if (data?.type === 'afs-flow-runs') reloadRuns.current();
+      // AFS-265: a debug run launched from the canvas: its workbench opens here.
+      if (data?.type === 'afs-run-started' && data.id) {
+        const id = data.id;
+        setStartedHere((had) => new Set([...had, id]));
+      }
       if (data?.type === 'afs-draft-people') setPeople(data.people ?? []);
       if (data?.type === 'afs-draft-edit' && data.by) {
         const by = data.by;
@@ -350,7 +370,7 @@ export function FlowPage({
     project &&
     `/viewer.html?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(file)}${
       editing && !at ? `&draft=${encodeURIComponent(editing.id)}` : ''
-    }${at && full ? `&commit=${full}&history=1` : ''}${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
+    }${at && full ? `&commit=${full}&history=1` : ''}${!editing && !at ? '&feed=1' : ''}${step ? `&node=${encodeURIComponent(step)}` : ''}&theme=${theme === 'system' ? 'auto' : theme}`;
   // AFS-123: at a commit, the canvas shows unless the commit removed the flow; else unless the
   // flow is gone from the branch.
   // AFS-152: gone, and nothing of it left (no run, no configuration): it may never have been here.
@@ -422,6 +442,33 @@ export function FlowPage({
     window.history.replaceState(null, '', window.location.pathname);
     if (mayEdit && !editing) void edit();
   }, [project?.commit, access, flows.loading, flows.data]);
+  // AFS-265: the run shown on the canvas, and whether it is debugged here.
+  const shownRun = fed.run && fed.run.id === watched ? fed.run : undefined;
+  const runGoing = !!shownRun && ACTIVE.includes(shownRun.state);
+  const drivesShown =
+    !!shownRun && (!!me.admin || !!access?.admin || shownRun.requestedBy.login === me.login);
+  const mayStopShown =
+    !!shownRun && (!!access?.admin || atLeast(flowLevel(access, shownRun.flow.file), 'operator'));
+  const inPlace =
+    !!shownRun?.step?.debug &&
+    !editing &&
+    !at &&
+    closed !== shownRun.id &&
+    (startedHere.has(shownRun.id) || (runGoing && drivesShown));
+  /** Restart: the debug run again (its commit, inputs and pause points), followed here. */
+  const restart =
+    shownRun && !runGoing && mayStopShown
+      ? () => {
+          void api.relaunchRun(shownRun.id).then(
+            (next) => {
+              setStartedHere((had) => new Set([...had, next.id]));
+              tellFrame(frame(), { type: 'afs-show-run', id: next.id });
+              reloadRuns.current();
+            },
+            (e: unknown) => fed.setError(messageOf(e)),
+          );
+        }
+      : undefined;
   // AFS-152: a project not there (or not shared) is the same page as on the project's address.
   if (!found.loading && !project)
     return <MissingProject workspace={workspace} project={key} error={found.error} />;
@@ -726,17 +773,55 @@ export function FlowPage({
               Exit full screen
             </button>
           </div>
-          <iframe
-            // A new commit, theme or draft is a new page for the designer.
-            key={`${project.commit}:${theme}:${editing?.id ?? ''}:${full ?? ''}`}
-            className="flow-frame"
-            // AFS-149: the frame of a draft is this page's tab (its typing is sent for a save).
-            src={editing && !at ? `${viewer}&tab=${encodeURIComponent(tab)}` : viewer}
-            title={
-              full
-                ? `The flow ${title} as commit ${full.slice(0, 12)} left it, on the designer's canvas`
-                : `The flow ${title} on the designer's canvas`
+          <DebugWorkbench
+            active={inPlace}
+            run={shownRun ?? NO_RUN}
+            step={fed.step ?? fed.view?.step}
+            debug
+            going={runGoing}
+            mayDrive={drivesShown}
+            mayStop={mayStopShown}
+            launcher={shownRun ? personOf(shownRun.requestedBy) : ''}
+            state={wb}
+            frame={frame}
+            sizeKey="flow"
+            canvas={
+              <iframe
+                // A new commit, theme or draft is a new page for the designer.
+                key={`${project.commit}:${theme}:${editing?.id ?? ''}:${full ?? ''}`}
+                className="flow-frame"
+                // AFS-149: the frame of a draft is this page's tab (its typing is sent for a save).
+                src={editing && !at ? `${viewer}&tab=${encodeURIComponent(tab)}` : viewer}
+                title={
+                  full
+                    ? `The flow ${title} as commit ${full.slice(0, 12)} left it, on the designer's canvas`
+                    : `The flow ${title} on the designer's canvas`
+                }
+              />
             }
+            terminal={
+              fed.output ? (
+                <pre className="output wb-output">
+                  <AnsiText text={decidedOutcomes(quietEndOrigins(fed.output))} />
+                </pre>
+              ) : (
+                <p className="muted wb-empty">{runGoing ? 'Nothing yet.' : 'No output.'}</p>
+              )
+            }
+            statusExtra={
+              shownRun ? (
+                <>
+                  {fed.error && <span className="bad-text small">{fed.error}</span>}
+                  <Link to={`/runs/${encodeURIComponent(shownRun.id)}`} className="small">
+                    The run's page
+                  </Link>
+                </>
+              ) : null
+            }
+            onRestart={restart}
+            onRun={fed.setRun}
+            onError={fed.setError}
+            onClose={() => shownRun && setClosed(shownRun.id)}
           />
           {editing && starting ? (
             <StartFrom

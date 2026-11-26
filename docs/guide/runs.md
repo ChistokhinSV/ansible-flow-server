@@ -127,7 +127,12 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `GET /runs/:id/relaunch`          | What **Run again** offers: the host sets, where each host went wrong, the outcome line, `risks`, `approvals`               | signed in  |
 | `POST /runs/:id/relaunch`         | The run again, as a new run: all hosts or some, a mode, step by step, a commit ([Run again](#run-again))                   | `operator` |
 
-**A run's page** says what ran: the flow and commit, the run's number (counted over the
+**A run's page** is laid out as the [debugger](debugging.md#the-debugger): the canvas in the
+middle with a toolbar over it (Stop, or a step-by-step run's bar), the **Details** view in a side
+bar on the left, a panel under the canvas with the **Terminal** (the output) and **Problems** (why
+each host failed), and a status line. Its header has the run, **Run again ▾** once it has ended,
+and **More** (All runs, the output as text). On a phone it has the tabs Flow, Details and Output.
+The Details view says what ran: the flow and commit, the run's number (counted over the
 project's runs), check or real, the hosts and the limit, the inventory, the environment and its
 image (marked "the server's default" when the run got the server's default image as it started),
 the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the

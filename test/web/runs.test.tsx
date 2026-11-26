@@ -521,9 +521,11 @@ describe('a run', () => {
     expect(rows()).toEqual(['fw-edge-17not reachable', 'fw-edge-01went well']);
     fireEvent.click(within(hosts).getByRole('button', { name: 'Only with a problem' }));
     expect(rows()).toEqual(['fw-edge-17not reachable']);
+    // AFS-265: why it failed is in the panel's Problems, counted on its tab.
+    fireEvent.click(screen.getByRole('tab', { name: 'Problems 1' }));
     await screen.findByRole('heading', { name: 'Why fw-edge-17 was not reached' });
     expect(screen.getByText(/Connection timed out/)).toBeTruthy();
-    expect(screen.getByText(/after 3 min/)).toBeTruthy();
+    expect(screen.getAllByText(/after 3 min/).length).toBeGreaterThan(0);
     expect(screen.getByText(/1 with a problem/)).toBeTruthy();
 
     // AFS-170: a host's row opens what it did, step by step.
@@ -646,18 +648,17 @@ describe('a run', () => {
     expect(ran.getByRole('link', { name: 'Nightly check' }).getAttribute('href')).toBe(
       '/w/netops/edge/launch/c1',
     );
-    expect(screen.getByRole('link', { name: 'All runs' }).getAttribute('href')).toBe('/runs');
-    // The output is far down: a button at the top goes to it.
-    fireEvent.click(screen.getByRole('button', { name: 'To the output' }));
+    // AFS-265: All runs and the output as text are in the header's More menu.
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('menuitem', { name: 'All runs' }).getAttribute('href')).toBe('/runs');
+    expect(screen.getByRole('menuitem', { name: 'The output as text' }).getAttribute('href')).toBe(
+      '/api/v1/runs/r1/output',
+    );
     const terminal = screen.getByRole('heading', { name: 'Terminal output' }).closest('section');
-    expect(document.activeElement).toBe(terminal);
-    expect(terminal?.className).toMatch(/run-output-shown/);
+    // The Terminal is a tab of the panel under the canvas; another tab is open.
+    fireEvent.click(screen.getByRole('tab', { name: /^Problems|^Terminal/ }));
     // Show Terminal on this page's canvas asks the page to go to its output, without loading it
-    // again.
-    (document.activeElement as HTMLElement).blur();
-    await waitFor(() => expect(terminal?.className).not.toMatch(/run-output-shown/), {
-      timeout: 3000,
-    });
+    // again: the panel's Terminal opens and takes the focus.
     window.dispatchEvent(
       new MessageEvent('message', {
         data: { type: 'afs-show-output', run: 'r1' },
@@ -1050,11 +1051,16 @@ describe('a debug run', () => {
     const head = screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement;
     expect(head.textContent).toContain('after Push baseline');
     expect(head.textContent).not.toContain('before Push baseline');
-    // No tabs beside the canvas.
-    expect(screen.queryByRole('tablist')).toBeNull();
+    // No phone tabs beside the canvas: the panel's tabs only.
+    expect(screen.queryByRole('tablist', { name: 'Parts of the debugger' })).toBeNull();
+    expect(
+      within(screen.getByRole('tablist', { name: 'Panel views' }))
+        .getAllByRole('tab')
+        .map((t) => t.textContent),
+    ).toEqual(['Debug Console', 'Terminal']);
   });
 
-  it('on a phone: tabs Run, Debugger and Output, the Debugger first', async () => {
+  it('on a phone: tabs Flow, Debug and Console, Debug first', async () => {
     phone(true);
     routes = {
       'GET /session': () => ({ body: dana }),
@@ -1063,25 +1069,27 @@ describe('a debug run', () => {
     };
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
-    const tabs = await screen.findByRole('tablist');
+    const tabs = await screen.findByRole('tablist', { name: 'Parts of the debugger' });
     expect(
       within(tabs)
         .getAllByRole('tab')
         .map((t) => t.textContent),
-    ).toEqual(['Run', 'Debugger', 'Output']);
-    const debuggerPanel = document.getElementById('run-debugger') as HTMLElement;
-    const canvas = document.getElementById('run-canvas') as HTMLElement;
-    const output = document.getElementById('output') as HTMLElement;
-    expect(debuggerPanel.hidden).toBe(false);
+    ).toEqual(['Flow', 'Debug', 'Console']);
+    const side = document.getElementById('wb-side') as HTMLElement;
+    const canvas = document.getElementById('wb-canvas') as HTMLElement;
+    const panel = document.getElementById('wb-panel') as HTMLElement;
+    await waitFor(() => expect(side.hidden).toBe(false));
     expect(canvas.hidden).toBe(true);
-    expect(output.hidden).toBe(true);
-    fireEvent.click(within(tabs).getByRole('tab', { name: 'Output' }));
-    expect(output.hidden).toBe(false);
-    expect(debuggerPanel.hidden).toBe(true);
+    expect(panel.hidden).toBe(true);
+    // The toolbar stays in sight on every tab.
+    expect(screen.getByRole('toolbar', { name: 'Debug' })).toBeTruthy();
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'Console' }));
+    expect(panel.hidden).toBe(false);
+    expect(side.hidden).toBe(true);
     // The arrow keys go between the tabs.
-    fireEvent.keyDown(within(tabs).getByRole('tab', { name: 'Output' }), { key: 'ArrowRight' });
+    fireEvent.keyDown(within(tabs).getByRole('tab', { name: 'Console' }), { key: 'ArrowRight' });
     expect(canvas.hidden).toBe(false);
-    expect(within(tabs).getByRole('tab', { name: 'Run' }).getAttribute('aria-selected')).toBe(
+    expect(within(tabs).getByRole('tab', { name: 'Flow' }).getAttribute('aria-selected')).toBe(
       'true',
     );
   });

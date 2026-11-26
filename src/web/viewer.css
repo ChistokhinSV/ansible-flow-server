@@ -109,3 +109,12 @@ body.afs-run-reader .afd-failure-bar [data-step-command] {
     max-height: 28vh;
   }
 }
+
+/* AFS-265: the page's debug workbench has the one toolbar (Continue, Step, Retry, Stop): the
+   canvas's own step buttons go. A designer with config.hostToolbar hides them itself; this keeps
+   them hidden on one without it. The reason and the hosts stay. */
+body.afs-host-toolbar .afd-step-buttons,
+body.afs-host-toolbar .afd-failure-bar [data-step-command],
+body.afs-host-toolbar .afd-failure-note {
+  display: none;
+}

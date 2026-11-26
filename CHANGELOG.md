@@ -36,6 +36,10 @@ Carries Ansible Flow Designer 1.2.0-rc.3.
 
 - Run again checks the run as a launch: it uses the credentials its launch configuration gives now, needs rw on the flow for a run of another branch or commit than the configuration names, and asks the run's approvals again. A run whose launch configuration is gone cannot run again.
 - The hosts that ran again are given to Ansible in a limit file, one host per line, so host names with commas, or starting with `!`, `&`, `~` or `@`, run only that host.
+- The debugger is laid out like VS Code's. A side bar on the left holds **Variables**, **Watch** (each watch compares its value across hosts from its row), **Hosts** (choose the host the views and the console look at; it is marked on the canvas) and **Pause points** (with **Pause on failure** and **Pause on unreachable**). One toolbar over the canvas has **Continue** or **Pause** (F5), **Step** (F10), **Retry** at a failure pause, **Stop** (Shift+F5) and, once the run has ended, **Restart**. A panel under the canvas has the **Debug Console** (evaluate expressions; the arrow up brings back earlier ones), the **Terminal** and **Problems**. A status line says why the run paused, how many hosts wait, who paused it and when it stops by itself. The side bar and the panel can be resized; Ctrl+Shift+D shows or hides the side bar.
+- A debug run started from a flow's canvas is debugged on the flow's page, around the canvas: the page no longer has to be left for the run's page.
+- At a pause the side bar opens on Variables, Continue takes the focus, the tab's title starts with "⏸ Paused", and a phone shows the Debug tab. While the tab is hidden, a notification says so once you allowed notifications (**Notify me at pauses** in the status line).
+- A run's page is quieter: its header has the run, Run again and a **More** menu (All runs, the output as text). What ran, its inputs, hosts, outputs and approvals are in the **Details** view of the side bar, the output in the panel's **Terminal**, and why a host failed in **Problems**. On a phone the page has the tabs Flow, Details (or Debug) and Output (or Console).
 
 ### Fixed
 
