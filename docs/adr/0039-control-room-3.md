@@ -75,26 +75,33 @@ The glyph is decoration: the word stays the accessible text.
 - **A real run** carries a solid "Real" badge with a bolt. **A check run** carries a dashed
   "Check" badge. Both appear in every run list's Mode column and on the run's header.
 - **A real run's header** has a hatched stripe along its top.
+- **What check means** is said as it is: Ansible's check mode. Tasks report what they would change,
+  and a task marked `check_mode: false` still runs, so the pages do not promise that nothing
+  changes.
 - **Launch** names the run it starts (§8).
 
-### 5. One set of buttons (S9, AFS-269)
+### 5. One set of buttons (S9)
 
-- **Primary:** one per view (`button.primary`).
-- **Secondary:** the default button.
-- **Quiet:** for the lesser actions of a row or a toolbar.
-- **Danger:** only for what deletes or stops.
+- **Primary:** one per view (`button.primary`). There today.
+- **Secondary:** the default button. There today.
+- **Quiet:** for the lesser actions of a row or a toolbar. It comes with AFS-273, where the rows'
+  menus first use it.
+- **Danger:** only for what deletes or stops. There today.
 - In a page head and in a toolbar everything is a button; a place to go there is `a.button`. Plain
   links stay in sentences and lists.
 - A button with a shortcut names it in its `title` and in `aria-keyshortcuts`.
 
 ### 6. One palette for page and canvas (S8, AFD-383 then AFS-270)
 
-- **Designer:** an embedding host may pass a palette (the `--vscode-*` colours the canvas reads)
-  with the mount configuration, and a new one when its theme changes. The canvas takes only names
-  it reads and values that are colours. Inside VS Code the palette is ignored. This is an
-  optional field and a new message, so older hosts and the protocol are unchanged.
-- **Server:** `viewer.ts` passes the page's `--canvas-*` roles. With the pinned designer
-  (1.2.0-rc.5) nothing changes, and the `viewer.css` fallbacks stay.
+- **Designer (AFD-383):** `mount(el, { palette })` takes the page's colours as values of the
+  `--vscode-*` variables the canvas reads, and `setPalette()` changes them (`undefined` takes them
+  back). Only colours are taken, in light and dark; high contrast keeps its own. It is a mount
+  option and a method, not a protocol message: the server's `viewer.ts` mounts the canvas in its
+  own frame, so nothing crosses `postMessage`. VS Code never calls `mount`, so it is unchanged.
+- **Server (AFS-270):** `viewer.ts` passes the page's `--canvas-*` roles at mount and calls
+  `setPalette?.()` when the theme changes. The pinned designer (1.2.0-rc.5) ignores `palette` and
+  has no `setPalette`, so nothing changes until a designer release carries AFD-383. The
+  `viewer.css` fallbacks stay.
 
 ### 7. Quiet tables (S7, AFS-273)
 
@@ -109,18 +116,23 @@ The glyph is decoration: the word stays the accessible text.
 
 ### 8. Pages that say what will happen
 
-- **Approvals (S5, AFS-271):**
-  - If you approve: the steps that follow the approval, and the hosts waiting at it.
-  - If you reject: where the hosts go.
+- **Approvals (S5, AFS-271):** the card already says which hosts wait, since when, when it times
+  out and who decides. It adds:
+  - If you approve: the steps that follow the approval.
+  - If you reject: where the hosts go, on the card before deciding (today the question after
+    Reject… says it).
   - Evidence: the last check run of the same launch configuration, and whether it was at the same
     commit.
-  - The timeout, and what happens then.
-  - This is shown wherever an approval is decided today: the Approvals page and the run page
-    (`RunApprovals`). The approval's API answer gains optional fields for it.
+  - What happens at the timeout.
+  - It is shown wherever an approval is decided today: the Approvals page, and on the run page the
+    side bar's Details view (`RunApprovals`, first in the view). The approval's API answer gains
+    optional fields for it.
+  - On a phone, Reject and Approve sit at the bottom of the screen.
 - **Launch (S6, AFS-272):**
   - Beside the form, "What will run", kept current: the flow, the commit, the steps, the hosts the
     targets match, the image, the credentials, the approvals ahead, the last run.
-  - Check or Real is a choice of two, each saying what it does.
+  - Check or Real is a choice of two, each saying what it does: Check is Ansible's check mode and
+    its approvals pass by themselves; Real changes the hosts and its approvals wait for a decision.
   - The button says "Launch check run" or "Launch real run". Ctrl+Enter launches.
 
 ### 9. Home is an inbox (S2, AFS-212)
@@ -137,7 +149,8 @@ The glyph is decoration: the word stays the accessible text.
 
 - **A workspace switcher** at the top of the side menu.
 - **Three groups:**
-  - Work: Home, Runs, Approvals, Actions. Across all workspaces.
+  - Work: Home, Runs, Approvals, Actions. Whether they follow the switcher or span every
+    workspace is open question 1; AFS-274 is not built until it is answered.
   - Build: Projects, Library, Environments, Credentials. In the chosen workspace.
   - Govern: Access, Audit log, People, Server. For administrators.
 - **Your name** opens one account menu: profile, access tokens, theme, help, sign out.
@@ -147,10 +160,18 @@ The glyph is decoration: the word stays the accessible text.
 
 ### 11. A run is one workbench (S3)
 
-The debug workbench (ADR-0038, AFS-265, AFS-266) already gives a run one place: the side bar, the
-toolbar over the canvas, the panel and the status line. Control Room 3 adds to it only the state
-glyph, the Real or Check badge, the real run's stripe and the canvas colours. It does not change
-`workbench.tsx` or `debugger.tsx`.
+The debug workbench (ADR-0038, AFS-265, AFS-266) already gives a run one place:
+
+- the side bar on the left: Variables, Watch, Hosts and Pause points on a debug run, and Details
+  on the run page;
+- the run's toolbar, which on a debug run is icon-only and floats over the canvas;
+- the panel under the canvas: Debug Console, Terminal and Problems;
+- the status line, the only place a pause reason is said.
+
+Control Room 3 keeps that layout. It adds the state's shape, the Real or Check badge and the real
+run's stripe in the head (AFS-269), and the page's colours on the canvas (AFS-270). An approval is
+decided in the side bar's Details view, where `RunApprovals` comes first; AFS-271 adds to that
+card. Nothing here changes `workbench.tsx` or `debugger.tsx`.
 
 ## Order of work
 
@@ -158,13 +179,22 @@ One branch and one pull request per ticket, each passing the gates and updating 
 CHANGELOG where people see a change:
 
 1. AFS-268: this record and the mock-ups.
-2. AFS-269: states, badges and buttons.
+2. AFS-269: states and badges.
 3. AFD-383 (designer), then a designer release, then AFS-270 (server).
 4. AFS-271: approvals.
 5. AFS-272: launch.
 6. AFS-212: inbox.
-7. AFS-273: tables.
+7. AFS-273: tables and the quiet button.
 8. AFS-274: the menu.
+
+## Open questions
+
+For the product owner. What depends on an answer is not built until then.
+
+1. **Work across workspaces (AFS-274).** Today Runs, Approvals and Actions list what a person may
+   see, and access is checked workspace by workspace. With a workspace switcher, should the Work
+   group follow the chosen workspace, or keep listing every workspace the person may see? If it
+   spans workspaces, the pages must say which workspace each row is in.
 
 ## Alternatives considered
 
