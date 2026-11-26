@@ -1,6 +1,6 @@
 // Grants over HTTP: administrators give and take levels in a workspace, and see who can do what.
 //   /api/v1/workspaces/:id/grants      list, give
-//   /api/v1/grants/:id                 take back
+//   /api/v1/grants/:id                 change the level, take back
 //   /api/v1/workspaces/:id/access      who can do what: every user with access, as it comes out
 //   /api/v1/users/:id/access           what one person reaches, workspace by workspace
 //   /api/v1/groups/:id/grants          the grants that name a group, in every workspace
@@ -11,6 +11,7 @@ import { administrator, signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
 import { getWorkspace } from '../projects/store';
 import {
+  changeGrant,
   createGrant,
   deleteGrant,
   GrantError,
@@ -75,6 +76,38 @@ export function registerAccess(app: FastifyInstance, deps: { db: Kysely<Schema> 
           'Access granted',
         );
         return reply.code(201).send(grant);
+      } catch (e) {
+        if (e instanceof GrantError)
+          return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });
+        throw e;
+      }
+    },
+  );
+
+  app.patch<WithId & { Body: { level: string } }>(
+    '/api/v1/grants/:id',
+    {
+      schema: {
+        ...ID,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['level'],
+          properties: { level: { type: 'string', enum: ['ro', 'operator', 'rw'] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const me = administrator(request, reply);
+      if (!me) return reply;
+      try {
+        const grant = await changeGrant(db, request.params.id, request.body.level);
+        if (!grant) return reply.code(404).send({ error: 'not_found', message: 'No such grant' });
+        request.log.info(
+          { by: me.login, grant: grant.id, level: grant.level },
+          'Access level changed',
+        );
+        return grant;
       } catch (e) {
         if (e instanceof GrantError)
           return reply.code(STATUS[e.code]).send({ error: e.code, message: e.message });

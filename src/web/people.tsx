@@ -198,43 +198,51 @@ function PeopleTable({ users }: { users: User[] }) {
           No one matches.
         </p>
       ) : (
-        <Scroll>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Kind</th>
-                <th scope="col">State</th>
-                <th scope="col">Groups</th>
-                <th scope="col">Last sign-in</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((u) => (
-                <tr key={u.id}>
-                  <td>
-                    <Link to={`/admin/people/${u.id}`}>{u.name || u.login}</Link>
-                    <div className="muted">{u.login}</div>
-                  </td>
-                  <td>{kindOf(u)}</td>
-                  <td>
-                    <span className={`badge ${u.disabled ? 'bad' : 'ok'}`}>
-                      {u.disabled ? 'disabled' : 'active'}
-                    </span>
-                  </td>
-                  <td>{u.groups.join(', ')}</td>
-                  <td>
-                    {u.service ? (
-                      <span className="muted">tokens only</span>
-                    ) : (
-                      <Time at={u.lastLoginAt} />
-                    )}
-                  </td>
+        // AFS-273 (ADR-0039 §7): a table in a panel with its title bar.
+        <div className="ledger">
+          <div className="ledger-head">
+            <h2>
+              People <span className="ledger-count">{rows.length}</span>
+            </h2>
+          </div>
+          <Scroll>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Kind</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Groups</th>
+                  <th scope="col">Last sign-in</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Scroll>
+              </thead>
+              <tbody>
+                {rows.map((u) => (
+                  <tr key={u.id}>
+                    <td>
+                      <Link to={`/admin/people/${u.id}`}>{u.name || u.login}</Link>{' '}
+                      <span className="muted">{u.login}</span>
+                    </td>
+                    <td>{kindOf(u)}</td>
+                    <td>
+                      <span className={`badge ${u.disabled ? 'bad' : 'ok'}`}>
+                        {u.disabled ? 'disabled' : 'active'}
+                      </span>
+                    </td>
+                    <td>{u.groups.join(', ')}</td>
+                    <td>
+                      {u.service ? (
+                        <span className="muted">tokens only</span>
+                      ) : (
+                        <Time at={u.lastLoginAt} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Scroll>
+        </div>
       )}
     </>
   );
@@ -242,30 +250,37 @@ function PeopleTable({ users }: { users: User[] }) {
 
 function GroupsTable({ groups }: { groups: Group[] }) {
   return (
-    <Scroll>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Group</th>
-            <th scope="col">Members</th>
-            <th scope="col">Email</th>
-            <th scope="col">Webhook</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g) => (
-            <tr key={g.id}>
-              <td>
-                <Link to={`/admin/groups/${g.id}`}>{g.name}</Link>
-              </td>
-              <td>{g.members.length}</td>
-              <td>{g.email}</td>
-              <td>{hookHost(g.webhookUrl)}</td>
+    <div className="ledger">
+      <div className="ledger-head">
+        <h2>
+          Groups <span className="ledger-count">{groups.length}</span>
+        </h2>
+      </div>
+      <Scroll>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Group</th>
+              <th scope="col">Members</th>
+              <th scope="col">Email</th>
+              <th scope="col">Webhook</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </Scroll>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <tr key={g.id}>
+                <td>
+                  <Link to={`/admin/groups/${g.id}`}>{g.name}</Link>
+                </td>
+                <td>{g.members.length}</td>
+                <td>{g.email}</td>
+                <td>{hookHost(g.webhookUrl)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Scroll>
+    </div>
   );
 }
 

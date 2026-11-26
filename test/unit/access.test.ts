@@ -520,6 +520,34 @@ for (const [name, config] of databases) {
       expect(by.gary).toMatchObject({ workspace: 'rw', flows: [{ file: B, level: 'ro' }] });
       expect(by.april).toMatchObject({ workspace: 'ro', approve: true });
       expect(by.nina).toMatchObject({ workspace: 'ro' });
+      // AFS-273: the level changes in place; approve has none; only administrators change it.
+      const change = (id: string, level: string, who = token.dana) =>
+        app.inject({
+          method: 'PATCH',
+          url: `/api/v1/grants/${id}`,
+          headers: { authorization: `Bearer ${who}` },
+          payload: { level },
+        });
+      const changed = await change(given.json().id, 'rw');
+      expect(changed.statusCode).toBe(200);
+      expect(changed.json()).toMatchObject({ id: given.json().id, level: 'rw' });
+      expect(await status('nina', 'GET', '/api/v1/workspaces/net')).toBe(200);
+      expect(
+        (
+          (
+            await app.inject({ method: 'GET', url: '/api/v1/workspaces/net/access', headers: as })
+          ).json() as { user: { login: string }; workspace: string }[]
+        ).find((w) => w.user.login === 'nina')?.workspace,
+      ).toBe('rw');
+      expect((await change(given.json().id, 'approve')).statusCode).toBe(400);
+      expect((await change('no-such-grant', 'ro')).statusCode).toBe(404);
+      expect((await change(given.json().id, 'ro', token.wanda)).statusCode).toBe(403);
+      const approving = (
+        (
+          await app.inject({ method: 'GET', url: '/api/v1/workspaces/net/grants', headers: as })
+        ).json() as { id: string; level: string }[]
+      ).find((g) => g.level === 'approve');
+      expect((await change(approving?.id as string, 'rw')).statusCode).toBe(400);
       const gone = await app.inject({
         method: 'DELETE',
         url: `/api/v1/grants/${given.json().id}`,

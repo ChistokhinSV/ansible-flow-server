@@ -911,6 +911,9 @@ export const ROUTES: Record<string, RouteDoc> = {
     'administrators',
     W,
   )('Give a user or group a level (ro, operator, rw, approve) on the workspace or one flow'),
+  'PATCH /api/v1/grants/:id': S('Access', 'administrators', { grant: 'id' })(
+    "Change a grant's level (ro, operator, rw) in place; approve is given and taken back on its own",
+  ),
   'DELETE /api/v1/grants/:id': S('Access', 'administrators', { grant: 'id' })('Take a grant back'),
   'GET /api/v1/workspaces/:id/access': S(
     'Access',

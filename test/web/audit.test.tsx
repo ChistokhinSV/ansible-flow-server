@@ -269,6 +269,59 @@ describe('the audit log', () => {
     expect(screen.queryByText('token:')).toBeNull();
   });
 
+  it('AFS-273: groups the entries by day, each on one line with its time and where it came from', async () => {
+    routes = {
+      'GET /session': () => ({ body: dana }),
+      'GET /audit?limit=100': () => ({
+        body: {
+          entries: [
+            entry(1, { ip: '192.0.2.10' }),
+            entry(2),
+            entry(3, { at: '2026-11-12T09:15:00.000Z', source: 'api' }),
+          ],
+          refs: {},
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/audit');
+    render(<App />);
+    const table = (await screen.findAllByText('changed a workspace'))[0]?.closest(
+      'table',
+    ) as HTMLTableElement;
+    const days = [...table.tBodies].map((body) => ({
+      day: body.querySelector('tr.ledger-day th')?.textContent ?? '',
+      rows: body.querySelectorAll('tr:not(.ledger-day)').length,
+    }));
+    // The newest day first, each with its entries under its heading, and the zone its times are in.
+    expect(days.map((d) => d.rows)).toEqual([2, 1]);
+    const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+      .formatToParts(new Date('2026-11-13T12:58:00.000Z'))
+      .find((p) => p.type === 'timeZoneName')?.value;
+    expect(days[0]?.day).toBe(
+      `${new Date('2026-11-13T12:58:00.000Z').toLocaleDateString(undefined, {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })} · times in ${zone}`,
+    );
+    const first = table.tBodies[0]?.querySelector('tr:not(.ledger-day)') as HTMLTableRowElement;
+    // The time alone (the day is the heading), its exact UTC time on hover.
+    const time = first.querySelector('time') as HTMLElement;
+    expect(time.textContent).toBe(
+      new Date('2026-11-13T12:58:00.000Z').toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    );
+    expect(time.getAttribute('title')).toBe('2026-11-13 12:58:00 UTC');
+    // Where from and the address together, in one cell.
+    expect(first.cells[3]?.textContent).toBe('pages · 192.0.2.10');
+    // What was done and to what, in one cell, the whole of it on hover.
+    expect(first.cells[2]?.getAttribute('title')).toMatch(/^changed a workspace/);
+  });
+
   it('is not there for someone who is not an administrator', async () => {
     routes = { 'GET /session': () => ({ body: omar }) };
     window.history.replaceState(null, '', '/admin/audit');

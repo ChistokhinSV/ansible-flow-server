@@ -114,6 +114,7 @@ export const ACTIONS: Record<string, Action> = {
     id: 'reply',
     parent: 'workspace',
   },
+  'PATCH /api/v1/grants/:id': { action: 'grant.change', id: at() },
   'DELETE /api/v1/grants/:id': { action: 'grant.delete', id: at() },
   'POST /api/v1/runs/:id/approvals/:node': { action: 'approval.decide', id: at() },
   'POST /api/v1/runs/:id/cancel': { action: 'run.stop', id: at() },

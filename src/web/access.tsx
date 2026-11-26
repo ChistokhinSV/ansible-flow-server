@@ -2,8 +2,8 @@
 // do what there; everyone's pages show only what their level lets them do (the server decides
 // either way).
 
-import { type FormEvent, useId, useState } from 'react';
-import { LEVEL_NAME } from '../server/access/types';
+import { type FormEvent, Fragment, useId, useState } from 'react';
+import { LEVEL_NAME, LEVELS } from '../server/access/types';
 import { WorkspaceActions } from './actions';
 import {
   api,
@@ -12,9 +12,18 @@ import {
   type Level,
   type MyAccess,
   type ProjectAccess,
+  type WhoCan,
 } from './api';
-import { ask } from './confirm';
-import { Loading, messageOf, Scroll, useLoad, useReveal } from './ui';
+import {
+  InPlace,
+  Loading,
+  messageOf,
+  RowMenu,
+  type RowMenuItem,
+  Scroll,
+  useLoad,
+  useReveal,
+} from './ui';
 
 const RANK: Record<Level, number> = { ro: 1, operator: 2, rw: 3 };
 /** True when `have` is at least `need`. */
@@ -191,6 +200,65 @@ export const throughWords = (through: string) =>
 
 const NO_INPUT = { principal: '', level: 'ro' as GrantLevel, project: '', flow: '' };
 
+/** AFS-273: the matrix's columns, as ADR-0039 names them (the levels' words are in their titles). */
+const COLUMN: Record<GrantLevel, string> = {
+  ro: 'Read',
+  operator: 'Operate',
+  rw: 'Edit',
+  approve: 'Approve',
+};
+
+type MarkKind = 'given' | 'group' | 'higher' | 'none';
+
+/** A cell of the matrix: a mark to see, and its words for who does not see it (and on hover). */
+function Mark({ kind, words }: { kind: MarkKind; words: string }) {
+  return (
+    <span className="mark" data-mark={kind} {...(words ? { title: words } : {})}>
+      <span className="mark-dot" aria-hidden="true" />
+      {words && <span className="sr-only">{words}</span>}
+    </span>
+  );
+}
+
+const NO = (column: string) => ({ kind: 'none' as const, words: `${column}: no` });
+
+/**
+ * A level's cell: the level held is given here or through a group (or by being an administrator);
+ * a lower one comes with it.
+ */
+function levelMark(
+  l: Level,
+  held: Level | undefined,
+  source: 'given' | 'group' | undefined,
+  groups: string[] = [],
+  why?: string,
+): { kind: MarkKind; words: string } {
+  const column = COLUMN[l];
+  if (!held || RANK[held] < RANK[l]) return NO(column);
+  if (RANK[held] > RANK[l])
+    return { kind: 'higher', words: `${column}: comes with ${COLUMN[held]}` };
+  if (why) return { kind: 'given', words: `${column}: ${why}` };
+  return source === 'group'
+    ? { kind: 'group', words: `${column}: through ${groups.join(', ') || 'a group'}` }
+    : { kind: 'given', words: `${column}: given here` };
+}
+
+/** Where a person's access comes from, and what else they have: flows of their own, actions. */
+function throughOf(w: WhoCan, own: boolean, groups: string[]): string {
+  if (w.admin) return 'administrator';
+  const parts = [...(own ? ['given here'] : []), ...groups];
+  const levels = new Map<string, number>();
+  for (const f of w.flows) {
+    const words = f.level ? LEVEL_NAME[f.level] : 'none';
+    levels.set(words, (levels.get(words) ?? 0) + 1);
+  }
+  for (const [words, n] of levels) parts.push(`${words} on ${n === 1 ? '1 flow' : `${n} flows`}`);
+  // AFS-206, AFS-232: actions run through a grant; operators of the workspace run every one.
+  if (w.actions?.length && w.workspace !== 'operator' && w.workspace !== 'rw')
+    parts.push(`runs ${w.actions.map((a) => a.title).join(', ')}`);
+  return parts.join(' · ') || '–';
+}
+
 /** A workspace's grants and who can do what: for administrators. */
 export function WorkspaceAccess({
   workspace,
@@ -259,8 +327,26 @@ export function WorkspaceAccess({
       )
       .join('; ')}.`;
   };
-  const [taken, setTaken] = useState<string>();
+  // AFS-273: what a flow grant replaces: the level its person or group has on the workspace.
+  const insteadOf = (g: Grant) => {
+    if (g.level === 'approve') {
+      const approves =
+        g.principal.type === 'user'
+          ? who.data?.find((w) => w.user.id === g.principal.id)?.approve
+          : whole('group', g.principal.id).some((o) => o.level === 'approve');
+      return approves ? `${LEVEL_NAME.approve}, from the workspace` : 'nothing';
+    }
+    const from =
+      g.principal.type === 'user'
+        ? who.data?.find((w) => w.user.id === g.principal.id)?.workspace
+        : whole('group', g.principal.id).find((o) => o.level !== 'approve')?.level;
+    return from ? `${LEVEL_NAME[from]}, from the workspace` : 'nothing';
+  };
+  const [note, setNote] = useState<string>();
   const [takeError, setTakeError] = useState<string>();
+  // AFS-273: the grant a question is asked about in its row, and the level a Change chooses.
+  const [asking, setAsking] = useState<{ grant: Grant; what: 'take' | 'change' }>();
+  const [level, setLevel] = useState<Level>('ro');
   // AFS-84: giving access is opened when wanted; who can do what is what the page is read for.
   const [giving, setGiving] = useState(false);
   const id = useId();
@@ -298,6 +384,99 @@ export function WorkspaceAccess({
 
   // AFS-140: the form opens below the grants: it is brought into view, the cursor on Who.
   const giveSheet = useReveal<HTMLDivElement>(giving);
+  // AFS-273 (ADR-0039 §7): who can do what as a matrix, a person's or group's own grants on the
+  // whole workspace in their row's menu, grants on single flows in a table of their own.
+  const all = grants.data ?? [];
+  const whole = (type: 'user' | 'group', id: string) =>
+    all.filter((g) => !g.flow && g.principal.type === type && g.principal.id === id);
+  const groupRows = [
+    ...new Map(
+      all
+        .filter((g) => !g.flow && g.principal.type === 'group')
+        .map((g) => [g.principal.id, g.principal]),
+    ).values(),
+  ];
+  const memberCount = (id: string) => groups.data?.find((g) => g.id === id)?.members.length;
+  const flowGrants = all.filter((g) => g.flow);
+  const askAbout = (grant: Grant, what: 'take' | 'change') => {
+    setNote(undefined);
+    setTakeError(undefined);
+    setGiven(undefined);
+    setLevel(grant.level === 'approve' ? 'ro' : grant.level);
+    setAsking({ grant, what });
+  };
+  const menuOf = (own: Grant[]): RowMenuItem[] =>
+    own.flatMap((g) => [
+      ...(g.level === 'approve'
+        ? []
+        : [{ label: 'Change the level…', onSelect: () => askAbout(g, 'change') }]),
+      { label: `Take back ${LEVEL_NAME[g.level]}…`, onSelect: () => askAbout(g, 'take') },
+    ]);
+  const answer = async () => {
+    if (!asking) return;
+    const { grant, what } = asking;
+    const person = grantWho(grant);
+    const where = grantWhere(grant);
+    setBusy(true);
+    try {
+      if (what === 'take') {
+        const left = remains(grant);
+        await api.removeGrant(grant.id);
+        // AFS-194: a note as Give leaves one.
+        setNote(`Took back ${LEVEL_NAME[grant.level]} on ${where} from ${person}. ${left}`);
+      } else {
+        await api.changeGrant(grant.id, level);
+        setNote(`${person} now has ${LEVEL_NAME[level]} on ${where}.`);
+      }
+      setAsking(undefined);
+    } catch (e) {
+      setTakeError(messageOf(e));
+    } finally {
+      setBusy(false);
+      reload();
+    }
+  };
+  /** The question asked in the row of the grant it is about. */
+  const inPlace = (grant: Grant, columns: number) =>
+    asking?.grant.id === grant.id ? (
+      <tr className="row-in-place">
+        <td colSpan={columns}>
+          {asking.what === 'take' ? (
+            <InPlace
+              question={`Take back ${LEVEL_NAME[grant.level]} on ${grantWhere(grant)} from ${grantWho(grant)}? It ends at once. ${remains(grant)}`}
+              yes="Take back"
+              danger
+              busy={busy}
+              onYes={() => void answer()}
+              onNo={() => setAsking(undefined)}
+            />
+          ) : (
+            <InPlace
+              question={`The level of ${grantWho(grant)} on ${grantWhere(grant)}`}
+              yes="Change"
+              busy={busy}
+              onYes={() => void answer()}
+              onNo={() => setAsking(undefined)}
+            >
+              <div className="choices">
+                {LEVELS.map((l) => (
+                  <label key={l} className="inline">
+                    <input
+                      type="radio"
+                      name={`${id}-change`}
+                      checked={level === l}
+                      onChange={() => setLevel(l)}
+                    />
+                    {(grant.flow ? FLOW_LEVEL_WORDS : LEVEL_WORDS)[l]}
+                  </label>
+                ))}
+              </div>
+            </InPlace>
+          )}
+        </td>
+      </tr>
+    ) : null;
+
   return (
     <section className="panel" aria-labelledby={`${id}-access`}>
       <h2 id={`${id}-access`}>Access</h2>
@@ -306,171 +485,218 @@ export function WorkspaceAccess({
         flow; of a person's own and their groups' grants, the highest counts. Administrators may do
         everything.
       </p>
-      <h3>Who can do what</h3>
-      <Loading state={who} />
-      {!!who.data?.length && (
-        <Scroll>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Person</th>
-                <th scope="col">Workspace</th>
-                <th scope="col">Flows of their own</th>
-                <th scope="col">Actions</th>
-                <th scope="col">Approves</th>
-                <th scope="col">Through</th>
-              </tr>
-            </thead>
-            <tbody>
-              {who.data.map((w) => (
-                <tr key={w.user.id}>
-                  <td>
-                    {w.user.name} <span className="muted">({w.user.login})</span>
-                    {w.disabled && <span className="muted"> · disabled</span>}
-                  </td>
-                  <td>{w.admin ? 'administrator' : w.workspace ? LEVEL_NAME[w.workspace] : ''}</td>
-                  <td>
-                    {w.flows.map((f) => (
-                      <div key={`${f.project}/${f.file}`}>
-                        {flowTitle(titles, f.projectId, f.file)}:{' '}
-                        {f.level ? LEVEL_NAME[f.level] : 'none'}
-                      </div>
-                    ))}
-                  </td>
-                  <td>
-                    {/* AFS-206: actions they may run through a grant: one table says all. */}
-                    {/* AFS-232: operators and rw of the workspace may run every action of it. */}
-                    {w.admin ? (
-                      'every action'
-                    ) : w.workspace === 'operator' || w.workspace === 'rw' ? (
-                      'every action of the workspace'
-                    ) : (
-                      <>
-                        {w.actions?.map((a) => (
-                          <div key={a.config}>{a.title}</div>
-                        ))}
-                        {w.flows.some((f) => f.level === 'operator' || f.level === 'rw') && (
-                          <div className="muted">those of the flows they operate</div>
-                        )}
-                      </>
-                    )}
-                  </td>
-                  <td>{w.approve ? 'yes' : ''}</td>
-                  <td className="muted">
-                    {w.admin ? 'administrator' : w.through.map(throughWords).join(', ')}
-                  </td>
+      <div className="ledger">
+        <div className="ledger-head">
+          <h3 id={`${id}-matrix`}>
+            Who can do what{' '}
+            {who.data && <span className="ledger-count">{groupRows.length + who.data.length}</span>}
+          </h3>
+          {!giving && (
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                setGiven(undefined);
+                setNote(undefined);
+                setGiving(true);
+              }}
+            >
+              Give access
+            </button>
+          )}
+        </div>
+        <ul className="mark-legend" aria-label="What the marks say">
+          <li>
+            <Mark kind="given" words="" /> given here
+          </li>
+          <li>
+            <Mark kind="group" words="" /> through a group
+          </li>
+          <li>
+            <Mark kind="higher" words="" /> comes with a higher level
+          </li>
+        </ul>
+        <Loading state={who} />
+        {grants.data?.length === 0 && who.data?.every((w) => w.admin) && (
+          <p className="muted">No grants yet: only administrators see this workspace.</p>
+        )}
+        {!!who.data?.length && (
+          <Scroll>
+            <table className="matrix" aria-labelledby={`${id}-matrix`}>
+              <thead>
+                <tr>
+                  <th scope="col">Person or group</th>
+                  {(['ro', 'operator', 'rw', 'approve'] as const).map((l) => (
+                    <th key={l} scope="col" className="mark-col" title={LEVEL_WORDS[l]}>
+                      {COLUMN[l]}
+                    </th>
+                  ))}
+                  <th scope="col">Through</th>
+                  <th scope="col" className="act">
+                    <span className="sr-only">More</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Scroll>
-      )}
-
-      <div className="panel-head">
-        <h3>Grants</h3>
-        {!giving && (
-          <button
-            type="button"
-            onClick={() => {
-              setGiven(undefined);
-              setTaken(undefined);
-              setGiving(true);
-            }}
-          >
-            Give access
-          </button>
+              </thead>
+              <tbody>
+                {groupRows.map((g) => {
+                  const own = whole('group', g.id);
+                  const lvl = own.find((o) => o.level !== 'approve')?.level as Level | undefined;
+                  const count = memberCount(g.id);
+                  return (
+                    <Fragment key={`group:${g.id}`}>
+                      <tr>
+                        <td>
+                          {g.name}{' '}
+                          <span className="muted">
+                            group
+                            {count === undefined
+                              ? ''
+                              : ` · ${count === 1 ? '1 person' : `${count} people`}`}
+                          </span>
+                        </td>
+                        {LEVELS.map((l) => (
+                          <td key={l} className="mark-col">
+                            <Mark {...levelMark(l, lvl, lvl ? 'given' : undefined)} />
+                          </td>
+                        ))}
+                        <td className="mark-col">
+                          <Mark
+                            {...(own.some((o) => o.level === 'approve')
+                              ? { kind: 'given', words: 'Approve: given here' }
+                              : NO('Approve'))}
+                          />
+                        </td>
+                        <td className="muted">given here</td>
+                        <td className="act">
+                          <RowMenu name={`group ${g.name}`} items={menuOf(own)} />
+                        </td>
+                      </tr>
+                      {own.map((o) => inPlace(o, 7))}
+                    </Fragment>
+                  );
+                })}
+                {who.data.map((w) => {
+                  const own = whole('user', w.user.id);
+                  const ownLevel = own.find((o) => o.level !== 'approve')?.level as
+                    | Level
+                    | undefined;
+                  const viaGroups = w.through
+                    .filter((t) => t.startsWith('group:'))
+                    .map((t) => t.slice(6));
+                  const lvl = w.admin ? 'rw' : (w.workspace ?? undefined);
+                  const source = w.admin || ownLevel === lvl ? 'given' : 'group';
+                  return (
+                    <Fragment key={w.user.id}>
+                      <tr>
+                        <td>
+                          {w.user.name} <span className="muted">{w.user.login}</span>
+                          {w.admin && <span className="badge">administrator</span>}
+                          {w.disabled && <span className="muted"> · disabled</span>}
+                        </td>
+                        {LEVELS.map((l) => (
+                          <td key={l} className="mark-col">
+                            <Mark
+                              {...levelMark(
+                                l,
+                                lvl,
+                                source,
+                                viaGroups,
+                                w.admin ? 'administrator' : undefined,
+                              )}
+                            />
+                          </td>
+                        ))}
+                        <td className="mark-col">
+                          <Mark
+                            {...(w.admin
+                              ? { kind: 'given', words: 'Approve: administrator' }
+                              : !w.approve
+                                ? NO('Approve')
+                                : own.some((o) => o.level === 'approve')
+                                  ? { kind: 'given', words: 'Approve: given here' }
+                                  : {
+                                      kind: 'group',
+                                      words: `Approve: through ${viaGroups.join(', ') || 'a group'}`,
+                                    })}
+                          />
+                        </td>
+                        <td className="muted">{throughOf(w, own.length > 0, viaGroups)}</td>
+                        <td className="act">
+                          <RowMenu name={w.user.name} items={menuOf(own)} />
+                        </td>
+                      </tr>
+                      {own.map((o) => inPlace(o, 7))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Scroll>
         )}
       </div>
-      <Loading state={grants} />
-      {grants.data?.length === 0 && (
-        <p className="muted">No grants yet: only administrators see this workspace.</p>
-      )}
-      {!!grants.data?.length && (
-        <Scroll>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Who</th>
-                <th scope="col">Level</th>
-                <th scope="col">On</th>
-                {/* AFS-169: the button column at the row's end, as wide as its button: a longer
-                    grant added does not move it. */}
-                <th scope="col" className="act">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {grants.data.map((g) => {
-                // AFS-135, AFS-152: people by their names (login after), flows by title with their
-                // project's name.
-                const who = grantWho(g);
-                const where = grantWhere(g);
-                return (
-                  <tr key={g.id}>
-                    <td>{who}</td>
-                    <td>
-                      <span className="badge">{LEVEL_NAME[g.level]}</span>
-                    </td>
-                    <td>
-                      {g.flow ? (
-                        <>
-                          {flowTitle(titles, g.flow.project, g.flow.file)}{' '}
-                          <span className="muted">in {projectName(g.flow.projectKey)}</span>
-                        </>
-                      ) : (
-                        'the whole workspace'
-                      )}
-                    </td>
-                    <td className="act">
-                      <button
-                        type="button"
-                        className="danger"
-                        aria-label={`Take back ${LEVEL_NAME[g.level]} from ${who}`}
-                        onClick={async () => {
-                          const left = remains(g);
-                          if (
-                            !(await ask(
-                              `Take back ${LEVEL_NAME[g.level]} on ${where} from ${who}? It ends at once. ${left}`,
-                              { yes: 'Take back', danger: true },
-                            ))
-                          )
-                            return;
-                          setTaken(undefined);
-                          setTakeError(undefined);
-                          setGiven(undefined);
-                          try {
-                            await api.removeGrant(g.id);
-                            // AFS-194: a note as Give leaves one.
-                            setTaken(
-                              `Took back ${LEVEL_NAME[g.level]} on ${where} from ${who}. ${left}`,
-                            );
-                          } catch (e) {
-                            setTakeError(messageOf(e));
-                          }
-                          reload();
-                        }}
-                      >
-                        Take back
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Scroll>
-      )}
 
       {takeError && (
         <p className="notice error" role="alert">
           {takeError}
         </p>
       )}
-      {taken && (
+      {note && (
         <p className="notice ok" role="status">
-          {taken}
+          {note}
         </p>
+      )}
+
+      {flowGrants.length > 0 && (
+        <div className="ledger">
+          <div className="ledger-head">
+            <h3 id={`${id}-flows`}>
+              Exceptions on single flows <span className="ledger-count">{flowGrants.length}</span>
+            </h3>
+          </div>
+          <Scroll>
+            <table aria-labelledby={`${id}-flows`}>
+              <thead>
+                <tr>
+                  <th scope="col">Flow</th>
+                  <th scope="col">Who</th>
+                  <th scope="col">Level</th>
+                  <th scope="col">Instead of</th>
+                  <th scope="col" className="act">
+                    <span className="sr-only">More</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {flowGrants.map((g) => {
+                  const flow = g.flow as NonNullable<Grant['flow']>;
+                  const whoName = grantWho(g);
+                  return (
+                    <Fragment key={g.id}>
+                      <tr>
+                        <td>
+                          {flowTitle(titles, flow.project, flow.file)}{' '}
+                          <span className="muted">in {projectName(flow.projectKey)}</span>
+                        </td>
+                        <td>{whoName}</td>
+                        <td>
+                          <span className="badge">{LEVEL_NAME[g.level]}</span>
+                        </td>
+                        <td className="muted">{insteadOf(g)}</td>
+                        <td className="act">
+                          <RowMenu
+                            name={`${whoName} on ${flowTitle(titles, flow.project, flow.file)}`}
+                            items={menuOf([g])}
+                          />
+                        </td>
+                      </tr>
+                      {inPlace(g, 5)}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Scroll>
+        </div>
       )}
 
       {giving && (

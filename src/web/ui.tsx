@@ -940,3 +940,170 @@ export function Splitter({
     />
   );
 }
+
+const menuEntries = (box: HTMLElement | null) => [
+  ...(box?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+];
+
+/** AFS-273: one of a row's lesser actions, in its ⋯ menu. */
+export interface RowMenuItem {
+  label: string;
+  onSelect: () => void;
+}
+
+/**
+ * AFS-273 (ADR-0039 §7): a row's lesser actions (Change, Take back) behind one quiet ⋯ button,
+ * so a table does not repeat its loudest button on every row. `name` says whose row it is.
+ */
+export function RowMenu({ name, items }: { name: string; items: RowMenuItem[] }) {
+  // Where the list opens: under the button, held to the window, so a table's scroller around the
+  // row does not cut it off. It closes when the page scrolls or changes size.
+  const [open, setOpen] = useState<{ top: number; right: number }>();
+  const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    menuEntries(box.current)[0]?.focus();
+    const close = () => setOpen(undefined);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    const away = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(undefined);
+    };
+    const key = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (box.current?.contains(document.activeElement)) button.current?.focus();
+      setOpen(undefined);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+  if (!items.length) return null;
+  return (
+    <div className="row-menu" ref={box}>
+      <button
+        ref={button}
+        type="button"
+        className="quiet icon-button"
+        aria-label={`More for ${name}`}
+        title={`More for ${name}: ${items.map((i) => i.label).join(', ')}`}
+        aria-haspopup="menu"
+        aria-expanded={!!open}
+        onClick={() => {
+          const at = button.current?.getBoundingClientRect();
+          setOpen(
+            open || !at
+              ? undefined
+              : { top: at.bottom + 4, right: document.documentElement.clientWidth - at.right },
+          );
+        }}
+      >
+        <Icon name="more" />
+      </button>
+      {open && (
+        <div
+          className="row-menu-list"
+          style={{ top: open.top, right: open.right }}
+          role="menu"
+          aria-label={`More for ${name}`}
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            const all = menuEntries(box.current);
+            const at = all.indexOf(document.activeElement as HTMLElement);
+            const to =
+              e.key === 'ArrowDown'
+                ? (at + 1) % all.length
+                : e.key === 'ArrowUp'
+                  ? (at - 1 + all.length) % all.length
+                  : undefined;
+            if (to !== undefined) {
+              e.preventDefault();
+              all[to]?.focus();
+            } else if (e.key === 'Tab') setOpen(undefined);
+          }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(undefined);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * AFS-273: a question asked in the row it is about (Take back, Change), not in a dialog: its
+ * first choice (or Yes) takes the focus, Escape is No.
+ */
+export function InPlace({
+  question,
+  children,
+  yes,
+  danger = false,
+  busy = false,
+  onYes,
+  onNo,
+}: {
+  question: ReactNode;
+  /** What the answer takes besides Yes (a level to change to). */
+  children?: ReactNode;
+  yes: string;
+  danger?: boolean;
+  busy?: boolean;
+  onYes: () => void;
+  onNo: () => void;
+}) {
+  const box = useRef<HTMLFieldSetElement>(null);
+  // The choice it asks for first (the level chosen now), else Yes.
+  useEffect(() => {
+    const at = box.current;
+    (
+      at?.querySelector<HTMLElement>('input:checked') ??
+      at?.querySelector<HTMLElement>('input, button')
+    )?.focus();
+  }, []);
+  return (
+    <fieldset
+      ref={box}
+      className="in-place"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onNo();
+        }
+      }}
+    >
+      <legend className="in-place-words">{question}</legend>
+      {children}
+      <div className="in-place-buttons">
+        <button
+          type="button"
+          className={danger ? 'danger' : 'primary'}
+          disabled={busy}
+          onClick={onYes}
+        >
+          {yes}
+        </button>
+        <button type="button" className="quiet" disabled={busy} onClick={onNo}>
+          Cancel
+        </button>
+      </div>
+    </fieldset>
+  );
+}
