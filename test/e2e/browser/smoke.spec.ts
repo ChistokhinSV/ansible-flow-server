@@ -32,7 +32,7 @@ test('sign in, view a flow, launch it, approve it, see it in the history', async
 
   // Launch from the launch configuration; the run's page opens and waits for the change board.
   await page.goto(`${base}/w/lab/infra/launch/${world.configs.approval}`);
-  await page.getByRole('button', { name: 'Launch', exact: true }).click();
+  await page.getByRole('button', { name: /^Launch (check|real) run$/ }).click();
   await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
   const runUrl = page.url();
   await expect(page.getByText('waiting for a decision').first()).toBeVisible({ timeout: 300_000 });

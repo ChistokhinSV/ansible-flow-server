@@ -31,7 +31,7 @@ import { EnvironmentCheck, environmentAddress } from './environments';
 import { Missing, MissingProject } from './help';
 import { noHostWhy } from './noHost';
 import { Link, navigate, useUnsaved } from './router';
-import { OlderRuns, RunList, RunWords, useRunPages } from './runs';
+import { ModeBadge, OlderRuns, RunList, RunWords, useRunPages } from './runs';
 import { SchedulesSection } from './schedules';
 import {
   ago,
@@ -743,6 +743,109 @@ function WouldRun({
   );
 }
 
+const hostsWord = (n: number) => `${n} ${n === 1 ? 'host' : 'hosts'}`;
+
+/**
+ * AFS-272: the hosts the targets match as the inventory says now, in a few words. Why none would
+ * run, or why the inventory did not answer, is said once, at the targets' field.
+ */
+function hostsNow(reply: FactsReply | undefined, hasTargets: boolean): string {
+  if (!hasTargets) return "the hosts the flow's steps name";
+  if (!reply) return 'reading the inventory…';
+  if (noHostWhy(reply)) return 'no host would run';
+  const facts = reply.facts;
+  if (!facts) return 'not known yet';
+  const shown = (hosts: readonly string[], count: number) =>
+    `${hostsWord(count)}: ${hosts.slice(0, 5).join(', ')}${count > 5 ? ', …' : ''}`;
+  const words = reply.limited
+    ? `${shown(reply.limited.hosts, reply.limited.count)} (the limit leaves ${reply.limited.count} of ${facts.count})`
+    : shown(facts.hosts, facts.count);
+  const missing = facts.unknown.length;
+  return missing
+    ? `${words}; ${missing} ${missing === 1 ? 'target is' : 'targets are'} not in the inventory`
+    : words;
+}
+
+/**
+ * AFS-272 (ADR-0039 §8): what a launch will run, beside the form and kept current as it changes:
+ * the flow at its commit, its steps, the hosts the targets match now, the image, the credentials,
+ * the approvals ahead (which a check run passes by itself) and the configuration's last run.
+ */
+function WillRun({
+  form,
+  real,
+  reply,
+  hasTargets,
+  config: c,
+}: {
+  form: LaunchForm;
+  real: boolean;
+  /** What the inventory says of the targets and the limit as typed now; undefined: not read. */
+  reply?: FactsReply | undefined;
+  hasTargets: boolean;
+  config: LaunchConfig;
+}) {
+  const approvals = form.approvals ?? [];
+  const credentials = c.credentialNames?.length ? c.credentialNames : c.credentials;
+  return (
+    <aside className="panel will-run" aria-labelledby="will-run" data-will-run>
+      <h2 id="will-run">What will run</h2>
+      <dl className="facts">
+        <dt>Flow</dt>
+        <dd>
+          {form.flow.name} <span className="muted">version {form.flow.version}</span>
+        </dd>
+        <dt>Commit</dt>
+        <dd>
+          <code>{form.commit.slice(0, 12)}</code>
+          {form.ref && (
+            <span className="muted">
+              {' '}
+              · newest of <code>{form.ref}</code>
+            </span>
+          )}
+        </dd>
+        {!!form.steps?.length && (
+          <>
+            <dt>Steps</dt>
+            <dd data-will-steps>{form.steps.join(' › ')}</dd>
+          </>
+        )}
+        <dt>Hosts</dt>
+        <dd data-will-hosts>{hostsNow(reply, hasTargets)}</dd>
+        <dt>Image</dt>
+        <dd>{form.eeImage ? <code>{form.eeImage}</code> : "the server's default"}</dd>
+        <dt>Credentials</dt>
+        <dd>{credentials.length ? credentials.join(', ') : 'none'}</dd>
+        <dt>Approvals</dt>
+        <dd data-will-approvals>
+          {!approvals.length
+            ? 'none in this flow'
+            : real
+              ? approvals
+                  .map(
+                    (a) =>
+                      `${a.title} waits for a decision${a.approvers.length ? ` (${a.approvers.join(', ')})` : ''}`,
+                  )
+                  .join('; ')
+              : `${approvals.map((a) => a.title).join(', ')}: a check run passes ${approvals.length === 1 ? 'it' : 'them'} by itself`}
+        </dd>
+        {c.lastRun && (
+          <>
+            <dt>Last run</dt>
+            <dd>
+              <Link to={`/runs/${encodeURIComponent(c.lastRun.id)}`}>
+                <RunWords state={c.lastRun.state} /> #{c.lastRun.number}
+              </Link>{' '}
+              <span className="muted">· {ago(c.lastRun.endedAt ?? c.lastRun.createdAt)}</span>
+            </dd>
+          </>
+        )}
+      </dl>
+    </aside>
+  );
+}
+
 /**
  * AFS-147: a configuration's environment by name, and what a launch gets from it now: its image,
  * or why there is none.
@@ -1363,6 +1466,12 @@ export function LaunchConfigPage({
   const limitText = limit ?? form.data?.limit ?? '';
   // AFS-147: only what the inventory said of the targets as they are typed now.
   const liveNow = live && live.key === typedKey ? live.reply : undefined;
+  /** AFS-272: the mode chosen now: what the button names, and what the summary and choices say. */
+  const chosen = mode ?? form.data?.mode ?? c.mode;
+  /** AFS-272: how many hosts a real run changes, once the inventory said (none: not said). */
+  const hostCount = noHostWhy(liveNow)
+    ? undefined
+    : (liveNow?.limited?.count ?? liveNow?.facts?.count);
   // The fold opens by itself when something in it has a value, and always when the server points
   // at one of its fields.
   const foldOpen =
@@ -1477,321 +1586,364 @@ export function LaunchConfigPage({
         )
       ) : (
         <>
-          <section className="panel" aria-label="Launch">
-            {/* The server says what is missing or wrong, at each field: the browser does not stop
+          {/* AFS-272: the form and, beside it on a wide screen, what will run. */}
+          <div className="launch-grid">
+            <section className="panel" aria-label="Launch">
+              {/* The server says what is missing or wrong, at each field: the browser does not stop
                 the question first. */}
-            <form
-              className="form"
-              noValidate
-              onSubmit={(e) => {
-                e.preventDefault();
-                void (mayLaunch ? launch() : check());
-              }}
-              aria-describedby={error ? 'launch-error' : undefined}
-            >
-              {/* AFS-214: Change and run: filled from a run, and what differs. */}
-              {filledFrom && (
-                <p className="notice" role="status" data-filled-from>
-                  {filledFrom}
-                </p>
-              )}
-              {/* AFS-164: a flow with errors: which, each a link to its step. */}
-              {formErrors ? (
-                <FlowErrorsNote
-                  errors={formErrors}
-                  to={flowAddress(workspace, key, c.flowFile)}
-                  edit={mayManage}
-                />
-              ) : c.flowGone ? null : (
-                <Loading state={form} />
-              )}
-              {fields.length === 0 && form.data && (
-                <p className="muted">The flow takes no inputs.</p>
-              )}
-              {fields.map((f) => (
-                <InputField
-                  key={f.name}
-                  field={f}
-                  value={texts[f.name] ?? f.text}
-                  problem={problemOf(f.name)}
-                  onChange={(text) => {
-                    setTexts((t) => ({ ...t, [f.name]: text }));
-                    setTyped((names) => (names.has(f.name) ? names : new Set([...names, f.name])));
-                    settle(f.name);
-                  }}
-                  groups={groups}
-                  {...(groupsWhy ? { groupsWhy } : {})}
-                  {...(form.data?.origins?.[f.name] ? { origin: form.data.origins[f.name] } : {})}
-                  {...(groupCounts ? { counts: groupCounts } : {})}
-                  {...(f.targets &&
-                  liveNow &&
-                  !problemOf(f.name) &&
-                  // said once: under the groups already
-                  !(groupsWhy && liveNow.factsError === groupsWhy)
-                    ? { warning: <TargetsWarning reply={liveNow} name={f.name} /> }
-                    : {})}
-                />
-              ))}
-              {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
-                  Launch. */}
-              <Fold
-                summary="Another branch or commit, a limit"
-                open={foldOpen}
-                onToggle={setFolded}
+              <form
+                className="form"
+                noValidate
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void (mayLaunch ? launch() : check());
+                }}
+                // AFS-272: Ctrl+Enter launches from any field, a text area too (where Enter is a
+                // new line).
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+                  e.preventDefault();
+                  if (!busy && form.data) void (mayLaunch ? launch() : check());
+                }}
+                aria-describedby={error ? 'launch-error' : undefined}
               >
-                <div className="pair">
-                  <Labelled
-                    label="Branch"
-                    // AFS-152: a field that cannot be typed in says why.
-                    hint={
-                      mayManage
-                        ? `Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
-                        : // AFS-191: why it cannot be typed in is said once, under the pair.
-                          `Runs ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
-                    }
-                    problem={problemOf('ref')}
-                  >
-                    {(props) => (
-                      <input
-                        {...props}
-                        list="branches"
-                        value={ref}
-                        onChange={(e) => {
-                          setRef(e.target.value);
-                          settle('ref');
-                        }}
-                        onBlur={reread}
-                        disabled={!mayManage}
-                        spellCheck={false}
-                      />
-                    )}
-                  </Labelled>
-                  <datalist id="branches">
-                    {branches.data?.map((b) => (
-                      <option key={b} value={b} />
-                    ))}
-                  </datalist>
-                  <Labelled
-                    label="Or a commit"
-                    hint={mayManage ? 'As shown here (12 digits) or in full' : undefined}
-                    problem={problemOf('commit')}
-                  >
-                    {(props) => (
-                      <input
-                        {...props}
-                        value={commit}
-                        onChange={(e) => {
-                          setCommit(e.target.value);
-                          settle('commit');
-                        }}
-                        onBlur={reread}
-                        disabled={!mayManage}
-                        pattern={COMMIT_PATTERN}
-                        title={COMMIT_TITLE}
-                        spellCheck={false}
-                      />
-                    )}
-                  </Labelled>
-                </div>
-                {mayLaunch && !mayManage && (
-                  <p className="muted">
-                    You launch what the configuration names: another branch or commit needs read and
-                    write access.
+                {/* AFS-214: Change and run: filled from a run, and what differs. */}
+                {filledFrom && (
+                  <p className="notice" role="status" data-filled-from>
+                    {filledFrom}
                   </p>
                 )}
-                <Labelled
-                  label="Limit"
-                  // AFS-191: emptied, the run has no limit, not the configuration's.
-                  hint={`Ansible's --limit: fewer hosts than the flow starts on.${formLimit ? ' Empty: no limit.' : ''}`}
-                  problem={problemOf('limit')}
-                >
-                  {(props) => (
-                    <input
-                      {...props}
-                      value={limitText}
-                      onChange={(e) => {
-                        setLimit(e.target.value);
-                        settle('limit');
-                      }}
-                      spellCheck={false}
-                    />
-                  )}
-                </Labelled>
-                {liveNow?.limited && <LimitWarning limited={liveNow.limited} />}
-              </Fold>
-              {/* AFS-206: the mode and step by step are for who may launch; a reader checks the
-                  configuration as it is. */}
-              {mayLaunch && (
-                <>
-                  <fieldset className="choices">
-                    <legend>Mode</legend>
-                    {(['check', 'real'] as const).map((m) => (
-                      <label key={m} className="inline">
-                        <input
-                          type="radio"
-                          name="mode"
-                          value={m}
-                          checked={(mode ?? form.data?.mode ?? c.mode) === m}
-                          onChange={() => setMode(m)}
-                        />
-                        {/* AFS-143: one name, "check run", and both modes said in a few words. */}
-                        {m === 'check'
-                          ? 'Check: nothing is changed, approvals pass by themselves'
-                          : 'Real: the hosts are changed, approvals wait for a decision'}
-                      </label>
-                    ))}
-                  </fieldset>
-                  {/* AFS-177: a step-by-step run pauses before each step; its page has Step and Continue. */}
-                  <label className="inline launch-step">
-                    <input
-                      type="checkbox"
-                      checked={stepped}
-                      data-launch-step
-                      onChange={(e) => setStepped(e.target.checked)}
-                    />
-                    Step by step: pause until someone says Step, Continue or Stop on the run's page
-                  </label>
-                  {/* AFS-205: what the API offers: where it pauses, and how long a pause waits. */}
-                  {stepped && (
-                    <fieldset className="choices launch-step-options" data-launch-step-options>
-                      <legend className="sr-only">Where it pauses</legend>
-                      <label className="inline">
-                        <input
-                          type="radio"
-                          name="step-where"
-                          checked={!atPoints}
-                          onChange={() => setAtPoints(false)}
-                        />
-                        Before each step
-                      </label>
-                      <label className="inline">
-                        <input
-                          type="radio"
-                          name="step-where"
-                          checked={atPoints}
-                          disabled={!myPoints.data?.length}
-                          onChange={() => setAtPoints(true)}
-                        />
-                        {myPoints.data?.length
-                          ? `Only at your ${myPoints.data.length} pause point${myPoints.data.length === 1 ? '' : 's'}`
-                          : 'Only at your pause points (none yet: add them on the flow, right-click a step)'}
-                      </label>
-                      <label className="inline launch-step-wait">
-                        A pause waits{' '}
-                        <input
-                          type="number"
-                          min={1}
-                          max={1440}
-                          inputMode="numeric"
-                          placeholder="60"
-                          value={stepWait}
-                          onChange={(e) => setStepWait(e.target.value)}
-                          aria-label="Minutes a pause waits"
-                          data-launch-step-wait
-                        />{' '}
-                        minutes at most, then the run stops by itself
-                      </label>
-                    </fieldset>
-                  )}
-                  {/* AFS-264: Debug's tick, as in the designer's Debug dialog. */}
-                  {mayDebug && (
-                    <label className="inline launch-step">
-                      <input
-                        type="checkbox"
-                        checked={firstStep}
-                        data-launch-first-step
-                        aria-describedby="launch-first-step-help"
-                        onChange={(e) => setFirstStep(e.target.checked)}
-                      />
-                      Pause before the first step
-                      <span className="muted small" id="launch-first-step-help">
-                        {' '}
-                        For Debug: the run pauses at pause points and where a host fails a step;
-                        each pause shows the variables of each host.
-                      </span>
-                    </label>
-                  )}
-                </>
-              )}
-              {error &&
-                (flowErrors ? (
+                {/* AFS-164: a flow with errors: which, each a link to its step. */}
+                {formErrors ? (
                   <FlowErrorsNote
-                    id="launch-error"
-                    errors={flowErrors}
+                    errors={formErrors}
                     to={flowAddress(workspace, key, c.flowFile)}
                     edit={mayManage}
                   />
-                ) : (
-                  <p className="notice error" role="alert" id="launch-error">
-                    {error}
-                  </p>
+                ) : c.flowGone ? null : (
+                  <Loading state={form} />
+                )}
+                {fields.length === 0 && form.data && (
+                  <p className="muted">The flow takes no inputs.</p>
+                )}
+                {fields.map((f) => (
+                  <InputField
+                    key={f.name}
+                    field={f}
+                    value={texts[f.name] ?? f.text}
+                    problem={problemOf(f.name)}
+                    onChange={(text) => {
+                      setTexts((t) => ({ ...t, [f.name]: text }));
+                      setTyped((names) =>
+                        names.has(f.name) ? names : new Set([...names, f.name]),
+                      );
+                      settle(f.name);
+                    }}
+                    groups={groups}
+                    {...(groupsWhy ? { groupsWhy } : {})}
+                    {...(form.data?.origins?.[f.name] ? { origin: form.data.origins[f.name] } : {})}
+                    {...(groupCounts ? { counts: groupCounts } : {})}
+                    {...(f.targets &&
+                    liveNow &&
+                    !problemOf(f.name) &&
+                    // said once: under the groups already
+                    !(groupsWhy && liveNow.factsError === groupsWhy)
+                      ? { warning: <TargetsWarning reply={liveNow} name={f.name} /> }
+                      : {})}
+                  />
                 ))}
-              {problems.some((p) => p.field && isShown(p.field)) && !error && (
-                <p className="notice error" role="alert">
-                  Some fields need a look: see the ones marked.
-                </p>
-              )}
-              {saved && (
-                <p className="notice" role="status">
-                  {saved}
-                </p>
-              )}
-              {/* AFS-94: Launch is first and the only filled button. AFS-191: and the form's submit,
+                {/* Rarely typed, so folded; AFS-138: above Mode and the buttons, so a limit is seen before
+                  Launch. */}
+                <Fold
+                  summary="Another branch or commit, a limit"
+                  open={foldOpen}
+                  onToggle={setFolded}
+                >
+                  <div className="pair">
+                    <Labelled
+                      label="Branch"
+                      // AFS-152: a field that cannot be typed in says why.
+                      hint={
+                        mayManage
+                          ? `Empty: ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
+                          : // AFS-191: why it cannot be typed in is said once, under the pair.
+                            `Runs ${c.commit ? 'the pinned commit' : (c.gitRef ?? project.data.gitRef)}`
+                      }
+                      problem={problemOf('ref')}
+                    >
+                      {(props) => (
+                        <input
+                          {...props}
+                          list="branches"
+                          value={ref}
+                          onChange={(e) => {
+                            setRef(e.target.value);
+                            settle('ref');
+                          }}
+                          onBlur={reread}
+                          disabled={!mayManage}
+                          spellCheck={false}
+                        />
+                      )}
+                    </Labelled>
+                    <datalist id="branches">
+                      {branches.data?.map((b) => (
+                        <option key={b} value={b} />
+                      ))}
+                    </datalist>
+                    <Labelled
+                      label="Or a commit"
+                      hint={mayManage ? 'As shown here (12 digits) or in full' : undefined}
+                      problem={problemOf('commit')}
+                    >
+                      {(props) => (
+                        <input
+                          {...props}
+                          value={commit}
+                          onChange={(e) => {
+                            setCommit(e.target.value);
+                            settle('commit');
+                          }}
+                          onBlur={reread}
+                          disabled={!mayManage}
+                          pattern={COMMIT_PATTERN}
+                          title={COMMIT_TITLE}
+                          spellCheck={false}
+                        />
+                      )}
+                    </Labelled>
+                  </div>
+                  {mayLaunch && !mayManage && (
+                    <p className="muted">
+                      You launch what the configuration names: another branch or commit needs read
+                      and write access.
+                    </p>
+                  )}
+                  <Labelled
+                    label="Limit"
+                    // AFS-191: emptied, the run has no limit, not the configuration's.
+                    hint={`Ansible's --limit: fewer hosts than the flow starts on.${formLimit ? ' Empty: no limit.' : ''}`}
+                    problem={problemOf('limit')}
+                  >
+                    {(props) => (
+                      <input
+                        {...props}
+                        value={limitText}
+                        onChange={(e) => {
+                          setLimit(e.target.value);
+                          settle('limit');
+                        }}
+                        spellCheck={false}
+                      />
+                    )}
+                  </Labelled>
+                  {liveNow?.limited && <LimitWarning limited={liveNow.limited} />}
+                </Fold>
+                {/* AFS-206: the mode and step by step are for who may launch; a reader checks the
+                  configuration as it is. */}
+                {mayLaunch && (
+                  <>
+                    {/* AFS-272 (ADR-0039 §8): Check or Real, each saying what it does. A check run is
+                      Ansible's check mode, which still runs tasks marked check_mode: false. */}
+                    <fieldset className="choices mode-choice" data-mode-choice>
+                      <legend>Mode</legend>
+                      {(['check', 'real'] as const).map((m) => (
+                        <label key={m} className={`mode-option ${m}`}>
+                          <input
+                            type="radio"
+                            name="mode"
+                            value={m}
+                            checked={chosen === m}
+                            onChange={() => setMode(m)}
+                          />
+                          <span className="mode-option-text">
+                            <ModeBadge mode={m} long />
+                            <span className="muted small">
+                              {m === 'check'
+                                ? "Ansible's check mode: tasks say what they would change; a task marked check_mode: false still runs. Approvals pass by themselves."
+                                : `It changes the hosts${hostCount !== undefined ? `: ${hostsWord(hostCount)}` : ''}. Approvals wait for a decision.`}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    {/* AFS-177: a step-by-step run pauses before each step; its page has Step and Continue. */}
+                    <label className="inline launch-step">
+                      <input
+                        type="checkbox"
+                        checked={stepped}
+                        data-launch-step
+                        onChange={(e) => setStepped(e.target.checked)}
+                      />
+                      Step by step: pause until someone says Step, Continue or Stop on the run's
+                      page
+                    </label>
+                    {/* AFS-205: what the API offers: where it pauses, and how long a pause waits. */}
+                    {stepped && (
+                      <fieldset className="choices launch-step-options" data-launch-step-options>
+                        <legend className="sr-only">Where it pauses</legend>
+                        <label className="inline">
+                          <input
+                            type="radio"
+                            name="step-where"
+                            checked={!atPoints}
+                            onChange={() => setAtPoints(false)}
+                          />
+                          Before each step
+                        </label>
+                        <label className="inline">
+                          <input
+                            type="radio"
+                            name="step-where"
+                            checked={atPoints}
+                            disabled={!myPoints.data?.length}
+                            onChange={() => setAtPoints(true)}
+                          />
+                          {myPoints.data?.length
+                            ? `Only at your ${myPoints.data.length} pause point${myPoints.data.length === 1 ? '' : 's'}`
+                            : 'Only at your pause points (none yet: add them on the flow, right-click a step)'}
+                        </label>
+                        <label className="inline launch-step-wait">
+                          A pause waits{' '}
+                          <input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            inputMode="numeric"
+                            placeholder="60"
+                            value={stepWait}
+                            onChange={(e) => setStepWait(e.target.value)}
+                            aria-label="Minutes a pause waits"
+                            data-launch-step-wait
+                          />{' '}
+                          minutes at most, then the run stops by itself
+                        </label>
+                      </fieldset>
+                    )}
+                    {/* AFS-264: Debug's tick, as in the designer's Debug dialog. */}
+                    {mayDebug && (
+                      <label className="inline launch-step">
+                        <input
+                          type="checkbox"
+                          checked={firstStep}
+                          data-launch-first-step
+                          aria-describedby="launch-first-step-help"
+                          onChange={(e) => setFirstStep(e.target.checked)}
+                        />
+                        Pause before the first step
+                        <span className="muted small" id="launch-first-step-help">
+                          {' '}
+                          For Debug: the run pauses at pause points and where a host fails a step;
+                          each pause shows the variables of each host.
+                        </span>
+                      </label>
+                    )}
+                  </>
+                )}
+                {error &&
+                  (flowErrors ? (
+                    <FlowErrorsNote
+                      id="launch-error"
+                      errors={flowErrors}
+                      to={flowAddress(workspace, key, c.flowFile)}
+                      edit={mayManage}
+                    />
+                  ) : (
+                    <p className="notice error" role="alert" id="launch-error">
+                      {error}
+                    </p>
+                  ))}
+                {problems.some((p) => p.field && isShown(p.field)) && !error && (
+                  <p className="notice error" role="alert">
+                    Some fields need a look: see the ones marked.
+                  </p>
+                )}
+                {saved && (
+                  <p className="notice" role="status">
+                    {saved}
+                  </p>
+                )}
+                {/* AFS-94: Launch is first and the only filled button. AFS-191: and the form's submit,
                   so Enter in a field launches (asking first as the button does); who may not launch
                   gets What would run. */}
-              <div className="actions">
-                {mayLaunch && (
-                  <button type="submit" className="primary" disabled={!!busy || !form.data}>
-                    {busy === 'launch' ? 'Launching…' : 'Launch'}
-                  </button>
-                )}
-                {/* AFS-179: Debug beside Launch: a debug run, for rw (or operator where the
+                <div className="actions">
+                  {mayLaunch && (
+                    <button
+                      type="submit"
+                      className={chosen === 'real' ? 'primary real' : 'primary'}
+                      disabled={!!busy || !form.data}
+                      title="Ctrl+Enter"
+                      aria-keyshortcuts="Control+Enter"
+                      data-launch
+                    >
+                      {busy === 'launch'
+                        ? 'Launching…'
+                        : chosen === 'real'
+                          ? 'Launch real run'
+                          : 'Launch check run'}
+                    </button>
+                  )}
+                  {/* AFS-179: Debug beside Launch: a debug run, for rw (or operator where the
                     workspace lets operators debug). */}
-                {mayLaunch && mayDebug && (
+                  {mayLaunch && mayDebug && (
+                    <button
+                      type="button"
+                      data-launch-debug
+                      title="A debug run: pauses at your pause points and where a host fails, and shows each host's variables there (F10 Step, F8 Continue)"
+                      onClick={() => void launch(true)}
+                      disabled={!!busy || !form.data}
+                    >
+                      {busy === 'debug' ? 'Starting…' : 'Debug'}
+                    </button>
+                  )}
                   <button
-                    type="button"
-                    data-launch-debug
-                    title="A debug run: pauses at your pause points and where a host fails, and shows each host's variables there (F10 Step, F8 Continue)"
-                    onClick={() => void launch(true)}
+                    type={mayLaunch ? 'button' : 'submit'}
+                    onClick={mayLaunch ? () => void check() : undefined}
                     disabled={!!busy || !form.data}
                   >
-                    {busy === 'debug' ? 'Starting…' : 'Debug'}
+                    {busy === 'check' ? 'Looking…' : 'What would run'}
                   </button>
-                )}
-                <button
-                  type={mayLaunch ? 'button' : 'submit'}
-                  onClick={mayLaunch ? () => void check() : undefined}
-                  disabled={!!busy || !form.data}
-                >
-                  {busy === 'check' ? 'Looking…' : 'What would run'}
-                </button>
-                {mayManage && (
-                  // AFS-102: it changes the configuration: a button, not a link.
-                  <button type="button" onClick={() => void keep()} disabled={!!busy || !form.data}>
-                    Keep as start values
-                  </button>
-                )}
-              </div>
-              {form.data && (
-                <p className="muted small">
-                  The inputs of <strong>{form.data.flow.name}</strong> at{' '}
-                  <code>{form.data.commit.slice(0, 12)}</code>
-                  {form.data.ref && (
-                    <>
-                      , the newest of <code>{form.data.ref}</code>
-                    </>
+                  {mayManage && (
+                    // AFS-102: it changes the configuration: a button, not a link.
+                    <button
+                      type="button"
+                      onClick={() => void keep()}
+                      disabled={!!busy || !form.data}
+                    >
+                      Keep as start values
+                    </button>
                   )}
-                  .
-                </p>
-              )}
-              {!mayLaunch && (
-                <p className="muted">
-                  You may see what would run; launching needs operator on this flow.
-                </p>
-              )}
-            </form>
-          </section>
-          {result && result.launch.mode === (mode ?? form.data?.mode ?? c.mode) && (
+                </div>
+                {form.data && (
+                  <p className="muted small">
+                    The inputs of <strong>{form.data.flow.name}</strong> at{' '}
+                    <code>{form.data.commit.slice(0, 12)}</code>
+                    {form.data.ref && (
+                      <>
+                        , the newest of <code>{form.data.ref}</code>
+                      </>
+                    )}
+                    .
+                  </p>
+                )}
+                {!mayLaunch && (
+                  <p className="muted">
+                    You may see what would run; launching needs operator on this flow.
+                  </p>
+                )}
+              </form>
+            </section>
+            {form.data && (
+              <WillRun
+                form={form.data}
+                real={chosen === 'real'}
+                reply={mayRead ? liveNow : undefined}
+                hasTargets={hasTargets}
+                config={c}
+              />
+            )}
+          </div>
+          {result && result.launch.mode === chosen && (
             <WouldRun
               launch={result.launch}
               form={result.form}

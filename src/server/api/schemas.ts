@@ -426,7 +426,15 @@ export const SCHEMAS = {
         ),
       ),
     },
-    { ref: str, inventory: str, eeImage: str, limit: str, origins: textMap },
+    {
+      ref: str,
+      inventory: str,
+      eeImage: str,
+      limit: str,
+      origins: textMap,
+      steps: strings,
+      approvals: listOf(obj({ title: str, approvers: strings })),
+    },
     'What a launch would run, as a form: the inputs with the values they start with',
   ),
   Schedule: obj(

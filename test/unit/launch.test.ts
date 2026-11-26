@@ -14,7 +14,14 @@ import type { Config } from '../../src/server/config';
 import { type Database, openDatabase } from '../../src/server/db/database';
 import { migrate } from '../../src/server/db/migrations';
 import { LaunchConfigs, LaunchError } from '../../src/server/launch/configs';
-import { hostListTexts, markTargets, prepareLaunch } from '../../src/server/launch/prepare';
+import {
+  approvalsOf,
+  hostListTexts,
+  markTargets,
+  prepareLaunch,
+  STEPS_SHOWN,
+  stepsOf,
+} from '../../src/server/launch/prepare';
 import type { InventoryReader } from '../../src/server/launch/routes';
 import { createLogger } from '../../src/server/log';
 import { Git } from '../../src/server/projects/git';
@@ -516,6 +523,13 @@ for (const [name, config] of databases) {
       });
       expect(form.statusCode).toBe(200);
       expect(form.json()).toMatchObject({ mode: 'real', flow: { key: 'hello' }, ref: 'main' });
+      // AFS-272: the steps a run goes through when all goes well, for What will run.
+      expect(form.json().steps).toEqual([
+        'Check the host answers',
+        'Read a few facts',
+        'Say hello',
+      ]);
+      expect(form.json().approvals).toBeUndefined();
       expect(form.json().fields.map((f: { name: string }) => f.name)).toEqual(
         expect.arrayContaining(['devices', 'retries', 'api_password']),
       );
@@ -700,5 +714,65 @@ describe('the targets field (AFS-170)', () => {
     const none = [field('site')];
     markTargets(doc({ site: { type: 'string' } }), none);
     expect(none.some((f) => 'targets' in f)).toBe(false);
+  });
+});
+
+// ADR-0039 §8: what will run, said beside the launch form.
+describe('AFS-272: the steps and approvals of a flow, for What will run', () => {
+  const node = (id: string, type = 'task') => ({ id, title: id.toUpperCase(), type });
+  const edge = (from: string, port: string, to: string) => ({
+    from: { node: from, port },
+    to: { node: to, port: 'in' },
+  });
+  type Doc = Parameters<typeof stepsOf>[0];
+
+  it('goes from the start by the ok ports and through approvals, to an end', () => {
+    const doc = {
+      nodes: [
+        node('start', 'start'),
+        node('a'),
+        { ...node('g', 'approval'), approval: { approvers: ['change-board'] } },
+        node('b', 'subflow'),
+        node('done', 'end'),
+        node('no', 'end'),
+      ],
+      edges: [
+        edge('start', 'ok_hosts', 'a'),
+        edge('a', 'ok_hosts', 'g'),
+        edge('a', 'failed_hosts', 'no'),
+        edge('g', 'approved', 'b'),
+        edge('g', 'rejected', 'no'),
+        edge('b', 'ok_hosts', 'done'),
+      ],
+    } as unknown as Doc;
+    expect(stepsOf(doc)).toEqual(['A', 'G', 'B']);
+    expect(approvalsOf(doc)).toEqual([{ title: 'G', approvers: ['change-board'] }]);
+  });
+
+  it('stops at a step that branches, at a loop, and after a few steps', () => {
+    const branching = {
+      nodes: [node('start', 'start'), node('a'), node('d', 'decision'), node('x')],
+      edges: [edge('start', 'ok_hosts', 'a'), edge('a', 'ok_hosts', 'd'), edge('d', 'true', 'x')],
+    } as unknown as Doc;
+    expect(stepsOf(branching)).toEqual(['A', 'D']);
+    const loop = {
+      nodes: [node('start', 'start'), node('a'), node('b')],
+      edges: [
+        edge('start', 'ok_hosts', 'a'),
+        edge('a', 'ok_hosts', 'b'),
+        edge('b', 'ok_hosts', 'a'),
+      ],
+    } as unknown as Doc;
+    expect(stepsOf(loop)).toEqual(['A', 'B']);
+    const ids = Array.from({ length: 30 }, (_, i) => `s${i}`);
+    const long = {
+      nodes: [node('start', 'start'), ...ids.map((id) => node(id))],
+      edges: [
+        edge('start', 'ok_hosts', 's0'),
+        ...ids.slice(1).map((id, i) => edge(`s${i}`, 'ok_hosts', id)),
+      ],
+    } as unknown as Doc;
+    expect(stepsOf(long)).toHaveLength(STEPS_SHOWN);
+    expect(stepsOf({ nodes: [], edges: [] } as unknown as Doc)).toEqual([]);
   });
 });
