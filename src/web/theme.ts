@@ -1,6 +1,6 @@
 // Dark and light (AFS-64). The pages are dark unless the person chose light or to follow the
-// device; the choice is kept in this browser. The colours are in styles.css. The flow canvas
-// keeps the designer's own look and is told which of the two to use.
+// device; the choice is kept in this browser. The colours are in styles.css. The flow canvas is
+// told which of the two to use, and takes the page's colours from its canvas roles (palette.ts).
 export type ThemeChoice = 'system' | 'light' | 'dark';
 export type ThemeKind = 'light' | 'dark';
 

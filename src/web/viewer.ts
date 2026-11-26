@@ -28,6 +28,7 @@ import {
 } from '@ansible-flow/core/run/step';
 import { mount } from '@ansible-flow/designer';
 import { answerWords } from './answer';
+import { followPageColours, pageColours } from './palette';
 import { isSaveKey, SAVE_KEY } from './saveKey';
 import { typingInField } from './typing';
 import { answerCatalog } from './viewerCatalog';
@@ -710,7 +711,9 @@ async function start(): Promise<void> {
   };
 
   const stateKey = `afs.viewer.${project}.${path}`;
-  mount(root, {
+  const designer = mount(root, {
+    // AFS-270: in the page's colours, which it follows when the device turns light or dark.
+    ...pageColours(),
     theme,
     viewer: true,
     transport: {
@@ -962,6 +965,7 @@ async function start(): Promise<void> {
       },
     },
   });
+  followPageColours(designer);
 }
 
 /** AFS-123: the flow at `commit`, a past version on the canvas (viewerPast.ts). */
