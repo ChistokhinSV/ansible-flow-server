@@ -22,19 +22,25 @@ const styleOf = (values: Record<string, string>) => ({
 /** A frame's window inside a page whose canvas roles are `roles`. */
 function framed(roles: Record<string, string>) {
   const listeners: (() => void)[] = [];
-  const page = { document: { documentElement: {} } };
+  const frames: (() => void)[] = [];
+  // The page's window computes the page's styles; the frame's own knows nothing of its roles.
+  const page = { document: { documentElement: {} }, getComputedStyle: () => styleOf(roles) };
   const win = {
     parent: page,
-    getComputedStyle: () => styleOf(roles),
+    getComputedStyle: () => styleOf({}),
     matchMedia: vi.fn(() => ({
       addEventListener: (_kind: string, listener: () => void) => listeners.push(listener),
     })),
+    requestAnimationFrame: (f: () => void) => frames.push(f),
   };
   return {
     win: win as unknown as Window,
     matchMedia: win.matchMedia,
     deviceTurns: () => {
       for (const l of listeners) l();
+    },
+    nextFrame: () => {
+      for (const f of frames.splice(0)) f();
     },
   };
 }
@@ -92,8 +98,12 @@ describe('following the page when the device turns light or dark', () => {
     const frame = framed(roles);
     const setPalette = vi.fn();
     followPageColours({ setPalette }, frame.win);
-    roles['--canvas-ground'] = '#f6f7f9';
     frame.deviceTurns();
+    // The page's own media query re-applies its colours after the frame hears of the change: they
+    // are read a frame later.
+    expect(setPalette).not.toHaveBeenCalled();
+    roles['--canvas-ground'] = '#f6f7f9';
+    frame.nextFrame();
     expect(setPalette).toHaveBeenCalledWith(
       expect.objectContaining({ '--vscode-editor-background': '#f6f7f9' }),
     );
