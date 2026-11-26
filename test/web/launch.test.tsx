@@ -907,6 +907,71 @@ describe('a step-by-step launch', () => {
   });
 });
 
+// AFS-264: Debug with pause points paused only at the first point; "Pause before the first step"
+// (ticked at first, as in the designer's Debug dialog) pauses before step 1 too.
+describe('a debug launch', () => {
+  const POINT = { node: '01M6GPM99KC9TX091MCH61REQV' };
+  const debugLaunch = async (untick: boolean) => {
+    routes = {
+      ...common(dana),
+      'GET /projects/p1/pause-points?path=flows%2Fupgrade.flow.yaml': () => ({
+        body: { points: [POINT] },
+      }),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/api_password/), {
+      target: { value: 's3cret-value' },
+    });
+    const tick = screen.getByLabelText(/^Pause before the first step/) as HTMLInputElement;
+    expect(tick.checked).toBe(true);
+    if (untick) fireEvent.click(tick);
+    fireEvent.click(screen.getByRole('button', { name: 'Debug' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    return asked.find((a) => a.key === 'POST /launch-configs/c1/launch')?.body;
+  };
+
+  it('ticked (as it starts): pauses before the first step and at the pause points', async () => {
+    expect(await debugLaunch(false)).toMatchObject({
+      step: { every: true, points: [POINT], debug: true },
+    });
+  });
+
+  it('not ticked: pauses only at the pause points', async () => {
+    expect(await debugLaunch(true)).toMatchObject({
+      step: { every: false, points: [POINT], debug: true },
+    });
+  });
+
+  it('a plain Launch is not changed by the tick', async () => {
+    routes = {
+      ...common(dana),
+      'POST /launch-configs/c1/launch': () => ({
+        status: 201,
+        body: { id: 'r9', number: 9, state: 'queued' },
+      }),
+      'GET /runs/r9': () => ({ status: 404, body: { error: 'not_found', message: 'gone' } }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText(/api_password/), {
+      target: { value: 's3cret-value' },
+    });
+    expect(
+      (screen.getByLabelText(/^Pause before the first step/) as HTMLInputElement).checked,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/runs/r9'));
+    const launched = asked.find((a) => a.key === 'POST /launch-configs/c1/launch');
+    expect((launched?.body as { step?: unknown } | undefined)?.step).toBeUndefined();
+  });
+});
+
 describe('what a level shows', () => {
   it('an operator on the flow launches as configured: no other branch, no start values, no change', async () => {
     routes = {
@@ -920,6 +985,9 @@ describe('what a level shows', () => {
     expect(await screen.findByRole('button', { name: 'Launch' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Keep as start values' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Change' })).toBeNull();
+    // AFS-264: no Debug here, so no tick of its own either.
+    expect(screen.queryByRole('button', { name: 'Debug' })).toBeNull();
+    expect(screen.queryByLabelText(/^Pause before the first step/)).toBeNull();
     expect((screen.getByLabelText(/^Branch/) as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText(/another branch or commit needs read/)).toBeTruthy();
     // AFS-191: said once, not again at each field.

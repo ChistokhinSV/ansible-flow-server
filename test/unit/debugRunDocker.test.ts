@@ -36,6 +36,8 @@ const FAILING = readFileSync(join(__dirname, '../fixtures/hello.flow.yaml'), 'ut
   'ref: ansible.builtin.fail',
 );
 const SAY_HELLO = '01M6GPM9B1D563X8PKD5041JHV';
+// Check the host answers: the step after Start.
+const FIRST_STEP = '01M6GPM979RJPCDJ0XFF22GBSV';
 // Fictional: what the test's secret provider answers.
 const TOKEN = 'lab-device-token-7f3a9c';
 
@@ -218,6 +220,49 @@ describe.skipIf(!image)('a debug run in a container (AFS-179, AFS-223)', () => {
     const output = readFileSync(ex.outputFile(run.id), 'utf8');
     expect(output).toContain('Retry by dana');
     expect(output).not.toContain(TOKEN);
+  }, 600_000);
+
+  // AFS-264: "Pause before the first step" ticked with pause points: the body the canvas's Debug
+  // dialog and the Launch page now send (every: true with the points). The run pauses before step
+  // 1, then Continue runs on to the pause point; it paused only at the point before the fix.
+  it('AFS-264: ticked with pause points, a debug run pauses before the first step, then at the point', async () => {
+    const c = await new LaunchConfigs(database.db, git).get(config);
+    const prepared = await prepareLaunch({ db: database.db, git, sync }, c as never, {
+      mode: 'check',
+    });
+    if (!prepared.ok) throw new Error(JSON.stringify(prepared.problems));
+    const run = await queue.enqueue(
+      {
+        ...prepared.launch,
+        step: {
+          every: true,
+          points: [SAY_HELLO],
+          timeoutS: 600,
+          debug: true,
+          pauseOnFailure: false,
+          failures: { failed: false },
+        },
+      },
+      withoutSecrets(prepared.launch, prepared.form.fields).inputs,
+      { id: 'u1', login: 'dana' },
+      'Hello',
+    );
+    await ex.fill();
+    await until('the first pause', async () => !!(await pauseOf(run.id)));
+    expect(await pauseOf(run.id)).toMatchObject({
+      kind: 'step',
+      node: FIRST_STEP,
+      debug: true,
+      hosts: ['localhost'],
+    });
+    expect(await ex.drive(run.id, { command: 'continue' }, 'dana')).toEqual({ paused: true });
+    await until('the pause point', async () => (await pauseOf(run.id))?.node === SAY_HELLO);
+    expect(await pauseOf(run.id)).toMatchObject({ kind: 'point', node: SAY_HELLO });
+    expect(await ex.drive(run.id, { command: 'stop' }, 'dana')).toBeTruthy();
+    await until('the end', async () => {
+      const state = (await queue.get(run.id))?.state;
+      return !!state && !['queued', 'running'].includes(state);
+    });
   }, 600_000);
 
   it('AFS-259: a log point writes its line; a reader of the output reads where, not what', async () => {
