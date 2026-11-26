@@ -63,8 +63,9 @@ server that stops and starts again keeps the run waiting.
   launch (the designer says why, `awx-segments`).
 
 Decide on the **Approvals** page (what waits for you, and for others, in every workspace, each
-with its workspace; **Workspace** narrows it to one), on the run's page, or on
-the canvas (the approval's Run tab), or:
+with its workspace; **Workspace** narrows it to one of the workspaces listed, and an address
+naming a workspace you no longer see shows them all), on the run's page, or on the canvas (the
+approval's Run tab), or:
 
 ```sh
 curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \

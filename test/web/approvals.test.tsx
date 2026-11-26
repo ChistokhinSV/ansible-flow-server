@@ -114,6 +114,61 @@ describe('approvals', () => {
     expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals2');
   });
 
+  it('AFS-274: a workspace no longer seen (a bookmark) is let go, not said as an error', async () => {
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /workspaces': () => ({ body: [] }),
+      'GET /approvals': () => ({ body: [waiting('r1', true)] }),
+      'GET /approvals?decided=1': () => ({ body: [] }),
+      'GET /approvals?workspace=gone': () => ({
+        status: 404,
+        body: { error: 'not_found', message: 'There is no workspace gone' },
+      }),
+      'GET /approvals?decided=1&workspace=gone': () => ({
+        status: 404,
+        body: { error: 'not_found', message: 'There is no workspace gone' },
+      }),
+    };
+    window.history.replaceState(null, '', '/approvals?workspace=gone');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Yours to decide' });
+    expect(window.location.pathname + window.location.search).toBe('/approvals');
+    expect(document.body.textContent).not.toContain('There is no workspace gone');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('AFS-274: the filter offers the approvals’ own workspaces, also to who sees none in /workspaces', async () => {
+    const inWs = (id: string, key: string, name: string) => {
+      const w = waiting(id, true);
+      return { ...w, run: { ...w.run, projectName: 'Edge', workspace: { key, name } } };
+    };
+    const all = [inWs('r1', 'net', 'Network team'), inWs('r2', 'lab', 'Lab')];
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      // An approver with no grant on either workspace: `/workspaces` lists neither.
+      'GET /workspaces': () => ({ body: [] }),
+      'GET /approvals': () => ({ body: all }),
+      'GET /approvals?workspace=lab': () => ({ body: all.slice(1) }),
+      'GET /approvals?decided=1': () => ({ body: [] }),
+      'GET /approvals?decided=1&workspace=lab': () => ({ body: [] }),
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    const filter = await screen.findByRole('combobox', { name: 'Workspace' });
+    const offered = () =>
+      within(filter)
+        .getAllByRole('option')
+        .map((o) => o.textContent);
+    expect(offered()).toEqual(['All workspaces', 'Lab', 'Network team']);
+    fireEvent.change(filter, { target: { value: 'lab' } });
+    const yours = (await screen.findByRole('heading', { name: 'Yours to decide' })).closest(
+      'section',
+    ) as HTMLElement;
+    await waitFor(() => expect(yours.textContent).not.toContain('Network team'));
+    // Narrowed to Lab, the other is still a choice.
+    expect(offered()).toEqual(['All workspaces', 'Lab', 'Network team']);
+  });
+
   it('the inbox: yours to decide with a comment, and others with why not', async () => {
     let list = [
       waiting('r1', true),
