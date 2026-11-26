@@ -150,8 +150,10 @@ export function approvedPath(
 const ENDED = ['succeeded', 'failed', 'cancelled', 'lost'];
 
 /**
- * AFS-271: the last check run of a run's launch configuration that ended before the run was
- * launched: what a decider can weigh. A run of no configuration has none to weigh (undefined).
+ * AFS-271: the last check run of a run's launch configuration that had ended when the run was
+ * launched: what was known then, so a check run still going at launch is not evidence when it
+ * ends later. A run of no configuration has none to weigh (undefined). The index
+ * `run_config_mode_created` (migration 0042) keeps it off a scan of every run.
  */
 export async function evidenceOf(
   db: Db,
@@ -166,6 +168,7 @@ export async function evidenceOf(
     .where('id', '!=', run.id)
     .where('state', 'in', ENDED)
     .where('created_at', '<', run.createdAt)
+    .where('ended_at', '<', run.createdAt)
     .orderBy('created_at', 'desc')
     .limit(1)
     .executeTakeFirst();

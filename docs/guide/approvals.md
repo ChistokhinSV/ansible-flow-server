@@ -44,9 +44,10 @@ server that stops and starts again keeps the run waiting.
     way branches ("The hosts go on: Upgrade › Post-checks › Done");
   - **If rejected:** the step the hosts go to;
   - **If nobody decides:** when it times out, and where the hosts go then;
-  - **Evidence:** the last check run of the same launch configuration before this run, how it
-    went, when, and whether it ran at the same commit, with a link to it ("No check run of this
-    launch configuration before this run" when there is none).
+  - **Evidence:** the last check run of the same launch configuration that had ended when this
+    run was launched (what was known then), how it went, when, and whether it ran at the same
+    commit, with a link to it ("No check run of this launch configuration before this run" when
+    there is none).
 
   On a phone, **Approve…** and **Reject…** stay at the bottom of the screen while you read the
   approval.

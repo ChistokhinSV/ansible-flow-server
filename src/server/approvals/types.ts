@@ -39,8 +39,8 @@ export interface Gate {
   after?: string[];
   /**
    * AFS-271: what a decider can weigh while it waits: the last check run of the same launch
-   * configuration before this run (none yet: an empty object). Absent for a run of no
-   * configuration.
+   * configuration that had ended when this run was launched (none: an empty object). Absent for a
+   * run of no configuration.
    */
   evidence?: { checkRun?: CheckRunEvidence };
   createdAt: string;

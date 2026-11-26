@@ -609,21 +609,37 @@ describe('a run of a flow with an approval', () => {
   });
 
   it('AFS-271: says the steps an approval lets happen, and the last check run of its configuration', async () => {
-    // An earlier check run of the same configuration that went well; a later check run of
-    // another configuration, which is not evidence for this one.
+    // An earlier check run of the same configuration that went well, the newest that had ended
+    // when the run below is launched (an earlier test ran one too).
+    const pause = () => new Promise((done) => setTimeout(done, 5));
     const earlier = await launch();
-    const endedAt = new Date(Date.now() - 60_000).toISOString();
+    const launchedAt = new Date();
+    const endedAt = new Date(launchedAt.getTime() + 1).toISOString();
     await database.db
       .updateTable('run')
       .set({
         mode: 'check',
         state: 'succeeded',
         ended_at: endedAt,
-        // The newest check run of this configuration (an earlier test ran one too).
-        created_at: new Date().toISOString(),
+        created_at: launchedAt.toISOString(),
       })
       .where('id', '=', earlier.id)
       .execute();
+    await pause();
+    // A check run launched after it and before the run below, still going at that launch: it ends
+    // later, and what was not known at launch is not evidence.
+    const going = await launch();
+    await database.db
+      .updateTable('run')
+      .set({
+        mode: 'check',
+        state: 'failed',
+        created_at: new Date().toISOString(),
+        ended_at: '2999-01-01T00:00:00.000Z',
+      })
+      .where('id', '=', going.id)
+      .execute();
+    // A later check run of another configuration, which is not evidence for this one.
     const other = await launch(twoGates);
     await database.db
       .updateTable('run')
