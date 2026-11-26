@@ -43,7 +43,7 @@ never opens the browser's Save dialog.
 | `/w/<workspace>/<project>/settings`               | **Settings**: the `git clone` command, what an external source signs in with, its SSH host key, the push hook, library                                                                                                                                             |
 | `/w/<workspace>/<project>/flow/<file>`            | One flow on the designer's canvas; its launch configurations (Launch) and newest runs above it; "Open on its own page"                                                                                                                                             |
 | `.../flow/<file>?commit=<hash>`                   | The flow as that commit left it, read only, in the Changes lens against the version before                                                                                                                                                                         |
-| `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form with Launch on top, what would run, keep start values                                                                                                                                                         |
+| `/w/<workspace>/<project>/launch/<id>`            | A launch configuration in tabs. **Launch**: the form, Check or Real as a choice, What will run beside it, the button that names the run, what would run, keep start values                                                                                         |
 | `.../launch/<id>/runs`, `/schedules`, `/settings` | Its **Runs** (older ones a page at a time), its **Schedules**, and its **Settings** (change, delete; `rw` on its flow)                                                                                                                                             |
 | `/w/<workspace>/<project>/launch/new`             | Add a launch configuration (`rw` on its flow)                                                                                                                                                                                                                      |
 | `/runs`                                           | Every run you may see, the newest first, filtered by state, by project and one of its launch configurations, and to your own (Mine); the choices are in the address; older runs a page at a time                                                                   |
@@ -84,7 +84,9 @@ never opens the browser's Save dialog.
     not counted.
   - **Running now** and **Launch again** beside it, and the latest runs with their workspace.
 - Dark by default; the theme button in the side menu goes to light, then to following the device.
-  The flow canvas keeps the designer's own look in the same theme.
+  The flow canvas takes the page's colours in the same theme (its ground, panels, lines, text and
+  accent), and turns light or dark with the page when the page follows the device. A flow opened
+  at a commit on a page of its own keeps the designer's colours.
 - **A run's state** has a shape of its own beside its words, so it reads without colour: a dashed
   circle for queued, a turning arc for running, two bars for paused, a diamond for waiting for a
   decision (the approval's shape on the canvas), a tick for went well, a cross for failed, a
