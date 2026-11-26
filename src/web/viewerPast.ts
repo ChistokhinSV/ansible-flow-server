@@ -9,6 +9,7 @@ import type { CompareFacts } from '@ansible-flow/core/lens/types';
 import type { HostMessage, Snapshot, WebviewMessage } from '@ansible-flow/core/protocol';
 import { pastAllows, VIEWER_REFUSAL } from '@ansible-flow/core/viewer';
 import { mount, type ThemeChoice } from '@ansible-flow/designer';
+import { followPageColours, pageColours } from './palette';
 import { answerCatalog } from './viewerCatalog';
 import { openWebLink } from './viewerDraft';
 
@@ -76,7 +77,8 @@ export function showPast(options: {
   const stateKey = `afs.viewer.${project}.${path}`;
   // Not `viewer: true`: that would keep the designer from turning into a past version. `config`
   // below asks for one, and this host refuses what a past version may not send.
-  mount(options.root, {
+  const designer = mount(options.root, {
+    ...pageColours(), // AFS-270, as on the view (viewer.ts)
     theme: options.theme,
     transport: {
       hostName: 'Ansible Flow Server',
@@ -150,4 +152,5 @@ export function showPast(options: {
       },
     },
   });
+  followPageColours(designer);
 }

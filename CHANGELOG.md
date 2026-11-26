@@ -34,6 +34,7 @@ Carries Ansible Flow Designer 1.2.0-rc.5.
 
 ### Changed
 
+- The flow's canvas has the pages' colours, in light and dark: its ground, panels, lines, text and buttons no longer look like another application inside the page.
 - A launch configuration's Launch tab says what will run beside the form, kept current as you type: the flow and its version, the commit, the steps, the hosts the targets match, the image, the credentials, the approvals ahead and the last run. Check or Real is a choice of two that says what each does (a check run is Ansible's check mode), and the button names the run it starts: **Launch check run** or **Launch real run**. Ctrl+Enter launches from any field.
 - An approval says what each answer lets happen before anyone decides, on the Approvals page and on the run's page: the steps the hosts go through once approved, the step a rejection sends them to, when it times out and where the hosts go then, and the last check run of the same launch configuration that had ended when the run was launched (how it went, when, and whether at the same commit). On a phone, Approve and Reject stay at the bottom of the screen.
 - A run's state has a shape of its own beside its words (a tick for went well, a cross for failed, a diamond for waiting for a decision, two bars for paused, a square for stopped), so it reads without colour. Real and check runs look different wherever runs are listed and on a run's page: a solid **Real** badge, a dashed **Check** badge, and a striped line along the top of a real run's header.
