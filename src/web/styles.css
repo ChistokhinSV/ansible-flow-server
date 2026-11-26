@@ -5162,6 +5162,53 @@ button.rail-item:hover:not(:disabled) {
   );
 }
 
+/* ADR-0039 §8, AFS-271: what a decision lets happen, in a short list before the decision. One
+   column wherever the approval is narrow: a phone, and the run page's side bar. */
+.gate {
+  container-type: inline-size;
+}
+.gate-next {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 10px 0 12px;
+}
+.gate-next dt {
+  font-weight: 600;
+}
+.gate-next dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 520px) {
+  .gate-next {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .gate-next dd {
+    margin-bottom: 6px;
+  }
+}
+@media (max-width: 640px) {
+  /* On a phone the answer stays at the thumb while the approval is read. The form's own box
+     would hold the buttons at its end; laid out as part of the approval, they stick to the
+     bottom of the screen for as long as the approval is on it. */
+  .decision .decide {
+    display: contents;
+  }
+  .decision .decide .actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--warn-bg);
+  }
+  .decision .decide .actions button {
+    min-height: 44px;
+  }
+}
+
 /* ADR-0039 §8, AFS-272: a launch configuration's Launch tab. Beside the form on a wide screen,
    what will run, in sight while the form is filled in; under it where there is no room. */
 .launch-grid {

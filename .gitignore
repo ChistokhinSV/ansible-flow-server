@@ -14,7 +14,9 @@ data/
 Thumbs.db
 .idea/
 # Local tooling
-.claude/
+# Local Claude Code state stays out; the shared settings (no attribution lines) are committed.
+.claude/*
+!.claude/settings.json
 # Release bundles (scripts/bundle.sh)
 out/
 # What the end-to-end browser suite leaves after a failure (traces, screenshots)

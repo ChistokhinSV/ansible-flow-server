@@ -5,7 +5,7 @@ import { type FormEvent, useEffect, useId, useState } from 'react';
 import { decidersWords } from '../server/approvals/types';
 import { api, type Gate } from './api';
 import { Link } from './router';
-import { Loading, messageOf, PageHead, span, Time, useLoad } from './ui';
+import { ago, Loading, messageOf, PageHead, span, Time, useLoad } from './ui';
 
 /** AFS-133: the sidebar's count and other lists read again once a decision is made. */
 export const APPROVALS_CHANGED = 'afs-approvals-changed';
@@ -122,6 +122,66 @@ function DecideForm({
   );
 }
 
+/** How a check run went, as the evidence line says it. */
+const WENT: Record<string, string> = {
+  succeeded: 'went well',
+  failed: 'failed',
+  cancelled: 'was stopped',
+  lost: 'was lost',
+};
+
+/**
+ * AFS-271 (ADR-0039 §8): what a decision lets happen, said before anyone decides: the steps the
+ * hosts go through once approved, where a rejection and the timeout send them, and the last check
+ * run of the same launch configuration. Worded for whoever reads it, decider or not.
+ */
+function Consequences({ gate }: { gate: Gate }) {
+  const after = gate.after?.length ? gate.after : gate.next?.approved ? [gate.next.approved] : [];
+  // ADR-0021: a gate that times out takes its timeout port, or the rejected one when it has none.
+  const atTimeout = gate.next?.timeout ?? gate.next?.rejected;
+  const check = gate.evidence?.checkRun;
+  return (
+    <dl className="gate-next" data-gate-next>
+      <dt>If approved</dt>
+      <dd data-gate-after>
+        {after.length
+          ? `The hosts go on: ${after.join(' › ')}`
+          : 'The hosts go on to the next steps'}
+      </dd>
+      <dt>If rejected</dt>
+      <dd>
+        {gate.next?.rejected ? `The hosts go to "${gate.next.rejected}"` : 'The hosts do not go on'}
+      </dd>
+      {gate.deadline && (
+        <>
+          <dt>If nobody decides</dt>
+          <dd>
+            At <Time at={gate.deadline} /> it times out
+            {atTimeout ? ` and the hosts go to "${atTimeout}"` : ''}
+          </dd>
+        </>
+      )}
+      {gate.evidence && (
+        <>
+          <dt>Evidence</dt>
+          <dd data-gate-evidence>
+            {check ? (
+              <>
+                <Link to={`/runs/${encodeURIComponent(check.id)}`}>Check run #{check.number}</Link>{' '}
+                of this launch configuration {WENT[check.state] ?? check.state}
+                {check.endedAt ? `, ${ago(check.endedAt)}` : ''},{' '}
+                {check.sameCommit ? 'at the same commit' : 'at another commit'}
+              </>
+            ) : (
+              'No check run of this launch configuration before this run'
+            )}
+          </dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
 /** AFS-146: who may decide a gate, by name, as a phrase. */
 export function decidersText(gate: Gate): string {
   return decidersWords(gate.deciders ?? gate.approvers);
@@ -199,14 +259,8 @@ function GateCard({
         <p className="muted">
           {/* AFS-193: and for how long, as Home says it. */}
           Waiting since <Time at={gate.createdAt} /> ({span(gate.createdAt)})
-          {gate.deadline && (
-            <>
-              {' '}
-              · times out <Time at={gate.deadline} />
-            </>
-          )}
           {/* AFS-133, AFS-146: who may decide, always, by name. AFS-211: as it is now, not as
-              if it were decided. */}{' '}
+              if it were decided. AFS-271: when it times out is said with what happens then. */}{' '}
           · Who decides: {decidersText(gate)}
         </p>
       ) : (
@@ -226,6 +280,7 @@ function GateCard({
           {gate.comment && <q className="comment">{gate.comment}</q>}
         </p>
       )}
+      {gate.status === 'waiting' && <Consequences gate={gate} />}
       {gate.status === 'waiting' &&
         (mayDecide ? (
           <DecideForm title={gate.node.title} next={gate.next} onDecide={onDecide} />

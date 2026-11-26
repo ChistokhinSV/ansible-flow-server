@@ -6,7 +6,7 @@
 // Also by hand, to look at the pages (prints the address and the administrator's password):
 //   node test/layout/stack.ts
 import { type ChildProcess, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -289,8 +289,49 @@ async function seed(
       },
     },
   };
+  // AFS-271: a real run waiting at an approval the person signed in may decide, saying what each
+  // answer lets happen, with a check run of the same configuration before it as evidence.
+  const checked = await call('POST', `/launch-configs/${config.id}/launch`, {});
+  const gated = await call('POST', `/launch-configs/${config.id}/launch`, { mode: 'real' });
   const sqlite = new DatabaseSync(join(data, 'afs.db'));
   try {
+    sqlite
+      .prepare(
+        `update run set mode = 'check', state = 'succeeded', started_at = ?, ended_at = ?,
+           updated_at = ? where id = ?`,
+      )
+      .run(now, now, now, checked.id);
+    sqlite
+      .prepare(
+        `update run set mode = 'real', state = 'waiting', claimed_at = ?, started_at = ?,
+           attempts = 1, updated_at = ? where id = ?`,
+      )
+      .run(now, now, now, gated.id);
+    sqlite
+      .prepare(
+        `insert into run_gate (id, run_id, node_id, node_key, title, segment, status, carried_json,
+           deadline, approval_json, decided_by, decided_at, comment, created_at)
+         values (?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, null, null, null, ?)`,
+      )
+      .run(
+        randomUUID(),
+        gated.id,
+        'layout-gate',
+        'change-approval',
+        'Change approval',
+        'start',
+        JSON.stringify({ afd_hostsets: { flow_change_approval_waiting: hosts } }),
+        new Date(Date.now() + 4 * 3600_000).toISOString(),
+        JSON.stringify({
+          approvers: [],
+          message: 'Check the change ticket first',
+          next: { approved: 'Say hello to the team', rejected: 'Not approved' },
+          after: ['Say hello to the team', `${LONG}-step`.slice(0, 80), 'Done'],
+        }),
+        now,
+      );
+    // Who launched it may decide it here, so the decision and its buttons are on the pages.
+    sqlite.prepare('update workspace set self_approve = 1').run();
     const pause = sqlite.prepare(
       `update run set state = 'running', claimed_at = ?, started_at = ?, attempts = 1,
          lease_owner = 'layout', lease_token = 'layout', lease_until = '2999-01-01T00:00:00.000Z',
@@ -347,6 +388,8 @@ async function seed(
     run: `/runs/${run.id ?? run.run?.id}`,
     // AFS-177: a step-by-step run paused, with Step, Continue and Stop outside the canvas.
     pausedRun: `/runs/${stepped.id}`,
+    // AFS-271: a real run waiting at an approval, decided in the side bar's Details view.
+    approvalRun: `/runs/${gated.id}`,
     // AFS-250: a debug run paused at a failure, with the Debugger panel.
     debugRun: `/runs/${debugged.id}`,
     runs: '/runs',

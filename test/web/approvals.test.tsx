@@ -115,6 +115,57 @@ describe('approvals', () => {
     );
   });
 
+  it('AFS-271: the card says what each answer lets happen, and what to weigh', async () => {
+    const one = {
+      ...waiting('r1', true),
+      gate: gate({
+        next: { approved: 'Upgrade', rejected: 'Not approved' },
+        after: ['Upgrade', 'Post-checks', 'Done'],
+        evidence: {
+          checkRun: {
+            id: 'r0',
+            number: 6,
+            state: 'succeeded',
+            endedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+            sameCommit: true,
+          },
+        },
+      }),
+    };
+    const old = {
+      ...waiting('r2', false, 'Only change-board may decide this approval'),
+      // A gate opened before the steps were kept: the next step alone; no check run yet.
+      gate: gate({ id: 'g-r2', run: 'r2', next: { approved: 'Upgrade' }, evidence: {} }),
+    };
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /approvals': () => ({ body: [one, old] }),
+    };
+    window.history.replaceState(null, '', '/approvals');
+    render(<App />);
+    const yours = (await screen.findByRole('heading', { name: 'Yours to decide' })).closest(
+      'section',
+    ) as HTMLElement;
+    const list = within(yours).getByText('If approved').closest('dl') as HTMLElement;
+    expect(within(list).getByText('The hosts go on: Upgrade › Post-checks › Done')).toBeTruthy();
+    expect(within(list).getByText('The hosts go to "Not approved"')).toBeTruthy();
+    // No timeout port: a gate that times out takes the rejected one.
+    expect(within(list).getByText(/it times out and the hosts go to "Not approved"/)).toBeTruthy();
+    const evidence = within(list).getByRole('link', { name: 'Check run #6' });
+    expect(evidence.getAttribute('href')).toBe('/runs/r0');
+    expect(evidence.parentElement?.textContent).toMatch(
+      /^Check run #6 of this launch configuration went well, 5 min ago, at the same commit$/,
+    );
+    // Said before anyone decides, also to who may not decide it.
+    const others = screen
+      .getByRole('heading', { name: 'Waiting for others' })
+      .closest('section') as HTMLElement;
+    expect(within(others).getByText('The hosts go on: Upgrade')).toBeTruthy();
+    expect(
+      within(others).getByText('No check run of this launch configuration before this run'),
+    ).toBeTruthy();
+  });
+
   it('AFS-211: with nothing waiting, one sentence says so', async () => {
     routes = {
       'GET /session': () => ({ body: omar }),
