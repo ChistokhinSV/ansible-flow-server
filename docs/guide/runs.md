@@ -8,6 +8,10 @@ A launch makes a run and puts it in the queue. The server takes runs from the qu
 them with Ansible in an execution environment container (docker or podman), the way the same
 run from VS Code would.
 
+Wherever runs are listed, and on a run's page, a real run carries a solid **Real** badge and a
+check run a dashed **Check** badge, and each state has a shape of its own beside its words (see
+[The web pages](web-pages.md)). A real run's page has a striped line along the top of its header.
+
 ```sh
 curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launch \
   -d '{"mode":"real","inputs":{"target_version":"7.4.1"}}'

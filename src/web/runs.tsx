@@ -78,7 +78,12 @@ const AGAINST: Record<string, string> = {
 
 export function StateBadge({ state, against }: { state: string; against?: string | undefined }) {
   if (state === 'failed' && against && AGAINST[against])
-    return <span className="badge bad">{AGAINST[against]}</span>;
+    return (
+      <span className="badge bad">
+        <StateGlyph state={state} against={against} />
+        {AGAINST[against]}
+      </span>
+    );
   const tone =
     state === 'succeeded'
       ? 'ok'
@@ -89,7 +94,92 @@ export function StateBadge({ state, against }: { state: string; against?: string
           : ACTIVE.includes(state)
             ? 'busy'
             : '';
-  return <span className={`badge ${tone}`}>{LABEL[state] ?? state}</span>;
+  return (
+    <span className={`badge ${tone}`}>
+      <StateGlyph state={state} />
+      {LABEL[state] ?? state}
+    </span>
+  );
+}
+
+const CIRCLE = 'M8 2.25a5.75 5.75 0 1 0 0 11.5a5.75 5.75 0 1 0 0-11.5';
+const DIAMOND = 'M8 1.75 14.25 8 8 14.25 1.75 8z';
+/**
+ * ADR-0039 §3: every state has a shape of its own, so it reads without its colour (a person who
+ * does not tell red from green, a projector, a grey print). The word stays the accessible text.
+ */
+const SHAPES: Record<string, string> = {
+  queued: CIRCLE,
+  running: 'M8 2.25a5.75 5.75 0 0 1 5.75 5.75',
+  paused: `${CIRCLE}M6.5 5.75v4.5M9.5 5.75v4.5`,
+  // The approval's own shape on the canvas.
+  waiting: `${DIAMOND}M8 5.5v3M8 10.6h.01`,
+  ok: `${CIRCLE}M5.4 8.2l1.8 1.8 3.4-3.7`,
+  failed: `${CIRCLE}M6 6l4 4M10 6l-4 4`,
+  against: `${DIAMOND}M6.4 6.4l3.2 3.2M9.6 6.4l-3.2 3.2`,
+  stopped: `${CIRCLE}M6.25 6.25h3.5v3.5h-3.5z`,
+  lost: 'M8 2.25a5.75 5.75 0 0 1 5.75 5.75M8 13.75A5.75 5.75 0 0 1 2.25 8M8 5.5v3M8 10.6h.01',
+};
+const SHAPE_OF: Record<string, string> = {
+  queued: 'queued',
+  running: 'running',
+  paused: 'paused',
+  waiting: 'waiting',
+  succeeded: 'ok',
+  failed: 'failed',
+  cancelled: 'stopped',
+  lost: 'lost',
+};
+
+/** The shape of a run's state: `against` when its approval was decided against it (AFS-146). */
+export const shapeOf = (state: string, against?: string): string =>
+  state === 'failed' && against && AGAINST[against] ? 'against' : (SHAPE_OF[state] ?? 'queued');
+
+export function StateGlyph({ state, against }: { state: string; against?: string | undefined }) {
+  const shape = shapeOf(state, against);
+  return (
+    <svg
+      className={`state-glyph glyph-${shape}`}
+      data-glyph={shape}
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {shape === 'running' && <path d={CIRCLE} opacity="0.3" />}
+      <path d={SHAPES[shape]} {...(shape === 'queued' ? { strokeDasharray: '2.2 2' } : {})} />
+    </svg>
+  );
+}
+
+/**
+ * ADR-0039 §4: a real run changes the hosts and a check run does not, so they look different
+ * everywhere: a solid badge and a dashed one, not a word among the facts.
+ */
+export function ModeBadge({ mode, long = false }: { mode: string; long?: boolean }) {
+  const real = mode === 'real';
+  const word = real ? 'real' : 'check';
+  return (
+    <span
+      className={`mode-badge ${word}`}
+      data-mode={word}
+      title={
+        real ? 'A real run: it changes the hosts' : 'A check run: nothing on the hosts changes'
+      }
+    >
+      {real && (
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor">
+          <path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z" />
+        </svg>
+      )}
+      {long ? `${word} run` : word}
+    </span>
+  );
 }
 
 /**
@@ -168,7 +258,9 @@ export function RunList({
                   under the run. */}
               <span className="c-facts">
                 {showConfig && <span className="c-fact">{run.config?.name ?? ''}</span>}
-                <span className="c-fact">{run.mode === 'real' ? 'real' : 'check'}</span>
+                <span className="c-fact">
+                  <ModeBadge mode={run.mode} />
+                </span>
                 <span className="c-fact" title={run.requestedBy.login}>
                   {personOf(run.requestedBy)}
                 </span>
@@ -571,7 +663,12 @@ export function RunWords({ state, against }: { state: string; against?: string |
     state === 'failed' && against && AGAINST[against]
       ? [AGAINST[against], 'bad-text']
       : (WORDS[state] ?? [state, 'muted']);
-  return <span className={tone}>{text}</span>;
+  return (
+    <span className={`state ${tone}`} data-state={shapeOf(state, against)}>
+      <StateGlyph state={state} against={against} />
+      {text}
+    </span>
+  );
 }
 const WORDS: Record<string, [string, string]> = {
   queued: ['queued', 'muted'],
@@ -1550,7 +1647,8 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
 
   return (
     <>
-      <header className="run-head">
+      {/* ADR-0039 §4: a real run's head carries a stripe along its top. */}
+      <header className={run.mode === 'real' ? 'run-head real-run' : 'run-head'}>
         <div>
           <Breadcrumb>
             {where ? (
@@ -1588,7 +1686,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           <p>
             <StateBadge state={shownState(run)} against={run.decidedAgainst} />
             {standingNow && ` ${standingNow}`} · started by {by} ·{' '}
-            {run.mode === 'real' ? 'real run' : 'check run'}
+            <ModeBadge mode={run.mode} long />
             {hostCount > 0 && (
               <>
                 {' '}
