@@ -429,27 +429,25 @@ export function Home({ me }: { me: User }) {
           : []),
       ]
     : [];
-  const summary = box && today && (
-    <>
-      {today.runs ? (
-        <>
-          {/* AFS-208: everyone's runs you may see, not only yours. */}
-          {plural(today.runs, 'run', 'runs')} today
-          {shownWorkspace ? ` in ${shownWorkspace.name}` : ''}, by everyone:{' '}
-          {counts.map(([k, c], i) => (
-            <Fragment key={k}>
-              {i ? ', ' : ''}
-              {c}
-            </Fragment>
-          ))}
-          .
-        </>
-      ) : (
-        'No run yet today.'
-      )}{' '}
-      {box.count ? `${plural(box.count, 'thing needs', 'things need')} you.` : 'Nothing needs you.'}
-    </>
-  );
+  // AFS-208: each count is a link to those runs; the totals live in the stat cards right below.
+  const summary =
+    box &&
+    today &&
+    (today.runs ? (
+      <>
+        Today{shownWorkspace ? ` in ${shownWorkspace.name}` : ''}:{' '}
+        {counts.map(([k, c], i) => (
+          <Fragment key={k}>
+            {i ? ' · ' : ''}
+            {c}
+          </Fragment>
+        ))}
+      </>
+    ) : shownWorkspace ? (
+      `No run yet today in ${shownWorkspace.name}.`
+    ) : (
+      'No run yet today.'
+    ));
   // How long a run has waited for this person: a draft or the certificate does not wait so.
   const oldest = needs
     .filter((i) => i.kind === 'approval' || i.kind === 'paused' || i.kind === 'failed')

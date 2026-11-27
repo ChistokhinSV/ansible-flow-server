@@ -245,9 +245,8 @@ function DirectoryForm({
           valueLabel="Directory group"
           help={
             <>
-              A group's name (<code>netops</code>) or its DN, and the server group it puts the
-              person in, or administrator. Other groups are ignored; each sign-in and sync takes
-              back what the directory no longer says.
+              Maps group names (<code>netops</code>) or DNs to a server group or administrator;
+              synced on sign-in and schedule.
             </>
           }
         />
@@ -261,7 +260,8 @@ function TestBox({ id }: { id: string }) {
   const [result, setResult] = useState<DirectoryTest>();
   const [busy, setBusy] = useState(false);
   return (
-    <div className="test-box">
+    <details className="test-box">
+      <summary>Test the directory</summary>
       <Field
         label="Test with a login (optional)"
         value={login}
@@ -309,7 +309,7 @@ function TestBox({ id }: { id: string }) {
           )}
         </div>
       )}
-    </div>
+    </details>
   );
 }
 
@@ -331,10 +331,7 @@ export function DirectoriesSection({ groups }: { groups: Group[] }) {
           </button>
         )}
       </div>
-      <p className="muted">
-        People type their directory login and password in the sign-in form. An account here with a
-        password signs in here; any other login is tried with these directories, in this order.
-      </p>
+      <p className="muted">Tried in order when a login has no local password.</p>
       {error && (
         <p className="notice error" role="alert">
           {error}

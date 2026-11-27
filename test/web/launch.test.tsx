@@ -222,18 +222,21 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     expect(precedes(fold, screen.getByLabelText(/^real run/i))).toBe(true);
     expect(fold.open).toBe(false);
     expect(fold.contains(screen.getByLabelText('Limit'))).toBe(true);
-    // No settings section over the form: one line, with the flow as a link to its page.
+    // No settings section or duplicate statusline over the form: What will run holds the summary and flow link.
     expect(screen.queryByRole('heading', { name: 'Settings' })).toBeNull();
-    const line = document.querySelector('.statusline') as HTMLElement;
-    expect(within(line).getByRole('link', { name: flow.file }).getAttribute('href')).toBe(
+    expect(document.querySelector('.statusline')).toBeNull();
+    const aside = screen
+      .getByRole('heading', { name: 'What will run' })
+      .closest('aside') as HTMLElement;
+    expect(within(aside).getByRole('link', { name: 'Firewall upgrade' }).getAttribute('href')).toBe(
       '/w/net/core/flow/flows/upgrade.flow.yaml',
     );
-    expect(line.textContent).toContain('newest of main');
-    expect(line.textContent).toContain('inventory inventory/hosts.yaml');
-    expect(line.textContent).toContain("the server's default image");
-    expect(line.textContent).toContain('1 credential');
+    expect(aside.textContent).toContain('newest of main');
+    expect(aside.textContent).toContain('inventory/hosts.yaml');
+    expect(aside.textContent).toContain("the server's default");
+    expect(aside.textContent).toContain('k1');
     // AFS-169: whom its runs tell too.
-    expect(line.textContent).toContain('tells ops, when a run fails');
+    expect(aside.textContent).toContain('ops, when a run fails');
     // The tabs are addresses; Change is one of them now.
     const tabs = screen.getByRole('navigation', { name: 'Launch configuration' });
     expect(
@@ -375,11 +378,15 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     page('runs');
     const list = (await screen.findByRole('region', { name: 'Runs' })) as HTMLElement;
     await within(list).findByText('#12');
+    const line = document.querySelector('.statusline') as HTMLElement;
+    expect(within(line).getByRole('link', { name: flow.file }).getAttribute('href')).toBe(
+      '/w/net/core/flow/flows/upgrade.flow.yaml',
+    );
     expect(
       within(list)
         .getAllByRole('link')
         .map((a) => a.getAttribute('href')),
-    ).toEqual(['/runs/r12', '/runs/r10', '/runs']);
+    ).toEqual(['/runs/r12', '/runs/r10']);
     // The server filters: nothing says the list is a part of something.
     expect(within(list).queryByText(/Looks among/)).toBeNull();
     expect(within(list).queryByRole('button', { name: 'Older runs' })).toBeNull();
@@ -446,7 +453,7 @@ describe("a launch configuration's tabs (AFS-85)", () => {
     };
     vi.stubGlobal('confirm', () => true);
     window.history.replaceState(null, '', '/w/net/core/launch/c1/settings');
-    page('settings');
+    const view = page('settings');
     const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
     expect(name.value).toBe('Nightly check');
     expect(screen.queryByRole('button', { name: LAUNCH })).toBeNull();
@@ -462,14 +469,41 @@ describe("a launch configuration's tabs (AFS-85)", () => {
       inventory: 'inventory/lab.yaml',
       credentials: ['k1'],
     });
-    // It stays on the tab, and the line under the title follows.
+    // It stays on the tab and shows the new inventory (and in the statusline on Runs).
     expect(window.location.pathname).toBe('/w/net/core/launch/c1/settings');
+    expect(document.querySelector('.statusline')).toBeNull();
     await waitFor(() =>
-      expect(document.querySelector('.statusline')?.textContent).toContain('inventory/lab.yaml'),
+      expect(asked.filter((a) => a.key === 'GET /launch-configs/c1').length).toBeGreaterThan(1),
+    );
+    expect((screen.getByLabelText(/^Inventory/) as HTMLInputElement).value).toBe(
+      'inventory/lab.yaml',
     );
     // Typing again takes the word back.
     fireEvent.change(name, { target: { value: 'Nightly' } });
     expect(screen.queryByRole('status')).toBeNull();
+
+    // Switching to Runs shows the reloaded inventory in the statusline, then back to Settings.
+    routes[RUNS] = () => ({ body: [] });
+    view.rerender(
+      <LaunchConfigPage
+        me={dana as unknown as User}
+        workspace="net"
+        project="core"
+        id="c1"
+        tab="runs"
+      />,
+    );
+    expect(document.querySelector('.statusline')?.textContent).toContain('inventory/lab.yaml');
+    view.rerender(
+      <LaunchConfigPage
+        me={dana as unknown as User}
+        workspace="net"
+        project="core"
+        id="c1"
+        tab="settings"
+      />,
+    );
+    await screen.findByLabelText('Name');
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete this launch configuration' }));
     await waitFor(() => expect(window.location.pathname).toBe('/w/net/core'));

@@ -43,18 +43,14 @@ export function LibraryPage({ admin = false }: { admin?: boolean }) {
   const subflows = listed.data?.subflows ?? [];
   return (
     <>
-      <PageHead
-        help="web-pages.md#flow-library"
-        title="Library"
-        lead="Subflows that library projects offer to every project. A flow takes a copy, pinned to the library flow's version."
-      />
+      <PageHead help="web-pages.md#flow-library" title="Library" />
       <Loading state={listed} />
       {listed.data && !subflows.length && (
         <p className="empty">
           {/* AFS-194: how to make one is said to who can (an administrator), not to everyone. */}
           {admin
-            ? "No library yet. Make a project a library on its Settings tab (Library, Make it a library); its flows' subflows are then offered here, to every project."
-            : "No library yet, or none you may read. An administrator can make a project a library; its flows' subflows are then offered here."}
+            ? 'No library yet. Mark a project as a library on its Settings tab to offer its subflows here.'
+            : 'No library yet, or none you may read.'}
         </p>
       )}
       {byProject(subflows).map(([project, list]) => {
@@ -80,11 +76,6 @@ export function LibraryPage({ admin = false }: { admin?: boolean }) {
           </section>
         );
       })}
-      <p className="muted">
-        In a flow, <strong>Insert Shared Subflow…</strong> on the canvas (while editing it in the
-        pages, or in VS Code with this server set) offers these. The copy stays in the flow; a newer
-        version offers an update.
-      </p>
     </>
   );
 }
@@ -119,6 +110,15 @@ export function LibraryCopies({
   const [said, setSaid] = useState<string>();
   if (!copies.length) return null;
   const offered = new Map((library.data ?? []).map((s) => [s.from, s]));
+  const allCurrent =
+    !library.loading &&
+    copies.every((c) => {
+      const ref = c.ref;
+      if (!ref) return false;
+      const now = offered.get(ref.from);
+      return !!now && now.version <= ref.version;
+    });
+  if (!editing && !said && (library.loading || allCurrent)) return null;
   const update = async (copy: FlowNodeLike) => {
     if (!editing || !copy.ref) return;
     setBusy(copy.id);
@@ -259,8 +259,7 @@ export function InsertFromLibrary({
         <p className="muted small">
           {listed.data.subflows.length
             ? 'Nothing matches.'
-            : // AFS-114: how a library comes to be, where the person looks for one.
-              "No library subflow you may read yet. A library is a project whose flows' subflows are offered to every project: an administrator turns it on in the project's Settings (Library), and each subflow of its flows is offered here."}
+            : 'No library subflow yet. Mark a project as a library in its Settings to offer its subflows here.'}
         </p>
       )}
       <ul className="rows">

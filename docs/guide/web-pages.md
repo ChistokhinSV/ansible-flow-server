@@ -32,9 +32,9 @@ account at its end:
 
 Someone who may only run actions has Actions only. **Help**
 (`/help`) lists this guide's pages and the API reference, and most pages link the guide page
-about them with **Help** beside their title. A flow's page and a run's page, whose heads keep to
-one line so the canvas gets the room, have it as a **?** button among their buttons. A flow's
-opens [The flow editor](flow-editor.md). Their breadcrumbs end at the project (or the launch
+about them with **Help** beside their title. A flow's page, a run's page and the API reference,
+whose heads keep to one line so the canvas or reference gets the room, have it as a **?** button
+among their buttons. A flow's opens [The flow editor](flow-editor.md). Their breadcrumbs end at the project (or the launch
 configuration), since the title under them names the flow or the run. The server shows this guide itself, as it was for its
 version, at `/help/guide/<page>`: it needs no internet. A link in it that leaves the server says
 where it goes (GitHub). A page that is not there, or not shared with you (a workspace, a project, a
@@ -50,7 +50,7 @@ never opens the browser's Save dialog.
 
 | Page                                              | Shows                                                                                                                                                                                                                                                              |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/`                                               | Home, the inbox: the day in a sentence and four numbers; **Needs you**, from every workspace you may see, each with its workspace and what you may do there; **Running now**, **Launch again** and the latest runs (below)                                         |
+| `/`                                               | Home, the inbox: four numbers for the day (and links to today's runs by state); **Needs you**, from every workspace you may see, each with its workspace and what you may do there; **Running now**, **Launch again** and the latest runs (below)                  |
 | `/workspaces`                                     | The workspaces; administrators add one                                                                                                                                                                                                                             |
 | `/w/<workspace>`                                  | A workspace in tabs. **Projects**: its projects; administrators add one, kept by the server or external (with what it signs in with)                                                                                                                               |
 | `/w/<workspace>/-/environments`                   | **Execution environments** of the workspace                                                                                                                                                                                                                        |
@@ -87,7 +87,7 @@ never opens the browser's Save dialog.
   there only).
 - **Home** is an inbox. It spans every workspace you may see (the menu's workspace does not
   narrow it); **Workspace** at the top narrows it to one, kept in the address (`/?workspace=<key>`).
-  - The day in a sentence (each count a link to those runs) and four numbers: runs today (real
+  - Four numbers (and links to today's runs by state): runs today (real
     and check), how many went well in the last 7 days, how many things need you (and how long the
     oldest has waited), and the server's runners (busy of how many at once, and how many queued).
   - **Needs you**, an approval you may decide first, then your runs, then the rest; each names its
@@ -391,9 +391,9 @@ every project on the server, to people who may read the library's workspace (`ro
   over the canvas (in full screen too; Escape closes it): the subflow picked is copied into the draft, pinned to the library flow's version and commit
   (`ref.from: afs://<workspace>/<project>/<file>#<subflow>`). In VS Code, with this server set
   (`afd.runner.url`), the designer lists the library too.
-- The copy lives in the flow: runs read nothing from the library. A flow's page lists its library
-  copies, a line each above the canvas (**From the library:**): up to date, behind (the library has a newer version; **Update**
-  while the draft is edited copies it again), or no longer offered. The flow's problems on the canvas say the
+- The copy lives in the flow: runs read nothing from the library. A flow's page shows its library
+  copies above the canvas while the draft is edited or when a copy is behind or no longer offered
+  (**From the library:**; **Update** while the draft is edited copies it again). The flow's problems on the canvas say the
   same.
 - A library flow's version is its `flow.version`: raise it when its subflows change, so the flows
   that copy them see an update.

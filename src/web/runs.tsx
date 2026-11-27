@@ -572,7 +572,7 @@ export function RunsPage({ me }: { me: User }) {
 
   return (
     <>
-      <PageHead help="runs.md" title="Runs" lead="Every run you may see, the newest first." />
+      <PageHead help="runs.md" title="Runs" />
       {nowhere && actionRuns && (
         <p className="empty">
           The runs you started of an action are on <Link to="/actions">Actions</Link>: each action's
@@ -1569,9 +1569,9 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
           <dt>Ended</dt>
           <dd>{going ? 'not yet' : <Time at={run.endedAt} />}</dd>
           <dt>Number</dt>
-          <dd>{run.number}, counted over the project's runs</dd>
+          <dd>{run.number}</dd>
           <dt>Mode</dt>
-          <dd>{run.mode === 'real' ? 'real' : 'check (nothing changed)'}</dd>
+          <dd>{run.mode}</dd>
           <dt>Hosts</dt>
           <dd>
             {run.targets.join(', ') || 'none'}
@@ -1627,7 +1627,7 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
             ))}
           </dl>
         ) : (
-          <p className="muted small">The flow took no inputs.</p>
+          <p className="muted small">None.</p>
         )}
       </section>
     </div>

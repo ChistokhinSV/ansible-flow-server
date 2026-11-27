@@ -586,17 +586,32 @@ export function Fold({
   children,
   open,
   onToggle,
+  fields,
 }: {
   summary: string;
   children: ReactNode;
   open?: boolean;
   onToggle?(open: boolean): void;
+  /** AFS-140: field names inside the fold; a refusal on one opens it and keeps it open. */
+  fields?: readonly string[];
 }) {
+  const { problem } = useContext(FormProblems);
+  const [unfolded, setUnfolded] = useState(false);
+  const hasProblem = !!(problem?.field && fields?.includes(problem.field));
+  useEffect(() => {
+    if (hasProblem) setUnfolded(true);
+  }, [hasProblem]);
+  const controlled = open !== undefined || fields !== undefined;
+  const shown = open !== undefined ? open || hasProblem : unfolded || hasProblem;
   return (
     <details
       className="fold"
-      open={open}
-      onToggle={onToggle ? (e) => onToggle((e.target as HTMLDetailsElement).open) : undefined}
+      {...(controlled ? { open: shown } : {})}
+      onToggle={(e) => {
+        const next = (e.target as HTMLDetailsElement).open;
+        if (fields !== undefined) setUnfolded(next);
+        onToggle?.(next);
+      }}
     >
       <summary>{summary}</summary>
       <div className="fold-body">{children}</div>

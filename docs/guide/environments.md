@@ -69,8 +69,11 @@ until another is picked.
 environment's image holds: the collections its steps run (a module or role named by its full name;
 a step chosen from the designer's module catalog asks for at least the version it was made against)
 and the project's `collections/requirements.yml`, which wins. Each collection is in the image at a
-fitting version, at another, or missing. **Make an environment for this flow** adds one whose spec
-is exactly those needs and builds it. In a spec, the collections are a table of names and versions; **Add a collection** searches
+fitting version, at another, or missing. When every row is plain (every collection is in the image,
+or no environment is named, with no version conflict or warning), the table is folded under
+**Collections (N)**; when a collection is missing, at another version or in conflict, the table stays
+open, and **Make an environment for this flow** adds one whose spec is those needs and builds it.
+On an environment's own page, **Collections in the image** folds when there are more than six. In a spec, the collections are a table of names and versions; **Add a collection** searches
 `AFS_GALAXY_URL` (collections already in the spec are not offered; one removed is offered again),
 and **Add an empty row** is for typing a name and version (also when the collection server cannot
 be reached). The base image and extra certificate authorities are folded under the packages.

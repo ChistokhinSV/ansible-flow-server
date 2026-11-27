@@ -322,3 +322,36 @@ describe('the Server page', () => {
     expect(await screen.findByRole('heading', { name: 'For administrators' })).toBeTruthy();
   });
 });
+
+describe('Event streaming form fold', () => {
+  it('opens More options when a save fails on a field inside it', async () => {
+    routes = {
+      ...as(dana),
+      'GET /admin/streams': () => ({ body: [] }),
+      'POST /admin/streams': () => ({
+        status: 422,
+        body: {
+          error: 'invalid',
+          message: 'Most rows waiting must be at least 100',
+          field: 'maxBacklog',
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/admin/streams');
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a destination' }));
+    const backlog = screen.getByLabelText('Most rows waiting');
+    const fold = backlog.closest('details') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'SIEM' } });
+    fireEvent.change(screen.getByLabelText('Receiver'), {
+      target: { value: 'siem.example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add the destination' }));
+    expect(await screen.findByText('Most rows waiting must be at least 100')).toBeTruthy();
+    expect(fold.open).toBe(true);
+    // Editing the field clears the refusal without closing the fold.
+    fireEvent.change(backlog, { target: { value: '500' } });
+    expect(fold.open).toBe(true);
+  });
+});

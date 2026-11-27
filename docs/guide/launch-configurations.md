@@ -116,15 +116,15 @@ shows its settings and the launch form:
   configuration's values.
 - **What will run**, beside the form on a wide screen and under it on a narrow one, kept current as
   the form changes:
-  - the flow and its version, and the commit;
+  - the flow (linked to its page) and its version, and the commit;
   - the steps a run goes through when everything goes well, up to an end or to a step where the
     way branches ("Pre-checks › Backup › Change approval › Upgrade");
   - the hosts the targets match as the inventory says now (why none would run is said at the
     targets' field);
-  - the image and the credentials;
+  - the inventory, the image (or environment) and the credentials;
   - the approvals ahead: each waits for a decision in a real run, with its approvers; a check run
     passes them by itself;
-  - the configuration's last run.
+  - whom its runs tell, and the configuration's last run.
 - Secret-looking inputs are typed hidden and never kept.
 - Under each input, one line says where it goes: the steps that read it, its default, and what it
   wins over. A flow input reaches the run as an extra var, so it beats a step input of the same
@@ -150,8 +150,9 @@ shows its settings and the launch form:
   the names the inventory does not have, and production-looking groups and hosts. Under a host
   list, the inventory's groups are buttons that add or take out a group, each with its number of
   hosts.
-- **The header** names the inventory, the environment (with its image, or why it has none), the
-  limit, the credentials, and whom its runs tell.
+- **On Runs and Schedules** (and before the launch form loads), one line under the title names the
+  flow, branch or commit, inventory, environment or image, limit, credentials and whom its runs
+  tell; on **Launch** those sit in **What will run**, and on **Settings** in the form itself.
 
 **The hosts, as the inventory has them** (`facts`): the server reads the inventory in the
 launch's image, at the launch's commit, with the configuration's environment-variable

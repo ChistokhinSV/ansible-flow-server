@@ -12,15 +12,11 @@ const GROUPS = ['Getting started', 'Running flows', 'For administrators', 'Progr
 export function HelpPage() {
   return (
     <>
-      <PageHead
-        title="Help"
-        lead={
-          <>
-            The <Link to={guide()}>user guide</Link> of this server's version explains every page;
-            the pages link their part of it with <strong>Help</strong> beside the title.
-          </>
-        }
-      />
+      <PageHead title="Help">
+        <Link className="button" to={guide()}>
+          User guide
+        </Link>
+      </PageHead>
       {GUIDE_PAGES.map((pages, i) => (
         <section className="panel" key={GROUPS[i]} aria-labelledby={`help-${i}`}>
           <h2 id={`help-${i}`}>{GROUPS[i]}</h2>

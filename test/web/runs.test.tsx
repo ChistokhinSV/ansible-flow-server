@@ -517,7 +517,9 @@ describe('a run', () => {
     expect(
       (await within(facts).findByRole('link', { name: 'net-tools' })).getAttribute('href'),
     ).toBe('/w/netops/environments/e1');
-    expect(facts.textContent).toContain("counted over the project's runs");
+    expect(screen.getByRole('heading', { level: 1 }).getAttribute('title')).toBe(
+      "Run 7 of the project's runs",
+    );
     // Went well, and still not plainly: the target the inventory lacks is counted in the head,
     // named on hover there (AFS-277: not in a block of its own) and in What ran.
     const skipped = document.querySelector('.run-head [data-skipped-targets]') as HTMLElement;

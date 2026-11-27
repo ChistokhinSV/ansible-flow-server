@@ -9,7 +9,6 @@ import {
   ProjectYourAccess,
   useProjectAccess,
   WorkspaceAccess,
-  YourAccess,
 } from './access';
 import {
   api,
@@ -34,6 +33,7 @@ import {
   Breadcrumb,
   Copyable,
   Field,
+  Fold,
   Form,
   Labelled,
   Loading,
@@ -55,11 +55,7 @@ export function Workspaces({ me }: { me: User }) {
   const [input, setInput] = useState({ key: '', name: '' });
   return (
     <>
-      <PageHead
-        help="workspaces-and-projects.md"
-        title="Workspaces"
-        lead="A workspace is a team's space: its projects live in it."
-      >
+      <PageHead help="workspaces-and-projects.md" title="Workspaces">
         {me.admin && !adding && (
           <button type="button" className="primary" onClick={() => setAdding(true)}>
             Add workspace
@@ -97,7 +93,7 @@ export function Workspaces({ me }: { me: User }) {
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
               title="Lower-case letters, digits and dashes, not starting or ending with a dash"
-              hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
+              hint="Used in addresses; made from the name."
             />
           </Form>
         </section>
@@ -431,14 +427,7 @@ export function Workspace({
       <PageHead
         help={WORKSPACE_HELP[tab]}
         title={space.data?.name ?? workspace}
-        lead={
-          space.data && (
-            <>
-              {space.data.description && <>{space.data.description} · </>}
-              <YourAccess level={me.admin ? 'admin' : space.data.level} />
-            </>
-          )
-        }
+        lead={space.data?.description}
       >
         {/* AFS-94: the head's action is the tab's own: the other tabs have theirs. */}
         {me.admin && space.data && !adding && tab === '' && (
@@ -530,7 +519,7 @@ export function Workspace({
               required
               pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
               title="Lower-case letters, digits and dashes, not starting or ending with a dash"
-              hint="Used in addresses: lower-case letters, digits and dashes. Made from the name until you change it."
+              hint="Used in addresses; made from the name."
             />
             <fieldset>
               <legend>Repository</legend>
@@ -615,9 +604,7 @@ export function Workspace({
           </ul>
           {/* AFS-192: who has no Add project learns who adds one. */}
           {!me.admin && space.data && (
-            <p className="muted">
-              Projects are added by administrators of the server: ask one for a new project.
-            </p>
+            <p className="muted small">Projects are added by administrators of the server.</p>
           )}
         </>
       )}
@@ -647,7 +634,7 @@ export function Workspace({
             what="workspace"
             name={space.data.name}
             keyword={space.data.key}
-            goes=" with its credentials and grants. A workspace that still has projects or execution environments is not deleted: delete them first"
+            goes=" with its credentials and grants (delete its projects and environments first)"
             remove={() => api.deleteWorkspace(space.data?.id ?? workspace)}
             to="/workspaces"
           />
@@ -1066,12 +1053,11 @@ export function ProjectDetails({
           setDescription(e.target.value);
         }}
         maxLength={1000}
-        hint="What the project is for, in a line."
       />
       <Labelled
         label="Branch"
         name="gitRef"
-        hint="The branch whose commits run: flows, launch configurations and schedules that name no other."
+        hint="Default branch for flows, launches and schedules."
       >
         {(props) => (
           <select
@@ -1370,10 +1356,7 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
   return (
     <section className="panel" aria-labelledby="push-hook">
       <h2 id="push-hook">Push hook</h2>
-      <p className="muted">
-        The git host calls it when someone pushes, and the server looks at the source at once
-        instead of waiting for its timer.
-      </p>
+      <p className="muted">Notifies this server on git push so it syncs immediately.</p>
       {error && (
         <p className="notice error" role="alert">
           {error}
@@ -1401,20 +1384,22 @@ function PushHook({ project, onChanged }: { project: Project; onChanged(): void 
               <Copyable text={made.token} label="the hook's token" />
             </dd>
           </dl>
-          <ul>
-            <li>
-              <strong>GitHub:</strong> Settings, Webhooks, Add webhook: the address as Payload URL,
-              content type <code>application/json</code>, the token as Secret, just the push event.
-            </li>
-            <li>
-              <strong>GitLab:</strong> Settings, Webhooks: the address as URL, the token as Secret
-              token, Push events.
-            </li>
-            <li>
-              <strong>Gitea, Forgejo, others:</strong> the address, and the token in an{' '}
-              <code>Authorization: Bearer</code> or <code>X-AFS-Token</code> header.
-            </li>
-          </ul>
+          <details>
+            <summary>GitHub, GitLab and Gitea setup</summary>
+            <ul>
+              <li>
+                <strong>GitHub:</strong> Settings › Webhooks › Add webhook — Payload URL, content
+                type <code>application/json</code>, the token as Secret, push event.
+              </li>
+              <li>
+                <strong>GitLab:</strong> Settings › Webhooks — URL, Secret token, Push events.
+              </li>
+              <li>
+                <strong>Gitea / Forgejo:</strong> URL with <code>Authorization: Bearer</code> or{' '}
+                <code>X-AFS-Token</code> header.
+              </li>
+            </ul>
+          </details>
         </div>
       )}
       <div className="actions">
@@ -1594,7 +1579,6 @@ export function ProjectPage({
       // AFS-143, AFS-152: what was looked for, with a way back to a page the person can open.
       <MissingProject workspace={workspace} project={key} error={found.error} />
     );
-  const address = `${window.location.origin}${project.gitPath}`;
   const mayPush = me.admin || access?.workspace === 'rw';
   const mayReadFiles = me.admin || atLeast(access?.workspace ?? null, 'ro');
   const base = `/w/${workspace}/${key}`;
@@ -1638,29 +1622,26 @@ export function ProjectPage({
       )}
     </section>
   );
+  const flowExceptions =
+    !!access &&
+    !access.admin &&
+    !flowOnly &&
+    Object.values(access.flows).some((l) => l !== access.workspace);
+  const projectLead =
+    project.description || flowOnly || flowExceptions ? (
+      <>
+        {project.description}
+        {project.description && (flowOnly || flowExceptions) ? ' · ' : ''}
+        {flowOnly ? seeFlows(Object.keys(access?.flows ?? {}).length) : null}
+        {flowExceptions && access ? (
+          <ProjectYourAccess access={access} flows={flows.data?.flows} />
+        ) : null}
+      </>
+    ) : undefined;
   return (
     <>
       {crumbs}
-      <PageHead
-        help="workspaces-and-projects.md"
-        title={project.name}
-        lead={
-          <>
-            {project.description && <>{project.description} · </>}
-            {flowOnly
-              ? seeFlows(Object.keys(access?.flows ?? {}).length)
-              : project.hosted
-                ? 'Kept by this server'
-                : `Mirror of ${project.gitUrl}`}
-            {access && (
-              <>
-                {' · '}
-                <ProjectYourAccess access={access} flows={flows.data?.flows} />
-              </>
-            )}
-          </>
-        }
-      >
+      <PageHead help="workspaces-and-projects.md" title={project.name} lead={projectLead}>
         {mayPush && !project.hosted && (
           <button type="button" onClick={look} disabled={looking}>
             {looking ? 'Looking…' : 'Look at the source now'}
@@ -1708,12 +1689,10 @@ export function ProjectPage({
           {/* AFS-171: a mirror with no commit has no Files tab and no New flow: why, and what to do. */}
           {!project.hosted && !project.commit && (
             <p className="notice" role="status">
-              <strong>No files or flows yet.</strong> This project mirrors{' '}
-              <code>{project.gitUrl}</code>: its files come from there and are added there, not
-              here.{' '}
+              <strong>No files or flows yet.</strong>{' '}
               {project.sync.state === 'error'
-                ? 'The server cannot read it yet (the reason is above).'
-                : 'The server has no commit of it yet.'}{' '}
+                ? 'The server cannot read the mirror yet (see above).'
+                : `No commit fetched from ${project.gitUrl} yet.`}{' '}
               If the repository is empty, push a first commit to <code>{project.gitRef}</code> with
               git; the server looks again by itself
               {mayPush ? (
@@ -1752,11 +1731,9 @@ export function ProjectPage({
               <p className="muted">
                 {project.commit
                   ? mayPush
-                    ? 'No flow yet: make a New flow and start it from a playbook of the project, a sample or an AWX template.'
-                    : 'No flow in this project: a flow is a file named *.flow.yaml.'
-                  : project.hosted && mayPush
-                    ? 'Nothing yet: the project has no commit. Add your playbooks in Files, then make a New flow and start it from one; or start the project from a sample or an archive.'
-                    : 'Nothing yet: the project has no commit.'}
+                    ? 'No flow yet — use New flow to start from a playbook, sample or AWX template.'
+                    : 'No flows (*.flow.yaml) in this project.'
+                  : 'No commits yet.'}
               </p>
             )}
             <ul className="rows">
@@ -1830,46 +1807,48 @@ export function ProjectPage({
             />
           )}
 
-          <section className="panel" aria-labelledby="pushes">
-            <h2 id="pushes">Pushes through this server</h2>
-            <Loading state={pushes} />
-            {pushes.data?.length === 0 && <p className="muted">None yet.</p>}
-            {!!pushes.data?.length && (
-              <Scroll>
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">When</th>
-                      <th scope="col">Who</th>
-                      <th scope="col">How</th>
-                      <th scope="col">Branch</th>
-                      <th scope="col">Change</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pushes.data.map((p) => (
-                      <tr key={p.id}>
-                        <td>
-                          <Time at={p.at} />
-                        </td>
-                        {/* AFS-149: names, as the commits have them; the login says who exactly. */}
-                        <td title={p.login}>{p.name ?? p.login}</td>
-                        <td>{PUSH_KIND[p.kind ?? ''] ?? 'push'}</td>
-                        <td>
-                          <code>{p.ref}</code>
-                        </td>
-                        <td>
-                          <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
-                          <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
-                          {p.message ? <span className="muted"> {p.message}</span> : null}
-                        </td>
+          {!!pushes.data?.length && (
+            <section className="panel" aria-label="Pushes through this server">
+              <Fold
+                summary={`Pushes through this server (${pushes.data.length})`}
+                open={pushes.data.length <= 5 ? true : undefined}
+              >
+                <Scroll>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">When</th>
+                        <th scope="col">Who</th>
+                        <th scope="col">How</th>
+                        <th scope="col">Branch</th>
+                        <th scope="col">Change</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Scroll>
-            )}
-          </section>
+                    </thead>
+                    <tbody>
+                      {pushes.data.map((p) => (
+                        <tr key={p.id}>
+                          <td>
+                            <Time at={p.at} />
+                          </td>
+                          {/* AFS-149: names, as the commits have them; the login says who exactly. */}
+                          <td title={p.login}>{p.name ?? p.login}</td>
+                          <td>{PUSH_KIND[p.kind ?? ''] ?? 'push'}</td>
+                          <td>
+                            <code>{p.ref}</code>
+                          </td>
+                          <td>
+                            <code>{p.from?.slice(0, 8) ?? 'new'}</code> →{' '}
+                            <code>{p.to?.slice(0, 8) ?? 'deleted'}</code>
+                            {p.message ? <span className="muted"> {p.message}</span> : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Scroll>
+              </Fold>
+            </section>
+          )}
         </>
       )}
 
@@ -1917,8 +1896,8 @@ export function ProjectPage({
             <h2 id="library">Library</h2>
             <p>
               {project.library
-                ? "Its flows' subflows are offered to every project (the Library page)."
-                : 'Not a library: its subflows are offered to no other project.'}
+                ? 'Subflows of this project are shared in the Library.'
+                : 'Not a library.'}
             </p>
             {me.admin && (
               <button
@@ -1935,7 +1914,7 @@ export function ProjectPage({
               what="project"
               name={project.name}
               keyword={project.key}
-              goes=" with its launch configurations, their schedules, its run history and the server's copy of its repository (an external source stays as it is). A project with a run going is not deleted: stop the run first"
+              goes=" with its configurations, schedules and run history (an external source stays)"
               remove={() => api.deleteProject(project.id)}
               to={`/w/${workspace}`}
             />
@@ -1968,12 +1947,10 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
   // link around everything.
   return (
     <div className="row">
-      <Link to={to} className="row-main">
+      <Link to={to} className="row-main" title={flow.file}>
         <strong>{flow.name ?? flow.key ?? flow.file}</strong>
         <span className="muted">
-          {' '}
-          · {flow.file}
-          {flow.version !== undefined && ` · version ${flow.version}`} · {flow.steps ?? 0}{' '}
+          {flow.version !== undefined ? ` · version ${flow.version}` : ''} · {flow.steps ?? 0}{' '}
           {flow.steps === 1 ? 'step' : 'steps'}
         </span>
       </Link>
@@ -1998,9 +1975,6 @@ function FlowRow({ flow, to }: { flow: FlowSummary; to: string }) {
           <span className="badge" title="Open it and choose Edit to add steps">
             no steps yet
           </span>
-        )}
-        {flow.errors === 0 && flow.warnings === 0 && flow.steps !== 0 && (
-          <span className="badge ok">no findings</span>
         )}
       </span>
     </div>

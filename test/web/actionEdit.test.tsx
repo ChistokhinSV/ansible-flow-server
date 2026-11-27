@@ -125,9 +125,10 @@ describe("an action's own page", () => {
     expect(document.body.textContent).toContain('wait_s = 30');
     expect(document.body.textContent).toContain("(secret, the configuration's)");
     expect(screen.getByRole('heading', { name: 'Who may run it' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Links from NetBox and Zabbix' })).toBeTruthy();
+    expect(screen.getByText('Links from NetBox and Zabbix')).toBeTruthy();
 
-    // The link with values: the empty ones are left for the person; it says what they see.
+    // The link with values: open its disclosure; empty ones are left for the person.
+    fireEvent.click(screen.getByText('A link with values'));
     expect(await screen.findByText(/The short form, asking only for Switch, Why/)).toBeTruthy();
     fireEvent.change(screen.getByRole('combobox', { name: 'Switch' }), {
       target: { value: 'sw-edge-02' },
@@ -157,6 +158,7 @@ describe("an action's own page", () => {
     };
     window.history.replaceState(null, '', '/actions/c1/edit');
     render(<App />);
+    fireEvent.click(await screen.findByText('A link with values'));
     fireEvent.change(await screen.findByRole('textbox', { name: 'Why' }), {
       target: { value: 'x' },
     });
@@ -261,7 +263,7 @@ describe("a launch configuration's Settings", () => {
   it('keep one line that leads to the action', async () => {
     routes = { 'GET /launch-configs/c1/action': () => ({ body: { action, mayManage: true } }) };
     render(<ConfigActionLine config="c1" />);
-    const to = await screen.findByRole('link', { name: 'its own page' });
+    const to = await screen.findByRole('link', { name: 'Action settings' });
     expect(to.getAttribute('href')).toBe('/actions/c1/edit');
     expect(screen.queryByRole('button', { name: 'Change the action' })).toBeNull();
   });

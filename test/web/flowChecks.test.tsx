@@ -190,4 +190,52 @@ describe('what a flow needs', () => {
       await within(spec).findByText(/Type the collection's name and version instead/),
     ).toBeTruthy();
   });
+
+  it('folds plain collection rows, and keeps rows with a conflict open even without an environment', async () => {
+    let conflict: string | undefined = 'Step asks >=12.0.0, requirements.yml pins 11.7.0';
+    const { environment: _env, ...noEnvConfig } = config;
+    routes = {
+      'GET /session': () => ({ body: rita }),
+      'GET /workspaces/net/projects': () => ({ body: [project] }),
+      'GET /projects/p1/branches': () => ({ body: { branches: ['main'] } }),
+      'GET /launch-configs/c1': () => ({ body: noEnvConfig }),
+      'GET /launch-configs/c1/form?': () => ({ body: form }),
+      'GET /launch-configs/c1/schedules': () => ({ body: [] }),
+      'GET /launch-configs/c1/environment-check': () => ({
+        body: {
+          flow: check.flow,
+          commit: COMMIT,
+          requirementsFile: true,
+          ok: !conflict,
+          lines: [
+            {
+              name: 'cisco.ios',
+              wants: '11.7.0',
+              from: 'both',
+              nodes: ['facts'],
+              ok: !conflict,
+              ...(conflict ? { conflict } : {}),
+            },
+          ],
+        },
+      }),
+    };
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const needs = (await screen.findByRole('heading', { name: 'What the flow needs' })).closest(
+      'section',
+    ) as HTMLElement;
+    const msg = await within(needs).findByText(/Step asks >=12\.0\.0/);
+    expect(msg.closest('details')).toBeNull();
+
+    cleanup();
+    conflict = undefined;
+    window.history.replaceState(null, '', '/w/net/core/launch/c1');
+    render(<App />);
+    const plain = (await screen.findByRole('heading', { name: 'What the flow needs' })).closest(
+      'section',
+    ) as HTMLElement;
+    const cell = await within(plain).findByText('cisco.ios');
+    expect((cell.closest('details') as HTMLDetailsElement | null)?.open).toBe(false);
+  });
 });

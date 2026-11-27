@@ -144,8 +144,7 @@ export function StartFrom({
               </ul>
             ) : (
               <p className="muted small">
-                The project's repository has no playbook yet. Push playbooks (with their roles) to
-                it, then import one here: each task becomes a step.
+                The repository has no playbook yet. Push playbooks to import one here.
               </p>
             )}
           </>
@@ -172,9 +171,8 @@ export function StartFrom({
               </div>
             ) : (
               <p className="muted small">
-                The workspace has no AWX credential. An administrator adds one under the workspace's
-                Credentials: kind "AWX token", with the AWX address and a token that may read its
-                templates.
+                This workspace has no AWX credential. An administrator can add an AWX token under
+                Credentials.
               </p>
             )}
             {credential && <Loading state={templates} />}

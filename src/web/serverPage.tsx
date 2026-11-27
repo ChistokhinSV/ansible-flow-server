@@ -96,10 +96,7 @@ export function ServerPage() {
   ];
   return (
     <>
-      <PageHead
-        title="Server"
-        lead="The parts of this server you look after, how each stands now, and where to change it."
-      />
+      <PageHead title="Server" />
       <div className="ledger">
         <div className="ledger-head">
           <h2>Parts of the server</h2>

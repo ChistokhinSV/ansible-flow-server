@@ -639,9 +639,7 @@ function CredentialForm({
             );
           })}
       {replace && storedHere && (
-        <p className="muted">
-          Kept encrypted on the server; nobody can read it back, here or over the API.
-        </p>
+        <p className="muted">Kept encrypted on the server; never shown again.</p>
       )}
       {spec.fields.includes('method') && (
         <datalist id={becomeList}>
@@ -708,10 +706,6 @@ export function WorkspaceCredentials({ workspace, admin }: { workspace: string; 
           </button>
         )}
       </div>
-      <p className="muted">
-        What runs sign in to machines and registries with, and what a project signs in to its
-        repository with. Their secrets never leave the server.
-      </p>
       {open === 'new' && (
         <CredentialForm workspace={workspace} onDone={done} onCancel={() => setOpen(undefined)} />
       )}

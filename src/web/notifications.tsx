@@ -333,11 +333,6 @@ function Settings({
           Messages carry no links: set AFS_PUBLIC_URL to the address people open the server at.
         </p>
       )}
-      <p className="muted">
-        People are told at the email address and webhook of their account. Everyone sets their own
-        email address on My account; an administrator sets webhooks. A group without either is told
-        through its members.
-      </p>
       <div className="columns">
         <section className="panel" aria-labelledby="mail">
           <h2 id="mail">Email</h2>
@@ -416,11 +411,7 @@ export function NotificationsPage({ tab }: { tab: 'log' | 'settings' }) {
   const s = settings.data;
   return (
     <>
-      <PageHead
-        help="notifications.md"
-        title="Notifications"
-        lead="What the server told people, and how it sends: approvals that wait and how they were decided, runs that fail or end, the server certificate nearing its end."
-      />
+      <PageHead help="notifications.md" title="Notifications" />
       <Tabs
         label="Notifications"
         base={BASE}

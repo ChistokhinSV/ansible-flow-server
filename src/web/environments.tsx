@@ -65,8 +65,7 @@ function DefaultImage({ now, admin }: { now: ServerDefault; admin: boolean }) {
   const env = now.environment;
   return (
     <p className="muted" data-server-default>
-      The server's default image, for launch configurations without an environment:{' '}
-      <code className="wrap">{now.image}</code>
+      Default image: <code className="wrap">{now.image}</code>
       {env ? (
         <>
           {' '}
@@ -82,7 +81,7 @@ function DefaultImage({ now, admin }: { now: ServerDefault; admin: boolean }) {
         <>
           {' '}
           (AFS_EE_IMAGE).
-          {admin ? " To use one of these instead, open it and make it the server's default." : ''}
+          {admin ? " Open an environment to make it the server's default." : ''}
         </>
       )}
     </p>
@@ -115,10 +114,6 @@ export function WorkspaceEnvironments({
           </button>
         )}
       </div>
-      <p className="muted">
-        The images runs happen in: built here from a list of collections and packages, or an image
-        that exists already. A launch configuration chooses one.
-      </p>
       {serverImage.data && <DefaultImage now={serverImage.data} admin={admin} />}
       {adding && (
         <Form
@@ -668,14 +663,14 @@ function BuildStatus({ env, newest }: { env: Environment; newest?: EnvironmentBu
     <p className={`notice ${changed ? 'warn' : 'ok'}`} role="status">
       {pull ? 'Pulled: pull' : 'Built: build'} {newest.number},{' '}
       <Time at={newest.endedAt ?? newest.createdAt} />
-      {newest.image === env.current ? ', is the image runs get now' : ''}.{' '}
+      {newest.image === env.current ? ', is the image runs get now' : ''}.
       {pull
         ? ''
         : changed
-          ? 'The spec changed after this build: build again to use the change.'
+          ? ' The spec changed since: build again to apply.'
           : floating
-            ? 'Building again takes the newest versions the spec allows, and makes a new image only if they changed.'
-            : 'The spec has not changed since: building again gives the same versions.'}
+            ? ' Building again takes the newest versions the spec allows.'
+            : ''}
     </p>
   );
 }
@@ -793,8 +788,8 @@ export function EnvironmentPage({
       )}
       {unsaved && !going && (
         <p className="notice warn" role="status">
-          The spec has changes that are not saved. A build and the ansible-builder file use the
-          saved spec: Save and build, or Save and get ansible-builder file, saves them first.
+          The spec has changes that are not saved: Save and build (or Save and get ansible-builder
+          file) saves them first.
         </p>
       )}
       {builds.data && <BuildStatus env={env} newest={newest} />}
@@ -876,24 +871,34 @@ export function EnvironmentPage({
               </>
             )}
           </dl>
-          {env.catalog && (
-            <>
-              <h3>Collections in the image</h3>
-              {Object.keys(env.catalog.collections).length === 0 ? (
-                <p className="muted">None besides ansible.builtin.</p>
-              ) : (
+          {env.catalog &&
+            (() => {
+              const entries = Object.entries(env.catalog.collections).sort(([a], [b]) =>
+                a.localeCompare(b),
+              );
+              const list = (
                 <ul className="tight">
-                  {Object.entries(env.catalog.collections)
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([name, version]) => (
-                      <li key={name}>
-                        <code>{name}</code> {version}
-                      </li>
-                    ))}
+                  {entries.map(([name, version]) => (
+                    <li key={name}>
+                      <code>{name}</code> {version}
+                    </li>
+                  ))}
                 </ul>
-              )}
-            </>
-          )}
+              );
+              return entries.length === 0 ? (
+                <>
+                  <h3>Collections in the image</h3>
+                  <p className="muted">None besides ansible.builtin.</p>
+                </>
+              ) : entries.length > 6 ? (
+                <Fold summary={`Collections in the image (${entries.length})`}>{list}</Fold>
+              ) : (
+                <>
+                  <h3>Collections in the image</h3>
+                  {list}
+                </>
+              );
+            })()}
         </section>
         {env.kind === 'spec' && env.spec && (
           <section className="panel env-spec" aria-labelledby="spec">
@@ -1095,77 +1100,99 @@ export function EnvironmentCheck({
       {c && (
         <>
           <p className="muted">
-            From its steps
-            {c.requirementsFile ? " and the project's collections/requirements.yml" : ''}, at{' '}
-            <code>{c.commit.slice(0, 12)}</code>
-            {c.environment ? (
-              <>
-                , against{' '}
-                <Link to={environmentAddress(workspace, c.environment.id)}>
-                  {c.environment.name}
-                </Link>
-                {c.environment.ansibleCore ? ` (ansible-core ${c.environment.ansibleCore})` : ''}.
-              </>
+            {c.lines.length === 0 ? (
+              'Only ansible-core.'
+            ) : c.environment ? (
+              c.ok ? (
+                <>
+                  All {c.lines.length} {c.lines.length === 1 ? 'collection' : 'collections'} present
+                  in{' '}
+                  <Link to={environmentAddress(workspace, c.environment.id)}>
+                    {c.environment.name}
+                  </Link>
+                  {c.environment.ansibleCore ? ` (ansible-core ${c.environment.ansibleCore})` : ''}.
+                </>
+              ) : (
+                <>
+                  Against{' '}
+                  <Link to={environmentAddress(workspace, c.environment.id)}>
+                    {c.environment.name}
+                  </Link>
+                  {c.environment.ansibleCore ? ` (ansible-core ${c.environment.ansibleCore})` : ''}{' '}
+                  at <code>{c.commit.slice(0, 12)}</code>.
+                </>
+              )
             ) : (
-              // AFS-139: said as the run and What would run say it: the server's default image.
-              ". The configuration names no environment: its runs use the server's default image, which is not checked here."
+              <>
+                {c.lines.length} {c.lines.length === 1 ? 'collection' : 'collections'} needed; runs
+                use the server&apos;s default image (not checked here).
+              </>
             )}
           </p>
-          {c.lines.length === 0 ? (
-            <p className="muted">Only what comes with ansible-core.</p>
-          ) : (
-            <Scroll>
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Collection</th>
-                    <th scope="col">Needs</th>
-                    <th scope="col">Used by</th>
-                    {c.environment && <th scope="col">In the image</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {c.lines.map((l) => (
-                    <tr key={l.name}>
-                      <td>
-                        <code>{l.name}</code>
-                      </td>
-                      <td>
-                        {/* AFS-194: "*" in words, and where the need comes from said as such. */}
-                        {l.wants === '*' || !l.wants ? 'any version' : l.wants}
-                        <div className="muted">
-                          {l.from === 'flow'
-                            ? 'asked by the steps'
-                            : l.from === 'requirements'
-                              ? 'asked by requirements.yml'
-                              : 'asked by the steps and requirements.yml'}
-                        </div>
-                        {l.conflict && <div className="bad-text">{l.conflict}</div>}
-                      </td>
-                      <td>
-                        {l.nodes.join(', ') || <span className="muted">requirements.yml</span>}
-                      </td>
-                      {c.environment && (
-                        <td>
-                          <span className={`badge ${l.ok ? 'ok' : 'bad'}`}>
-                            {l.ok ? l.has : (l.has ?? 'missing')}
-                          </span>
-                          {l.why && <div className="muted">{l.why}</div>}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Scroll>
-          )}
-          {c.environment && c.lines.length > 0 && (
-            <p className={`notice ${c.ok ? 'ok' : 'error'}`} role="status">
-              {c.ok
-                ? 'The environment holds everything the flow needs.'
-                : `${c.lines.filter((l) => !l.ok).length} of ${c.lines.length} not as needed: the run may fail where they are used.`}
-            </p>
-          )}
+          {c.lines.length > 0 &&
+            (() => {
+              const table = (
+                <Scroll>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Collection</th>
+                        <th scope="col">Needs</th>
+                        <th scope="col">Used by</th>
+                        {c.environment && <th scope="col">In the image</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {c.lines.map((l) => (
+                        <tr key={l.name}>
+                          <td>
+                            <code>{l.name}</code>
+                          </td>
+                          <td>
+                            {/* AFS-194: "*" in words, and where the need comes from said as such. */}
+                            {l.wants === '*' || !l.wants ? 'any version' : l.wants}
+                            <div className="muted">
+                              {l.from === 'flow'
+                                ? 'steps'
+                                : l.from === 'requirements'
+                                  ? 'requirements.yml'
+                                  : 'steps + requirements.yml'}
+                            </div>
+                            {l.conflict && <div className="bad-text">{l.conflict}</div>}
+                          </td>
+                          <td>
+                            {l.nodes.join(', ') || <span className="muted">requirements.yml</span>}
+                          </td>
+                          {c.environment && (
+                            <td>
+                              <span className={`badge ${l.ok ? 'ok' : 'bad'}`}>
+                                {l.ok ? l.has : (l.has ?? 'missing')}
+                              </span>
+                              {l.why && <div className="muted">{l.why}</div>}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Scroll>
+              );
+              const allPlain =
+                (!c.environment || c.ok) &&
+                c.lines.every((l) => !l.conflict && !l.why && (!c.environment || l.ok));
+              return allPlain ? (
+                <Fold summary={`Collections (${c.lines.length})`}>{table}</Fold>
+              ) : (
+                <>
+                  {table}
+                  {c.environment && !c.ok && (
+                    <p className="notice error" role="status">
+                      {`${c.lines.filter((l) => !l.ok).length} of ${c.lines.length} not as needed: the run may fail where they are used.`}
+                    </p>
+                  )}
+                </>
+              );
+            })()}
           {mayManage && c.lines.length > 0 && !c.ok && (
             <form
               className="form"

@@ -170,7 +170,7 @@ export function NewFlowForm({
           onChange={(e) => setPath(e.target.value)}
           required
           spellCheck={false}
-          hint={`Made from the name: a folder of its own under flows/, as the samples have. One commit on ${project.gitRef}${project.commit ? '' : ', the first of the project'}. It starts with Start wired to Done and a host list input, and opens for editing.`}
+          hint={`Path in the repository; commits to ${project.gitRef} and opens the editor.`}
         />
       </Form>
     </section>

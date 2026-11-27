@@ -194,9 +194,9 @@ describe('actions', () => {
     window.history.replaceState(null, '', '/actions');
     render(<App />);
     const restart = await screen.findByRole('link', { name: /Restart the edge switch/ });
-    expect(restart.textContent).toMatch(/Network · You have not run it yet/);
+    expect(restart.textContent).toMatch(/Network · Not run yet/);
     expect(screen.getByRole('link', { name: /Check the lab switch/ }).textContent).toMatch(
-      /Lab · You have not run it yet/,
+      /Lab · Not run yet/,
     );
     // An action-only person sees no workspace in /workspaces: the choices are the actions' own.
     const filter = screen.getByRole('combobox', { name: 'Workspace' }) as HTMLSelectElement;

@@ -32,8 +32,7 @@ function Profile({ me, onSaved }: { me: User; onSaved(changed: User): void }) {
         Profile
       </h2>
       <p className="muted">
-        Notifications for you (approvals that wait for you, how your runs' approvals were decided)
-        go to your email address{me.admin ? ' and your webhook' : ''}.
+        Notifications go to your email address{me.admin ? ' and webhook' : ''}.
       </p>
       <Form
         submit="Save"
@@ -126,9 +125,7 @@ export function Account({ me, tab }: { me: User; tab: 'profile' | 'tokens' }) {
           none="You have no token."
           intro={
             <p className="muted">
-              A program signs in with a token instead of your password: git, the VS Code extension,
-              a script. A token acts as you. What a program can ask is in the{' '}
-              <Link to="/docs/api">API reference</Link>.
+              For git, VS Code, MCP and scripts (<Link to="/docs/api">API reference</Link>).
             </p>
           }
         />
@@ -220,8 +217,7 @@ function PasswordForm({ login }: { login: string }) {
     <section className="panel" aria-labelledby="password">
       <h2 id="password">Password</h2>
       <p className="muted">
-        Your other sessions end when it changes. If you sign in with your directory or your
-        organisation's sign-in, change your password there.
+        Signs out your other sessions. Directory and SSO passwords are changed at their provider.
       </p>
       <Form
         submit="Change the password"

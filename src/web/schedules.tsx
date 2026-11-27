@@ -269,7 +269,7 @@ function ScheduleForm({
             spellCheck={false}
             placeholder="like 0 3 * * 1-5"
             problem={live('cron')}
-            hint={`minute hour day month weekday, in ${zoneWords}: 0 3 * * 1-5 is 03:00 on weekdays. At most once a minute.`}
+            hint={`minute hour day month weekday, in ${zoneWords}.`}
           />
           <CronPreview times={preview.times} />
         </>
@@ -489,10 +489,6 @@ export function SchedulesSection({
           </button>
         )}
       </div>
-      <p className="muted">
-        Runs this configuration by itself. A run is launched as the schedule's owner, whose access
-        is checked each time.
-      </p>
       {open === 'new' && (
         <ScheduleForm
           config={config}

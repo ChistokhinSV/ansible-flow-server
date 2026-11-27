@@ -165,8 +165,8 @@ starting from the Active Directory or the OpenLDAP preset:
 | Sync every             | Minutes (60 by default; 0: only at sign-in)                                                                              |
 | Mappings               | A group's name (`netops`) or DN and what it is here: a server group, or administrator                                    |
 
-Test it, with a login if you like: the page shows the entry found, its groups and what they are
-here. Then:
+Open **Test the directory**, with a login if you like: the page shows the entry found, its groups
+and what they are here. Then:
 
 - A login with a password here signs in here; any other login is tried with the directories, in
   order. A wrong password is refused there and then; a directory that does not answer is skipped.
@@ -215,9 +215,9 @@ Administrators may do everything. Everyone else sees and does only what they are
   answers 404 with the words a missing one gets ("No such run"). What they may see but not do answers 403.
 - **Tokens act as their owner,** narrowed further when read-only or made for one workspace.
 - Workspaces, projects, credentials and grants are changed by administrators.
-- **The pages say the levels in words:** read only, operator, read and write, approver. Each
-  workspace and every tab of a project says your own access there under its title, with the
-  flows a grant of your own gives another level on, by their titles.
+- **The pages say the levels in words:** read only, operator, read and write, approver. **My
+  account** lists your access in every workspace, and a project shows it under its title when a
+  grant on one of its flows gives another level than the workspace's, naming those flows by title.
 - **Actions are access too:** a grant to run an action (see [Actions](actions.md)) is not a level,
   but the workspace's Access tab, a person's **What they reach** and **Your access** on My account
   list them: the actions a person runs in their row of **Who can do what**, and an Actions table

@@ -52,7 +52,7 @@ export function ActionEditPage({ id }: { id: string }) {
         lead={
           <>
             {action ? `${sentence(action.summary)} ` : ''}
-            It runs the launch configuration{' '}
+            Runs{' '}
             <Link to={configAddress(place.workspaceKey, place.projectKey, id)}>
               {place.configName}
             </Link>
@@ -104,17 +104,15 @@ export function ConfigActionLine({ config }: { config: string }) {
                 {' '}
                 <span className="badge warn">off</span>
               </>
-            )}
-            : its words, what it asks, its links and who may run it are on{' '}
+            )}{' '}
+            ·{' '}
             <Link to={actionEditAddress(config)}>
-              {state.data.mayManage ? 'its own page' : "the action's page"}
+              {state.data.mayManage ? 'Action settings' : "Action's page"}
             </Link>
-            .
           </>
         ) : (
           <>
-            Not an action. An action is a short form for people who do not read flows:{' '}
-            <Link to={actionEditAddress(config)}>Make it an action</Link>.
+            Not an action · <Link to={actionEditAddress(config)}>Make it an action</Link>
           </>
         )}
       </p>
