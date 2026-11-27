@@ -345,6 +345,27 @@ const WORKSPACE_HELP: Record<WorkspaceTab, string> = {
   '-/access': 'people-and-sign-in.md#access-levels',
 };
 
+/** AFS-274: the Access tab's workspace, chosen on the page (the menu's switcher follows it). */
+function AccessWorkspace({ workspace }: { workspace: string }) {
+  const all = useLoad(api.workspaces, []);
+  if ((all.data?.length ?? 0) < 2) return null;
+  return (
+    <label className="inbox-filter workspace-filter">
+      Workspace{' '}
+      <select
+        value={workspace}
+        onChange={(e) => navigate(`/w/${encodeURIComponent(e.target.value)}/-/access`)}
+      >
+        {all.data?.map((w) => (
+          <option key={w.id} value={w.key}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function Workspace({
   me,
   workspace,
@@ -425,6 +446,8 @@ export function Workspace({
             Add project
           </button>
         )}
+        {/* AFS-274: Access is Govern's, in the switcher's workspace: another is chosen here. */}
+        {me.admin && tab === '-/access' && <AccessWorkspace workspace={workspace} />}
       </PageHead>
       <Loading state={space.error ? space : projects} />
       {adding && tab === '' && (

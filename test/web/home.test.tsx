@@ -2,7 +2,7 @@
 // in a sentence and four numbers, what needs this person with what they may do about it (from
 // every workspace, each named), what runs now, what they may launch again and the latest runs;
 // the workspace filter kept in the address; and the side menu.
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 
@@ -264,15 +264,18 @@ describe('home, the inbox', () => {
       .getByRole('heading', { name: 'Running now' })
       .closest('section') as HTMLElement;
     expect(within(running).getByRole('link', { name: /#1/ }).textContent).toContain('Network team');
-    // The side menu: the workspaces.
+    // AFS-274: the menu's Inbox is current here, with the inbox's count; Build's switcher shows
+    // the first workspace, and its Projects.
+    const work = screen.getByRole('navigation', { name: 'Work' });
+    const inboxLink = within(work).getByRole('link', { name: /^Inbox/ });
+    expect(inboxLink.getAttribute('aria-current')).toBe('page');
+    await waitFor(() => expect(inboxLink.textContent).toBe('Inbox5'));
+    const build = screen.getByRole('navigation', { name: 'Build' });
     expect(
-      within(screen.getByRole('navigation', { name: 'Workspaces' }))
-        .getByRole('link', { name: 'Network team' })
-        .getAttribute('href'),
-    ).toBe('/w/net');
-    const menu = screen.getByRole('navigation', { name: 'Main' });
-    expect(within(menu).getByRole('link', { name: 'Home' }).getAttribute('aria-current')).toBe(
-      'page',
+      within(build).getByRole('button', { name: 'Workspace: Network team, change' }),
+    ).toBeTruthy();
+    expect(within(build).getByRole('link', { name: 'Projects' }).getAttribute('href')).toBe(
+      '/w/net',
     );
   });
 

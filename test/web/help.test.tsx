@@ -1,6 +1,6 @@
 // AFS-143: help in the pages (a Help page, Help beside page titles), pages not found that say
 // what was looked for, clone help for an empty project, and failure words without step keys.
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 import { GUIDE } from '../../src/web/guide';
@@ -47,10 +47,13 @@ describe('help', () => {
     window.history.replaceState(null, '', '/guide');
     render(<App />);
     await screen.findByRole('heading', { name: 'Help' });
-    const menu = within(
-      screen.getByRole('navigation', { name: 'Main' }).parentElement as HTMLElement,
-    );
-    expect(menu.getByRole('link', { name: 'Help' }).getAttribute('href')).toBe('/help');
+    // AFS-274: Help is in the account's menu, current on the help pages.
+    fireEvent.click(screen.getByRole('button', { name: /^Account: / }));
+    const help = screen.getByRole('menuitem', { name: 'Help' });
+    expect(help.getAttribute('href')).toBe('/help');
+    expect(help.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: /^Account: / }).className).toContain('here');
+    fireEvent.keyDown(help, { key: 'Escape' });
     expect(screen.getByRole('link', { name: 'The audit log' }).getAttribute('href')).toBe(
       `${GUIDE}audit.md`,
     );

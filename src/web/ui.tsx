@@ -696,7 +696,16 @@ export type IconName =
   | 'help'
   | 'account'
   | 'theme'
-  | 'signout';
+  | 'signout'
+  // AFS-274: the menu's groups (Work, Build, Govern).
+  | 'inbox'
+  | 'projects'
+  | 'environments'
+  | 'credentials'
+  | 'access'
+  | 'audit'
+  | 'people'
+  | 'server';
 
 /** AFS-265: the line drawings of the workbench's icons, on a 16 px grid. */
 const PATHS: Partial<Record<IconName, string>> = {
@@ -728,6 +737,16 @@ const PATHS: Partial<Record<IconName, string>> = {
   account: 'M8 2.5a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5M2.75 13.5a5.25 5.25 0 0 1 10.5 0',
   theme: 'M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5M8 1.75v12.5M8 5h4.5M8 8h6M8 11h4.5',
   signout: 'M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6',
+  inbox: 'M2 9.5 4 3.5h8l2 6v3.5H2zM2 9.5h3.5l1 1.5h3l1-1.5H14',
+  projects: 'M1.5 4.5V3h4.5l1.5 1.5h7v8.5h-13zM1.5 6.5h13',
+  environments: 'M8 1.75 13.5 4.5v7L8 14.25 2.5 11.5v-7zM2.5 4.5 8 7.25l5.5-2.75M8 7.25v7',
+  credentials: 'M5.5 7a3 3 0 1 0 0 6a3 3 0 1 0 0-6M7.6 8.4 13.5 2.5M11.5 4.5l1.5 1.5M10 6l1.5 1.5',
+  access:
+    'M8 1.75 13.5 3.75V8c0 3-2.5 5.25-5.5 6.25C5 13.25 2.5 11 2.5 8V3.75zM5.75 8.25l1.5 1.5 3-3',
+  audit: 'M3.5 1.75h9v12.5h-9zM5.75 5h4.5M5.75 8h4.5M5.75 11h2.5',
+  people:
+    'M6 2.75a2.25 2.25 0 1 0 0 4.5a2.25 2.25 0 1 0 0-4.5M1.75 13.25a4.25 4.25 0 0 1 8.5 0M10.75 3a2 2 0 1 1 0 4M12 9.25a4 4 0 0 1 2.25 3.75',
+  server: 'M2.5 2.5h11v4.5h-11zM2.5 9h11v4.5h-11zM5 4.75h.01M5 11.25h.01M8 4.75h3M8 11.25h3',
 };
 
 export function Icon({ name }: { name: IconName }) {

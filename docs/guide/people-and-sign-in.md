@@ -227,7 +227,8 @@ Administrators may do everything. Everyone else sees and does only what they are
   and each action grant that ends with them; deleting a launch configuration that is an action
   records the action and each of its grants as ended, with why.
 
-A workspace's **Access** tab shows **Who can do what** as a matrix: each group with a grant on the
+A workspace's **Access** tab (the menu's Govern › **Access**, for the workspace the switcher shows;
+the tab's **Workspace** choice opens another's) shows **Who can do what** as a matrix: each group with a grant on the
 workspace and each person with access in a row, and **Read**, **Operate**, **Edit** and **Approve**
 across (read only, operator, read and write, approver). A full dot is given here, a half dot comes
 through a group, a small dot comes with a higher level, and a dash is no. **Through** says where it
