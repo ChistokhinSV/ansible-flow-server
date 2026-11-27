@@ -34,7 +34,7 @@ const ALIASES: Record<string, { page: string; part?: string; parts?: Record<stri
     parts: {
       'editing-flows-in-the-pages': 'edit-flows.md#shared-drafts',
       'files-of-a-project': 'workspaces-and-projects.md#files-of-a-project',
-      'history-of-a-project': 'workspaces-and-projects.md#history-and-branches',
+      'history-of-a-project': 'workspaces-and-projects.md#history',
       'a-flow-at-a-commit': 'workspaces-and-projects.md#a-flow-at-a-commit',
       'flow-library': 'edit-flows.md#flow-library',
     },

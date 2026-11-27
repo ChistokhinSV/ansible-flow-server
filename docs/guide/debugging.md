@@ -12,11 +12,13 @@ place. It runs on the same debug engine as
 - Click **Debug** beside **Launch** on a launch configuration's **Launch** tab.
 - Choose **Run ▾ › Debug…** on a flow's canvas (debugs right in place on the flow page).
 - Choose **Run again ▾ › Debug this failure…** on a failed run's page to step into the failing step
-  on the hosts that did not go well.
+  on the hosts that did not go well — in **Check** mode by default, or as a **Real** run (asks
+  first, names the hosts, and re-asks any approvals).
 
 **Who may debug**: people with **Edit** (`rw`) on the flow, administrators, and operators when an
 administrator enables **Operators may debug** under **Govern › Access › Debugging** (off by default
-because debugging exposes non-secret host variables).
+because debugging exposes non-secret host variables). Like any [step-by-step run](runs.md#step-by-step),
+a paused debug run holds its container and runner slot while waiting.
 
 ## Pause points and failure filters
 
@@ -42,7 +44,8 @@ Console** tabs on a phone):
   **Retry** (at a failure pause), **Stop** (`Shift+F5`), and **Restart** once ended.
 - **Left side bar (`Run and Debug`, `Ctrl+B` / `Ctrl+Shift+D`)**:
   - **Variables**: inspect the selected host's **Step inputs**, **Host variables** (inventory,
-    `set_fact`, registered results), **Flow data** (extra vars) and **Facts** (loaded on demand).
+    `set_fact`, registered results), **Flow data** (extra vars) and **Facts** (loaded on demand;
+    values above `64` KB are truncated with their size noted).
   - **Watch**: type a Jinja expression and press `Enter`; click the compare icon on a row to group
     all paused hosts by value.
   - **Hosts**: all hosts held at the pause (failed or matching first). Selecting one updates
@@ -50,25 +53,33 @@ Console** tabs on a phone):
   - **Pause points**: manage active points and failure filters.
 - **Bottom panel (`Ctrl+J`)**:
   - **Debug Console**: evaluate read-only Jinja expressions (`Enter`, `Shift+Enter` for newline, `↑`
-    for history; `lookup`/`query` and vault filters are blocked). Log point output appears above it.
+    for history; `2` s limit; `lookup`/`query` and vault filters are refused). Log point lines appear
+    above it.
   - **Terminal** and **Problems**: full Ansible output and per-host failure messages.
 - **Status line**: states why and where the run paused, who paused it, auto-stop countdown, and
   **Notify me at pauses** for background browser notifications.
 
 **Retry** re-runs the failed step on the hosts that failed (asking first, because partial changes
-from the failed attempt are not rolled back). Rolling subflows and unrescued block errors cannot
-retry in place — use **Run again** instead.
+from the failed attempt are not rolled back). Rolling subflows and failures outside a step's rescue
+cannot retry in place — use **Run again** instead.
 
 ## Secrets, privacy and history
 
-- **Automatic secret masking**: values from Ansible Vault, `no_log` tasks, workspace credentials,
-  [secret providers](secret-providers.md), secret-like variable names (`password`, `token`,
-  `secret`, …) and encoded/derived copies are masked before leaving the runner, showing the mask
-  reason instead of value or length.
+- **Secret masking and its boundary**: values from Ansible Vault (`vault`), `no_log` tasks
+  (`no_log`), workspace credentials (`credential`), [secret providers](secret-providers.md)
+  (`external secret`), secret-like variable names (`password`, `token`, `secret`, …) and copies
+  derived from them (base64, JSON, case changes, substrings) are masked before leaving the runner,
+  showing the reason rather than value or length. **One case is not caught**: a plain-text secret
+  stored under a harmless variable name that appears in no credential, Vault or `no_log` task will
+  show in Variables/Evaluate (though the server still strips known credential values from terminal
+  output as a second layer).
 - **Who sees what**: only the person who launched the debug run and administrators can drive it, see
-  variables or read log-point messages. Other readers see the canvas and pause status only. Every
-  inspection query is recorded in the [audit log](audit.md) (`run.debug.inspect`, expression only,
-  never the value).
-- **After the run**: masked snapshots of opened variable scopes, watches and log points (up to 1 MB)
-  remain viewable on the run page under **What the pauses showed**. For API and MCP inspection
-  endpoints (`POST /api/v1/runs/:id/inspect`, `run_inspect`), see [REST API and agents](api-and-mcp.md).
+  variables or read pause conditions and log-point messages (other readers see the canvas and pause
+  status only; Operators can still press **Stop**). Every inspection query is recorded in the
+  [audit log](audit.md) (`run.debug.inspect`, expression only, never the value).
+- **After the run**: masked snapshots of opened scopes, watches and log points (up to `1` MB) stay
+  under **What the pauses showed** until the run is deleted.
+
+The [API reference](/docs/api) lists `/api/v1/runs/:id/inspect`, `/debug`, `/step`, `/pause-points`
+and `/watches` and who may call each (for MCP `run_inspect`, see
+[REST API and agents](api-and-mcp.md)).

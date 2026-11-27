@@ -18,3 +18,6 @@ audit log:
   50,000 matching entries as **CSV** or **JSON** (`/api/v1/audit/export`).
 - **Retention**: entries older than `AFS_AUDIT_KEEP_DAYS` (`365` by default; `0` keeps forever) are
   pruned hourly. For continuous forwarding to a SIEM, see [Event streaming](event-streaming.md).
+
+The [API reference](/docs/api) lists `/api/v1/audit`, `/api/v1/audit/export`, their filter and
+paging parameters, and who may call them.

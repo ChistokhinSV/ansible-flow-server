@@ -69,4 +69,5 @@ To explore how flows, roles, inventories and approvals fit together before impor
   the draft commits both the flow and any sample `roles/<name>` the project does not already have.
 
 Next: configure inputs, inventory and credentials to run your imported flow in
-[Run playbooks](runs.md).
+[Run playbooks](runs.md). The [API reference](/docs/api) lists every draft import (`/start-from`)
+and project start call and who may make it.

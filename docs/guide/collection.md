@@ -50,3 +50,4 @@ and MCP `run_status`.
 
 Full module reference:
 [collection/ansible_collections/chistokhinsv/ansible_flow](../../collection/ansible_collections/chistokhinsv/ansible_flow/README.md).
+The [API reference](/docs/api) lists every server endpoint the collection calls and who may make it.

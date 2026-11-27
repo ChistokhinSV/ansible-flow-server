@@ -32,3 +32,5 @@ While a destination is unreachable, events queue in the database (up to `100,000
 by default) and drain in order in batches of `500` with exponential retry (5 s up to 1 min).
 Administrators are [notified](notifications.md) after 15 minutes of continuous failure, and backlog
 metrics are exposed on `/metrics` (see [Operations](operations.md)).
+
+The [API reference](/docs/api) lists every `/api/v1/admin/streams` call and who may make it.

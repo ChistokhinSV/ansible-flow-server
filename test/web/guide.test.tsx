@@ -93,6 +93,17 @@ describe('the guide the server serves', () => {
           ).toBe(true);
       }
     }
+    // AFS-279: GitHub links in CHANGELOG, README, RELEASING and Docker Hub docs resolve directly
+    // on disk (including stub pages and section anchors), without needing in-app aliases.
+    for (const doc of ['CHANGELOG.md', 'README.md', 'RELEASING.md', 'deploy/dockerhub/README.md']) {
+      const text = readFileSync(doc, 'utf8');
+      for (const m of text.matchAll(/docs\/guide\/([A-Za-z0-9._-]+\.md)(?:#([A-Za-z0-9_-]+))?/g)) {
+        const [, page = '', part] = m;
+        expect(anchors.has(page), `${doc} -> docs/guide/${page}`).toBe(true);
+        if (part)
+          expect(anchors.get(page)?.has(part), `${doc} -> docs/guide/${page}#${part}`).toBe(true);
+      }
+    }
   });
 
   it('shows a page with its title, links within the guide here, and an alias opens the merged page', async () => {

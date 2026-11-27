@@ -35,3 +35,7 @@ A launch configuration checks the collections required by its flow's steps (and 
 - **`ansible-builder` export**: every spec environment offers an `execution-environment.yml`
   (version 3) download with its locked collection versions, Python packages and CAs for AWX or Red
   Hat Ansible Automation Platform.
+
+Environments used by a launch configuration (or set as the server default) cannot be deleted until
+detached. The [API reference](/docs/api) lists every `/api/v1/environments`, `/default-environment`
+and `/galaxy/search` call and who may make it.

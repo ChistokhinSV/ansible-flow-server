@@ -44,3 +44,7 @@ private key, token, or environment variable):
 - If a secret cannot be read, the run **fails before any container starts** with a clear message
   naming the credential and provider (detailed provider paths stay in the server log only), and
   every read or test is recorded in the [audit log](audit.md) (`secret-provider.read`).
+
+A provider cannot be deleted, change its key or remove a workspace while a credential references it.
+The [API reference](/docs/api) lists every `/api/v1/admin/secret-providers` and `/secret-refs/test`
+call and who may make it.

@@ -62,3 +62,6 @@ top right to narrow to one workspace via `?workspace=<key>`):
 | `Ctrl+Enter`        | Launch a run from any field on the Launch form                      |
 | `Ctrl+B` / `Ctrl+J` | Toggle left side bar / bottom panel on run and debug pages          |
 | `Esc`               | Close open menu, dialog or full-screen canvas                       |
+
+The [API reference](/docs/api) lists `/api/v1/inbox`, `/api/v1/search` and every other call with who
+may make it.

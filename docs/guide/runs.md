@@ -40,65 +40,73 @@ Open a launch configuration's **Launch** tab (or click **Run** directly on a flo
   each input, a precedence note shows which steps read it and which `group_vars` / `host_vars`
   definitions it overrides.
 - Press **Launch check run** or **Launch real run** (`Ctrl+Enter` / `Cmd+Enter` from any field). Use
-  **Keep as start values** (`rw`) to save non-secret form edits back to the configuration. Running a
-  different branch or commit than the configuration's requires `rw`.
+  **Keep as start values** (`rw`) to save non-secret form edits back to the configuration. Launching
+  another branch or commit than the configuration's requires `rw`.
 
 ## Watching a run
 
 ![A run on the workbench: Details on the left, canvas in the middle, Terminal below](images/run.png)
 
 Queued runs execute up to `AFS_MAX_RUNS` (default `4`) across the server and
-`AFS_MAX_RUNS_PER_PROJECT` (`1`) per project. Each state pairs a distinct icon shape with text so it
-reads without colour, and **Real** (solid) vs **Check** (dashed) badges distinguish modes everywhere.
+`AFS_MAX_RUNS_PER_PROJECT` (`1`) per project.
 
-On the run's page (`/runs/<id>`):
+| State                              | Meaning                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `queued`                           | Waiting in the database queue (survives restarts)                                                                                    |
+| `running` / `paused`               | Active on a worker (or paused at a step / debugger point)                                                                            |
+| `waiting`                          | Waiting at an [approval gate](approvals.md) (holds no container or runner slot)                                                      |
+| `succeeded`, `failed`, `cancelled` | Completed outcome (approvals rejected or timed out filter under **Rejected**)                                                        |
+| `lost`                             | Worker stopped answering: requeued up to `3` tries if not yet started; marked `lost` and **never restarted on its own** once started |
 
-- **Canvas**: updates live as hosts move along wires (`ok_hosts`, `failed_hosts`, `approved`). Click
-  any step to inspect per-host task results and recorded step input values (secrets are always
-  redacted).
-- **Left side bar (`Details`)**: shows **Approvals** waiting for a decision, **Hosts** (problem
-  hosts first), flow **Outputs**, and **What ran** (commit, image, credentials, inputs and any
-  targets skipped because they were not in the inventory). Press `Ctrl+B` to fold the side bar.
-- **Bottom panel**: **Terminal** streams ANSI-coloured Ansible output (secrets masked) and
-  **Problems** lists host failures. Press `Ctrl+J` to fold the panel.
-- **Stop**: cancels a queued run immediately or stops a running flow at the worker's next step
-  (stopping a real run or someone else's step run asks to confirm). Runs exceeding
+- **Workbench**: the **canvas** updates live as hosts move along wires; **Details** (`Ctrl+B`) lists
+  approvals, hosts (problem hosts first), flow outputs and what ran (including `skippedTargets` not
+  present in the inventory); the bottom panel (`Ctrl+J`) streams **Terminal** output (secrets
+  masked) and **Problems**.
+- **SSH keys with a passphrase**: unlocked into an `ssh-agent` inside the run container, so the
+  execution environment image **must contain `openssh-client`**. A wrong passphrase fails the run
+  with `"The SSH key could not be unlocked"`.
+- **Stop**: cancels a queued run at once, and stops a running flow immediately on the worker (or at
+  the worker's next lease heartbeat), recording who stopped it and during which step. Runs exceeding
   `AFS_RUN_TIMEOUT_MINUTES` (`240`) stop automatically.
 
 ## Run again
 
 Once a run has ended, operators can open **Run again ▾** in its header:
 
-- **Run again**: starts a new run at the same commit, inputs, mode and limit (approvals are asked
-  afresh).
-- **Change and run…**: opens the configuration's **Launch** tab pre-filled from this run, noting
-  anything that differs from saved defaults (re-enter any secret inputs).
+- **Run again**: repeats the same commit, inputs, mode and limit as a new run (approvals are asked
+  again).
+- **Change and run…**: opens the **Launch** tab pre-filled from this run (re-enter any secret
+  inputs).
 - **Only the N hosts that did not go well**: re-runs only `failed`, `unreachable` and `stopped`
-  hosts via a safe per-host limit file. Before starting, a prompt warns how a host limit affects the
-  flow (`localhost` / controller plays are skipped unless included, and `run_once`, failure
-  percentages and rolling batches count only the limited hosts).
-- **Debug this failure…** (`rw`, or operators when allowed): launches those problem hosts in check
-  mode under the [debugger](debugging.md), pausing right before the step where they failed.
+  hosts via a per-host limit file (warning first that steps on `localhost` / controller groups are
+  skipped unless included, and `run_once`, failure percentages and rolling batches see only the
+  limited hosts).
+- **Debug this failure…** (`rw`, or operators when allowed): runs those problem hosts under the
+  [debugger](debugging.md), pausing before the step where they failed. Defaults to **Check** mode,
+  or choose **Real run** (which asks to confirm, names the hosts, and asks approvals again).
+
+**Rules**: every **Run again** validates against the launch configuration **as it stands now**
+(current credentials and environment). **A run whose launch configuration was deleted cannot run
+again** — launch from an active configuration instead. Re-running a run of another branch or commit
+than the configuration names, or a dev run, requires `rw` on the flow.
 
 ## Step by step
 
-Tick **Step by step** on the **Launch** tab (or choose **Run ▾ › Run Step by Step** on the canvas)
-to pause a single Ansible run before each step — or only at your **pause points** (click the dot at
-a step's top-left corner or right-click the step). Facts and registered variables carry across steps.
+Tick **Step by step** on the **Launch** tab (or **Run ▾ › Run Step by Step** on the canvas) to pause
+before each step or at your **pause points** (`F10` Step, `F8` Continue/Pause, or Stop).
 
-- Use **Step** (`F10`), **Continue** / **Pause** (`F8`), or **Stop** above the canvas.
-- Unanswered pauses stop automatically after `AFS_RUN_STEP_TIMEOUT_MINUTES` (`60` min by default),
-  and paused runs cannot resume across a server restart.
-- To inspect host variables, evaluate Jinja and retry failed steps during a pause, use
-  [Debug a run](debugging.md).
+- **Resource limits while paused**: a paused run **keeps its container and its `AFS_MAX_RUNS`
+  runner slot**, and counts toward `AFS_RUN_TIMEOUT_MINUTES`. With `AFS_MAX_RUNS_PER_PROJECT` at its
+  default of `1`, a paused run **blocks other runs of that project** until it finishes or stops.
+- Unanswered pauses stop automatically after `AFS_RUN_STEP_TIMEOUT_MINUTES` (`60` min), and paused
+  runs cannot resume across a server restart.
 
 ## Dev runs
 
-With `rw` on a workspace, you can test local, uncommitted edits from VS Code before pushing: in
-[Ansible Flow Designer](https://github.com/ChistokhinSV/ansible-flow-designer), run **Check My Work
-on Server**. The extension uploads a temporary Git bundle kept under an isolated ref for
-`AFS_DEV_KEEP_HOURS` (`24` h, never exposed on branches or pushed upstream) and runs it in **Check**
-mode only, marked **dev** in the run list.
+With `rw` on a workspace, **Check My Work on Server** in
+[Ansible Flow Designer](https://github.com/ChistokhinSV/ansible-flow-designer) uploads uncommitted
+local work as a temporary Git bundle (kept `AFS_DEV_KEEP_HOURS`, `24` h, under a hidden ref never
+exposed on branches or pushed upstream) and runs it in **Check** mode only.
 
-For programmatic launches, SSE event streams and relaunch payloads, see the
-[API reference](/docs/api) and [REST API and agents (MCP)](api-and-mcp.md).
+The [API reference](/docs/api) lists every launch, run, SSE stream, step and relaunch call and who
+may make it (see also [REST API and agents](api-and-mcp.md)).

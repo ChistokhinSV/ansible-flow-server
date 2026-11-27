@@ -58,7 +58,8 @@ Pressing **Edit** on a flow's page opens a live draft shared by everyone editing
   Open **⋯ › History** on the flow page to compare any earlier commit.
 - **Edit in VS Code**: install
   [Ansible Flow Designer](https://github.com/ChistokhinSV/ansible-flow-designer), clone the project
-  from **Settings** (see [Git: clone, fetch and push](workspaces-and-projects.md#git-clone-fetch-and-push)),
+  from **Settings** (see
+  [Git: clone, fetch and push](workspaces-and-projects.md#git-clone-fetch-and-push-through-the-server)),
   and connect the extension to this server to edit locally, share the subflow library, or test
   unpushed changes with [Dev runs](runs.md#dev-runs).
 
@@ -83,3 +84,6 @@ All subflows in that project then appear under **Build › Library** for anyone 
 | `Ctrl+Y`, `Ctrl+Shift+Z` | Redo what `Ctrl+Z` undid                         |
 | `/` or `Ctrl+K`          | Search flows, projects, runs and pages           |
 | `Esc`                    | Exit full screen or close the open dialog / menu |
+
+The [API reference](/docs/api) lists every flow, draft, variable-index and library call and who may
+make it.
