@@ -126,3 +126,10 @@ body.afs-host-toolbar .afd-failure-bar,
 body.afs-host-toolbar .afd-run-status[data-run-state="paused"] {
   display: none;
 }
+
+/* AFS-277: framed in a flow's or a run's page, whose title says the flow's name, the canvas's top
+   bar does not say it again. Its key and version stay, and so does the way back out of a subflow
+   (more than one crumb). VS Code and a canvas on a page of its own keep the name. */
+.afs-framed .afd-topbar:not(:has(.afd-crumb + .afd-crumb)) .afd-crumb {
+  display: none;
+}

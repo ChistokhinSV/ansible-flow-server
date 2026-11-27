@@ -32,7 +32,10 @@ account at its end:
 
 Someone who may only run actions has Actions only. **Help**
 (`/help`) lists this guide's pages and the API reference, and most pages link the guide page
-about them with **Help** beside their title. The server shows this guide itself, as it was for its
+about them with **Help** beside their title. A flow's page and a run's page, whose heads keep to
+one line so the canvas gets the room, have it as a **?** button among their buttons. A flow's
+opens [The flow editor](flow-editor.md). Their breadcrumbs end at the project (or the launch
+configuration), since the title under them names the flow or the run. The server shows this guide itself, as it was for its
 version, at `/help/guide/<page>`: it needs no internet. A link in it that leaves the server says
 where it goes (GitHub). A page that is not there, or not shared with you (a workspace, a project, a
 flow, a run, a launch configuration), says what was looked for, a way back to a page you can open,
@@ -157,7 +160,7 @@ never opens the browser's Save dialog.
 ## Editing flows in the pages
 
 Someone with `rw` on a flow edits it on its page: **Edit** opens the designer in full, as in VS
-Code. Everyone who edits the same flow edits one shared draft:
+Code. [The flow editor](flow-editor.md) is the short version of this section. Everyone who edits the same flow edits one shared draft:
 
 - **Edits are shared at once.** Each change goes to the server, which applies it to the draft in
   the order it gets them, and everyone's canvas shows the result. Changes to different steps all

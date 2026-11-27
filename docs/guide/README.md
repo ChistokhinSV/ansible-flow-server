@@ -32,6 +32,7 @@ endpoint for agents.
 | [Credentials and the master key](credentials.md)      | SSH keys, passwords, vault passwords and tokens, kept encrypted                                 |
 | [Notifications](notifications.md)                     | Email and webhooks: who is told of what                                                         |
 | [The web pages](web-pages.md)                         | Home, the canvas, editing flows and files in the pages, the flow library                        |
+| [The flow editor](flow-editor.md)                     | A flow on its page: edit it in a shared draft, save, run, debug; the keys                       |
 
 ## For administrators
 

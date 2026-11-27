@@ -356,3 +356,26 @@ for (const [width, height] of [
         found.push(`the ${menu} menu is not inside the window: ${JSON.stringify(box)}`);
       expect(found, `${menu} menu at ${width}px`).toEqual([]);
     });
+
+// AFS-277: a flow's page names the flow once: its title. Not again as the breadcrumb's last part,
+// nor on the canvas's own top bar in the frame, which keeps the flow's key and version. A canvas
+// opened on a page of its own has nothing else naming the flow, and keeps the name.
+test('a flow is named once on its page, and on a page of its own by the canvas', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(stack.base + (stack.pages?.flow ?? '/'));
+  const title = page.locator('main h1');
+  const canvas = page.frameLocator('iframe.flow-frame');
+  await expect(canvas.locator('.afd-topbar')).toBeVisible({ timeout: 45_000 });
+  // The title is the file's name until the flow is read.
+  await expect(title).not.toHaveText(/\.ya?ml$/);
+  const name = (await title.textContent()) ?? '';
+  expect(name).not.toBe('');
+  await expect(page.locator('.bar .crumbs')).not.toContainText(name);
+  await expect(canvas.locator('.afd-topbar .afd-chip.mono')).toBeVisible();
+  await expect(canvas.locator('.afd-topbar .afd-flow-name')).toBeHidden();
+  const own = await page.getByRole('link', { name: 'Open on its own page' }).getAttribute('href');
+  await page.goto(stack.base + own);
+  await expect(page.locator('.afd-topbar .afd-flow-name')).toHaveText(name, { timeout: 45_000 });
+});

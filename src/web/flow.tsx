@@ -29,6 +29,7 @@ import { StartFrom, type StartWhat } from './startFrom';
 import type { ThemeChoice } from './theme';
 import {
   Breadcrumb,
+  HelpButton,
   Icon,
   Loading,
   messageOf,
@@ -483,16 +484,11 @@ export function FlowPage({
           /{' '}
           <Link to={`/w/${workspace}/${key}`}>
             <ProjectName workspace={workspace} project={key} />
-          </Link>{' '}
-          {/* AFS-194: the flow by its title, as the other crumbs are names; the path is its tooltip. */}
-          /{' '}
-          <span aria-current="page" title={file}>
-            {title}
-          </span>
+          </Link>
+          {/* AFS-277: the flow's own name is the title right under the crumbs, said once. */}
         </Breadcrumb>
         <PageHead
           title={!found.loading && !project ? 'Not found' : title}
-          help="web-pages.md"
           // Shown, the flow's facts are in the line under the title; editing, they are behind the
           // "i" (AFS-165): the canvas gets the room.
         >
@@ -559,6 +555,8 @@ export function FlowPage({
               <Icon name="external" />
             </a>
           )}
+          {/* AFS-277: Help among the buttons, about this page: viewing and editing a flow. */}
+          <HelpButton page="flow-editor.md" about="viewing and editing a flow" />
           {/* AFS-152: a flow that is not there has no file to copy or delete. */}
           {/* AFS-123: and the flow's History, for anyone who sees the flow (a deleted one too, to
               find its last version; not one that may never have been there). */}

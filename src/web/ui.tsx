@@ -513,6 +513,25 @@ export function HelpLink({ page }: { page: string }) {
   );
 }
 
+/**
+ * AFS-277: Help as an icon button among the actions of a head that keeps to one line (the flow
+ * and run pages), opening the guide page about where it is beside the app.
+ */
+export function HelpButton({ page, about }: { page: string; about: string }) {
+  return (
+    <a
+      className="button icon-button"
+      href={guide(page)}
+      target="_blank"
+      rel="noopener"
+      aria-label={`Help: ${about}`}
+      title={`Help: ${about} (opens the guide)`}
+    >
+      <Icon name="help" />
+    </a>
+  );
+}
+
 export interface Tab {
   /** The last part of the tab's address; empty for the first tab, which is the page itself. */
   key: string;

@@ -686,13 +686,20 @@ describe('signed in', () => {
         ).searchParams.get('theme'),
       ).toBe('light'),
     );
-    // AFS-107: the breadcrumbs are in the top bar, beside the search box. AFS-194: the flow by
-    // its title, its file in the tooltip.
+    // AFS-107: the breadcrumbs are in the top bar, beside the search box. AFS-277: they end at
+    // the project; the flow's name is the title under them, said once on the page.
     const crumbs = document.querySelector('.bar nav[aria-label="Breadcrumb"]');
-    expect(crumbs?.textContent).toMatch(/ \/ OS upgrade$/);
-    expect(crumbs?.querySelector('[aria-current="page"]')?.getAttribute('title')).toBe(
-      'flows/os-upgrade.flow.yaml',
-    );
+    expect(crumbs?.textContent).toMatch(/ \/ Edge switches$/);
+    expect(crumbs?.textContent).not.toContain('OS upgrade');
+    expect(screen.getAllByText('OS upgrade')).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('OS upgrade');
+    // AFS-277: Help is a button among the head's, about viewing and editing a flow.
+    const help = screen.getByRole('link', { name: 'Help: viewing and editing a flow' });
+    expect(help.getAttribute('href')).toBe('/help/guide/flow-editor.md');
+    expect(help.getAttribute('title')).toBe('Help: viewing and editing a flow (opens the guide)');
+    expect(help.getAttribute('target')).toBe('_blank');
+    expect(help.closest('.page-head > .actions')).toBeTruthy();
+    expect(document.querySelector('.help-link')).toBeNull();
     // Full screen and its own page are icon buttons with their names.
     const canvas = screen.getByTitle(/OS upgrade on the designer/) as HTMLIFrameElement;
     // AFS-114: the canvas with what opens over it (the library picker) goes full screen.

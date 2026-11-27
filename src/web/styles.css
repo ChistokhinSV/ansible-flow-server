@@ -5985,3 +5985,85 @@ button.account-button > .icon {
     display: none;
   }
 }
+
+/* === AFS-277: compact heads on the flow and run pages ==========================================
+   The pages to work on keep their bar, title and buttons to the height their words need, so the
+   canvas under them gets the room: a slimmer bar, the title once and smaller, the run's facts on
+   its line where they fit, and buttons of the debug workbench's density (28 px, 13 px text). */
+.bar.bar-of.wide,
+.bar.bar-of.run {
+  padding-top: 8px;
+  row-gap: 6px;
+}
+:is(.bar-of.wide, .bar-of.run) .crumbs {
+  font-size: 13px;
+}
+:is(.bar-of.wide, .bar-of.run) .search input {
+  min-height: 2rem;
+  padding-block: 0.25rem;
+  font-size: 13px;
+}
+.page.wide {
+  padding-top: 8px;
+}
+.flow-head .page-head,
+.bar + main .flow-head > .page-head:first-child {
+  margin: 0 0 4px;
+  gap: 6px 16px;
+}
+.flow-head .page-head h1,
+.run-head h1 {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  margin: 0;
+}
+.flow-head .flow-line {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+/* A run: its title, then its facts on the same line where they fit, the buttons at the end; how
+   it ended (and why), and an error of the page, each a line under them. */
+.run-head {
+  padding-block: 8px 10px;
+  gap: 6px 16px;
+}
+.run-head.real-run {
+  padding-top: 11px;
+}
+.run-head > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  flex: 1 1 24rem;
+  min-width: 0;
+}
+.run-head .run-facts,
+.run-head .run-outcome {
+  font-size: 13px;
+}
+.run-head .run-outcome {
+  flex-basis: 100%;
+  margin: 0;
+}
+.run-head .run-alert {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+:is(.flow-head .page-head, .run-head) > .actions {
+  gap: 6px;
+}
+:is(.flow-head .page-head, .run-head)
+  > .actions
+  :is(button, a.button):not(.more-menu-list *, .draft-line *) {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+:is(.flow-head .page-head, .run-head) > .actions .icon-button:not(.more-menu-list *) {
+  min-width: 28px;
+  padding-inline: 6px;
+}

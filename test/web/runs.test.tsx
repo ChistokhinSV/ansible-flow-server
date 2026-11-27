@@ -373,7 +373,12 @@ describe('a run', () => {
       error: 'ansible-playbook ended with 2; 1 host(s) failed',
     });
     stream.emit('end', { state: 'failed' });
-    await screen.findByText('ansible-playbook ended with 2; 1 host(s) failed');
+    const why = await screen.findByText('ansible-playbook ended with 2; 1 host(s) failed');
+    // AFS-277: said in the head's line of how the run ended, not in a box of its own under it.
+    expect(why.closest('.run-head [data-outcome]')).toBeTruthy();
+    expect(why.getAttribute('role')).toBe('status');
+    expect(why.classList.contains('bad-text')).toBe(true);
+    expect(document.querySelector('.run-notes')).toBeNull();
     expect(screen.getByText('failed', { selector: '.badge' })).toBeTruthy();
     expect(stream.closed).toBe(true);
   });
@@ -513,11 +518,15 @@ describe('a run', () => {
       (await within(facts).findByRole('link', { name: 'net-tools' })).getAttribute('href'),
     ).toBe('/w/netops/environments/e1');
     expect(facts.textContent).toContain("counted over the project's runs");
-    // Went well, and still not plainly: the target the inventory lacks is named.
-    expect(document.querySelector('[data-skipped-targets]')?.textContent).toBe(
+    // Went well, and still not plainly: the target the inventory lacks is counted in the head,
+    // named on hover there (AFS-277: not in a block of its own) and in What ran.
+    const skipped = document.querySelector('.run-head [data-skipped-targets]') as HTMLElement;
+    expect(skipped.textContent).toBe(' · 1 target not in the inventory');
+    expect(skipped.title).toBe(
       'Not in the inventory inventory/hosts.yaml, so nothing ran there: nosuchhost',
     );
-    expect(screen.getByText(/1 target not in the inventory/)).toBeTruthy();
+    expect(facts.textContent).toContain('not in the inventory: nosuchhost');
+    expect(document.querySelector('.run-notes')).toBeNull();
   });
 
   it("AFS-163: What ran says the image came from the server's default", async () => {
@@ -705,7 +714,12 @@ describe('a run', () => {
       ['Edge firewalls', '/w/netops/edge'],
       ['Nightly check', '/w/netops/edge/launch/c1'],
     ]);
-    expect(crumbs.textContent).toMatch(/#7$/);
+    // AFS-277: the run itself is the title under them, not a crumb as well.
+    expect(crumbs.textContent).toMatch(/ \/ Nightly check$/);
+    // Help is a button among the head's, about a run's page.
+    const help = screen.getByRole('link', { name: "Help: a run's page" });
+    expect(help.getAttribute('href')).toBe('/help/guide/runs.md');
+    expect(help.closest('.run-head .actions')).toBeTruthy();
     // What ran: the flow and the configuration are links too.
     const facts = screen.getByRole('heading', { name: 'What ran' }).closest('section');
     const ran = within(facts as HTMLElement);
@@ -1115,9 +1129,11 @@ describe('a debug run', () => {
     render(<App />);
     const reason = await screen.findByText(/^Paused after Push baseline: 1 of 2 hosts failed/);
     expect(reason).toBeTruthy();
+    // AFS-277: the reason line and the status line say where it paused; the head does not say it
+    // a third time (and so never says "before" where they say "after").
     const head = screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement;
-    expect(head.textContent).toContain('after Push baseline');
-    expect(head.textContent).not.toContain('before Push baseline');
+    expect(head.textContent).not.toContain('Push baseline');
+    expect(document.querySelector('.wb-status')?.textContent).toContain('after Push baseline');
     // No phone tabs beside the canvas: the panel's tabs only.
     expect(screen.queryByRole('tablist', { name: 'Parts of the debugger' })).toBeNull();
     expect(
