@@ -709,6 +709,67 @@ describe('a run of a flow with an approval', () => {
   });
 });
 
+describe('AFS-275: the decided approvals someone may see', () => {
+  it('are not lost behind the newest 200 of workspaces they do not see', async () => {
+    const db = database.db;
+    // What rita (ro on Network) may see: the gates decided above.
+    const before = (await call('rita', 'GET', '/api/v1/approvals?decided=1')).json() as {
+      gate: { id: string };
+    }[];
+    expect(before.length).toBeGreaterThan(0);
+    // A busy workspace she has no grant on decides 201 gates after those.
+    const lab = await createWorkspace(db, { key: 'lab', name: 'Lab' });
+    const labProject = await createProject(
+      db,
+      lab.id,
+      { key: 'lab-edge', name: 'Lab edge', gitUrl: source.dir, pollSeconds: 0 },
+      true,
+    );
+    const gate = await db
+      .selectFrom('run_gate')
+      .selectAll()
+      .where('status', 'in', ['approved', 'rejected', 'timed out'])
+      .executeTakeFirstOrThrow();
+    const run = await db
+      .selectFrom('run')
+      .selectAll()
+      .where('id', '=', gate.run_id)
+      .executeTakeFirstOrThrow();
+    const later = Date.now() + 60_000;
+    for (let i = 0; i < 201; i++) {
+      const at = new Date(later + i * 1000).toISOString();
+      await db
+        .insertInto('run')
+        .values({
+          ...run,
+          id: `lab-run-${i}`,
+          number: 1000 + i,
+          project_id: labProject.id,
+          created_at: at,
+          updated_at: at,
+        })
+        .execute();
+      await db
+        .insertInto('run_gate')
+        .values({ ...gate, id: `lab-gate-${i}`, run_id: `lab-run-${i}`, created_at: at })
+        .execute();
+    }
+    // Rita still sees hers, and none of Lab's.
+    const after = (await call('rita', 'GET', '/api/v1/approvals?decided=1')).json() as {
+      gate: { id: string };
+      run: { workspace: { key: string } };
+    }[];
+    expect(after.map((a) => a.gate.id)).toEqual(before.map((a) => a.gate.id));
+    expect(after.every((a) => a.run.workspace.key === 'net')).toBe(true);
+    // An administrator sees everything: Lab's newest, 50 of them.
+    const all = (await call('dana', 'GET', '/api/v1/approvals?decided=1')).json() as {
+      run: { workspace: { key: string } };
+    }[];
+    expect(all).toHaveLength(50);
+    expect(all.every((a) => a.run.workspace.key === 'lab')).toBe(true);
+  });
+});
+
 describe('AFS-271: the steps an approval lets happen', () => {
   const node = (id: string, type = 'task') => ({ id, title: id.toUpperCase(), type });
   const edge = (from: string, port: string, to: string) => ({

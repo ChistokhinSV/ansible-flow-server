@@ -297,6 +297,21 @@ export function registerApprovals(app: FastifyInstance, deps: ApprovalDeps): App
       ])
       .orderBy('run_gate.created_at', decided ? 'desc' : 'asc');
     if (only) query = query.where('workspace.id', '=', only);
+    // AFS-275: only what the person may see, in SQL, before the decided list is cut at 200: cut
+    // first, someone whose workspaces decided less lately than the server's newest 200 saw none.
+    // The same rule as the check per row below, which stays (a flow's own grant may say less).
+    const visible = who.access.visible();
+    if (visible) {
+      if (!visible.workspaces.length && !visible.flows.length) return [];
+      query = query.where((eb) =>
+        eb.or([
+          ...(visible.workspaces.length ? [eb('workspace.id', 'in', visible.workspaces)] : []),
+          ...visible.flows.map(([project, file]) =>
+            eb.and([eb('run.project_id', '=', project), eb('run.flow_file', '=', file)]),
+          ),
+        ]),
+      );
+    }
     query = decided
       ? query.where('run_gate.status', 'in', ['approved', 'rejected', 'timed out']).limit(200)
       : query.where('run_gate.status', '=', 'waiting').where('run.state', '=', 'waiting');
