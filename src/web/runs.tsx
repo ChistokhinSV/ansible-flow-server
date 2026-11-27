@@ -33,7 +33,7 @@ import {
   ago,
   Breadcrumb,
   formatTime,
-  HelpLink,
+  HelpButton,
   Icon,
   Loading,
   PageHead,
@@ -1716,31 +1716,27 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 <Link to={`/w/${part(where.workspace)}/${part(where.project)}`}>
                   {where.projectName ?? where.project}
                 </Link>{' '}
-                /{' '}
                 {where.config && run.config && (
                   <>
-                    <Link to={where.config}>{run.config.name}</Link> /{' '}
+                    {' '}
+                    / <Link to={where.config}>{run.config.name}</Link>
                   </>
                 )}
               </>
             ) : (
               // Where it belongs is not known (yet, or not to this person): the list is the way back.
-              <>
-                <Link to="/runs">Runs</Link> /{' '}
-              </>
+              <Link to="/runs">Runs</Link>
             )}
-            <span aria-current="page">#{run.number}</span>
+            {/* AFS-277: the run itself is the title right under the crumbs, said once. */}
           </Breadcrumb>
-          <div className="title-line">
-            {/* AFS-147: the number counts the project's runs, not the flow's. */}
-            <h1 tabIndex={-1} title={`Run ${run.number} of the project's runs`}>
-              {title}
-            </h1>
-            <HelpLink page="runs.md" />
-          </div>
-          <p>
-            <StateBadge state={shownState(run)} against={run.decidedAgainst} />
-            {standingNow && ` ${standingNow}`} · started by {by} ·{' '}
+          {/* AFS-147: the number counts the project's runs, not the flow's. */}
+          <h1 tabIndex={-1} title={`Run ${run.number} of the project's runs`}>
+            {title}
+          </h1>
+          {/* AFS-277: where it stands is said by the status line under the canvas (and why it
+              paused there only); here, the state and what kind of run it is. */}
+          <p className="run-facts">
+            <StateBadge state={shownState(run)} against={run.decidedAgainst} /> · started by {by} ·{' '}
             <ModeBadge mode={run.mode} long />
             {hostCount > 0 && (
               <>
@@ -1758,8 +1754,14 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
                 )}
               </>
             )}
+            {/* AFS-147: targets Ansible dropped are said, also on a run that went well; named on
+                hover and in Details. */}
             {!!run.skippedTargets?.length && (
-              <span className="warn-text">
+              <span
+                className="warn-text"
+                title={`Not in the inventory${run.inventory ? ` ${run.inventory}` : ''}, so nothing ran there: ${run.skippedTargets.join(', ')}`}
+                data-skipped-targets
+              >
                 {' '}
                 · {run.skippedTargets.length}{' '}
                 {run.skippedTargets.length === 1 ? 'target' : 'targets'} not in the inventory
@@ -1817,13 +1819,33 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               </>
             )}
           </p>
-          {/* AFS-213: how the hosts went, in one line, once the run has ended. */}
-          {offer?.line && (
-            <p
-              className={offer.sets?.notOk.length ? 'run-outcome bad-text' : 'run-outcome'}
-              data-outcome
-            >
-              {offer.line}
+          {/* AFS-213: how the hosts went, in one line, once the run has ended. AFS-277: with why it
+              ended or stopped, in the same line: no block of notes between the head and the canvas.
+              The targets left out are counted above and named in Details. */}
+          {(offer?.line || run.error) && (
+            <p className="run-outcome" data-outcome>
+              {offer?.line && (
+                <span className={offer.sets?.notOk.length ? 'bad-text' : undefined}>
+                  {offer.line}
+                </span>
+              )}
+              {offer?.line && run.error ? ' · ' : null}
+              {run.error && (
+                <span
+                  className={run.state === 'cancelled' ? undefined : 'bad-text'}
+                  role="status"
+                  data-run-error
+                >
+                  {run.state === 'cancelled'
+                    ? stoppedWhen(plainWhy(run.error), run.endedAt)
+                    : plainWhy(run.error)}
+                </span>
+              )}
+            </p>
+          )}
+          {error && (
+            <p className="notice error run-alert" role="alert">
+              {error}
             </p>
           )}
         </div>
@@ -1845,32 +1867,10 @@ export function RunPage({ id, me, theme }: { id: string; me: User; theme: ThemeC
               onChange={navigate}
             />
           )}
+          <HelpButton page="runs.md" about="a run's page" />
           <RunMoreMenu id={run.id} />
         </div>
       </header>
-      {(run.error || error || !!run.skippedTargets?.length) && (
-        <div className="run-below run-notes">
-          {run.error && (
-            <p className={`notice ${run.state === 'cancelled' ? '' : 'error'}`} role="status">
-              {run.state === 'cancelled'
-                ? stoppedWhen(plainWhy(run.error), run.endedAt)
-                : plainWhy(run.error)}
-            </p>
-          )}
-          {/* AFS-147: targets Ansible dropped are said, also on a run that went well. */}
-          {!!run.skippedTargets?.length && (
-            <p className="notice warn" role="status" data-skipped-targets>
-              Not in the inventory{run.inventory ? ` ${run.inventory}` : ''}, so nothing ran there:{' '}
-              {run.skippedTargets.join(', ')}
-            </p>
-          )}
-          {error && (
-            <p className="notice error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-      )}
       <div className="run-workbench" ref={body}>
         <DebugWorkbench
           run={run}

@@ -63,6 +63,9 @@ const tellPage = (message: { type: string } & Record<string, unknown>) => {
 };
 /** AFS-265: the page's workbench has the step buttons (designer: config.hostToolbar). */
 let hostToolbar = false;
+// AFS-277: in a page's frame the page's title names the flow; the canvas need not (viewer.css).
+// On a page of its own (Open on its own page) the canvas's name is the only one, and stays.
+document.body.classList.toggle('afs-framed', window.parent !== window);
 const wanted = params.get('theme');
 const theme = wanted === 'light' || wanted === 'dark' ? wanted : 'auto';
 const root = document.getElementById('root') as HTMLElement;

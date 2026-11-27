@@ -24,6 +24,11 @@ export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
       about: 'A workspace, a project from a sample, a launch and an approval, in 15 minutes',
     },
     {
+      title: 'The flow editor',
+      page: 'flow-editor.md',
+      about: 'A flow on its page: edit it in a shared draft, save, run, debug; the keys',
+    },
+    {
       title: 'The web pages',
       page: 'web-pages.md',
       about: 'Home, the canvas, editing flows and files in the pages, the flow library',

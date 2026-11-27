@@ -130,7 +130,7 @@ describe('Run again ▾', () => {
     });
     window.history.replaceState(null, '', '/runs/r1');
     render(<App />);
-    expect((await screen.findByText(offer.line as string)).hasAttribute('data-outcome')).toBe(true);
+    expect((await screen.findByText(offer.line as string)).closest('[data-outcome]')).toBeTruthy();
     const menu = await openMenu();
     expect(
       within(menu)

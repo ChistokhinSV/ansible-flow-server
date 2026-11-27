@@ -134,15 +134,19 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 **A run's page** is laid out as the [debugger](debugging.md#the-debugger): the canvas in the
 middle with a toolbar over it (Stop, or a step-by-step run's bar), the **Details** view in a side
 bar on the left, a panel under the canvas with the **Terminal** (the output) and **Problems** (why
-each host failed), and a status line. Its header has the run, **Run again ▾** once it has ended,
-and **More** (All runs, the output as text). On a phone it has the tabs Flow, Details and Output.
+each host failed), and a status line. Its header is one line on a wide screen: the run's title,
+its state, who started it, check or real, the hosts and its badges, then **Run again ▾** once it
+has ended, **Help** (?) and **More** (All runs, the output as text). Where it paused is said in the
+status line. The targets not in the inventory are counted there and named on hover and in Details.
+On a phone it has the tabs Flow, Details and Output.
 The Details view says what ran: the flow and commit, the run's number (counted over the
 project's runs), check or real, the hosts and the limit, the inventory, the environment and its
 image (marked "the server's default" when the run got the server's default image as it started),
 the credentials by name, and the inputs (secret ones as `***`). `GET /runs/:id` gives the
 same: `credentialNames`, `environment` (`id`, `name`), `skippedTargets`. Once the run has ended,
 a line under its title says how its hosts went: "3 of 40 hosts did not go well: 2 failed at Apply
-config, 1 unreachable" (see [Run again](#run-again)). **Hosts** lists the run's hosts and how each fared; a
+config, 1 unreachable" (see [Run again](#run-again)), and in the same line why the run ended, or
+who stopped it and when. **Hosts** lists the run's hosts and how each fared; a
 host's row opens what it did, step by step: each task's result, with Ansible's message and
 output.
 
