@@ -21,6 +21,7 @@ import { accessOf } from '../access/grants';
 import { closeGates, type Gate, gatesOf } from '../approvals/gates';
 import { signedIn } from '../auth/guards';
 import type { Schema } from '../db/schema';
+import { getWorkspace } from '../projects/store';
 import { readBefore } from './cursor';
 import type { RunHub, RunNews } from './hub';
 import { ACTIVE, type Run, type RunQueue, type RunState, STATES } from './queue';
@@ -424,6 +425,7 @@ export function registerRuns(
 
   app.get<{
     Querystring: {
+      workspace?: string;
       project?: string;
       flow?: string;
       state?: RunState | 'rejected' | 'paused' | 'going';
@@ -441,6 +443,8 @@ export function registerRuns(
           type: 'object',
           additionalProperties: false,
           properties: {
+            // AFS-274: a workspace's runs, by its key (or id).
+            workspace: text(100, 1),
             project: text(64, 1),
             flow: text(500, 1),
             // AFS-193: and rejected (a failed run decided against); failed leaves those out.
@@ -470,10 +474,28 @@ export function registerRuns(
           field: 'before',
         });
       // Only the runs of what this person may see: the filters narrow that, never widen it.
-      const visible = db ? (await accessOf(db, request))?.visible() : undefined;
+      const access = db ? await accessOf(db, request) : undefined;
+      const visible = access?.visible();
+      const { workspace: asked, ...filter } = request.query;
+      let workspace: string | undefined;
+      if (asked) {
+        // AFS-274: one the person may not see is not said to be there, as one that does not exist.
+        const found = db ? await getWorkspace(db, asked) : undefined;
+        if (!found || (access && !access.sees(found.id)))
+          return reply
+            .code(404)
+            .send({ error: 'not_found', message: `There is no workspace ${asked}` });
+        workspace = found.id;
+      }
       // AFS-253: a debug run's point conditions are its driver's.
       return (
-        await named(await queue.list({ ...request.query, ...(visible ? { visible } : {}) }))
+        await named(
+          await queue.list({
+            ...filter,
+            ...(workspace ? { workspace } : {}),
+            ...(visible ? { visible } : {}),
+          }),
+        )
       ).map((r) => forReader(r, me));
     },
   );

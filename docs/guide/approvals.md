@@ -62,8 +62,10 @@ server that stops and starts again keeps the run waiting.
 - Approvals inside subflows, or two that can wait at once, cannot be split: such a flow does not
   launch (the designer says why, `awx-segments`).
 
-Decide on the **Approvals** page (what waits for you, and for others), on the run's page, or on
-the canvas (the approval's Run tab), or:
+Decide on the **Approvals** page (what waits for you, and for others, in every workspace, each
+with its workspace; **Workspace** narrows it to one of the workspaces listed, and an address
+naming a workspace you no longer see shows them all), on the run's page, or on the canvas (the
+approval's Run tab), or:
 
 ```sh
 curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
@@ -71,9 +73,9 @@ curl -H "Authorization: Bearer $AFS_TOKEN" -H 'content-type: application/json' \
   -d '{"decision":"approved","comment":"Window confirmed with the NOC"}'
 ```
 
-| Address (under `/api/v1`)           | Does                                                                                                                                                                                                             | Who                          |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `GET /approvals`                    | What waits for a decision that you may see, each with whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided                                                                          | signed in                    |
-| `GET /runs/:id/approvals`           | A run's approvals: waiting or decided, by whom (`decidedByName`), when, why; `mayDecide`, `why`; `deciders` (who may decide); `next`, `after` (the steps once approved) and, while it waits, `evidence.checkRun` | `ro`                         |
-| `POST /runs/:id/approvals/:node`    | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                                                                                          | `approve`, and the approvers |
-| `GET /projects/:id/approvers?path=` | Who an approval of the flow asks when its approvers are empty (`approvers`, by name), and `selfApprove`                                                                                                          | `ro` on the flow             |
+| Address (under `/api/v1`)           | Does                                                                                                                                                                                                                                                              | Who                          |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `GET /approvals`                    | What waits for a decision that you may see, in every workspace, each with its `workspace`, whether you may decide and the hosts waiting; `?decided=1`: the newest 50 decided; `?workspace=<key>`: of one workspace (a token made for one workspace sees that one) | signed in                    |
+| `GET /runs/:id/approvals`           | A run's approvals: waiting or decided, by whom (`decidedByName`), when, why; `mayDecide`, `why`; `deciders` (who may decide); `next`, `after` (the steps once approved) and, while it waits, `evidence.checkRun`                                                  | `ro`                         |
+| `POST /runs/:id/approvals/:node`    | Decide one (`approved` or `rejected`, `comment`); the node by id or key                                                                                                                                                                                           | `approve`, and the approvers |
+| `GET /projects/:id/approvers?path=` | Who an approval of the flow asks when its approvers are empty (`approvers`, by name), and `selfApprove`                                                                                                                                                           | `ro` on the flow             |

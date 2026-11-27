@@ -43,10 +43,13 @@ curl -H "Authorization: Bearer $AFS_TOKEN" \
   A refusal about one field of the request names it: `"field": "<name>"` (a name over 200
   characters: `{"error": "invalid", "message": "Name: at most 200 characters.", "field": "name"}`).
 - A run is followed as server-sent events (`GET /api/v1/runs/<id>/events`), see [Runs](runs.md).
-- The list of runs is narrowed with `project`, `flow`, `state`, `config` (a launch
-  configuration's id) and `by` (the login of who asked for the run), and read a page at a time
+- The list of runs is narrowed with `workspace` (a key), `project`, `flow`, `state`, `config` (a
+  launch configuration's id) and `by` (the login of who asked for the run), and read a page at a time
   with `limit` and `before`, see [Runs](runs.md). A list never shows more than you may see,
   whatever it is asked for.
+- `GET /api/v1/approvals` spans the workspaces you may see, as the inbox does: a token made for
+  one workspace lists that workspace's approvals (it was refused before), and `?workspace=<key>`
+  narrows it to one.
 - `GET /api/v1/inbox` is Home's inbox in one call: what needs you across the workspaces you may
   see, each item with its `kind` (`approval`, `paused`, `failed`, `draft`, `certificate`,
   `request`), its `workspace` (none for the server's certificate) and the `verbs` you may use

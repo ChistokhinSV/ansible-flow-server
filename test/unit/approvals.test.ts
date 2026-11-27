@@ -338,7 +338,12 @@ describe('a run of a flow with an approval', () => {
     const inbox = (await call('omar', 'GET', '/api/v1/approvals')).json();
     expect(inbox).toHaveLength(1);
     expect(inbox[0]).toMatchObject({
-      run: { id: run.id, flow: { file: 'flows/change.flow.yaml' } },
+      // AFS-274: it names its workspace.
+      run: {
+        id: run.id,
+        flow: { file: 'flows/change.flow.yaml' },
+        workspace: { key: 'net', name: 'Network' },
+      },
       requestedBy: 'dana',
       mayDecide: true,
       gate: { node: { key: 'gate' }, hosts: ['fw-edge-01'] },
@@ -346,6 +351,9 @@ describe('a run of a flow with an approval', () => {
     expect((await call('gary', 'GET', '/api/v1/approvals')).json()[0]).toMatchObject({
       mayDecide: false,
     });
+    // AFS-274: of one workspace when asked; one the person may not see is not there.
+    expect((await call('omar', 'GET', '/api/v1/approvals?workspace=net')).json()).toHaveLength(1);
+    expect((await call('omar', 'GET', '/api/v1/approvals?workspace=nowhere')).statusCode).toBe(404);
 
     const decided = await decide('omar', 'approved', 'Window confirmed with the NOC');
     expect(decided.statusCode).toBe(200);
@@ -376,7 +384,7 @@ describe('a run of a flow with an approval', () => {
     // AFS-133: decided ones are listed apart, newest first, with who and why.
     const history = (await call('gary', 'GET', '/api/v1/approvals?decided=1')).json();
     expect(history[0]).toMatchObject({
-      run: { id: run.id },
+      run: { id: run.id, workspace: { key: 'net', name: 'Network' } },
       mayDecide: false,
       gate: { status: 'approved', decidedBy: 'omar', comment: 'Window confirmed with the NOC' },
     });

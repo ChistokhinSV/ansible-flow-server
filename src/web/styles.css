@@ -5732,3 +5732,75 @@ a.button.quiet:hover {
     white-space: normal;
   }
 }
+
+/* AFS-274 (ADR-0039 §10): the Work pages span workspaces. Each run names its workspace in a
+   column of its own, before its configuration; the workspace filter is Home's, on every Work page. */
+.list.runs.with-workspace {
+  /* The state and who asked may wrap: a long word or name never pushes the row past the frame. */
+  grid-template-columns:
+    fit-content(10rem) minmax(10rem, 2fr) minmax(6rem, 1fr) minmax(7rem, 1fr) max-content
+    fit-content(9rem) max-content max-content;
+  column-gap: 18px;
+}
+.list.runs.with-workspace > li > a {
+  gap: 0 18px;
+}
+.list.runs.with-workspace.no-config {
+  grid-template-columns:
+    max-content minmax(12rem, 2fr) minmax(8rem, 1.2fr) max-content max-content max-content
+    max-content;
+  column-gap: 28px;
+}
+.list.runs.with-workspace.no-config > li > a {
+  gap: 0 28px;
+}
+/* Eight columns need more room than seven: a narrower list is two lines a run sooner. */
+@container (max-width: 940px) {
+  .list.runs.with-workspace:not(.no-config),
+  .list.runs.with-workspace:not(.no-config) > li {
+    display: block;
+  }
+  .list.runs.with-workspace:not(.no-config) .runs-head {
+    display: none;
+  }
+  .list.runs.with-workspace:not(.no-config) > li > a {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 16px;
+  }
+  .list.runs.with-workspace:not(.no-config) .title {
+    grid-area: 1 / 1;
+  }
+  .list.runs.with-workspace:not(.no-config) .c-state {
+    grid-area: 1 / 2;
+    text-align: right;
+  }
+  .list.runs.with-workspace:not(.no-config) .c-facts {
+    grid-area: 2 / 1 / 3 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 12px;
+  }
+  .list.runs.with-workspace:not(.no-config) .c-fact {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .list.runs.with-workspace:not(.no-config) .c-fact:empty {
+    display: none;
+  }
+}
+.workspace-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.workspace-filter select {
+  min-width: 0;
+  max-width: 14rem;
+}
+.run-filters .workspace-filter {
+  font-size: inherit;
+  color: inherit;
+}

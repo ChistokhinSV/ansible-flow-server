@@ -666,6 +666,13 @@ for (const [name, config] of databases) {
         // nina has no grant at all.
         expect(idsOf(await get('nina', '/api/v1/runs?by=otto'))).toEqual([]);
         expect((await get('dana', '/api/v1/runs?before=a,b')).status).toBe(400);
+        // AFS-274: by workspace, still within what each sees; one they may not see is not there.
+        expect(idsOf(await get('dana', '/api/v1/runs?by=otto&workspace=net'))).toEqual([ofB.id]);
+        expect(idsOf(await get('dana', '/api/v1/runs?by=otto&workspace=lab'))).toEqual([inLab.id]);
+        expect(idsOf(await get('rita', '/api/v1/runs?by=otto&workspace=net'))).toEqual([ofB.id]);
+        expect((await get('rita', '/api/v1/runs?workspace=lab')).status).toBe(404);
+        expect((await get('rita', '/api/v1/runs?workspace=nowhere')).status).toBe(404);
+        expect(idsOf(await get('fiona', '/api/v1/runs?workspace=net&by=otto'))).toEqual([]);
       });
 
       it('a token for one workspace asks by configuration inside it only', async () => {

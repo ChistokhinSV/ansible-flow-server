@@ -1,11 +1,11 @@
 // Approvals on the pages (AFS-28): the inbox of what waits for a decision, and a run's approvals
 // on its page. Who may decide is the server's to say (`mayDecide`, else why not); a decision
 // takes a comment, kept with it and shown to everyone who looks at the run.
-import { type FormEvent, useEffect, useId, useState } from 'react';
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { decidersWords } from '../server/approvals/types';
-import { api, type Gate } from './api';
-import { Link } from './router';
-import { ago, Loading, messageOf, PageHead, span, Time, useLoad } from './ui';
+import { ApiError, api, type Gate } from './api';
+import { Link, navigate, useSearch } from './router';
+import { ago, Loading, messageOf, PageHead, span, Time, useLoad, WorkspaceFilter } from './ui';
 
 /** AFS-133: the sidebar's count and other lists read again once a decision is made. */
 export const APPROVALS_CHANGED = 'afs-approvals-changed';
@@ -323,7 +323,16 @@ export function RunApprovals({ run, changed }: { run: string; changed: string })
 
 /** Everything that waits for a decision, that this person may see. */
 export function ApprovalsPage() {
-  const list = useLoad(() => api.approvals(), []);
+  // AFS-274: every workspace the person may see; `?workspace=<key>` narrows to one.
+  const chosen = new URLSearchParams(useSearch()).get('workspace') ?? undefined;
+  const workspaces = useLoad(api.workspaces, []);
+  const list = useLoad(() => api.approvals(chosen), [chosen]);
+  // A workspace the person no longer sees (a bookmark, a grant taken away) is let go, as Runs
+  // lets go of a choice it does not know, not said as an error.
+  const stale = Boolean(chosen) && list.failure instanceof ApiError && list.failure.status === 404;
+  useEffect(() => {
+    if (stale) navigate('/approvals', { replace: true });
+  }, [stale]);
   // AFS-133: what was just decided here, said until the next decision.
   const [decided, setDecided] = useState<{ text: string; run: string }>();
   // Runs reach approvals while the page is open: it looks again now and then.
@@ -331,7 +340,10 @@ export function ApprovalsPage() {
     const timer = setInterval(list.reload, 15_000);
     return () => clearInterval(timer);
   }, [list.reload]);
-  const decidedList = useLoad(() => api.decidedApprovals().catch(() => []), [decided]);
+  const decidedList = useLoad(
+    () => api.decidedApprovals(chosen).catch(() => []),
+    [decided, chosen],
+  );
   // AFS-146: the sidebar's count follows what this page reads (a run that arrived, one decided
   // elsewhere), not its own slower look.
   const count = list.data?.filter((a) => a.mayDecide).length;
@@ -340,6 +352,18 @@ export function ApprovalsPage() {
   }, [count]);
   const mine = list.data?.filter((a) => a.mayDecide) ?? [];
   const others = list.data?.filter((a) => !a.mayDecide) ?? [];
+  // The filter's choices are the approvals' own workspaces, as on Actions: who only approves
+  // has no workspace in `/workspaces`. Kept while the page is open, so a narrowed list still
+  // offers the others.
+  const seen = useRef(new Map<string, { key: string; name: string }>()).current;
+  for (const w of workspaces.data ?? []) seen.set(w.key, { key: w.key, name: w.name });
+  for (const a of [...(list.data ?? []), ...(decidedList.data ?? [])])
+    if (a.run.workspace) seen.set(a.run.workspace.key, a.run.workspace);
+  // A chosen one with nothing in it yet is offered by its key, and not kept: it may be stale.
+  const choices = [
+    ...seen.values(),
+    ...(chosen && !stale && !seen.has(chosen) ? [{ key: chosen, name: chosen }] : []),
+  ].sort((a, b) => a.name.localeCompare(b.name));
   // Yours: each a tinted box with the decision in it (AFS-82). Others': plain rows with why not.
   const card = (a: NonNullable<typeof list.data>[number], yours: boolean) => (
     <li key={a.gate.id} className={yours ? 'decision' : 'approval-row'}>
@@ -352,7 +376,10 @@ export function ApprovalsPage() {
           {a.run.projectName && (
             <>
               {' '}
-              · {a.run.workspaceName ? `${a.run.workspaceName} / ` : ''}
+              ·{' '}
+              {(a.run.workspace?.name ?? a.run.workspaceName)
+                ? `${a.run.workspace?.name ?? a.run.workspaceName} / `
+                : ''}
               {a.run.projectName}
             </>
           )}
@@ -390,13 +417,15 @@ export function ApprovalsPage() {
                 : 'No run waits for a decision.'
             : undefined
         }
-      />
+      >
+        <WorkspaceFilter workspaces={choices} chosen={stale ? undefined : chosen} />
+      </PageHead>
       {decided && (
         <p className="notice ok" role="status">
           {decided.text} <Link to={`/runs/${decided.run}`}>Open the run</Link>
         </p>
       )}
-      <Loading state={list} />
+      {!stale && <Loading state={list} />}
       {mine.length > 0 && (
         <section aria-labelledby="yours">
           <h2 id="yours">Yours to decide</h2>
@@ -419,7 +448,11 @@ export function ApprovalsPage() {
                   <Link to={`/runs/${a.run.id}`}>
                     {a.run.flow.name} #{a.run.number}
                   </Link>{' '}
-                  <span className="muted">· {a.gate.node.title}</span>{' '}
+                  <span className="muted">
+                    · {a.gate.node.title}
+                    {/* AFS-274: decided ones name their workspace too. */}
+                    {a.run.workspace ? ` · ${a.run.workspace.name}` : ''}
+                  </span>{' '}
                   <span className={`badge ${STATUS_TONE[a.gate.status] ?? ''}`}>
                     {gateWord(a.gate.status)}
                   </span>{' '}
