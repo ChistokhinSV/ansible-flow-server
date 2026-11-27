@@ -12,6 +12,19 @@ edit flows either **in the browser** or **in VS Code** with the Ansible Flow Des
 You need **Edit** (`rw`) access on the workspace or on the flow (administrators always have it; see
 [Access levels](people-and-sign-in.md#access-levels)).
 
+## The flow's page
+
+- **Header**: the flow's name, then **Edit** (or **Open the draft** while a draft is open), **Full
+  screen** (`Esc` returns), **Open on its own page**, **?** (this page) and **⋯**: **History**, and
+  with Edit access **Copy the flow…** and **Delete the flow…**.
+- **The line under the name**: the branch and commit shown (read only), a **Launch: …** link for each
+  of the flow's launch configurations, and the flow's latest runs with how each went.
+- **The canvas** is the designer's: the palette on the left, **Details** on the right, and on its top
+  bar the flow's key and version. While you edit, the top bar also has **Design**, **Code** and
+  **Run**, **Lens**, **Generate Code** and **⋯**. The designer's
+  [Canvas basics](https://github.com/ChistokhinSV/ansible-flow-designer/blob/main/docs/guide/how-to/canvas-basics.md)
+  explains each part.
+
 ## Create a flow in 5 steps
 
 1. **New flow**: open a project's **Overview** and click **New flow** (also available in an empty
@@ -44,8 +57,9 @@ Pressing **Edit** on a flow's page opens a live draft shared by everyone editing
   branch moved while the draft was open, the server merges non-overlapping changes automatically and
   lets you choose between draft and branch values for any conflict.
 - **Leaving or discarding**: **Stop editing** leaves the draft saved on the server so you or a
-  teammate can resume with **Open the draft**. **Discard** drops unsaved edits, with **Bring back**
-  available for 15 minutes.
+  teammate can resume with **Open the draft**. While a draft waits, the flow's page says whose
+  unsaved edits it holds, and anyone with Edit access can **Discard the draft** there without
+  opening it. **Discard** drops unsaved edits, with **Bring back** available for 15 minutes.
 - **Runs use the branch, not the draft**: save your draft before launching a run.
 
 ## Inspect variables and changes

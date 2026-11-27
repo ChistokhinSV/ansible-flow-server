@@ -47,6 +47,10 @@ describe('the guide the server serves', () => {
     expect(guide('runs.md')).toBe('/help/guide/runs.md');
     expect(GET_STARTED).toBe('/help/guide/edit-flows.md');
     expect(resolveGuide('first-flow.md')).toEqual({ page: 'edit-flows.md' });
+    // The flow editor's page was merged into Edit flows and its file removed: its address (in
+    // rc.7's pages and bookmarks) answers with Edit flows.
+    expect(isGuidePage('flow-editor.md')).toBe(true);
+    expect(resolveGuide('flow-editor.md')).toEqual({ page: 'edit-flows.md' });
     expect(resolveGuide('launch-configurations.md')).toEqual({
       page: 'runs.md',
       part: 'launch-configurations',
