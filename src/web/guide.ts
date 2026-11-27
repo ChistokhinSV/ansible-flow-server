@@ -1,75 +1,65 @@
 // AFS-143: the user guide. Pages link the guide page that is about them; the Help page lists them
 // all. AFS-155: the server shows the guide of its own version at /help/guide/<page> (the pages
 // carry it, guidePage.tsx), so it is there without internet and says what this server does.
+// AFS-279: ordered around what people do first: edit flows, import playbooks, run playbooks.
 
 export const GUIDE = '/help/guide/';
 
 /** Where the guide's sources are published, for what is not part of the guide. */
 export const SOURCES = 'https://github.com/ChistokhinSV/ansible-flow-server';
 
+/** Ansible Flow Designer, the VS Code extension and flow engine this server shares its canvas with. */
+export const DESIGNER = 'https://github.com/ChistokhinSV/ansible-flow-designer';
+
 /** The address of a guide page (`runs.md`, `people-and-sign-in.md#access-tokens`). */
 export const guide = (page = 'README.md') => `${GUIDE}${page}`;
+
+export const GUIDE_GROUPS = [
+  'Edit, import and run',
+  'Projects and workflows',
+  'Administration and setup',
+  'API and automation',
+] as const;
 
 /** The guide's pages, as the Help page lists them. */
 export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
   [
     {
-      title: 'Your first flow',
-      page: 'first-flow.md',
-      about: 'A flow made in the pages: steps, wires, what happens when a step fails, save, launch',
+      title: 'Edit flows',
+      page: 'edit-flows.md',
+      about:
+        'Build and edit flows on the canvas or in VS Code with Ansible Flow Designer; shared drafts, save and library',
     },
     {
-      title: 'Your first project',
-      page: 'first-project.md',
-      about: 'A workspace, a project from a sample, a launch and an approval, in 15 minutes',
+      title: 'Import playbooks',
+      page: 'import-playbooks.md',
+      about:
+        'Turn existing Ansible playbooks, roles, Git repositories and AWX templates into flows',
     },
     {
-      title: 'The flow editor',
-      page: 'flow-editor.md',
-      about: 'A flow on its page: edit it in a shared draft, save, run, debug; the keys',
-    },
-    {
-      title: 'The web pages',
-      page: 'web-pages.md',
-      about: 'Home, the canvas, editing flows and files in the pages, the flow library',
-    },
-    {
-      title: 'Workspaces and projects',
-      page: 'workspaces-and-projects.md',
-      about: 'Where flows live, and working on a project with git',
-    },
-  ],
-  [
-    {
-      title: 'Launch configurations',
-      page: 'launch-configurations.md',
-      about: 'A flow with its inputs, inventory, credentials and image: what Launch runs',
-    },
-    {
-      title: 'Runs',
+      title: 'Run playbooks',
       page: 'runs.md',
-      about: 'The queue, a run on the canvas, its hosts and output, stop and run again',
+      about:
+        'Set up a launch configuration (Check or Real), watch hosts and output on the canvas, stop and re-run failed hosts',
     },
     {
       title: 'Debug a run',
       page: 'debugging.md',
-      about: "Pause where a host fails, read each host's variables, watch, evaluate, retry a step",
+      about:
+        'Pause at steps or failures, inspect host variables, watch expressions, evaluate Jinja and retry a step',
     },
+  ],
+  [
     {
-      title: 'Actions',
-      page: 'actions.md',
-      about: 'A short form to run an approved thing, for people who do not read flows',
+      title: 'Workspaces, projects and Git',
+      page: 'workspaces-and-projects.md',
+      about:
+        'Hosted and mirrored Git repositories, editing project files, commit history and branches',
     },
-    {
-      title: 'Approvals',
-      page: 'approvals.md',
-      about: 'A run waits at an approval step until someone allowed decides',
-    },
-    { title: 'Schedules', page: 'schedules.md', about: 'Launch a configuration at set times' },
     {
       title: 'Execution environments',
       page: 'environments.md',
-      about: 'The images runs use, built from a list of collections',
+      about: 'Container images for runs, built from Ansible collections or pulled from a registry',
     },
     {
       title: 'Credentials',
@@ -77,54 +67,83 @@ export const GUIDE_PAGES: { title: string; page: string; about: string }[][] = [
       about: 'SSH keys, passwords, vault passwords and tokens, kept encrypted',
     },
     {
-      title: 'Notifications',
-      page: 'notifications.md',
-      about: 'Email and webhooks: who is told of what',
+      title: 'Approvals',
+      page: 'approvals.md',
+      about: 'Approval gates that pause real runs until someone allowed decides',
     },
     {
-      title: 'Event streaming',
-      page: 'event-streaming.md',
-      about: 'Audit entries and runs to syslog (a SIEM) and OpenTelemetry',
+      title: 'Actions',
+      page: 'actions.md',
+      about: 'Short self-service forms and NetBox or Zabbix links for running approved tasks',
+    },
+    {
+      title: 'Schedules',
+      page: 'schedules.md',
+      about: 'Launch a configuration on a cron or at a set time',
+    },
+    {
+      title: 'Inbox and navigation',
+      page: 'inbox-and-navigation.md',
+      about: 'Home inbox, cross-workspace views, search, shortcuts and themes',
     },
   ],
   [
     {
-      title: 'People, groups and sign-in',
+      title: 'Install and first setup',
+      page: 'install.md',
+      about: 'Docker Compose, Linux service, first administrator setup and designer compatibility',
+    },
+    {
+      title: 'People, groups and access',
       page: 'people-and-sign-in.md',
-      about: 'Users, groups, access levels, tokens, OIDC and LDAP',
+      about: 'Access levels, workspace matrix, tokens, service accounts, OIDC and LDAP',
     },
     {
       title: 'Secret providers',
       page: 'secret-providers.md',
-      about: 'Credentials that read their secrets from Vault, CyberArk or AWS when a run starts',
+      about: 'Read credentials at run start from Vault, CyberArk or AWS Secrets Manager',
     },
     {
       title: 'HTTPS and the certificate',
       page: 'certificates.md',
-      about: "The server's certificate, and trusting a self-signed one",
+      about: 'Request, install, replace or roll back TLS certificates, or run behind a proxy',
+    },
+    {
+      title: 'Notifications',
+      page: 'notifications.md',
+      about: 'Email and signed webhooks for approvals, runs and server alerts',
+    },
+    {
+      title: 'Event streaming',
+      page: 'event-streaming.md',
+      about: 'Stream audit entries and runs to syslog (SIEM) and OpenTelemetry',
     },
     {
       title: 'The audit log',
       page: 'audit.md',
-      about: 'Who did what and when, filtered and exported',
+      about: 'Who did what and when, filtered by day and exported as CSV or JSON',
     },
-    { title: 'Configuration', page: 'configuration.md', about: 'Every setting of the server' },
+    {
+      title: 'Configuration',
+      page: 'configuration.md',
+      about: 'Every AFS_* setting from the environment or .env',
+    },
     {
       title: 'Operations',
       page: 'operations.md',
-      about: 'Metrics, health checks, backup and restore, upgrades',
+      about: 'Health checks, Prometheus metrics, backup and restore, upgrades',
     },
   ],
   [
     {
-      title: 'The API and agents (MCP)',
+      title: 'REST API and agents (MCP)',
       page: 'api-and-mcp.md',
-      about: 'The REST API, access tokens, and the MCP endpoint for agents',
+      about: 'OpenAPI, Test Request, access tokens and the MCP endpoint for AI agents',
     },
     {
       title: 'Ansible collection',
       page: 'collection.md',
-      about: "Launch and follow runs, keep the server's objects as code",
+      about: 'Launch and follow runs from playbooks, and keep server resources as code',
     },
   ],
 ];

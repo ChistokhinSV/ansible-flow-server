@@ -556,7 +556,7 @@ export function FlowPage({
             </a>
           )}
           {/* AFS-277: Help among the buttons, about this page: viewing and editing a flow. */}
-          <HelpButton page="flow-editor.md" about="viewing and editing a flow" />
+          <HelpButton page="edit-flows.md" about="viewing and editing a flow" />
           {/* AFS-152: a flow that is not there has no file to copy or delete. */}
           {/* AFS-123: and the flow's History, for anyone who sees the flow (a deleted one too, to
               find its last version; not one that may never have been there). */}

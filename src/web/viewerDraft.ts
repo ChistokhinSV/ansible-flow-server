@@ -68,7 +68,7 @@ export type DraftNotice =
  * AFS-126: Get Started on the empty canvas: the guide. AFS-155: its walkthrough of a first flow in
  * the pages, as this server serves it (no internet needed).
  */
-export const GET_STARTED = guide('first-flow.md');
+export const GET_STARTED = guide('edit-flows.md');
 
 /**
  * AFS-149: what an edit did, in a few words: "removed Ping", "changed the name and timeout of

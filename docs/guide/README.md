@@ -1,59 +1,58 @@
 # Ansible Flow Server: user guide
 
-Ansible Flow Server runs the flows you design in
-[Ansible Flow Designer](https://github.com/ChistokhinSV/ansible-flow-designer) for a team: shared
-projects, access levels, approvals, schedules, execution environments, a REST API and an MCP
-endpoint for agents.
+Ansible Flow Server runs visual Ansible playbooks for a team. Flows (`*.flow.yaml`) are built right
+in the browser or in VS Code with
+[Ansible Flow Designer](https://github.com/ChistokhinSV/ansible-flow-designer): you wire steps,
+failure paths and approvals on a canvas, and the engine compiles them into plain Ansible playbooks
+and runs them in execution environment containers.
 
-![A run waiting for the change board's approval, on the flow's canvas](images/run-waiting.png)
+![A real run waiting at an approval gate on the flow canvas](images/run-waiting.png)
 
-## Start here
+## Edit, import and run
 
-1. **[Install](install.md)** with docker compose (the image is on GitHub's registry and Docker
-   Hub) or as a Linux service.
-2. **[Your first project](first-project.md)**: make the first administrator, a workspace and a
-   project from a sample, launch a flow, and decide its approval. 15 minutes.
-3. **[Your first flow](first-flow.md)**: a flow made in the web pages, saved and launched. 10
-   minutes.
-4. Give people access: **[People, groups and sign-in](people-and-sign-in.md)**.
+Start with the tasks you use every day:
 
-## Running flows
+| Guide                                   | What you do                                                                                               |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| [Edit flows](edit-flows.md)             | Create and edit flows on the canvas or in VS Code, collaborate in shared drafts, save and reuse subflows  |
+| [Import playbooks](import-playbooks.md) | Bring existing Ansible playbooks, roles, Git repositories or AWX templates into a project as visual flows |
+| [Run playbooks](runs.md)                | Set up a launch configuration (Check or Real), watch hosts and output live, stop and re-run failed hosts  |
+| [Debug a run](debugging.md)             | Pause at steps or host failures, inspect variables, watch expressions, evaluate Jinja and retry a step    |
 
-| Page                                                  | About                                                                                           |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [Workspaces and projects](workspaces-and-projects.md) | Where flows live: a git repository of yours, or one the server hosts                            |
-| [Launch configurations](launch-configurations.md)     | A flow with its inputs, inventory, credentials and image: what Launch runs                      |
-| [Runs](runs.md)                                       | The queue, a run on the canvas, its hosts and output, stop and run again; dev runs from VS Code |
-| [Debug a run](debugging.md)                           | Pause where a host fails, read each host's variables, watch, evaluate, retry a step             |
-| [Actions](actions.md)                                 | A short form to run an approved thing, for people who do not read flows                         |
-| [Approvals](approvals.md)                             | A run waits at an approval step until someone allowed decides                                   |
-| [Schedules](schedules.md)                             | Launch a configuration at set times                                                             |
-| [Execution environments](environments.md)             | The images runs use, built from a list of collections                                           |
-| [Credentials and the master key](credentials.md)      | SSH keys, passwords, vault passwords and tokens, kept encrypted                                 |
-| [Notifications](notifications.md)                     | Email and webhooks: who is told of what                                                         |
-| [The web pages](web-pages.md)                         | Home, the canvas, editing flows and files in the pages, the flow library                        |
-| [The flow editor](flow-editor.md)                     | A flow on its page: edit it in a shared draft, save, run, debug; the keys                       |
+## Projects and workflows
 
-## For administrators
+| Guide                                                      | What it covers                                                                               |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [Workspaces, projects and Git](workspaces-and-projects.md) | Hosted and mirrored Git repositories, editing project files, commit history and branches     |
+| [Execution environments](environments.md)                  | Container images for runs, built from Ansible collections or pulled from a registry          |
+| [Credentials](credentials.md)                              | SSH keys, passwords, vault passwords and tokens, encrypted with the master key               |
+| [Approvals](approvals.md)                                  | Approval gates that pause real runs until an allowed approver decides                        |
+| [Actions](actions.md)                                      | Short self-service forms and NetBox or Zabbix links for running approved tasks without flows |
+| [Schedules](schedules.md)                                  | Cron and one-time scheduled launches with time zones                                         |
+| [Inbox and navigation](inbox-and-navigation.md)            | Home inbox, cross-workspace lists, search (`/` or `Ctrl+K`), shortcuts and themes            |
 
-| Page                                                | About                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------ |
-| [Configuration](configuration.md)                   | Every setting, from the environment or a `.env` file                     |
-| [Secret providers](secret-providers.md)             | Credentials that read their secrets from Vault, CyberArk or AWS          |
-| [HTTPS and the certificate](certificates.md)        | The server's certificate: request, install, replace, roll back           |
-| [People, groups and sign-in](people-and-sign-in.md) | Users, groups, access levels, tokens, OIDC and LDAP                      |
-| [The audit log](audit.md)                           | Who did what and when, filtered and exported                             |
-| [Event streaming](event-streaming.md)               | Audit entries and runs to syslog (a SIEM) and OpenTelemetry              |
-| [Operations](operations.md)                         | Metrics, health checks, backup and restore, upgrades                     |
-| [Start the server](getting-started.md)              | Starting it by hand, what it answers at, compatibility with the designer |
+## Administration and setup
 
-## Programs and agents
+| Guide                                              | What it covers                                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [Install and first setup](install.md)              | Docker Compose, Linux systemd service, first administrator setup and designer compatibility |
+| [People, groups and access](people-and-sign-in.md) | Access levels (`ro`, `operator`, `rw`, `approve`), workspace matrix, tokens, OIDC and LDAP  |
+| [Secret providers](secret-providers.md)            | Pull credentials at run start from HashiCorp Vault, CyberArk or AWS Secrets Manager         |
+| [HTTPS and the certificate](certificates.md)       | Request, install, replace or roll back TLS certificates, or run behind a proxy              |
+| [Notifications](notifications.md)                  | Email and signed webhooks for approvals, run outcomes and server alerts                     |
+| [Event streaming](event-streaming.md)              | Stream audit entries and run traces to syslog (SIEM) and OpenTelemetry                      |
+| [The audit log](audit.md)                          | Every change and refusal recorded, filtered by day and exported as CSV or JSON              |
+| [Configuration](configuration.md)                  | Reference table of every `AFS_*` environment and `.env` setting                             |
+| [Operations](operations.md)                        | Health checks, Prometheus metrics, online backup and restore, upgrades                      |
 
-| Page                                       | About                                                                                  |
-| ------------------------------------------ | -------------------------------------------------------------------------------------- |
-| [The API and agents (MCP)](api-and-mcp.md) | The REST API (OpenAPI), access tokens, and the MCP endpoint for agents                 |
-| [Ansible collection](collection.md)        | `chistokhinsv.ansible_flow`: launch and follow runs, keep the server's objects as code |
+## API and automation
 
-The examples in this guide use fictional names: the `network` workspace of the Network team, the
-people Dana (administrator), Olga (operator), André (approves for the change board) and Nina
-(reads), and hosts under `example.net`.
+| Guide                                       | What it covers                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [API reference](/docs/api)                  | Every `/api/v1` endpoint from the OpenAPI document, with live **Test Request** in the page |
+| [REST API and agents (MCP)](api-and-mcp.md) | Access tokens, SSE streams, and connecting Claude Code, Codex or Cursor over `/mcp`        |
+| [Ansible collection](collection.md)         | `chistokhinsv.ansible_flow`: launch and gate on runs, and manage server resources as code  |
+
+Examples across this guide use fictional data: the `network` workspace, Dana Whitfield
+(administrator), Olga Petrova (operator), André Silva (approver), hosts `fw-01` and `sw-edge-01`,
+and `example.com`.

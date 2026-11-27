@@ -476,7 +476,7 @@ export function Home({ me }: { me: User }) {
   return (
     <div className="home inbox">
       <PageHead
-        help="web-pages.md"
+        help="inbox-and-navigation.md"
         title={`${greeting(new Date().getHours())}, ${first}`}
         lead={summary || undefined}
       >

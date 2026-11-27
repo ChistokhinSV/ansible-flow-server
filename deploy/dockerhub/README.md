@@ -23,7 +23,7 @@ docker compose logs server | grep -i "setup code"
 
 Open the address in that line (the setup page, with the code in it) and make the first
 administrator, then follow
-[Your first project](https://github.com/ChistokhinSV/ansible-flow-server/blob/main/docs/guide/first-project.md).
+[First project](https://github.com/ChistokhinSV/ansible-flow-server/blob/main/docs/guide/install.md#first-project).
 
 The server runs flows in sibling containers through the engine's socket
 (`/var/run/docker.sock`), keeps its data in `/var/lib/afs` and listens on 8443 (HTTPS, a

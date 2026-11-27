@@ -283,7 +283,7 @@ function MissingConfig({
           </>
         }
         back={{ to: base(workspace, project.key), label: `Back to ${project.name}` }}
-        help="launch-configurations.md"
+        help="runs.md#launch-configurations"
       />
     </>
   );
@@ -1507,7 +1507,7 @@ export function LaunchConfigPage({
   return (
     <>
       <Crumbs workspace={workspace} project={key} last={c.name} />
-      <PageHead help="launch-configurations.md" title={c.name} lead={c.description} />
+      <PageHead help="runs.md#launch-configurations" title={c.name} lead={c.description} />
       {/* Shown on Runs/Schedules (or before WillRun is ready), where neither WillRun nor Settings is open. */}
       {(tab === 'runs' || tab === 'schedules' || (!tab && !form.data)) && (
         <p className="statusline">
@@ -2548,7 +2548,7 @@ export function LaunchConfigEdit({
     return (
       <>
         <Crumbs workspace={workspace} project={key} last={title} />
-        <PageHead help="launch-configurations.md" title={title} />
+        <PageHead help="runs.md#launch-configurations" title={title} />
         <section className="panel">
           <p className="notice" role="status">
             {existing.data
@@ -2572,7 +2572,7 @@ export function LaunchConfigEdit({
         last={id ? 'Change' : 'Add a launch configuration'}
         {...(id && existing.data ? { config: { id, name: existing.data.name } } : {})}
       />
-      <PageHead help="launch-configurations.md" title={title} />
+      <PageHead help="runs.md#launch-configurations" title={title} />
       <section className="panel">
         <ConfigForm
           key={id ?? 'new'}

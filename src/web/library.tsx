@@ -43,7 +43,7 @@ export function LibraryPage({ admin = false }: { admin?: boolean }) {
   const subflows = listed.data?.subflows ?? [];
   return (
     <>
-      <PageHead help="web-pages.md#flow-library" title="Library" />
+      <PageHead help="edit-flows.md#flow-library" title="Library" />
       <Loading state={listed} />
       {listed.data && !subflows.length && (
         <p className="empty">

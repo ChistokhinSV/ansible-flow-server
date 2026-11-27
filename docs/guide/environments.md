@@ -2,89 +2,36 @@
 
 [The guide](README.md)
 
-The image a run happens in. A workspace keeps its own **execution environments**: built by the
-server from a spec, or an image that exists already. A launch configuration chooses one, and each
-launch gets that environment's newest good build (the run records the exact image). Without one, a
-launch configuration's own image, else the server's default image, is used.
+Every run executes inside an **execution environment** container image. Under **Build ›
+Environments**, editors (`rw` on the workspace) manage two kinds of environments:
 
-**The server's default image** is what runs get when their launch configuration names no
-environment or image. It starts as `AFS_EE_IMAGE`. An administrator can make an environment the
-default instead (**Make it the server's default** on its page; **Go back to AFS_EE_IMAGE** undoes
-it): build one with the collections the team always needs, and runs without an environment get its
-newest good image. The page offers it only for an environment that has an image (a pull or build
-that failed leaves none); while the environment picked has no image (through the API), `AFS_EE_IMAGE`
-is used. The
-environments list and each environment's page say which image is the default; a run's **What ran**
-names the image it got, marked as the server's default. The default environment cannot be deleted
-until another is picked.
+- **Built from a spec**: specify an `ansible-core` version (for example `2.19`), Galaxy collections
+  (exact version, range like `>=8.0.0,<9`, or `latest`), Python packages (`pip`), Debian packages
+  and extra CA certificates.
+  - **Save and build** resolves versions against `AFS_GALAXY_URL` into a reproducible lock, builds
+    the image on the container engine, indexes its installed collections, and keeps the newest
+    builds (`3` by default).
+  - Use **Add a collection** to search Galaxy (or your private hub), or **Add an empty row** when
+    working offline with pinned versions.
+- **Existing image**: point at a container image tag (`registry.example.com/ee/network:2`). Each
+  **Pull** fetches and indexes its collections; private registries authenticate with a workspace
+  `registry` [credential](credentials.md) on the launch configuration.
 
-- **A spec**: ansible-core (`2.19` is the newest 2.19.x), collections each with a version, a range
-  as `requirements.yml` writes it (`>=8.0.0,<9`) or `latest`, Python packages (pip requirements),
-  Debian packages and extra certificate authorities. The base is a Python image, by default the
-  one the designer's `afd-ee` image uses, and the image is made the same way: collections in
-  `/usr/share/ansible/collections`, user `ansible` (uid 1000), SSH host keys checked.
-- **A build**: `latest` and ranges are settled against `AFS_GALAXY_URL` into a lock (exact
-  versions, kept with the build); the image is built on the server's container engine, tagged
-  `afs-ee/<workspace>-<environment>:<hash of what went in>`, then asked what it holds (ansible-core
-  and its collections). Builds go one at a time; each has a log. Collection server out of reach:
-  pin exact versions, or point `AFS_GALAXY_URL` at one that can be reached.
-- **An existing image** is pulled (or, when it has no registry, the engine's copy is used) and
-  read the same way. Its page calls each try a pull (**Pulls**, "Pull 2 failed"), and the launch
-  configuration's picker marks one whose last pull failed "(could not be pulled)".
-- Images of builds beyond an environment's newest few (`keep`, 3) are removed from the engine.
-- The **ansible-builder file** (`execution-environment.yml`, version 3) describes the same
-  environment for AWX or AAP: ansible-core, ansible-runner, the collections at the versions the
-  newest build settled, Python packages, certificates. It builds on `quay.io/centos/centos:stream9`
-  (ansible-builder installs with dnf); Debian package names are listed for a person to translate.
-- `ro` on the workspace reads environments, builds and logs; `rw` adds, changes, builds and deletes
-  them. An environment a launch configuration uses cannot be deleted.
+## Matching what a flow needs
 
-| Address (under `/api/v1`)                         | Does                                                                           | Who                         |
-| ------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------- |
-| `GET`, `POST /workspaces/:id/environments`        | A workspace's environments; add one (`kind`: `spec` or `image`)                | `ro`, `rw` on the workspace |
-| `GET`, `PATCH`, `DELETE /environments/:id`        | One environment: what runs get now (`current`), what it holds (`catalog`)      | `ro`, `rw`                  |
-| `GET`, `POST /environments/:id/builds`            | Its builds (state, image, lock, catalog); build now                            | `ro`, `rw`                  |
-| `GET /environments/:id/builds/:build/log`         | A build's log                                                                  | `ro`                        |
-| `GET /environments/:id/execution-environment.yml` | The ansible-builder file                                                       | `ro`                        |
-| `GET /default-environment`                        | The server's default image, and the environment picked for it                  | signed in                   |
-| `PUT /default-environment`                        | `{"environment": id}` makes it the default; `null` goes back to `AFS_EE_IMAGE` | administrators              |
+A launch configuration checks the collections required by its flow's steps (and the repository's
+`collections/requirements.yml`) against its environment's image:
 
-```json
-{
-  "name": "net-tools",
-  "kind": "spec",
-  "spec": {
-    "ansibleCore": "2.19",
-    "collections": [
-      { "name": "cisco.ios", "version": "latest" },
-      { "name": "ansible.netcommon", "version": ">=8.0.0,<9" }
-    ],
-    "python": ["netaddr>=1.3"],
-    "system": ["iputils-ping"]
-  }
-}
-```
+- When every required collection is present at a compatible version, the table folds neatly under
+  **Collections (N)**.
+- When a collection is missing or mismatched, the table stays open and offers **Make an environment
+  for this flow** (`rw`) to generate and build a matching spec in one click.
 
-**What a flow needs.** A launch configuration's page compares what its flow needs with what its
-environment's image holds: the collections its steps run (a module or role named by its full name;
-a step chosen from the designer's module catalog asks for at least the version it was made against)
-and the project's `collections/requirements.yml`, which wins. Each collection is in the image at a
-fitting version, at another, or missing. When every row is plain (every collection is in the image,
-or no environment is named, with no version conflict or warning), the table is folded under
-**Collections (N)**; when a collection is missing, at another version or in conflict, the table stays
-open, and **Make an environment for this flow** adds one whose spec is those needs and builds it.
-On an environment's own page, **Collections in the image** folds when there are more than six. In a spec, the collections are a table of names and versions; **Add a collection** searches
-`AFS_GALAXY_URL` (collections already in the spec are not offered; one removed is offered again),
-and **Add an empty row** is for typing a name and version (also when the collection server cannot
-be reached). The base image and extra certificate authorities are folded under the packages.
-**Save the spec** and **Build** sit together at the bottom of the spec and stay in sight while it is
-long; with changes not saved, **Save and build** saves them first. **Delete the environment** is
-the last section of the page.
+## Default image and AWX export
 
-| Address (under `/api/v1`)                   | Does                                                                   | Who                                |
-| ------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
-| `GET /launch-configs/:id/environment-check` | The flow's needs against its environment, or another (`?environment=`) | `ro` on the flow                   |
-| `POST /launch-configs/:id/environment`      | `{"name"}`: an environment from the flow's needs, built                | `rw` on the flow and the workspace |
-| `GET /galaxy/search?q=`                     | Collections on the collection server: newest version, description      | signed in                          |
-
-Not there yet: pushing images to a registry, and rebuilding on a schedule.
+- **Server default image**: runs whose launch configuration names no environment use `AFS_EE_IMAGE`
+  until an administrator opens a built environment and clicks **Make it the server's default**
+  (**Go back to AFS_EE_IMAGE** resets it).
+- **`ansible-builder` export**: every spec environment offers an `execution-environment.yml`
+  (version 3) download with its locked collection versions, Python packages and CAs for AWX or Red
+  Hat Ansible Automation Platform.
