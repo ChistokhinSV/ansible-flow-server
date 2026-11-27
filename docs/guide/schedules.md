@@ -2,56 +2,35 @@
 
 [The guide](README.md)
 
-A launch configuration also runs by itself: on a cron in a time zone, or once at a set time. Its
-page lists its **Schedules** with their next times and how the last fire went; `rw` on the flow
-adds, changes, pauses and deletes them, `ro` reads them.
+A launch configuration can run automatically on a **cron** expression (`minute hour day month
+weekday` or `@daily`, `@hourly`, …; at most once per minute) or **once** at a scheduled date and
+time. Open a launch configuration's **Schedules** tab to view upcoming fire times and last-run
+outcomes; editors (`rw` on the flow) add, edit, pause and delete schedules, and `ro` reads them.
 
-- A run is launched as the schedule's owner (whoever made it; an administrator may hand it to a
-  service account). The owner's access is checked every time: gone, disabled, or without
-  `operator` on the flow, and the fire is refused and recorded instead.
-- It runs the configuration with its own mode and input values if it has them (never a secret:
-  those come from credentials), on its own pinned commit if it has one, else on the
-  configuration's: its pinned commit, or the newest commit of its branch.
-- Deleting a flow (on its page, in **Files**, or by the API) turns off, in the same save, the
-  schedules of configurations that run it from that branch; its page names them first. Moving or
-  renaming it in **Files** names them too, and offers to point those configurations at the new
-  file in the same save (`repoint` in the API): then their schedules stay on. A schedule turned
-  off this way says why on its page (`offWhy`, until someone turns it on or off). A schedule
-  whose flow is gone in another way (a push) is turned off at its next fire, and says why; turn
-  it on again once the flow is back.
-- A schedule whose flow has errors, or is gone, can still be paused, changed and deleted. Only
-  what the schedule itself says (its inputs, commit, mode) is checked then. Adding one, or
-  turning one on again, is refused while the flow cannot run.
-- Cron: five fields (`minute hour day month weekday`) or a nickname like `@daily`, at most once a
-  minute; the time zone follows summer time. The page shows the next times as you type.
-- The schedule's **Time zone** is the zone its rule is read in: the cron, and the **At** of a
-  one-time schedule (the date and time on that zone's clocks). The page shows every time (next
-  times, the last fire) in your browser's time zone, named. A schedule fires at its time.
-- The list follows fires while the page is open: **Next** moves on, and **Last** shows the run a
-  fire launched as it stands now (`last.runNumber`, `last.runState` in the API).
-- After downtime: one catch-up run (default), or none. While its last run has not ended: skip
-  this fire (default), or queue another.
-- Every fire is kept on the schedule (launched, skipped, refused, failed, with why) and in the
-  audit log (`schedule.fire`). A fire whose flow has errors names them under **Last**, each a
-  link to its step on the flow's page (`last.errors` in the API: `step`, `node`, `message`). Runs it launched are marked **scheduled**.
+## Rules and behaviour
 
-| Address (under `/api/v1`)                        | Does                                                        | Who       |
-| ------------------------------------------------ | ----------------------------------------------------------- | --------- |
-| `GET /launch-configs/:id/schedules`              | Its schedules, with `upcoming` times and `last` fire        | `ro`      |
-| `POST /launch-configs/:id/schedules`             | Add one; the caller owns it                                 | `rw`      |
-| `PATCH /launch-configs/:id/schedules/:schedule`  | Change, pause (`enabled: false`); `owner` by administrators | `rw`      |
-| `DELETE /launch-configs/:id/schedules/:schedule` | Delete one                                                  | `rw`      |
-| `GET /schedule-times?cron=&timezone=`            | The next times a cron fires; `&check=1`: every problem      | signed in |
+- **Time zones**: cron and one-time rules evaluate in the schedule's configured IANA time zone
+  (following daylight saving transitions), while the page displays next and past fire times in your
+  local browser time zone too.
+- **Owner and permissions**: each fire runs as the schedule's owner (administrators can reassign
+  ownership to a [service account](people-and-sign-in.md#service-accounts)). The owner's permissions
+  are checked at every fire; if the owner is gone, disabled or lacks `operator` on the flow, the
+  fire is refused and recorded.
+- **Overrides**: a schedule can override the configuration's mode (`check` or `real`), non-secret
+  inputs, and pinned commit.
+- **Downtime and overlap**: choose whether to run **one catch-up run** (default) or skip missed
+  fires after server downtime, and whether to **skip** (default) or queue when the previous
+  scheduled run is still active.
+- **Flow errors, renames and removals**:
+  - **Adding a new schedule or re-enabling a disabled one is refused while the flow has validation
+    errors or is missing** (an existing schedule on a broken or missing flow can still be paused,
+    edited or deleted).
+  - Deleting a flow in the web UI or API immediately turns off its branch schedules and records why
+    (`offWhy`); moving a flow on **Files** with **Point them at the new file in the same save**
+    keeps its schedules active.
+  - **If a flow is removed by a `git push`**, its schedule turns off automatically at its next fire
+    time (`offWhy`) and **must be turned back on manually** once the flow is restored.
 
-```json
-{
-  "name": "Weekdays at three",
-  "kind": "cron",
-  "cron": "0 3 * * 1-5",
-  "timezone": "Europe/Berlin",
-  "mode": "check",
-  "inputs": { "retries": "5" },
-  "missed": "once",
-  "overlap": "skip"
-}
-```
+Every fire (launched, skipped, refused or failed) is recorded on the schedule and in the
+[audit log](audit.md) (`schedule.fire`). The [API reference](/docs/api) lists every
+`/api/v1/launch-configs/:id/schedules` and `/schedule-times` call and who may make it.

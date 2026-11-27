@@ -695,7 +695,7 @@ describe('signed in', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('OS upgrade');
     // AFS-277: Help is a button among the head's, about viewing and editing a flow.
     const help = screen.getByRole('link', { name: 'Help: viewing and editing a flow' });
-    expect(help.getAttribute('href')).toBe('/help/guide/flow-editor.md');
+    expect(help.getAttribute('href')).toBe('/help/guide/edit-flows.md');
     expect(help.getAttribute('title')).toBe('Help: viewing and editing a flow (opens the guide)');
     expect(help.getAttribute('target')).toBe('_blank');
     expect(help.closest('.page-head > .actions')).toBeTruthy();

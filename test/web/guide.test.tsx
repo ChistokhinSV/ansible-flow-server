@@ -1,12 +1,14 @@
 // AFS-155: the user guide served by the server for its own version (no internet), its Markdown,
 // and Get Started. AFS-154: table cells named by their column for a phone, and the note of a field
-// cut at its length.
+// cut at its length. AFS-279: task-first pages and backward-compatible aliases.
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/app';
 import { GUIDE_PAGES, guide } from '../../src/web/guide';
-import { isGuidePage } from '../../src/web/guidePage';
-import { parseBlocks, slug } from '../../src/web/markdown';
+import { isGuidePage, resolveGuide } from '../../src/web/guidePage';
+import { type Block, parseBlocks, slug } from '../../src/web/markdown';
 import { labelCells, limitNote } from '../../src/web/ui';
 import { GET_STARTED } from '../../src/web/viewerDraft';
 
@@ -40,22 +42,83 @@ afterEach(() => {
 });
 
 describe('the guide the server serves', () => {
-  it('has every page the Help page lists, and Get Started opens the first flow', () => {
+  it('has every page the Help page lists, and Get Started opens Edit flows', () => {
     for (const p of GUIDE_PAGES.flat()) expect(isGuidePage(p.page), p.page).toBe(true);
     expect(guide('runs.md')).toBe('/help/guide/runs.md');
-    expect(GET_STARTED).toBe('/help/guide/first-flow.md');
+    expect(GET_STARTED).toBe('/help/guide/edit-flows.md');
+    expect(resolveGuide('first-flow.md')).toEqual({ page: 'edit-flows.md' });
+    expect(resolveGuide('launch-configurations.md')).toEqual({
+      page: 'runs.md',
+      part: 'launch-configurations',
+    });
+    expect(resolveGuide('web-pages.md', 'files-of-a-project')).toEqual({
+      page: 'workspaces-and-projects.md',
+      part: 'files-of-a-project',
+    });
   });
 
-  it('shows a page with its title, links within the guide here, and a link out says so', async () => {
+  it('every internal link, anchor and image in docs/guide resolves', () => {
+    const dir = 'docs/guide';
+    const files = readdirSync(dir).filter((f) => f.endsWith('.md'));
+    const images = new Set(readdirSync(join(dir, 'images')));
+    const headingsOf = (blocks: Block[], out = new Set<string>()): Set<string> => {
+      for (const b of blocks) {
+        if (b.t === 'heading') out.add(slug(b.text));
+        else if (b.t === 'quote') headingsOf(b.blocks, out);
+        else if (b.t === 'list') for (const item of b.items) headingsOf(item, out);
+      }
+      return out;
+    };
+    const anchors = new Map<string, Set<string>>();
+    for (const file of files) {
+      const text = readFileSync(join(dir, file), 'utf8');
+      anchors.set(file, headingsOf(parseBlocks(text)));
+    }
+    for (const file of files) {
+      const text = readFileSync(join(dir, file), 'utf8').replace(/```[\s\S]*?```/g, '');
+      for (const m of text.matchAll(/!\[[^\]]*\]\(\s*([^)\s]+)\s*\)/g)) {
+        const img = (m[1] ?? '').replace(/^\.?\/?images\//, '');
+        expect(images.has(img), `${file} image ${m[1]}`).toBe(true);
+      }
+      for (const m of text.matchAll(/(?<!!)\[(?:[^[\]]|\[[^\]]*\])*\]\(\s*([^)\s]+)\s*\)/g)) {
+        const href = m[1] ?? '';
+        if (/^https?:\/\/|^\.\.\//.test(href) || href.startsWith('/')) continue;
+        const [rawPage = '', part] = href.split('#');
+        const target = rawPage ? resolveGuide(rawPage, part) : { page: file, part };
+        expect(anchors.has(target.page), `${file} -> ${href} (${target.page})`).toBe(true);
+        if (target.part)
+          expect(
+            anchors.get(target.page)?.has(target.part),
+            `${file} -> ${href} (#${target.part} in ${target.page})`,
+          ).toBe(true);
+      }
+    }
+    // AFS-279: GitHub links in CHANGELOG, README, RELEASING and Docker Hub docs resolve directly
+    // on disk (including stub pages and section anchors), without needing in-app aliases.
+    for (const doc of ['CHANGELOG.md', 'README.md', 'RELEASING.md', 'deploy/dockerhub/README.md']) {
+      const text = readFileSync(doc, 'utf8');
+      for (const m of text.matchAll(/docs\/guide\/([A-Za-z0-9._-]+\.md)(?:#([A-Za-z0-9_-]+))?/g)) {
+        const [, page = '', part] = m;
+        expect(anchors.has(page), `${doc} -> docs/guide/${page}`).toBe(true);
+        if (part)
+          expect(anchors.get(page)?.has(part), `${doc} -> docs/guide/${page}#${part}`).toBe(true);
+      }
+    }
+  });
+
+  it('shows a page with its title, links within the guide here, and an alias opens the merged page', async () => {
     window.history.replaceState(null, '', '/help/guide/first-flow.md');
     render(<App />);
-    await screen.findByRole('heading', { level: 1, name: 'Your first flow' });
-    const inside = screen.getAllByRole('link', { name: 'Editing flows in the pages' })[0];
-    expect(inside?.getAttribute('href')).toBe(
-      '/help/guide/web-pages.md#editing-flows-in-the-pages',
-    );
+    await screen.findByRole('heading', { level: 1, name: 'Edit flows' });
+    const inside = screen.getAllByRole('link', { name: 'Import playbooks' })[0];
+    expect(inside?.getAttribute('href')).toBe('/help/guide/import-playbooks.md');
     expect(inside?.getAttribute('target')).toBeNull();
-    expect(screen.getByRole('heading', { name: '2. Add two steps' }).id).toBe('2-add-two-steps');
+    const designer = screen.getAllByRole('link', { name: /Ansible Flow Designer/ })[0];
+    expect(designer?.getAttribute('href')).toBe(
+      'https://github.com/ChistokhinSV/ansible-flow-designer',
+    );
+    expect(designer?.getAttribute('target')).toBe('_blank');
+    expect(screen.getByRole('heading', { name: 'Shared drafts' }).id).toBe('shared-drafts');
   });
 
   it('a file of the repository outside the guide opens on GitHub at this version', async () => {

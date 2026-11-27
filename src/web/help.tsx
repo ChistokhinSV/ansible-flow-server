@@ -1,26 +1,58 @@
 // AFS-143: the Help page: the user guide's pages and the API reference, and how a page that is
 // not found says what was looked for. AFS-155: the guide is this server's own (guidePage.tsx).
+// AFS-279: task-first groups (edit, import, run first) and Ansible Flow Designer link.
 import { Fragment, type ReactNode } from 'react';
 import { api, type MyAccess } from './api';
-import { GUIDE_PAGES, guide } from './guide';
+import { DESIGNER, GUIDE_GROUPS, GUIDE_PAGES, guide } from './guide';
 import { Link } from './router';
-import { Breadcrumb, PageHead, useLoad, WorkspaceName } from './ui';
+import { Breadcrumb, Icon, PageHead, useLoad, WorkspaceName } from './ui';
 
-// AFS-211: the pages that make flows are not under Running flows.
-const GROUPS = ['Getting started', 'Running flows', 'For administrators', 'Programs and agents'];
+/** A link that leaves the server: opened beside it, and it says where it goes. */
+export function OutLink({ href, children }: { href: string; children: ReactNode }) {
+  let host = '';
+  try {
+    host = new URL(href).hostname;
+  } catch {
+    host = '';
+  }
+  const where = host === 'github.com' ? 'GitHub' : host.replace(/^www\./, '');
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="out-link">
+      {children}
+      <span className="muted"> (opens {where})</span>
+      <Icon name="external" />
+    </a>
+  );
+}
 
 export function HelpPage() {
   return (
     <>
-      <PageHead title="Help">
+      <PageHead
+        title="Help"
+        lead={
+          <>
+            Runs visual Ansible playbooks built on the canvas or in{' '}
+            <OutLink href={DESIGNER}>Ansible Flow Designer</OutLink>.
+          </>
+        }
+      >
         <Link className="button" to={guide()}>
           User guide
         </Link>
       </PageHead>
       {GUIDE_PAGES.map((pages, i) => (
-        <section className="panel" key={GROUPS[i]} aria-labelledby={`help-${i}`}>
-          <h2 id={`help-${i}`}>{GROUPS[i]}</h2>
+        <section className="panel" key={GUIDE_GROUPS[i]} aria-labelledby={`help-${i}`}>
+          <h2 id={`help-${i}`}>{GUIDE_GROUPS[i]}</h2>
           <dl className="facts guide-list">
+            {i === 3 && (
+              <>
+                <dt>
+                  <Link to="/docs/api">API reference</Link>
+                </dt>
+                <dd>Every address of this server's REST API, with what it takes and answers</dd>
+              </>
+            )}
             {pages.map((p) => (
               <Fragment key={p.page}>
                 <dt>
@@ -29,14 +61,6 @@ export function HelpPage() {
                 <dd>{p.about}</dd>
               </Fragment>
             ))}
-            {i === 2 && (
-              <>
-                <dt>
-                  <Link to="/docs/api">API reference</Link>
-                </dt>
-                <dd>Every address of this server's REST API, with what it takes and answers</dd>
-              </>
-            )}
           </dl>
         </section>
       ))}

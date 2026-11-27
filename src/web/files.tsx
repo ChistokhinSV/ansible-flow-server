@@ -907,7 +907,7 @@ export function FilesPage({
     <>
       {crumbs}
       <PageHead
-        help="web-pages.md#files-of-a-project"
+        help="workspaces-and-projects.md#files-of-a-project"
         title={project.name}
         lead={
           project.description || (ownFlows && access) ? (

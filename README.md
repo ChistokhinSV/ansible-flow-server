@@ -45,19 +45,20 @@ docker compose logs server | grep -i "setup code"
 
 Open the address in that line (the setup page, with the code in it) and make the first
 administrator. Then follow
-**[Your first project](docs/guide/first-project.md)**: a workspace, a project from a sample, a
+**[First project](docs/guide/install.md#first-project)**: a workspace, a project from a sample, a
 launch, and an approval, in about 15 minutes.
 
-To install as a Linux service instead, see [Install](docs/guide/install.md).
+To install as a Linux service instead, see [Install and first setup](docs/guide/install.md).
 
 ## Documentation
 
-The **[user guide](docs/guide/README.md)**: install, configuration, people and access levels,
-projects, launch configurations, runs, approvals, schedules, execution environments, credentials,
-notifications, the API and MCP, the Ansible collection, certificates, the audit log and
-operations.
+The **[user guide](docs/guide/README.md)**: [editing flows](docs/guide/edit-flows.md),
+[importing playbooks](docs/guide/import-playbooks.md), [running playbooks](docs/guide/runs.md),
+[debugging](docs/guide/debugging.md), projects and Git, execution environments, credentials,
+approvals, actions, schedules, access levels, secret providers, event streaming, the REST API and
+MCP, the Ansible collection, certificates, the audit log and operations.
 
-| Approvals waiting for you           | Who can do what                         | The audit log                         |
+| Inbox across workspaces             | Who can do what                         | The audit log                         |
 | ----------------------------------- | --------------------------------------- | ------------------------------------- |
 | ![Home](docs/guide/images/home.png) | ![Access](docs/guide/images/access.png) | ![Audit](docs/guide/images/audit.png) |
 
@@ -66,7 +67,7 @@ operations.
 The server is built on the designer's packages (`@ansible-flow/*`) of one version and serves the
 designer's canvas of that version. The major versions go together: server 1.x reads and runs the
 flows of designer 1.x. `GET /api/v1/meta` says which designer the server carries (see
-[Compatibility with the designer](docs/guide/getting-started.md#compatibility-with-the-designer)).
+[Compatibility with the designer](docs/guide/install.md#compatibility-with-the-designer)).
 What changed in each release is in the [changelog](CHANGELOG.md).
 
 ## Development
