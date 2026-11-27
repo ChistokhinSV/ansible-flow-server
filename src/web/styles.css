@@ -5311,17 +5311,6 @@ button.primary.real:hover:not(:disabled) {
 
 /* AFS-212 (ADR-0039 §9): Home is an inbox. Four numbers, what needs you with what you may do
    about it, and beside it what runs now and what you may launch again. */
-.inbox-filter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.inbox-filter select {
-  min-width: 0;
-  max-width: 14rem;
-}
 .inbox-numbers {
   list-style: none;
   margin: 0;

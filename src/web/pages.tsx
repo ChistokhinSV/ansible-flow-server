@@ -350,7 +350,7 @@ function AccessWorkspace({ workspace }: { workspace: string }) {
   const all = useLoad(api.workspaces, []);
   if ((all.data?.length ?? 0) < 2) return null;
   return (
-    <label className="inbox-filter workspace-filter">
+    <label className="workspace-filter">
       Workspace{' '}
       <select
         value={workspace}
