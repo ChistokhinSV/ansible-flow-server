@@ -55,6 +55,7 @@ Carries Ansible Flow Designer 1.2.0-rc.6.
 
 ### Fixed
 
+- **Decided lately** on the Approvals page, and the decided approvals in the API, could be empty for someone who is not an administrator on a busy server: only the server's newest 200 decisions were looked at, so their own workspaces' older ones never showed. They now show the newest 50 they may see.
 - A debug run started from the flow's **Debug** dialog with pause points and **Pause before the first step** ticked paused only at the first pause point; it now pauses before the first step too. The Launch page has the same tick for **Debug**, ticked at first.
 - The question before **Only the hosts that did not go well** says approvals are asked again only when the flow has an approval, and two hosts read "Both hosts did not go well", not "All 2 hosts".
 - Event streaming: a destination that was down got a run's `run.started` line with a later time than the others; every destination now gets the same time, the moment the run started.
