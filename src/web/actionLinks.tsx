@@ -17,7 +17,7 @@ import {
 import { type Action, type ActionLink, type ActionToken, ApiError, api } from './api';
 import { ask } from './confirm';
 import { Link, navigate } from './router';
-import { Labelled, Loading, messageOf, PageHead, Time, useLoad } from './ui';
+import { Fold, Labelled, Loading, messageOf, PageHead, Time, useLoad } from './ui';
 
 /** Where a link to an action opens. */
 export const linkAddress = (id: string) => `/a/${encodeURIComponent(id)}`;
@@ -337,7 +337,6 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
  * page says what the person will see: the confirm page, or the short form with what is left.
  */
 export function ValueLink({ action }: { action: Action }) {
-  const id = useId();
   const [values, setValues] = useState<Record<string, string>>({});
   const url = linkWithValues(window.location.origin, action.id, values);
   const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
@@ -378,13 +377,12 @@ export function ValueLink({ action }: { action: Action }) {
                 .map(label)
                 .join(', ')}.`;
   return (
-    <>
-      <h3 id={`${id}-values`}>A link with values</h3>
+    <Fold summary="A link with values">
       <p className="muted small">
-        Fill in what the link gives; what you leave empty, the person who opens it fills in. It
-        opens the action with their own access: opening it runs nothing by itself.
+        Pre-fill values to share; empty ones are asked when opened. Opening a link never runs it by
+        itself.
       </p>
-      <fieldset className="choices copy-link" aria-labelledby={`${id}-values`}>
+      <fieldset className="choices copy-link" aria-label="Values in the link">
         <legend className="sr-only">Values in the link</legend>
         {action.asked.length === 0 && (
           <p className="muted">It asks nothing: the link opens its Run page.</p>
@@ -428,7 +426,7 @@ export function ValueLink({ action }: { action: Action }) {
         </p>
         <CopyBlock text={url} label="the link with values" />
       </fieldset>
-    </>
+    </Fold>
   );
 }
 
@@ -489,110 +487,112 @@ export function ActionLinks({
 
   return (
     <>
-      <h3 id={`${id}-links`}>Links from NetBox and Zabbix</h3>
-      <p className="muted small">
-        A link opens this action with values from the object it is on: the person confirms, or fills
-        in what the link did not give, and runs it with their own access.{' '}
-        <a
-          href="/help/guide/actions.md#links-from-netbox-and-zabbix"
-          target="_blank"
-          rel="noopener"
-        >
-          How to set it up
-        </a>
-      </p>
-      <fieldset className="choices copy-link" aria-labelledby={`${id}-links`}>
-        <legend>Copy link for</legend>
-        <div className="inline-choices">
-          {(['netbox', 'zabbix'] as const).map((s) => (
-            <label key={s} className="inline">
-              <input
-                type="radio"
-                name={`${id}-system`}
-                checked={system === s}
-                onChange={() => {
-                  setSystem(s);
-                  setPicks(defaults(s));
-                }}
-              />
-              {SYSTEM_WORDS[s]}
-            </label>
-          ))}
-        </div>
-        {system === 'netbox' ? (
-          <Labelled
-            label="On objects of type"
-            hint="dcim.device for devices; virtualization.virtualmachine for virtual machines."
+      <Fold summary="Links from NetBox and Zabbix">
+        <p className="muted small">
+          Opens this action with values from the NetBox or Zabbix object.{' '}
+          <a
+            href="/help/guide/actions.md#links-from-netbox-and-zabbix"
+            target="_blank"
+            rel="noopener"
           >
-            {(props) => (
-              <input
-                {...props}
-                spellCheck={false}
-                value={objectType}
-                onChange={(e) => setObjectType(e.target.value)}
+            Setup guide
+          </a>
+        </p>
+        <fieldset className="choices copy-link" aria-label="Links from NetBox and Zabbix">
+          <legend>Copy link for</legend>
+          <div className="inline-choices">
+            {(['netbox', 'zabbix'] as const).map((s) => (
+              <label key={s} className="inline">
+                <input
+                  type="radio"
+                  name={`${id}-system`}
+                  checked={system === s}
+                  onChange={() => {
+                    setSystem(s);
+                    setPicks(defaults(s));
+                  }}
+                />
+                {SYSTEM_WORDS[s]}
+              </label>
+            ))}
+          </div>
+          {system === 'netbox' ? (
+            <Labelled
+              label="On objects of type"
+              hint="dcim.device for devices; virtualization.virtualmachine for virtual machines."
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  spellCheck={false}
+                  value={objectType}
+                  onChange={(e) => setObjectType(e.target.value)}
+                />
+              )}
+            </Labelled>
+          ) : (
+            <div className="field">
+              <label htmlFor={`${id}-scope`}>In the menu of</label>
+              <select
+                id={`${id}-scope`}
+                value={scope}
+                onChange={(e) => setScope(e.target.value as 'host' | 'problem')}
+              >
+                <option value="host">a host</option>
+                <option value="problem">a problem (its event id can take the result back)</option>
+              </select>
+            </div>
+          )}
+          {action.asked.map((a) => (
+            <div key={a.name} className="field">
+              <label htmlFor={`${id}-${a.name}`}>{a.label} from</label>
+              <select
+                id={`${id}-${a.name}`}
+                value={picks[a.name] ?? ''}
+                onChange={(e) => setPicks({ ...picks, [a.name]: e.target.value })}
+              >
+                <option value="">(left out: the person fills it in)</option>
+                {choices.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.words} ({c.value})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+          <h4>The link</h4>
+          {localOnly(window.location.hostname) && (
+            <p className="notice warn">
+              This page is open at {window.location.host}, which only this machine reaches: open the
+              server at its public address before copying the link.
+            </p>
+          )}
+          <CopyBlock text={made.url} label="the link" />
+          {made.netbox && (
+            <>
+              <h4>NetBox custom link</h4>
+              <p className="muted small">
+                Customization › Custom Links › Add, or POST to{' '}
+                <code>/api/extras/custom-links/</code>.
+              </p>
+              <CopyBlock
+                text={JSON.stringify(made.netbox, null, 2)}
+                label="the NetBox custom link"
               />
-            )}
-          </Labelled>
-        ) : (
-          <div className="field">
-            <label htmlFor={`${id}-scope`}>In the menu of</label>
-            <select
-              id={`${id}-scope`}
-              value={scope}
-              onChange={(e) => setScope(e.target.value as 'host' | 'problem')}
-            >
-              <option value="host">a host</option>
-              <option value="problem">a problem (its event id can take the result back)</option>
-            </select>
-          </div>
-        )}
-        {action.asked.map((a) => (
-          <div key={a.name} className="field">
-            <label htmlFor={`${id}-${a.name}`}>{a.label} from</label>
-            <select
-              id={`${id}-${a.name}`}
-              value={picks[a.name] ?? ''}
-              onChange={(e) => setPicks({ ...picks, [a.name]: e.target.value })}
-            >
-              <option value="">(left out: the person fills it in)</option>
-              {choices.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.words} ({c.value})
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
-        <h4>The link</h4>
-        {localOnly(window.location.hostname) && (
-          <p className="notice warn">
-            This page is open at {window.location.host}, which only this machine reaches: a link
-            made here does not open from {SYSTEM_WORDS[system]}. Open the server at the address its
-            users reach, then copy the link.
-          </p>
-        )}
-        <CopyBlock text={made.url} label="the link" />
-        {made.netbox && (
-          <>
-            <h4>NetBox custom link</h4>
-            <p className="muted small">
-              In NetBox: Customization › Custom Links › Add, with these values; or POST this to{' '}
-              <code>/api/extras/custom-links/</code> with a NetBox token.
-            </p>
-            <CopyBlock text={JSON.stringify(made.netbox, null, 2)} label="the NetBox custom link" />
-          </>
-        )}
-        {made.zabbix && (
-          <>
-            <h4>Zabbix script</h4>
-            <p className="muted small">
-              In Zabbix: Alerts › Scripts › Create script, type URL; or send this to{' '}
-              <code>/api_jsonrpc.php</code> with a Zabbix API token.
-            </p>
-            <CopyBlock text={JSON.stringify(made.zabbix, null, 2)} label="the Zabbix script" />
-          </>
-        )}
-      </fieldset>
+            </>
+          )}
+          {made.zabbix && (
+            <>
+              <h4>Zabbix script</h4>
+              <p className="muted small">
+                Alerts › Scripts › Create script (type URL), or POST to{' '}
+                <code>/api_jsonrpc.php</code>.
+              </p>
+              <CopyBlock text={JSON.stringify(made.zabbix, null, 2)} label="the Zabbix script" />
+            </>
+          )}
+        </fieldset>
+      </Fold>
       <SignedLinks config={config} action={action} tokens={tokens} onChange={onChange} />
     </>
   );
@@ -610,7 +610,7 @@ function SignedLinks({
   tokens: ActionToken[];
   onChange(): void;
 }) {
-  const id = useId();
+  const [open, setOpen] = useState(() => tokens.length > 0);
   const [name, setName] = useState('');
   const [made, setMade] = useState<string>();
   const [note, setNote] = useState<{ ok: boolean; text: string }>();
@@ -623,6 +623,7 @@ function SignedLinks({
     try {
       const got = await api.createActionToken(config, name.trim());
       setMade(got.token);
+      setOpen(true);
       setName('');
       onChange();
     } catch (e) {
@@ -640,12 +641,13 @@ function SignedLinks({
       `  -d '${JSON.stringify({ inputs, ...(action.reply?.system === 'zabbix' ? { reply: 'event:{EVENT.ID}' } : {}) })}'`,
     ].join('\n');
   return (
-    <>
-      <h3 id={`${id}-signed`}>Signed links</h3>
+    <Fold
+      summary={tokens.length ? `Signed links (${tokens.length})` : 'Signed links'}
+      open={open}
+      onToggle={setOpen}
+    >
       <p className="muted small">
-        For a system that starts runs with no person (a Zabbix action, a NetBox webhook): a token
-        that runs this action only, as you, with the inputs it asks. It goes in the Authorization
-        header of a POST, never in a link. Every run with it is in the audit log.
+        Bearer token for automated callers (Zabbix actions, webhooks): runs only this action as you.
       </p>
       {made && (
         <div className="notice ok" role="status">
@@ -704,7 +706,7 @@ function SignedLinks({
         </ul>
       )}
       <form className="form" onSubmit={make}>
-        <Labelled label="Name" hint="What uses it: Zabbix action on F5 problems.">
+        <Labelled label="Name" hint="For example: Zabbix action on F5 problems.">
           {(props) => (
             <input
               {...props}
@@ -726,6 +728,6 @@ function SignedLinks({
           </button>
         </div>
       </form>
-    </>
+    </Fold>
   );
 }

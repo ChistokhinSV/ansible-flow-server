@@ -40,10 +40,11 @@ on the workspace):
 - **It runs** as a check or for real: the action decides, not the runner.
 - **Run asks to confirm first**: the runner sees what they chose and answers **Run** or **Not
   now**.
-- **A link that gives every value runs as it opens**: see
-  [Links from NetBox and Zabbix](#links-from-netbox-and-zabbix). Off by default.
+- **Run as soon as a complete link opens, without a confirm page**: see
+  [Links from NetBox and Zabbix](#links-from-netbox-and-zabbix). Off by default (opening the link
+  never runs it by itself).
 - **Result back**: whom a run started from a link tells how it ended (see below).
-- **On**: off, nobody can run it; its words and who may run it are kept for when it is on again.
+- **Enabled**: off, nobody can run it; its settings and grants are kept for when it is on again.
   **Stop being an action** forgets both; the configuration stays.
 
 Once saved, **Runs with** lists the values of the inputs it does not ask, as the configuration
@@ -133,7 +134,7 @@ from you, switched off or deleted; the **Runs** page points someone who may only
 
 ## A link with values
 
-On the action's page, **Links**, **A link with values**: fill in the values the link gives (a
+On the action's page, under **Links**, open **A link with values**: fill in the values the link gives (a
 choice is picked from its list) and leave the rest for the person who opens it. The page gives
 the whole link, `https://<server>/a/<action id>?<input>=<value>&…`, to copy into a mail, a chat
 or a ticket, and says what the person will see: a confirm page with the values and **Run**, the
@@ -169,7 +170,7 @@ A link opens an action with values from the object it is on:
 
 ### Make the link: Copy link for NetBox / Zabbix
 
-On the action's page, **Links**, **Links from NetBox and Zabbix**: pick
+On the action's page, under **Links**, open **Links from NetBox and Zabbix**: pick
 NetBox or Zabbix, then for each input where its value comes from (a device's name, its primary
 IPv4 address, its site; a Zabbix host's name, IP, or what the person types), or leave it out (the
 person fills it in). By default the object's name goes to the host list, its site to an input
@@ -222,7 +223,7 @@ reached, and listed on **Notifications** (to whom: the object). Links in them ne
 ### Signed links, for systems with no person
 
 A Zabbix action on a trigger, or a NetBox webhook, starts a run with no person to sign in. On the action's page,
-under **Signed links**, give it a name and **Make a signed link** (in a session on the pages, by who may
+under **Links**, open **Signed links** (already open when the action has one), give it a name and **Make a signed link** (in a session on the pages, by who may
 change the action). The token is shown once: keep it in the system that uses it. It runs this
 action only, as you, with the inputs it asks:
 

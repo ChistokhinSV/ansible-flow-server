@@ -187,12 +187,7 @@ export function LaunchConfigsSection({
         )}
       </div>
       <Loading state={list} />
-      {list.data?.length === 0 && (
-        <p className="muted">
-          None yet. A launch configuration is a flow with what it runs with: inventory, credentials,
-          start values.
-        </p>
-      )}
+      {list.data?.length === 0 && <p className="muted">None yet.</p>}
       {!!list.data?.length && (
         <Scroll>
           <table>
@@ -777,6 +772,8 @@ function WillRun({
   reply,
   hasTargets,
   config: c,
+  workspace,
+  project,
 }: {
   form: LaunchForm;
   real: boolean;
@@ -784,6 +781,8 @@ function WillRun({
   reply?: FactsReply | undefined;
   hasTargets: boolean;
   config: LaunchConfig;
+  workspace: string;
+  project: string;
 }) {
   const approvals = form.approvals ?? [];
   const credentials = c.credentialNames?.length ? c.credentialNames : c.credentials;
@@ -793,7 +792,10 @@ function WillRun({
       <dl className="facts">
         <dt>Flow</dt>
         <dd>
-          {form.flow.name} <span className="muted">version {form.flow.version}</span>
+          <Link to={flowAddress(workspace, project, c.flowFile)} title={c.flowFile}>
+            {form.flow.name}
+          </Link>{' '}
+          <span className="muted">version {form.flow.version}</span>
         </dd>
         <dt>Commit</dt>
         <dd>
@@ -813,8 +815,18 @@ function WillRun({
         )}
         <dt>Hosts</dt>
         <dd data-will-hosts>{hostsNow(reply, hasTargets)}</dd>
+        <dt>Inventory</dt>
+        <dd>{c.inventory ? <code>{c.inventory}</code> : 'as ansible.cfg names'}</dd>
         <dt>Image</dt>
-        <dd>{form.eeImage ? <code>{form.eeImage}</code> : "the server's default"}</dd>
+        <dd>
+          {c.environment ? (
+            <EnvironmentWords config={c} workspace={workspace} />
+          ) : form.eeImage ? (
+            <code>{form.eeImage}</code>
+          ) : (
+            "the server's default"
+          )}
+        </dd>
         <dt>Credentials</dt>
         <dd>{credentials.length ? credentials.join(', ') : 'none'}</dd>
         <dt>Approvals</dt>
@@ -830,6 +842,12 @@ function WillRun({
                   .join('; ')
               : `${approvals.map((a) => a.title).join(', ')}: a check run passes ${approvals.length === 1 ? 'it' : 'them'} by itself`}
         </dd>
+        {c.notify && (
+          <>
+            <dt>Tells</dt>
+            <dd>{notifyWords(c.notify)}</dd>
+          </>
+        )}
         {c.lastRun && (
           <>
             <dt>Last run</dt>
@@ -942,11 +960,6 @@ function ConfigRuns({ config, me }: { config: LaunchConfig; me: User }) {
       {fresh && rows?.length === 0 && <p className="empty">No run of this configuration yet.</p>}
       {fresh && !!rows?.length && <RunList runs={rows} me={me} showConfig={false} />}
       <OlderRuns pages={pages} />
-      {fresh && (
-        <p className="muted small">
-          <Link to="/runs">All runs</Link>
-        </p>
-      )}
     </section>
   );
 }
@@ -1495,46 +1508,48 @@ export function LaunchConfigPage({
     <>
       <Crumbs workspace={workspace} project={key} last={c.name} />
       <PageHead help="launch-configurations.md" title={c.name} lead={c.description} />
-      {/* What it runs with, in a line: all of it is on the Settings tab. */}
-      <p className="statusline">
-        <span>
-          Flow{' '}
-          <Link to={flowAddress(workspace, key, c.flowFile)}>
-            <FlowLabel file={c.flowFile} names={flowNames} />
-          </Link>
-        </span>
-        <span>
-          {c.commit ? 'pinned to ' : ''}
-          <Takes config={c} project={project.data} />
-        </span>
-        <span>inventory {c.inventory ? <code>{c.inventory}</code> : 'as ansible.cfg names'}</span>
-        <span>
-          {c.environment ? (
-            <EnvironmentWords config={c} workspace={workspace} />
-          ) : c.eeImage ? (
-            <>
-              image <code>{c.eeImage}</code>
-            </>
-          ) : (
-            "the server's default image"
-          )}
-        </span>
-        {/* AFS-147: the limit and the credentials by name, as What ran says them. */}
-        {c.limit && (
+      {/* Shown on Runs/Schedules (or before WillRun is ready), where neither WillRun nor Settings is open. */}
+      {(tab === 'runs' || tab === 'schedules' || (!tab && !form.data)) && (
+        <p className="statusline">
           <span>
-            limit <code>{c.limit}</code>
+            Flow{' '}
+            <Link to={flowAddress(workspace, key, c.flowFile)}>
+              <FlowLabel file={c.flowFile} names={flowNames} />
+            </Link>
           </span>
-        )}
-        <span>
-          {!c.credentials.length
-            ? 'no credentials'
-            : c.credentialNames?.length
-              ? `${c.credentials.length === 1 ? 'credential' : 'credentials'} ${c.credentialNames.join(', ')}`
-              : `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`}
-        </span>
-        {/* AFS-169: whom its runs tell, as the Settings tab says it. */}
-        {c.notify && <span>tells {notifyWords(c.notify)}</span>}
-      </p>
+          <span>
+            {c.commit ? 'pinned to ' : ''}
+            <Takes config={c} project={project.data} />
+          </span>
+          <span>inventory {c.inventory ? <code>{c.inventory}</code> : 'as ansible.cfg names'}</span>
+          <span>
+            {c.environment ? (
+              <EnvironmentWords config={c} workspace={workspace} />
+            ) : c.eeImage ? (
+              <>
+                image <code>{c.eeImage}</code>
+              </>
+            ) : (
+              "the server's default image"
+            )}
+          </span>
+          {/* AFS-147: the limit and the credentials by name, as What ran says them. */}
+          {c.limit && (
+            <span>
+              limit <code>{c.limit}</code>
+            </span>
+          )}
+          <span>
+            {!c.credentials.length
+              ? 'no credentials'
+              : c.credentialNames?.length
+                ? `${c.credentials.length === 1 ? 'credential' : 'credentials'} ${c.credentialNames.join(', ')}`
+                : `${c.credentials.length} ${c.credentials.length === 1 ? 'credential' : 'credentials'}`}
+          </span>
+          {/* AFS-169: whom its runs tell, as the Settings tab says it. */}
+          {c.notify && <span>tells {notifyWords(c.notify)}</span>}
+        </p>
+      )}
       {c.flowGone && (
         <p className="notice warn" role="status">
           {c.flowGone}: it cannot be launched until the flow is back, or the configuration is
@@ -1774,7 +1789,7 @@ export function LaunchConfigPage({
                             <ModeBadge mode={m} long />
                             <span className="muted small">
                               {m === 'check'
-                                ? "Ansible's check mode: tasks say what they would change; a task marked check_mode: false still runs. Approvals pass by themselves."
+                                ? "Ansible's check mode: tasks report changes; check_mode: false still runs. Approvals pass by themselves."
                                 : `It changes the hosts${hostCount !== undefined ? `: ${hostsWord(hostCount)}` : ''}. Approvals wait for a decision.`}
                             </span>
                           </span>
@@ -1789,8 +1804,7 @@ export function LaunchConfigPage({
                         data-launch-step
                         onChange={(e) => setStepped(e.target.checked)}
                       />
-                      Step by step: pause until someone says Step, Continue or Stop on the run's
-                      page
+                      Step by step: pause for Step, Continue or Stop
                     </label>
                     {/* AFS-205: what the API offers: where it pauses, and how long a pause waits. */}
                     {stepped && (
@@ -1847,8 +1861,8 @@ export function LaunchConfigPage({
                         Pause before the first step
                         <span className="muted small" id="launch-first-step-help">
                           {' '}
-                          For Debug: the run pauses at pause points and where a host fails a step;
-                          each pause shows the variables of each host.
+                          For Debug: pauses at pause points and host failures, showing host
+                          variables.
                         </span>
                       </label>
                     )}
@@ -1928,18 +1942,6 @@ export function LaunchConfigPage({
                     </button>
                   )}
                 </div>
-                {form.data && (
-                  <p className="muted small">
-                    The inputs of <strong>{form.data.flow.name}</strong> at{' '}
-                    <code>{form.data.commit.slice(0, 12)}</code>
-                    {form.data.ref && (
-                      <>
-                        , the newest of <code>{form.data.ref}</code>
-                      </>
-                    )}
-                    .
-                  </p>
-                )}
                 {!mayLaunch && (
                   <p className="muted">
                     You may see what would run; launching needs operator on this flow.
@@ -1954,6 +1956,8 @@ export function LaunchConfigPage({
                 reply={mayRead ? liveNow : undefined}
                 hasTargets={hasTargets}
                 config={c}
+                workspace={workspace}
+                project={key}
               />
             )}
           </div>
@@ -2491,11 +2495,6 @@ function ConfigForm({
           </button>
         )}
       </div>
-      {existing && (
-        <p className="muted">
-          Start values of the flow's inputs are kept from the launch form ("Keep as start values").
-        </p>
-      )}
     </form>
   );
 }
@@ -2573,13 +2572,7 @@ export function LaunchConfigEdit({
         last={id ? 'Change' : 'Add a launch configuration'}
         {...(id && existing.data ? { config: { id, name: existing.data.name } } : {})}
       />
-      <PageHead
-        help="launch-configurations.md"
-        title={title}
-        // AFS-147: what saving checks, as it is: the hosts and an environment still building are
-        // checked at launch, where the form says what stands in the way.
-        lead="Saved when its flow, inventory and credentials are there. The hosts it reaches and its environment's image are checked at launch. Secret inputs are never kept: they are typed at launch."
-      />
+      <PageHead help="launch-configurations.md" title={title} />
       <section className="panel">
         <ConfigForm
           key={id ?? 'new'}

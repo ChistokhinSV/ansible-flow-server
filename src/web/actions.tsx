@@ -134,22 +134,12 @@ export function ActionsPage({ home }: { home?: boolean }) {
   const shown = actions.data?.filter((a) => !chosen || a.workspace.key === chosen);
   return (
     <>
-      <PageHead
-        title="Actions"
-        // AFS-206: one intro, whether Actions is one's Home or a page of the menu.
-        lead="The actions you may run: pick one, fill in what it asks, and Run."
-        help="actions.md"
-      >
+      <PageHead title="Actions" help="actions.md">
         <WorkspaceFilter workspaces={workspaces} chosen={chosen} />
       </PageHead>
       {home && <YourRuns />}
       <Loading state={actions} />
-      {actions.data?.length === 0 && (
-        <p className="empty">
-          No actions for you yet. Someone who looks after a workspace can make one and let you run
-          it.
-        </p>
-      )}
+      {actions.data?.length === 0 && <p className="empty">No actions for you yet.</p>}
       {!!actions.data?.length && shown?.length === 0 && (
         <p className="empty">No action of yours in this workspace.</p>
       )}
@@ -170,14 +160,10 @@ export function ActionsPage({ home }: { home?: boolean }) {
                       You ran it {ago(a.lastRun.createdAt)}: {a.lastRun.words}
                     </>
                   ) : (
-                    'You have not run it yet'
+                    'Not run yet'
                   )}
-                  {/* AFS-207: the one to flag is the one that changes things. */}
-                  {a.mode === 'check' ? ' · a check, changes nothing' : ''}
                 </span>
-                {a.mode === 'real' && (
-                  <span className="real-mark">For real: it changes the machines it runs on</span>
-                )}
+                {a.mode === 'real' && <span className="real-mark">For real · changes hosts</span>}
               </Link>
               {/* AFS-207: one's last run opens from its card. */}
               {a.lastRun && (
@@ -661,16 +647,14 @@ export function ActionRunPage({ run }: { run: string }) {
         {/* AFS-176: an action that runs as its link opens says what the link started. */}
         {new URLSearchParams(window.location.search).get('started') === 'link' && (
           <p className="notice ok">
-            The link started {p.action.title} (run #{p.run.number}) as it opened, with the values
-            below.
+            The link started {p.action.title} (run #{p.run.number}).
           </p>
         )}
         {/* AFS-207: the link opened again a moment later (Back, a second tab) started nothing. */}
         {new URLSearchParams(window.location.search).get('started') === 'twin' && (
           <p className="notice info">
-            The link was opened again with the same values: it did not start another run. This is
-            run #{p.run.number}, which it started a moment ago. To run it again, use Run it again
-            below.
+            Opened again with the same values: it did not start another run (showing run #
+            {p.run.number}).
           </p>
         )}
         <p className="progress-headline" role="status" aria-live="polite">
@@ -691,7 +675,7 @@ export function ActionRunPage({ run }: { run: string }) {
             </div>
             <p className="muted">
               {p.done} of {p.total} {p.total === 1 ? 'step' : 'steps'} done
-              {p.run.mode === 'check' ? ' · a check: nothing is changed' : ''}
+              {p.run.mode === 'check' ? ' · check' : ''}
             </p>
             <ol className="progress-steps">
               {p.steps.map((s) => (
@@ -706,8 +690,8 @@ export function ActionRunPage({ run }: { run: string }) {
         {p.waiting && (
           <p className="notice warn">
             Waiting since {ago(p.waiting.since)} for{' '}
-            {p.waiting.by.length ? p.waiting.by.join(' or ') : 'someone who may approve'} to decide{' '}
-            {p.waiting.step}. You do not need to stay on this page.
+            {p.waiting.by.length ? p.waiting.by.join(' or ') : 'an approver'} to decide{' '}
+            {p.waiting.step}.
           </p>
         )}
         {p.failed && (
@@ -962,13 +946,6 @@ export function ConfigActionSection({
             </button>
           )}
         </div>
-        <p className="muted">
-          An action is a short form for people who run things but do not read flows: only what it
-          asks, in their words, and Run. The rest runs with its launch configuration's values.{' '}
-          <a href="/help/guide/actions.md" target="_blank" rel="noopener">
-            About actions
-          </a>
-        </p>
         {saved && (
           <p className="notice ok" role="status">
             {saved}
@@ -1098,9 +1075,8 @@ export function ConfigActionSection({
             <fieldset className="choices">
               <legend>What it asks</legend>
               <p className="muted small">
-                Ticked inputs are asked, with your label and help line; the others run with this
-                configuration's values and cannot be changed by a runner. Choices: names separated
-                by commas (only those can be picked). Secret-looking inputs are never asked.
+                Unchecked inputs keep the launch configuration's values; secret inputs are never
+                asked.
               </p>
               {inputs.filter((i) => !i.secret).length === 0 && (
                 <p className="muted">The flow takes no inputs.</p>
@@ -1275,8 +1251,8 @@ export function ConfigActionSection({
                 checked={!!settings.runOnOpen}
                 onChange={(e) => setSettings({ ...settings, runOnOpen: e.target.checked })}
               />
-              A link that gives every value runs as it opens, without a confirm page (opening the
-              link never runs it by itself: the page starts it, and says so)
+              Run as soon as a complete link opens, without a confirm page (off: opening the link
+              never runs it by itself)
             </label>
             <ReplyFields
               workspace={workspace}
@@ -1289,7 +1265,7 @@ export function ConfigActionSection({
                 checked={settings.enabled}
                 onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
               />
-              On (off: nobody can run it; its words and who may run it are kept)
+              Enabled (off: nobody can run it; its settings and grants are kept)
             </label>
             {error && (
               <p className="notice error" role="alert">
@@ -1385,9 +1361,7 @@ function ReplyFields({
     <fieldset className="choices">
       <legend>Result back</legend>
       <p className="muted small">
-        A run started from a NetBox link writes a journal entry on the object; from a Zabbix
-        problem's link, a message on the problem. The address and token are a credential of this
-        workspace (kind NetBox token or Zabbix token).
+        Writes a NetBox journal entry or Zabbix problem message using a workspace token credential.
       </p>
       <div className="pair">
         <div className="field">
@@ -1494,13 +1468,11 @@ function ActionGrants({
     <>
       <h2 id={headId}>Who may run it</h2>
       <p className="muted small">
-        A grant here lets someone run this action and follow the runs they start, nothing else of
-        the workspace. Whoever may operate or read and write the flow, and administrators, may run
-        it too. It is given to people and groups with access to this workspace; an administrator
-        gives it to anyone.
+        Grants access to this action and the runs they start; flow operators and administrators can
+        already run it.
       </p>
       {grants.length === 0 ? (
-        <p className="muted">Nobody yet but operators, read-and-write people and administrators.</p>
+        <p className="muted">No extra grants yet.</p>
       ) : (
         <ul className="list plain">
           {grants.map((g) => {
@@ -1597,9 +1569,8 @@ export function WorkspaceActions({ workspace }: { workspace: string }) {
     <>
       <h3>Actions</h3>
       <p className="muted small">
-        Who may run each action of the workspace. Operators of its flow and administrators may run
-        every one; a grant gives one action and nothing else of the workspace. Grants are given and
-        taken back on the action's own page.
+        Grants are managed on each action's page; flow operators and administrators can run every
+        action.
       </p>
       <Loading state={actions} />
       {actions.data?.length === 0 && <p className="muted">No action in this workspace yet.</p>}

@@ -6056,3 +6056,30 @@ button.account-button > .icon {
   min-width: 28px;
   padding-inline: 6px;
 }
+
+/* === Tidy pages: compact API reference head and spacing for folded link/stream sections ====== */
+.api-page > .page-head {
+  margin: 0 0 8px;
+  gap: 6px 16px;
+}
+.api-page > .page-head h1 {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  margin: 0;
+}
+.api-page > .page-head > .actions {
+  gap: 6px;
+}
+.api-page > .page-head > .actions :is(button, a.button) {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+.api-page > .page-head > .actions .icon-button {
+  min-width: 28px;
+  padding-inline: 6px;
+}
+.action-links > details.fold + details.fold {
+  margin-top: 8px;
+}

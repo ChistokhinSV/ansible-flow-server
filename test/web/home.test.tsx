@@ -193,10 +193,10 @@ describe('home, the inbox', () => {
     render(<App />);
     await screen.findByRole('heading', { name: /, Dana$/ });
     const lead = await screen.findByText(
-      (_, el) => el?.tagName === 'P' && !!el.textContent?.startsWith('5 runs today'),
+      (_, el) => el?.tagName === 'P' && !!el.textContent?.startsWith('Today:'),
     );
     expect(lead.textContent).toBe(
-      '5 runs today, by everyone: 2 went well, 1 failed, 1 waits for a decision, 1 paused step by step. 5 things need you.',
+      'Today: 2 went well · 1 failed · 1 waits for a decision · 1 paused step by step',
     );
     // AFS-208: each count is a link to those runs.
     expect(within(lead).getByRole('link', { name: '1 failed' }).getAttribute('href')).toBe(
@@ -301,14 +301,12 @@ describe('home, the inbox', () => {
     })) as HTMLSelectElement;
     expect(filter.value).toBe('');
     await screen.findByText(
-      (_, el) => el?.tagName === 'P' && !!el.textContent?.includes('5 things need you'),
+      (_, el) => el?.tagName === 'P' && el.textContent === 'No run yet today.',
     );
     fireEvent.change(filter, { target: { value: 'lab' } });
     expect(window.location.pathname + window.location.search).toBe('/?workspace=lab');
     await screen.findByText(
-      (_, el) =>
-        el?.tagName === 'P' &&
-        el.textContent === '1 run today in Lab, by everyone: 1 went well. 3 things need you.',
+      (_, el) => el?.tagName === 'P' && el.textContent === 'Today in Lab: 1 went well',
     );
     expect(asked).toContain('GET /inbox?workspace=lab');
     const recent = screen
@@ -378,6 +376,19 @@ describe('home, the inbox', () => {
 
   it('a quiet day says so', async () => {
     routes = {
+      ...PROJECTS,
+      'GET /session': () => ({ body: dana }),
+      'GET /runs?limit=100': () => ({ body: [] }),
+      'GET /approvals': () => ({ body: [] }),
+      'GET /inbox': () => ({ body: inbox([]) }),
+    };
+    render(<App />);
+    await screen.findByText('No run yet today.');
+    expect(await screen.findByText('Nothing needs you.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Launch again' })).toBeNull();
+
+    cleanup();
+    routes = {
       'GET /session': () => ({ body: dana }),
       'GET /runs?limit=100': () => ({ body: [] }),
       'GET /approvals': () => ({ body: [] }),
@@ -385,8 +396,7 @@ describe('home, the inbox', () => {
       'GET /workspaces': () => ({ body: [] }),
     };
     render(<App />);
-    await screen.findByText('No run yet today. Nothing needs you.');
-    expect(screen.queryByRole('heading', { name: 'Launch again' })).toBeNull();
+    await screen.findByText('No run yet today.');
     expect(screen.queryByRole('combobox', { name: 'Workspace' })).toBeNull();
     // AFS-135: workspaces may exist that this person has no access to.
     expect(
@@ -408,9 +418,7 @@ describe('home, the inbox', () => {
     const line = await screen.findByText(
       (_, el) => el?.tagName === 'P' && !!el.textContent?.includes('debug runs paused'),
     );
-    expect(line.textContent).toBe(
-      '3 runs today, by everyone: 0 went well, 1 still goes, 2 debug runs paused. Nothing needs you.',
-    );
+    expect(line.textContent).toBe('Today: 0 went well · 1 still goes · 2 debug runs paused');
     // AFS-232: "still goes" is a link too, to the runs going (not the paused ones).
     expect(within(line).getByRole('link', { name: '1 still goes' }).getAttribute('href')).toBe(
       '/runs?state=going',

@@ -353,9 +353,8 @@ describe('Copy link for NetBox and Zabbix', () => {
       'DELETE /launch-configs/c1/action/tokens/t0': () => ({ status: 204 }),
     };
     render(<ConfigActionSection config="c1" name="Provision" inputs={[]} workspace="net" />);
-    expect(
-      await screen.findByRole('heading', { name: 'Links from NetBox and Zabbix' }),
-    ).toBeTruthy();
+    const netboxSummary = await screen.findByText('Links from NetBox and Zabbix');
+    fireEvent.click(netboxSummary);
     expect(document.body.textContent).toContain('/a/c1?device={{ object.name|string|urlencode }}');
     expect(document.body.textContent).toContain('"object_types": [');
     fireEvent.click(screen.getByRole('radio', { name: 'Zabbix' }));

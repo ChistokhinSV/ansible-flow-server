@@ -99,9 +99,8 @@ export function MappingRows({
       <p className="muted">
         {help ?? (
           <>
-            A value of the claim (as the provider sends it, e.g. <code>/netops</code>) and the
-            server group it puts the person in, or administrator. Other values are ignored; a
-            sign-in takes back what the provider no longer says.
+            Maps claim values (e.g. <code>/netops</code>) to a server group or administrator; other
+            values are ignored.
           </>
         )}
       </p>
@@ -312,17 +311,7 @@ export function SignInPage() {
     groups.data?.find((g) => g.id === id)?.name ?? 'a removed group';
   return (
     <>
-      <PageHead
-        help="people-and-sign-in.md"
-        title="Sign-in"
-        lead={
-          <>
-            People sign in with a password here, with your organisation&apos;s sign-in (OIDC:
-            Keycloak, Entra ID, Google, and others), or with their directory login (LDAP, Active
-            Directory). Their groups there can be groups here.{' '}
-          </>
-        }
-      />
+      <PageHead help="people-and-sign-in.md" title="Sign-in" />
       {error && (
         <p className="notice error" role="alert">
           {error}

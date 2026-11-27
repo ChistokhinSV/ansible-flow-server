@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react';
 import { HASH_MESSAGE, placeOf, THEME_MESSAGE } from './apidocsTry';
 import type { ThemeChoice } from './theme';
-import { PageHead } from './ui';
+import { HelpButton, PageHead } from './ui';
 
 /** What the frame is told: `auto` follows the device there too. */
 const asked = (theme: ThemeChoice) => (theme === 'system' ? 'auto' : theme);
@@ -37,14 +37,11 @@ export function ApiDocs({ theme }: { theme: ThemeChoice }) {
   }, [theme]);
   return (
     <div className="api-page">
-      <PageHead
-        help="api-and-mcp.md"
-        title="API reference"
-        lead="Every address of this server's API, with what it takes and answers. Try it sends real requests as you, or as a token you paste (kept on this page only); it asks before anything but a read."
-      >
+      <PageHead title="API reference">
         <a className="button" href="/api/v1/openapi.json">
           OpenAPI document
         </a>
+        <HelpButton page="api-and-mcp.md" about="API reference" />
       </PageHead>
       <iframe
         ref={frame}

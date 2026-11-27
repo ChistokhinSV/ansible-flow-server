@@ -910,16 +910,15 @@ export function FilesPage({
         help="web-pages.md#files-of-a-project"
         title={project.name}
         lead={
-          <>
-            {project.hosted ? 'Kept by this server' : `Mirror of ${project.gitUrl}`}
-            {/* AFS-152: one's own access on every tab of the project, as on the others. */}
-            {access && (
-              <>
-                {' · '}
+          project.description || (ownFlows && access) ? (
+            <>
+              {project.description}
+              {project.description && ownFlows && access ? ' · ' : ''}
+              {ownFlows && access ? (
                 <ProjectYourAccess access={access} flows={titled.data} />
-              </>
-            )}
-          </>
+              ) : null}
+            </>
+          ) : undefined
         }
       />
       <ProjectStatus project={project} me={me} base={`/w/${workspace}/${key}`} />
@@ -1035,9 +1034,7 @@ export function FilesPage({
               onChange={onArchive}
               aria-label="Archive to unpack"
             />
-            <p className="muted small">
-              Added to {here ? <code>{here}/</code> : 'the top folder of the project'}
-            </p>
+            <p className="muted small">In {here ? <code>{here}/</code> : <code>/</code>}</p>
             {asking === 'new' && (
               <PathForm
                 label="New file"
@@ -1060,7 +1057,7 @@ export function FilesPage({
         <section className="panel files-tree" aria-labelledby="tree">
           <div className="panel-head">
             <h2 id="tree">Files</h2>
-            {listing.data?.commit && (
+            {branch !== project.gitRef && listing.data?.commit && (
               <span className="muted small">
                 at <code>{listing.data.commit.slice(0, 12)}</code>
               </span>
@@ -1223,23 +1220,16 @@ export function FilesPage({
             />
           )}
           {file && text !== undefined && (pending || !content.loading) && (
-            <>
-              {FLOW.test(file.path) && (
-                <p className="muted">
-                  Flows are edited in the flow editor; here they are read only.
-                </p>
-              )}
-              <TextView
-                key={`${file.path}:${file.state === 'new' ? 'new' : commit}`}
-                path={file.path}
-                text={text}
-                editable={editable}
-                dark={dark}
-                focus={made === file.path}
-                {...(lineAsked ? { line: lineAsked } : {})}
-                onChange={(t) => change({ op: 'write', path: file.path, text: t }, file.path)}
-              />
-            </>
+            <TextView
+              key={`${file.path}:${file.state === 'new' ? 'new' : commit}`}
+              path={file.path}
+              text={text}
+              editable={editable}
+              dark={dark}
+              focus={made === file.path}
+              {...(lineAsked ? { line: lineAsked } : {})}
+              onChange={(t) => change({ op: 'write', path: file.path, text: t }, file.path)}
+            />
           )}
         </section>
       </div>

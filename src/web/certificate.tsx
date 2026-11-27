@@ -156,9 +156,8 @@ function RequestForm({
   return (
     <>
       <p className="muted">
-        The server makes a new key, which never leaves it, and a request for your certificate
-        authority to sign. Install the signed certificate afterwards; the request's key goes with
-        it.{state.request ? ' A new request replaces the one that waits.' : ''}
+        Generates a private key (kept on the server) and a CSR for your CA to sign.
+        {state.request ? ' Replaces the waiting request.' : ''}
       </p>
       <form
         className="form"
@@ -221,8 +220,7 @@ function PfxForm({ onDone, onCancel }: { onDone(s: CertificateState): void; onCa
   return (
     <>
       <p className="muted">
-        A PFX (.pfx or .p12) holds the certificate, its chain and its key. They go through the same
-        checks; the passphrase is used once and kept nowhere.
+        Uploads certificate, chain and key (.pfx or .p12); the passphrase is not stored.
       </p>
       <form
         className="form"
@@ -284,10 +282,9 @@ function InstallForm({
   return (
     <>
       <p className="muted">
-        The signed certificate, its chain after it. Without a key it answers the waiting request
-        {state.current ? ', or renews for the key in use' : ''}; with a key it replaces the
-        certificate outright. Nothing changes unless every check passes
-        {state.host ? `, among them that it is good for ${state.host}` : ''}.
+        Signed certificate and chain. Leave the private key empty to pair with the waiting request
+        {state.current ? ' or current key' : ''}. Nothing changes unless every check passes
+        {state.host ? ` (including ${state.host})` : ''}.
       </p>
       <form
         className="form"
@@ -411,7 +408,7 @@ function Replace({
           {children}
         </section>
       ) : (
-        <p className="muted">Choose how. Nothing changes unless every check passes.</p>
+        <p className="muted">Nothing changes unless every check passes.</p>
       )}
     </section>
   );
@@ -441,11 +438,7 @@ export function CertificatePage() {
   const cancel = () => setWay(undefined);
   return (
     <>
-      <PageHead
-        help="certificates.md"
-        title="Server certificate"
-        lead="What browsers, git and the VS Code extension see when they connect over HTTPS."
-      />
+      <PageHead help="certificates.md" title="Server certificate" />
       <Loading state={load} />
       {state && (
         <>

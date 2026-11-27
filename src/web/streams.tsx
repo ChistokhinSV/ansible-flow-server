@@ -6,6 +6,7 @@ import { api, type Sink, type SinkInput, type SinkTest } from './api';
 import { ask } from './confirm';
 import {
   Field,
+  Fold,
   Form,
   Labelled,
   Loading,
@@ -114,7 +115,6 @@ function SinkForm({ sink, onDone }: { sink?: Sink; onDone(saved?: Sink): void })
   const [maxAgeDays, setMaxAgeDays] = useState(String(sink?.maxAgeDays ?? 7));
   const typeId = useId();
   const transportId = useId();
-  const framingId = useId();
   const number = (text: string) => (text.trim() ? Number(text) : undefined);
 
   const input = (): SinkInput => ({
@@ -234,49 +234,6 @@ function SinkForm({ sink, onDone }: { sink?: Sink; onDone(saved?: Sink): void })
           {transport === 'tls' && (
             <CaField name="syslog.ca" value={syslogCa} onChange={setSyslogCa} />
           )}
-          <Field
-            label="Facility"
-            name="syslog.facility"
-            inputMode="numeric"
-            value={facility}
-            onChange={(e) => setFacility(e.target.value)}
-            hint="13 is log audit; 10 authpriv and 16 to 23 local0 to local7 are common too."
-          />
-          <Field
-            label="Enterprise number"
-            name="syslog.enterprise"
-            inputMode="numeric"
-            value={enterprise}
-            onChange={(e) => setEnterprise(e.target.value)}
-            hint="In the structured data names: audit@32473. 32473 is the number for documentation."
-          />
-          <Field
-            label="Host name in messages"
-            name="syslog.hostname"
-            value={hostname}
-            onChange={(e) => setHostname(e.target.value)}
-            hint="Empty: the server's host name."
-          />
-          {transport !== 'udp' && (
-            <div className="field">
-              <label htmlFor={framingId}>Framing</label>
-              <select
-                id={framingId}
-                value={framing}
-                onChange={(e) => setFraming(e.target.value as typeof framing)}
-              >
-                <option value="octet">Octet counting (RFC 5425)</option>
-                <option value="lf">One message per line (older receivers)</option>
-              </select>
-            </div>
-          )}
-          <div className="field">
-            <Check
-              label="A byte order mark before the message (RFC 5424; some viewers show it)"
-              checked={bom}
-              onChange={setBom}
-            />
-          </div>
         </>
       ) : (
         <>
@@ -295,8 +252,7 @@ function SinkForm({ sink, onDone }: { sink?: Sink; onDone(saved?: Sink): void })
           <fieldset className="field">
             <legend>Headers</legend>
             <small className="muted">
-              Sent with each request, such as Authorization or api-key. Their values are kept
-              encrypted and never shown.
+              Sent with each request (e.g. Authorization or api-key); kept encrypted.
             </small>
             {/* AFS-262: each box says what goes in it, not only to a screen reader. */}
             {headers.map((h, i) => (
@@ -367,21 +323,84 @@ function SinkForm({ sink, onDone }: { sink?: Sink; onDone(saved?: Sink): void })
           </div>
         </>
       )}
-      <Field
-        label="Most rows waiting"
-        name="maxBacklog"
-        inputMode="numeric"
-        value={maxBacklog}
-        onChange={(e) => setMaxBacklog(e.target.value)}
-        hint="While the destination is down, what it should get waits; past this the oldest is dropped."
-      />
-      <Field
-        label="Most days waiting"
-        name="maxAgeDays"
-        inputMode="numeric"
-        value={maxAgeDays}
-        onChange={(e) => setMaxAgeDays(e.target.value)}
-      />
+      <Fold
+        summary="More options"
+        fields={[
+          'syslog.facility',
+          'syslog.enterprise',
+          'syslog.hostname',
+          'syslog.framing',
+          'maxBacklog',
+          'maxAgeDays',
+        ]}
+      >
+        <div className="form wide">
+          {type === 'syslog' && (
+            <>
+              <Field
+                label="Facility"
+                name="syslog.facility"
+                inputMode="numeric"
+                value={facility}
+                onChange={(e) => setFacility(e.target.value)}
+                hint="13 is log audit; 10 authpriv and 16–23 local0–local7."
+              />
+              <Field
+                label="Enterprise number"
+                name="syslog.enterprise"
+                inputMode="numeric"
+                value={enterprise}
+                onChange={(e) => setEnterprise(e.target.value)}
+                hint="Structured data PEN (e.g. audit@32473)."
+              />
+              <Field
+                label="Host name in messages"
+                name="syslog.hostname"
+                value={hostname}
+                onChange={(e) => setHostname(e.target.value)}
+                hint="Empty: the server's host name."
+              />
+              {transport !== 'udp' && (
+                <Labelled label="Framing" name="syslog.framing">
+                  {(props) => (
+                    <select
+                      {...props}
+                      name="syslog.framing"
+                      value={framing}
+                      onChange={(e) => setFraming(e.target.value as typeof framing)}
+                    >
+                      <option value="octet">Octet counting (RFC 5425)</option>
+                      <option value="lf">One message per line (older receivers)</option>
+                    </select>
+                  )}
+                </Labelled>
+              )}
+              <div className="field">
+                <Check
+                  label="Byte order mark before message (RFC 5424)"
+                  checked={bom}
+                  onChange={setBom}
+                />
+              </div>
+            </>
+          )}
+          <Field
+            label="Most rows waiting"
+            name="maxBacklog"
+            inputMode="numeric"
+            value={maxBacklog}
+            onChange={(e) => setMaxBacklog(e.target.value)}
+            hint="Queue limit while the destination is unreachable; older rows are dropped."
+          />
+          <Field
+            label="Most days waiting"
+            name="maxAgeDays"
+            inputMode="numeric"
+            value={maxAgeDays}
+            onChange={(e) => setMaxAgeDays(e.target.value)}
+          />
+        </div>
+      </Fold>
     </Form>
   );
 }
@@ -461,11 +480,7 @@ export function StreamsPage() {
   const [error, setError] = useState<string>();
   return (
     <>
-      <PageHead
-        help="event-streaming.md"
-        title="Event streaming"
-        lead="Audit entries and runs sent as they happen to a syslog receiver or an OpenTelemetry collector: a SIEM, a log store, a tracing backend."
-      />
+      <PageHead help="event-streaming.md" title="Event streaming" />
       {error && (
         <p className="notice error" role="alert">
           {error}

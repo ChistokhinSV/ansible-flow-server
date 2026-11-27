@@ -313,7 +313,7 @@ export function ProjectHistory({ workspace, project }: { workspace: string; proj
       {outside ? (
         <div className="commit-asked">
           <p className="muted small">
-            The commit the address names; it is not among the commits listed below.{' '}
+            Commit from address (not in the list below):{' '}
             <button type="button" className="link" onClick={() => setOpen('')}>
               Close it
             </button>

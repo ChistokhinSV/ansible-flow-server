@@ -192,12 +192,8 @@ describe('approvals', () => {
     const others = screen
       .getByRole('heading', { name: 'Waiting for others' })
       .closest('section') as HTMLElement;
-    // AFS-193: why not as a sentence, and who does decide it.
-    expect(
-      within(others).getByText(
-        'Only change-board may decide this approval. change-board decides it.',
-      ),
-    ).toBeTruthy();
+    // AFS-193: why not, without repeating Who decides from the line above.
+    expect(within(others).getByText('Only change-board may decide this approval.')).toBeTruthy();
     // And how long it has waited.
     expect(within(yours).getByText(/Waiting since.*\(\d+ h( \d+ min)?\)/)).toBeTruthy();
     expect(within(others).queryByRole('button', { name: 'Approve…' })).toBeNull();
@@ -262,16 +258,14 @@ describe('approvals', () => {
     const evidence = within(list).getByRole('link', { name: 'Check run #6' });
     expect(evidence.getAttribute('href')).toBe('/runs/r0');
     expect(evidence.parentElement?.textContent).toMatch(
-      /^Check run #6 of this launch configuration went well, 5 min ago, at the same commit$/,
+      /^Check run #6 went well, 5 min ago \(same commit\)$/,
     );
     // Said before anyone decides, also to who may not decide it.
     const others = screen
       .getByRole('heading', { name: 'Waiting for others' })
       .closest('section') as HTMLElement;
     expect(within(others).getByText('The hosts go on: Upgrade')).toBeTruthy();
-    expect(
-      within(others).getByText('No check run of this launch configuration before this run'),
-    ).toBeTruthy();
+    expect(within(others).getByText('No prior check run')).toBeTruthy();
   });
 
   it('AFS-211: with nothing waiting, one sentence says so', async () => {

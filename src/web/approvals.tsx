@@ -168,12 +168,12 @@ function Consequences({ gate }: { gate: Gate }) {
             {check ? (
               <>
                 <Link to={`/runs/${encodeURIComponent(check.id)}`}>Check run #{check.number}</Link>{' '}
-                of this launch configuration {WENT[check.state] ?? check.state}
-                {check.endedAt ? `, ${ago(check.endedAt)}` : ''},{' '}
-                {check.sameCommit ? 'at the same commit' : 'at another commit'}
+                {WENT[check.state] ?? check.state}
+                {check.endedAt ? `, ${ago(check.endedAt)}` : ''} (
+                {check.sameCommit ? 'same commit' : 'another commit'})
               </>
             ) : (
-              'No check run of this launch configuration before this run'
+              'No prior check run'
             )}
           </dd>
         </>
@@ -285,10 +285,9 @@ function GateCard({
         (mayDecide ? (
           <DecideForm title={gate.node.title} next={gate.next} onDecide={onDecide} />
         ) : (
-          // AFS-193: why not, as a sentence, and who does decide it.
+          // AFS-193: why not (Who decides is already in the line above).
           <p className="muted" data-gate-why>
-            {why ? `${why}. ` : ''}
-            {decidersText(gate)} decides it.
+            {why ? `${why}.` : `${decidersText(gate)} decides it.`}
           </p>
         ))}
     </div>

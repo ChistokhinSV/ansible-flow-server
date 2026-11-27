@@ -222,7 +222,7 @@ export function TokensPanel({
                 checked={input.readOnly}
                 onChange={(e) => setInput({ ...input, readOnly: e.target.checked })}
               />
-              Read only (can clone and read, cannot push or change anything)
+              Read only (clone and read; no changes)
             </label>
             {mayApprove && (
               <label className="choice">
@@ -232,8 +232,7 @@ export function TokensPanel({
                   disabled={input.readOnly}
                   onChange={(e) => setInput({ ...input, mcpApprovals: e.target.checked })}
                 />
-                An agent with this token may decide approvals over MCP (off: approvals stay with
-                people)
+                Allow MCP agents to decide approvals
                 {input.readOnly ? ' · not for a read-only token' : ''}
               </label>
             )}
@@ -244,12 +243,11 @@ export function TokensPanel({
                   type="checkbox"
                   checked={input.mcpRunControl && !input.readOnly}
                   disabled={input.readOnly}
+                  title="Step, Continue, Pause, Stop, Retry, and reading variables, Watch and Evaluate at debug pauses"
                   onChange={(e) => setInput({ ...input, mcpRunControl: e.target.checked })}
                 />
                 {/* AFS-253: all the option allows, the debugger's reading and Evaluate too. */}
-                An agent with this token may drive step-by-step runs over MCP (Step, Continue,
-                Pause, Stop, Retry) and look into the debug runs this person may drive: read their
-                variables at a pause, Watch and Evaluate (off: people do this on the run's page)
+                Allow MCP agents to drive step-by-step runs and inspect debug variables
                 {input.readOnly ? ' · not for a read-only token' : ''}
               </label>
             )}

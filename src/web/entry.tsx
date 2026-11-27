@@ -150,7 +150,7 @@ export function Setup({ onDone }: { onDone: (user: User) => void }) {
     <Entry
       wide
       title="Set up Ansible Flow Server"
-      lead="This server has no user yet. Make its first administrator. The setup code is in the server's log, written when it started."
+      lead="Make the first administrator. The setup code is in the server's startup log."
     >
       <Form
         submit="Make the administrator"

@@ -310,8 +310,8 @@ function ProviderForm({
             </label>
           ))}
           <small className="muted">
-            Only credentials of these workspaces may read from it. A workspace&apos;s administrators
-            see where each credential reads; others see only which provider.
+            Only credentials in checked workspaces may read from this provider. Workspace
+            administrators see where each credential reads; others see only which provider.
           </small>
         </fieldset>
       </Form>
@@ -330,11 +330,7 @@ function TestBox({ provider }: { provider: SecretProvider }) {
     <details className="test-box">
       <summary>Test the provider</summary>
       <p className="muted">
-        Signs in{provider.kind === 'ccp' ? ' (CCP: reaches it with the client certificate)' : ''}.
-        {/* AFS-260: the whole reference is optional; a read needs its own parts. */}
-        To test a read too, fill in {needed.join(' and ')}
-        {needed.length < fields.length ? ' (the rest only if needed)' : ''}; the value is never
-        shown.
+        Signs in. Fill in {needed.join(' and ')} to test a read too (values are never shown).
       </p>
       <div className="ref-test-fields">
         {fields.map((f) => (
@@ -397,13 +393,7 @@ export function SecretProvidersPage() {
       <PageHead
         help="secret-providers.md"
         title="Secret providers"
-        lead={
-          <>
-            Where credentials may read their passwords, keys and tokens from instead of keeping them
-            here: HashiCorp Vault, CyberArk Conjur or Central Credential Provider, AWS Secrets
-            Manager. A value is read when a run starts, used for that run only and never kept.
-          </>
-        }
+        lead="A value is read when a run starts, used for that run only and never kept."
       >
         {!editing && (
           <button type="button" onClick={() => setEditing({ ...EMPTY })}>

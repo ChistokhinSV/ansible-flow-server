@@ -37,11 +37,14 @@ An error from before the destination sent again (a receiver that was restarting)
 - **Certificate authority**: the PEM of the authority that signed the receiver's certificate, when
   the server does not already trust it (`AFS_CA_FILE` adds authorities for everything). The
   receiver's name is checked against its certificate.
-- **Facility**: 13 (log audit) by default. **Enterprise number**: the number in the structured
-  data names (`audit@32473`); 32473 is the number reserved for documentation.
-- **Framing**: octet counting (RFC 5425), or one message per line for older TCP receivers.
-- **Byte order mark**: RFC 5424 puts one before the message text; some viewers show it as
-  three odd characters. On by default.
+- **More options** (folded unless changed or refused):
+  - **Facility**: 13 (log audit) by default. **Enterprise number**: the number in the structured
+    data names (`audit@32473`); 32473 is the number reserved for documentation.
+  - **Host name in messages**: the server's host name when left empty.
+  - **Framing**: octet counting (RFC 5425), or one message per line for older TCP receivers.
+  - **Byte order mark**: RFC 5424 puts one before the message text; some viewers show it as
+    three odd characters. On by default.
+  - **Most rows waiting** and **Most days waiting**: queue limits while the destination is down.
 
 An audit entry, wrapped here (one line on the wire):
 
@@ -112,8 +115,8 @@ up to every minute, without giving up; the page shows the **next try**. Changing
 or a **Test** that reaches it, sends what waits at once. Lines written to a syslog receiver just
 before the server stops are sent again when it starts (a receiver removes repeats by the audit
 id). The
-waiting rows are bounded: at most **100,000 rows** and **7 days** by default (both are settings of
-each destination). Past either, the oldest are dropped and counted; the audit log says so once an
+waiting rows are bounded: at most **100,000 rows** and **7 days** by default (**Most rows waiting**
+and **Most days waiting**, under **More options** on each destination). Past either, the oldest are dropped and counted; the audit log says so once an
 hour (`stream.dropped`). The audit log itself keeps everything for its own keeping time.
 
 The page shows, for each destination: whether it is sending or failing and since when, how many

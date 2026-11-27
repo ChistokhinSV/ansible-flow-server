@@ -519,12 +519,9 @@ export function WorkspaceAccess({
 
   return (
     <section className="panel" aria-labelledby={`${id}-access`}>
-      <h2 id={`${id}-access`}>Access</h2>
-      <p className="muted">
-        Who may do what in this workspace. A grant on one flow replaces the workspace's for that
-        flow; of a person's own and their groups' grants, the highest counts. Administrators may do
-        everything.
-      </p>
+      <h2 id={`${id}-access`} className="sr-only">
+        Access
+      </h2>
       <div className="ledger">
         <div className="ledger-head">
           <h3 id={`${id}-matrix`} tabIndex={-1}>
@@ -870,7 +867,7 @@ export function WorkspaceAccess({
             });
           }}
         />
-        Who launched a run may decide its approvals (off: someone else decides)
+        Who launched a run may decide its approvals
       </label>
 
       <h3>Debugging</h3>
@@ -888,8 +885,7 @@ export function WorkspaceAccess({
             });
           }}
         />
-        Operators may debug (start debug runs, which show the hosts' variables at each pause; off:
-        read and write on the flow)
+        Operators may debug (inspect host variables at pauses)
       </label>
     </section>
   );

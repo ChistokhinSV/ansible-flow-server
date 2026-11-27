@@ -307,11 +307,7 @@ export function PeoplePage({ tab }: { tab: 'people' | 'groups' }) {
   };
   return (
     <>
-      <PageHead
-        help="people-and-sign-in.md"
-        title="People and groups"
-        lead="Who can sign in, who are administrators, and the groups that access levels and approvals name."
-      >
+      <PageHead help="people-and-sign-in.md" title="People and groups">
         {!open && (
           <button
             type="button"
@@ -465,7 +461,7 @@ function SetPassword({ user }: { user: User }) {
             setDone(false);
           }}
           required
-          hint={`${PASSWORD_RULES} Their sessions end. Tell them the password; they can change it on My account.`}
+          hint={`${PASSWORD_RULES} Ends their active sessions.`}
         />
         {done && (
           <p className="notice ok" role="status">
@@ -700,8 +696,7 @@ export function UserPage({ id, me }: { id: string; me: User }) {
               <p className="muted">In no group. Members are chosen on a group's page.</p>
             ) : (
               <p>
-                <GroupLinks names={user.groups} />{' '}
-                <span className="muted">· members are chosen on a group's page</span>
+                <GroupLinks names={user.groups} />
               </p>
             )}
           </section>
@@ -727,8 +722,8 @@ export function UserPage({ id, me }: { id: string; me: User }) {
             intro={
               <p className="muted">
                 {user.service
-                  ? 'A service account signs in only with tokens, made here. A token acts as the account, with its grants.'
-                  : 'People make their own tokens on My account. You can see them here and revoke one.'}
+                  ? 'Signs in with tokens only, acting with its grants.'
+                  : 'Created on My account; you can view or revoke them here.'}
               </p>
             }
           />

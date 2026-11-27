@@ -703,7 +703,7 @@ export function FlowPage({
         {/* AFS-136: a draft nobody changed is not "unsaved edits" (opening it joins it). */}
         {!editing && !at && waiting && waiting.editors.length > 0 ? (
           <p className="notice" role="status">
-            A draft of this flow has unsaved edits by{' '}
+            Unsaved draft by{' '}
             {waiting.editors.map((e) => (e.login === me.login ? 'you' : e.name)).join(', ')} (begun{' '}
             <Time at={waiting.createdAt} />
             ). {/* AFS-147: a run launched from here runs the branch, never the draft. */}
@@ -713,8 +713,8 @@ export function FlowPage({
                 {' '}
                 at <code>{project.commit.slice(0, 12)}</code>
               </>
-            ) : null}
-            , not these edits: save the draft first to run them.
+            ) : null}{' '}
+            until saved.
           </p>
         ) : null}
         {editing ? (
@@ -1590,8 +1590,8 @@ function DraftBar({
               }}
             />
             <small className="muted">
-              Save makes one commit and ends the draft for everyone in it; whoever else changed it
-              is named as a co-author.
+              Makes one commit and closes the draft for everyone; other editors are named as
+              co-authors.
             </small>
             {error ? <p className="notice error">{error}</p> : null}
             <div className="draft-conflict-actions">

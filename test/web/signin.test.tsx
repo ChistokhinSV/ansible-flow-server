@@ -217,6 +217,7 @@ describe('sign-in with a provider', () => {
       adDisabled: true,
       mappings: [{ value: 'netops', group: 'g1' }],
     });
+    fireEvent.click(within(card).getByText('Test the directory'));
     fireEvent.change(within(card).getByLabelText(/^Test with a login/), {
       target: { value: 'mia' },
     });
