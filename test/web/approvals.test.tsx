@@ -110,7 +110,7 @@ describe('approvals', () => {
       ]),
     );
     // The menu's count is of every workspace: it never asks for one.
-    const menu = screen.getByRole('navigation', { name: 'Main' });
+    const menu = screen.getByRole('navigation', { name: 'Work' });
     expect(within(menu).getByRole('link', { name: /^Approvals/ }).textContent).toBe('Approvals2');
   });
 
