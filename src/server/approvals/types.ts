@@ -75,6 +75,8 @@ export interface WaitingApproval {
     /** AFS-146: what the approver needs to decide (not on decided ones). */
     projectName?: string;
     workspaceName?: string;
+    /** AFS-274: the workspace it is in, on every approval (decided ones too). */
+    workspace?: { key: string; name: string };
     mode?: 'check' | 'real';
     /** The run's inputs, secret-looking values shown as ***. */
     inputs?: Record<string, unknown>;

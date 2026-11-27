@@ -40,6 +40,7 @@ import {
   span,
   Time,
   useLoad,
+  WorkspaceFilter,
   WorkspaceName,
 } from './ui';
 import { stopQuestion } from './viewerRuns';
@@ -197,18 +198,23 @@ export function RunList({
   runs: Run[];
   me?: User;
   showConfig?: boolean;
-  /** AFS-212: a list of several workspaces names each run's in the configuration's place. */
+  /**
+   * AFS-212, AFS-274: a list of several workspaces names each run's in a column of its own, the
+   * first of the facts (on a phone, the first on the run's second line).
+   */
   workspaceOf?: (run: Run) => string | undefined;
 }) {
   // AFS-95: runs are read down a column (which failed, whose, when), so each fact has its own;
   // where there is no room for columns (a phone, a narrow pane) a run is two lines again.
+  const kind = `list runs${workspaceOf ? ' with-workspace' : ''}${showConfig ? '' : ' no-config'}`;
   return (
     <div className="runs-box">
-      <ul className={showConfig ? 'list runs' : 'list runs no-config'}>
+      <ul className={kind}>
         <li className="runs-head" aria-hidden="true">
           <span>State</span>
           <span>Run</span>
-          {showConfig && <span>{workspaceOf ? 'Workspace' : 'Configuration'}</span>}
+          {workspaceOf && <span>Workspace</span>}
+          {showConfig && <span>Configuration</span>}
           <span>Mode</span>
           <span>By</span>
           <span>Started</span>
@@ -262,11 +268,8 @@ export function RunList({
               {/* The facts are cells of the row; with no room for columns they are one line
                   under the run. */}
               <span className="c-facts">
-                {showConfig && (
-                  <span className="c-fact">
-                    {workspaceOf ? (workspaceOf(run) ?? '') : (run.config?.name ?? '')}
-                  </span>
-                )}
+                {workspaceOf && <span className="c-fact">{workspaceOf(run) ?? ''}</span>}
+                {showConfig && <span className="c-fact">{run.config?.name ?? ''}</span>}
                 <span className="c-fact">
                   <ModeBadge mode={run.mode} />
                 </span>
@@ -351,6 +354,8 @@ const STATES = [
 /** The choices the address holds (AFS-86), so that a reload or a shared link shows the same list. */
 interface Choices {
   state: string;
+  /** AFS-274: a workspace's key: its runs only. */
+  workspace: string;
   project: string;
   /** A launch configuration of the project chosen. */
   config: string;
@@ -365,6 +370,7 @@ function choicesInAddress(): Choices {
   const project = query.get('project') ?? '';
   return {
     state: STATES.includes(state) ? state : '',
+    workspace: (query.get('workspace') ?? '').slice(0, 100),
     project,
     // A configuration is one of a project's: without its project it is not a choice.
     config: project ? (query.get('config') ?? '') : '',
@@ -484,7 +490,7 @@ export function OlderRuns({ pages }: { pages: ReturnType<typeof useRunPages> }) 
 }
 
 export function RunsPage({ me }: { me: User }) {
-  const [{ state, project, config, mine, q }, setChoices] = useState(choicesInAddress);
+  const [{ state, workspace, project, config, mine, q }, setChoices] = useState(choicesInAddress);
   // AFS-152: where runs start is said only to who may start one.
   const myAccess = useMyAccess();
   // What is typed asks the server once typing pauses.
@@ -498,6 +504,7 @@ export function RunsPage({ me }: { me: User }) {
   const filter: RunsFilter = {
     ...(q ? { q } : {}),
     ...(state ? { state } : {}),
+    ...(workspace ? { workspace } : {}),
     ...(project ? { project } : {}),
     ...(project && config ? { config } : {}),
     // "Mine" is the runs this person asked for: the server is asked for their login's.
@@ -520,6 +527,7 @@ export function RunsPage({ me }: { me: User }) {
   useEffect(() => {
     const query = new URLSearchParams({
       ...(state ? { state } : {}),
+      ...(workspace ? { workspace } : {}),
       ...(project ? { project } : {}),
       ...(project && config ? { config } : {}),
       ...(mine ? { mine: '1' } : {}),
@@ -530,7 +538,12 @@ export function RunsPage({ me }: { me: User }) {
       '',
       `${window.location.pathname}${query ? `?${query}` : ''}`,
     );
-  }, [state, project, config, mine, q]);
+  }, [state, workspace, project, config, mine, q]);
+  // AFS-274: nor is a workspace the person cannot see; and a project is one of the workspace's.
+  const space = where.data?.find((w) => w.workspace.key === workspace);
+  useEffect(() => {
+    if (workspace && where.data && !space) setChoices((before) => ({ ...before, workspace: '' }));
+  }, [workspace, where.data, space]);
   // A project from the address that the person cannot see (or that is gone) is not a choice.
   const known = where.data?.some((w) => w.projects.some((p) => p.id === project));
   useEffect(() => {
@@ -544,6 +557,11 @@ export function RunsPage({ me }: { me: User }) {
   }, [config, configs.data, knownConfig]);
 
   const groups = where.data?.filter((w) => w.projects.length) ?? [];
+  // AFS-274: each run names its workspace; with one chosen, its projects are the choices.
+  const workspaceOfProject = new Map(
+    (where.data ?? []).flatMap((w) => w.projects.map((p) => [p.id, w.workspace.name] as const)),
+  );
+  const shownGroups = workspace ? groups.filter((w) => w.workspace.key === workspace) : groups;
   // AFS-194: someone who reaches no project sees no run: no choices to narrow nothing with.
   const nowhere = !me.admin && !!where.data && groups.length === 0;
   // AFS-207: someone who may only run actions finds their runs on Actions, not here.
@@ -580,6 +598,23 @@ export function RunsPage({ me }: { me: User }) {
             spellCheck={false}
           />
         </label>
+        <WorkspaceFilter
+          workspaces={(where.data ?? []).map((w) => w.workspace)}
+          chosen={workspace || undefined}
+          onChange={(next) =>
+            choose({
+              workspace: next ?? '',
+              // A project of another workspace is not one of this one's.
+              ...(next &&
+              project &&
+              !where.data
+                ?.find((w) => w.workspace.key === next)
+                ?.projects.some((p) => p.id === project)
+                ? { project: '' }
+                : {}),
+            })
+          }
+        />
         <StateChoices value={state} onChange={(next) => choose({ state: next })} />
         <div className="chips">
           <label className={mine ? 'chip on' : 'chip'}>
@@ -599,7 +634,7 @@ export function RunsPage({ me }: { me: User }) {
             onChange={(e) => choose({ project: e.target.value })}
           >
             <option value="">all projects</option>
-            {groups.map((w) => (
+            {shownGroups.map((w) => (
               <optgroup key={w.workspace.id} label={w.workspace.name}>
                 {w.projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -643,7 +678,7 @@ export function RunsPage({ me }: { me: User }) {
                     ? 'No run yet. Runs start from a launch configuration of a project.'
                     : 'No run yet.'}
           {/* AFS-144: a way back from choices that leave nothing. */}
-          {(state || project || mine || q) && (
+          {(state || workspace || project || mine || q) && (
             <>
               {' '}
               <button
@@ -651,7 +686,14 @@ export function RunsPage({ me }: { me: User }) {
                 className="link"
                 onClick={() => {
                   setTyped('');
-                  setChoices({ state: '', project: '', config: '', mine: false, q: '' });
+                  setChoices({
+                    state: '',
+                    workspace: '',
+                    project: '',
+                    config: '',
+                    mine: false,
+                    q: '',
+                  });
                 }}
               >
                 Show all runs
@@ -660,7 +702,9 @@ export function RunsPage({ me }: { me: User }) {
           )}
         </p>
       )}
-      {!!rows?.length && <RunList runs={rows} me={me} />}
+      {!!rows?.length && (
+        <RunList runs={rows} me={me} workspaceOf={(run) => workspaceOfProject.get(run.project)} />
+      )}
       <OlderRuns pages={pages} />
     </>
   );

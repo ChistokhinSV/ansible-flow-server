@@ -146,6 +146,66 @@ describe('the runs list', () => {
     );
   });
 
+  it('AFS-274: names each run’s workspace, and narrows to one, kept in the address', async () => {
+    const asked: string[] = [];
+    const labRun = { ...run, id: 'r9', number: 2, project: 'p2', config: undefined };
+    routes = {
+      'GET /session': () => ({ body: omar }),
+      'GET /workspaces': () => ({
+        body: [
+          { id: 'w1', key: 'netops', name: 'Network operations', projects: 1 },
+          { id: 'w2', key: 'lab', name: 'Lab', projects: 1 },
+        ],
+      }),
+      'GET /workspaces/netops/projects': () => ({
+        body: [{ id: 'p1', workspace: 'w1', key: 'edge', name: 'Edge firewalls' }],
+      }),
+      'GET /workspaces/lab/projects': () => ({
+        body: [{ id: 'p2', workspace: 'w2', key: 'core', name: 'Core switches' }],
+      }),
+      'GET /runs?limit=100': () => ({ body: [run, labRun] }),
+      'GET /runs?workspace=lab&limit=100': () => {
+        asked.push('lab');
+        return { body: [labRun] };
+      },
+    };
+    window.history.replaceState(null, '', '/runs?project=p1');
+    routes['GET /runs?project=p1&limit=100'] = () => ({ body: [run] });
+    render(<App />);
+    await screen.findByRole('link', { name: /#7/ });
+    // Each run names its workspace, in a column of its own beside its configuration.
+    const list = document.querySelector('.list.runs') as HTMLElement;
+    await waitFor(() =>
+      expect(list.querySelector('li:not(.runs-head) .c-fact')?.textContent).toBe(
+        'Network operations',
+      ),
+    );
+    expect(list.querySelector('.runs-head')?.textContent).toContain('WorkspaceConfiguration');
+    // Choosing a workspace drops a project of another one, and asks the server for its runs.
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Workspace' }), {
+      target: { value: 'lab' },
+    });
+    await waitFor(() => expect(asked).toEqual(['lab']));
+    expect(window.location.pathname + window.location.search).toBe('/runs?workspace=lab');
+    expect(await screen.findByRole('link', { name: /#2/ })).toBeTruthy();
+    // Its projects are the choices now.
+    const projects = screen.getByLabelText('Project') as HTMLSelectElement;
+    expect([...projects.options].map((o) => o.textContent)).toEqual([
+      'all projects',
+      'Core switches',
+    ]);
+    // A workspace from the address that the person cannot see is no choice.
+    cleanup();
+    window.history.replaceState(null, '', '/runs?workspace=elsewhere');
+    routes['GET /runs?workspace=elsewhere&limit=100'] = () => ({
+      status: 404,
+      body: { error: 'not_found', message: 'There is no workspace elsewhere' },
+    });
+    render(<App />);
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(await screen.findByRole('link', { name: /#7/ })).toBeTruthy();
+  });
+
   it('loads older runs after the last one shown (AFS-86)', async () => {
     const page = Array.from({ length: 100 }, (_, i) => ({
       ...run,

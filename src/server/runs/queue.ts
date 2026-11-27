@@ -200,6 +200,8 @@ export interface QueueLimits {
 }
 
 export interface RunFilter {
+  /** AFS-274: the runs of one workspace (its id). */
+  workspace?: string;
   project?: string;
   /** The flow's file in the repository (with `project`). */
   flow?: string;
@@ -438,6 +440,12 @@ export class RunQueue {
       // that the order is the same each time and a page can go on where the last one ended.
       .orderBy('id', 'desc')
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 200));
+    if (filter.workspace)
+      query = query.where(
+        'project_id',
+        'in',
+        this.db.selectFrom('project').select('id').where('workspace_id', '=', filter.workspace),
+      );
     if (filter.project) query = query.where('project_id', '=', filter.project);
     if (filter.flow) query = query.where('flow_file', '=', filter.flow);
     if (filter.state === 'rejected' || filter.state === 'failed') {

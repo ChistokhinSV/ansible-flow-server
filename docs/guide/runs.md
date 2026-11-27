@@ -51,21 +51,21 @@ curl ... -X POST https://flows.example.net:8443/api/v1/launch-configs/<id>/launc
 | `succeeded`, `failed`, `cancelled` | How it ended                                                            |
 | `lost`                             | Its worker stopped answering after it started: what it did is not known |
 
-| Address (under `/api/v1`)                                       | Does                                                          | Who          |
-| --------------------------------------------------------------- | ------------------------------------------------------------- | ------------ |
-| `GET /runs?project=&flow=&state=&config=&by=&q=&limit=&before=` | Runs, the newest first, narrowed and a page at a time (below) | what you see |
-| `GET /runs/:id`                                                 | One run                                                       | `ro`         |
-| `POST /runs/:id/cancel`                                         | Stop it: at once when queued, else at the worker's next word  | `operator`   |
+| Address (under `/api/v1`)                                                  | Does                                                          | Who          |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------ |
+| `GET /runs?workspace=&project=&flow=&state=&config=&by=&q=&limit=&before=` | Runs, the newest first, narrowed and a page at a time (below) | what you see |
+| `GET /runs/:id`                                                            | One run                                                       | `ro`         |
+| `POST /runs/:id/cancel`                                                    | Stop it: at once when queued, else at the worker's next word  | `operator`   |
 
-- **Filters:** `project` (its id), `flow` (the flow's file), `state` (`rejected`: failed because
+- **Filters:** `workspace` (its key; one you may not see answers 404), `project` (its id), `flow` (the flow's file), `state` (`rejected`: failed because
   an approval was rejected or not decided in time; `failed` leaves those out; `paused`: a
   step-by-step run paused before a step, whose state is `running`; `waiting` has those too, as
   both wait for a person; `going`: queued, or running and not paused), `config` (a launch
   configuration's id), `by` (the login of who asked for the run; your own for your runs) and
   `q` (words in the flow's name or file, the configuration's name or a login, or `#12` for a
   run's number; the Runs page's **Find** box).
-  They narrow what you may see and never add to it. A token made for one workspace names a
-  `project` or a `config` of that workspace.
+  They narrow what you may see and never add to it. A token made for one workspace names its
+  `workspace`, or a `project` or a `config` of it.
 - **Pages:** `limit` runs at a time (50, at most 200). For the next page, pass the last run of
   a page as `before=<createdAt>,<number>,<id>`: the list goes on after that run, also when
   other runs were made in the same millisecond. A time alone (`before=<createdAt>`) still gives

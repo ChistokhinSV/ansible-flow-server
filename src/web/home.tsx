@@ -7,9 +7,9 @@ import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import { launchesAny, useMyAccess } from './access';
 import { api, type InboxItem, type InboxVerb, type Run, type User, type Workspace } from './api';
 import { launchAddress } from './launch';
-import { Link, navigate, useSearch } from './router';
+import { Link, useSearch } from './router';
 import { ModeBadge, RunList, StateGlyph } from './runs';
-import { ago, Loading, PageHead, span, useLoad } from './ui';
+import { ago, Loading, PageHead, span, useLoad, WorkspaceFilter } from './ui';
 
 const greeting = (hour: number) =>
   hour < 5
@@ -483,27 +483,7 @@ export function Home({ me }: { me: User }) {
         lead={summary || undefined}
       >
         {/* AFS-212: the inbox spans workspaces; this narrows it to one, kept in the address. */}
-        {(workspaces.data?.length ?? 0) > 1 || chosen ? (
-          <label className="inbox-filter">
-            Workspace{' '}
-            <select
-              value={chosen ?? ''}
-              onChange={(e) =>
-                navigate(
-                  e.target.value ? `/?workspace=${encodeURIComponent(e.target.value)}` : '/',
-                  { replace: true },
-                )
-              }
-            >
-              <option value="">All workspaces</option>
-              {workspaces.data?.map((w) => (
-                <option key={w.id} value={w.key}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        <WorkspaceFilter workspaces={workspaces.data ?? []} chosen={chosen} />
       </PageHead>
       <Loading state={inbox} />
       {box && today && week && runners && (
@@ -607,7 +587,12 @@ export function Home({ me }: { me: User }) {
               </p>
             )}
             {here.length > 0 && (
-              <RunList runs={here.slice(0, 8)} me={me} workspaceOf={workspaceOf} />
+              <RunList
+                runs={here.slice(0, 8)}
+                me={me}
+                workspaceOf={workspaceOf}
+                showConfig={false}
+              />
             )}
           </section>
         </div>

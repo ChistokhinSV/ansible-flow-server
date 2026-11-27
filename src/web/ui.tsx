@@ -17,7 +17,7 @@ import {
 import { createPortal } from 'react-dom';
 import { ApiError, api } from './api';
 import { guide } from './guide';
-import { holdUnsaved, Link } from './router';
+import { holdUnsaved, Link, navigate } from './router';
 
 /** AFS-140: a commit as the pages show it (12 digits), or more, or all 40. */
 export const COMMIT_PATTERN = '[0-9a-fA-F]{7,40}';
@@ -1134,5 +1134,46 @@ export function InPlace({
         </button>
       </div>
     </fieldset>
+  );
+}
+
+/**
+ * AFS-212, AFS-274 (ADR-0039 §10): the Work pages span every workspace the person may see; this
+ * narrows one to a workspace, kept in the address (`?workspace=<key>`) with the page's other
+ * choices. It shows only where there is a choice: more than one workspace, or one chosen.
+ */
+export function WorkspaceFilter({
+  workspaces,
+  chosen,
+  onChange,
+}: {
+  workspaces: readonly { key: string; name: string }[];
+  chosen: string | undefined;
+  /** A page that keeps its choices itself (and writes them to the address) is told. */
+  onChange?: (key: string | undefined) => void;
+}) {
+  if (workspaces.length < 2 && !chosen) return null;
+  return (
+    <label className="workspace-filter">
+      Workspace{' '}
+      <select
+        value={chosen ?? ''}
+        onChange={(e) => {
+          if (onChange) return onChange(e.target.value || undefined);
+          const query = new URLSearchParams(window.location.search);
+          if (e.target.value) query.set('workspace', e.target.value);
+          else query.delete('workspace');
+          const rest = query.toString();
+          navigate(`${window.location.pathname}${rest ? `?${rest}` : ''}`, { replace: true });
+        }}
+      >
+        <option value="">All workspaces</option>
+        {workspaces.map((w) => (
+          <option key={w.key} value={w.key}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

@@ -19,9 +19,18 @@ import {
 } from './api';
 import { ask } from './confirm';
 import { midnight, runAddress } from './home';
-import { holdUnsaved, Link, navigate } from './router';
+import { holdUnsaved, Link, navigate, useSearch } from './router';
 import { StateBadge } from './runs';
-import { ago, Labelled, Loading, messageOf, PageHead, Scroll, useLoad } from './ui';
+import {
+  ago,
+  Labelled,
+  Loading,
+  messageOf,
+  PageHead,
+  Scroll,
+  useLoad,
+  WorkspaceFilter,
+} from './ui';
 
 /** Where an action's form and a run's progress are. */
 export const actionAddress = (id: string) => `/actions/${encodeURIComponent(id)}`;
@@ -116,6 +125,13 @@ function YourRuns() {
 /** `home`: the page is one's Home (an action-only person's). */
 export function ActionsPage({ home }: { home?: boolean }) {
   const actions = useLoad(api.actions, []);
+  // AFS-274: every workspace's actions; `?workspace=<key>` narrows to one. The choices are the
+  // actions' own workspaces: someone who only runs actions sees no workspace otherwise.
+  const chosen = new URLSearchParams(useSearch()).get('workspace') ?? undefined;
+  const workspaces = [
+    ...new Map((actions.data ?? []).map((a) => [a.workspace.key, a.workspace])).values(),
+  ];
+  const shown = actions.data?.filter((a) => !chosen || a.workspace.key === chosen);
   return (
     <>
       <PageHead
@@ -123,7 +139,9 @@ export function ActionsPage({ home }: { home?: boolean }) {
         // AFS-206: one intro, whether Actions is one's Home or a page of the menu.
         lead="The actions you may run: pick one, fill in what it asks, and Run."
         help="actions.md"
-      />
+      >
+        <WorkspaceFilter workspaces={workspaces} chosen={chosen} />
+      </PageHead>
       {home && <YourRuns />}
       <Loading state={actions} />
       {actions.data?.length === 0 && (
@@ -132,9 +150,12 @@ export function ActionsPage({ home }: { home?: boolean }) {
           it.
         </p>
       )}
-      {!!actions.data?.length && (
+      {!!actions.data?.length && shown?.length === 0 && (
+        <p className="empty">No action of yours in this workspace.</p>
+      )}
+      {!!shown?.length && (
         <ul className="cards action-cards">
-          {actions.data.map((a) => (
+          {shown.map((a) => (
             <li key={a.id}>
               <Link to={actionAddress(a.id)} className="card">
                 <strong>{a.title}</strong>
@@ -142,6 +163,8 @@ export function ActionsPage({ home }: { home?: boolean }) {
                 {/* AFS-260: switched off, it stays here, said so, with whom to ask. */}
                 {a.off && <span className="notice warn small">{a.off}</span>}
                 <span className="muted">
+                  {/* AFS-274: each names its workspace, as every Work page's rows do. */}
+                  {a.workspace.name} ·{' '}
                   {a.lastRun ? (
                     <>
                       You ran it {ago(a.lastRun.createdAt)}: {a.lastRun.words}
