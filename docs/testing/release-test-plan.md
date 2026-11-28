@@ -16,6 +16,10 @@ Staging: `https://192.168.200.128:9443`. People: `dana` (administrator), `olga` 
 `network`), `andre` (approve, through the group `change-board`), `nina` (ro). Use a private
 browser window per person. Fictional names only in anything kept (screenshots in tickets).
 
+Labs beside staging, started before testing (`test/e2e/labs/README.md`): `secrets` (Vault,
+Conjur, AWS, CCP) for checks of secret providers, `streaming` (syslog, OpenTelemetry) for event
+streams, `identity` (Keycloak, OpenLDAP) for 2.6. A check whose lab is not running is `not done`.
+
 ## Results
 
 Copy into the release ticket and fill in: `pass`, `fail` (with a ticket), or `not done` (with why).
@@ -64,8 +68,14 @@ Copy into the release ticket and fill in: `pass`, `fail` (with a ticket), or `no
    then **Take back**; the change shows at once for the person (reload).
 5. **My account**: make an access token, use it with `curl -H "Authorization: Bearer …"
    …/api/v1/session`, revoke it; the next call is refused (401).
-6. When staging has an OIDC provider or LDAP directory set up: sign in through it; the person's
-   groups give their access.
+6. **OIDC and LDAP**, with the identity lab (`test/e2e/labs/identity`, running beside staging and
+   trusted through `AFS_CA_FILE`): run `test/e2e/identity/on-vm.mjs` (see
+   `test/e2e/labs/README.md`). Then by hand: **Sign-in** → **Add a provider** for the lab's Keycloak
+   with a mapping `net-ops` → a group with access to `network`; `sam.reyes` signs in from the
+   sign-in page in a private window and sees `network`. Add him to another group by hand, take
+   the mapping away, sign him in again: the group added by hand stays, the mapped one is gone. An
+   **LDAP directory** (**Add a directory**) for the lab's OpenLDAP tests ok; `nora.lind` signs in with her password and
+   gets the group her `change-board` mapping names. Remove what you added.
 
 ## 3. Projects and git
 

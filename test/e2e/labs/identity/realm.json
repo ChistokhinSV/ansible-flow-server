@@ -1,0 +1,66 @@
+{
+  "realm": "afs-lab",
+  "enabled": true,
+  "displayName": "Example network team (lab)",
+  "groups": [{ "name": "net-ops" }, { "name": "change-board" }, { "name": "afs-admins" }],
+  "users": [
+    {
+      "username": "sam.reyes",
+      "enabled": true,
+      "email": "sam.reyes@example.net",
+      "emailVerified": true,
+      "firstName": "Sam",
+      "lastName": "Reyes",
+      "credentials": [{ "type": "password", "value": "@@PW_SAM@@", "temporary": false }],
+      "groups": ["/net-ops"]
+    },
+    {
+      "username": "nora.lind",
+      "enabled": true,
+      "email": "nora.lind@example.net",
+      "emailVerified": true,
+      "firstName": "Nora",
+      "lastName": "Lind",
+      "credentials": [{ "type": "password", "value": "@@PW_NORA@@", "temporary": false }],
+      "groups": ["/change-board"]
+    },
+    {
+      "username": "lee.okafor",
+      "enabled": true,
+      "email": "lee.okafor@example.net",
+      "emailVerified": true,
+      "firstName": "Lee",
+      "lastName": "Okafor",
+      "credentials": [{ "type": "password", "value": "@@PW_LEE@@", "temporary": false }],
+      "groups": ["/afs-admins", "/net-ops"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "afs",
+      "name": "Ansible Flow Server",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "@@CLIENT_SECRET@@",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["@@REDIRECT_URIS@@"],
+      "webOrigins": ["+"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

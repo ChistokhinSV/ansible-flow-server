@@ -1,0 +1,45 @@
+# Identity lab (AFS-282): Keycloak (OIDC) and OpenLDAP (ldaps:// and StartTLS) with the same
+# fictional people and groups. Started by up.sh, which makes the certificates, the passwords and
+# the realm in ./out (never committed) and sets LAB_HOST and the admin passwords.
+name: afs-lab-identity
+networks:
+  afs-lab-identity:
+    name: afs-lab-identity
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: afs-lab-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HTTPS_PORT: "8443"
+      KC_HTTPS_CERTIFICATE_FILE: /certs/server.pem
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /certs/server.key
+      # The issuer the server sees and checks: this address, over https.
+      KC_HOSTNAME: https://${LAB_HOST}:18843
+      KC_HTTP_ENABLED: "false"
+    volumes:
+      - ./out/certs:/certs:ro
+      - ./out/realm:/opt/keycloak/data/import:ro
+    ports: ["${LAB_HOST}:18843:8443"]
+    networks: [afs-lab-identity]
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: afs-lab-openldap
+    environment:
+      LDAP_ORGANISATION: Example Network Team
+      LDAP_DOMAIN: example.net
+      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD}
+      LDAP_TLS: "true"
+      LDAP_TLS_CRT_FILENAME: server.pem
+      LDAP_TLS_KEY_FILENAME: server.key
+      LDAP_TLS_CA_CRT_FILENAME: ca.pem
+      LDAP_TLS_VERIFY_CLIENT: never
+      LDAP_TLS_ENFORCE: "false"
+    # The image takes its certificates from this folder and changes their owner: a copy, not out/certs.
+    volumes: [./out/ldap-certs:/container/service/slapd/assets/certs]
+    ports:
+      - "${LAB_HOST}:10389:389"
+      - "${LAB_HOST}:10636:636"
+    networks: [afs-lab-identity]
