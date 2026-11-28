@@ -86,7 +86,8 @@ Administrators configure external sign-in under **Govern › Server › Sign-in*
     disabled.**
 - **How mapped groups and rights behave (OIDC and LDAP)**: at each sign-in (and LDAP sync), mapped
   groups and administrator rights that the provider or directory no longer returns are **taken
-  back**, while groups and rights granted manually on this server are **kept**. Removing a provider
+  back**, while groups and rights granted manually on this server are **kept**. Editing a group's
+  members on this server keeps the mapped members mapped: the provider can still take them back. Removing a provider
   or directory keeps its user accounts and drops the groups, administrator rights and
   directory-driven disables it gave.
 - **Passwords for administrators only**: once an OIDC provider or LDAP directory is enabled, you can
