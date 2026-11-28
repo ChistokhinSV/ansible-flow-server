@@ -435,11 +435,25 @@ export async function setMembers(db: Db, groupId: string, userIds: string[]): Pr
       if (known.length !== ids.length)
         throw new UserError('invalid', 'One of the users does not exist');
     }
-    await trx.deleteFrom('group_member').where('group_id', '=', groupId).execute();
-    if (ids.length)
+    // Only who is left out loses the membership, and only who is new gets one: a member that an
+    // OIDC provider or LDAP directory gave keeps its source, so that source can still take it back.
+    let gone = trx.deleteFrom('group_member').where('group_id', '=', groupId);
+    if (ids.length) gone = gone.where('user_id', 'not in', ids);
+    await gone.execute();
+    const have = new Set(
+      (
+        await trx
+          .selectFrom('group_member')
+          .select('user_id')
+          .where('group_id', '=', groupId)
+          .execute()
+      ).map((m) => m.user_id),
+    );
+    const added = ids.filter((user_id) => !have.has(user_id));
+    if (added.length)
       await trx
         .insertInto('group_member')
-        .values(ids.map((user_id) => ({ group_id: groupId, user_id })))
+        .values(added.map((user_id) => ({ group_id: groupId, user_id })))
         .execute();
     const after = await getGroup(trx, groupId);
     if (!after) throw new UserError('not_found', 'No such group');
