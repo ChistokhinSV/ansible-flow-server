@@ -70,12 +70,12 @@ just e2e down                  # stop the stack and remove its data
 `secretProviders.test.ts` reads from real secret providers with the server's own clients:
 HashiCorp Vault 2.2.2 (TLS, AppRole and a token), CyberArk Conjur OSS 1.27.0, LocalStack 4.14.0
 (AWS Secrets Manager) and a CyberArk CCP mock with client certificates. The containers run on the
-GNS3 VM (`~/spike-s9`, started with its `start.sh`; ports 18200, 18080, 14566 and 18443 on
-192.168.200.128). Fictional secrets only. Skipped unless `AFS_SECRETS_LAB` names a folder with
+lab host from `labs/secrets` (see [labs/README.md](labs/README.md); ports 18200, 18080, 14566 and
+18443). Fictional secrets only. Skipped unless `AFS_SECRETS_LAB` names a folder with
 the lab's values: `vault-ca.pem`, `vault-role-id`, `vault-secret-id`, `vault-token`,
-`conjur-host-key` (from `~/spike-s9/out`), and `ccp-ca.pem`, `ccp-client.pem`, `ccp-client.key`
-(the CCP mock's CA and a client certificate it trusts). `AFS_SECRETS_LAB_HOST` changes the
-address.
+`conjur-host-key` (from the lab's `out`), and `ccp-ca.pem`, `ccp-client.pem`, `ccp-client.key`
+(the CCP mock's CA and a client certificate it trusts, `out/ccp-client`). `AFS_SECRETS_LAB_HOST`
+names the lab's address.
 
 ```bash
 AFS_SECRETS_LAB=/path/to/lab-values npx vitest run test/e2e/secretProviders.test.ts
@@ -83,14 +83,24 @@ AFS_SECRETS_LAB=/path/to/lab-values npx vitest run test/e2e/secretProviders.test
 
 A machine whose HTTPS is intercepted (an antivirus that re-signs every connection) cannot reach
 Vault and CCP. Run it from a container on the VM instead, which bundles the test with esbuild
-(node:test in place of Vitest) and takes the lab's values from `~/spike-s9/out`:
+(node:test in place of Vitest) and takes the lab's values from its `out` folder there:
 
 ```bash
-AFS_SECRETS_LAB_CERTS=/path/to/ccp-certs node test/e2e/secrets/on-vm.mjs
+AFS_SECRETS_LAB_HOST=<lab address> node test/e2e/secrets/on-vm.mjs
 ```
+
+## Sign-in with OIDC and LDAP (AFS-282)
+
+`identity/signin.test.mjs` signs the identity lab's people in to a running server through Keycloak
+(OIDC) and OpenLDAP (ldaps:// and StartTLS), and checks the groups and administrator right the
+mappings give, that a group added by hand stays and that a mapping taken away takes its group
+back. `identity/on-vm.mjs` runs it on the lab's host; [labs/README.md](labs/README.md) has the
+set-up.
 
 ## What is where
 
 - `stack/`: the compose file and the webhook catcher.
 - `repo/`: what the hosted project holds (two flows, the inventory, `ansible.cfg`).
 - `lib/`: the API client and the setup the suites share.
+- `labs/`: the secret provider, streaming and identity labs, started on a Docker host.
+- `secrets/`, `identity/`: the runners for the tests against those labs.

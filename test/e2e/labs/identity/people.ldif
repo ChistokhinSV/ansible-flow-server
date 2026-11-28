@@ -1,0 +1,52 @@
+# The same fictional people and groups as the Keycloak realm, under dc=example,dc=net.
+# up.sh puts the passwords in place of the @@...@@ marks.
+dn: ou=people,dc=example,dc=net
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=example,dc=net
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=sam.reyes,ou=people,dc=example,dc=net
+objectClass: inetOrgPerson
+uid: sam.reyes
+cn: Sam Reyes
+givenName: Sam
+sn: Reyes
+mail: sam.reyes@example.net
+userPassword: @@PW_SAM@@
+
+dn: uid=nora.lind,ou=people,dc=example,dc=net
+objectClass: inetOrgPerson
+uid: nora.lind
+cn: Nora Lind
+givenName: Nora
+sn: Lind
+mail: nora.lind@example.net
+userPassword: @@PW_NORA@@
+
+dn: uid=lee.okafor,ou=people,dc=example,dc=net
+objectClass: inetOrgPerson
+uid: lee.okafor
+cn: Lee Okafor
+givenName: Lee
+sn: Okafor
+mail: lee.okafor@example.net
+userPassword: @@PW_LEE@@
+
+dn: cn=net-ops,ou=groups,dc=example,dc=net
+objectClass: groupOfNames
+cn: net-ops
+member: uid=sam.reyes,ou=people,dc=example,dc=net
+member: uid=lee.okafor,ou=people,dc=example,dc=net
+
+dn: cn=change-board,ou=groups,dc=example,dc=net
+objectClass: groupOfNames
+cn: change-board
+member: uid=nora.lind,ou=people,dc=example,dc=net
+
+dn: cn=afs-admins,ou=groups,dc=example,dc=net
+objectClass: groupOfNames
+cn: afs-admins
+member: uid=lee.okafor,ou=people,dc=example,dc=net

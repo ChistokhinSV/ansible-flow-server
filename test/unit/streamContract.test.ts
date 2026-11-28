@@ -1,11 +1,11 @@
 // Event streaming against real receivers (AFS-243, AFS-244): rsyslog 8 and the OpenTelemetry
-// collector with Jaeger behind it, from the spike's lab (spike S10: lab/up.sh on a Docker host).
+// collector with Jaeger behind it, from the streaming lab (test/e2e/labs/streaming).
 // Runs only when AFS_TEST_STREAM_LAB names that host:
-//   AFS_TEST_STREAM_LAB=192.168.200.128
-//   AFS_TEST_STREAM_READ="ssh gns3 tail -n 2000 spike-s10/out"  prints the end of a lab output
-//                                                       file, given its path
-//   AFS_TEST_STREAM_CA=path/to/ca.pem                   also tries TLS on 6514 (not through a
-//                                                       proxy that re-signs TLS)
+//   AFS_TEST_STREAM_LAB=<the lab's address>
+//   AFS_TEST_STREAM_READ="ssh gns3 tail -n 2000 afs-labs/streaming/out"
+//                                      prints the end of a lab output file, given its path
+//   AFS_TEST_STREAM_CA=path/to/ca.pem  also tries TLS on 6514 (the lab's certs/ca.pem; not
+//                                      through a proxy that re-signs TLS)
 // It checks what the receivers made of our messages: rsyslog's parsed structured data, the
 // collector's log records, and the trace as Jaeger shows it. Fictional data only.
 import { execSync } from 'node:child_process';
